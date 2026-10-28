@@ -21,6 +21,7 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
 )
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 pytestmark = [pytest.mark.django_db]
 
@@ -427,7 +428,7 @@ def test_destination_test_step_refuses_an_integration_from_another_team(team, or
 
     with (
         mock.patch("products.batch_exports.backend.destination_tests.get_destination_test"),
-        pytest.raises(Integration.DoesNotExist),
+        pytest.raises(IntegrationNotFound),
     ):
         api.run_destination_test_step(
             team.pk,

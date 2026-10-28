@@ -8,13 +8,15 @@ from django.db import models
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models.integration import Integration
-
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
-from products.batch_exports.backend.facade.enums import AZURE_BLOB_SUPPORTED_COMPRESSIONS, S3_SUPPORTED_COMPRESSIONS
+from products.batch_exports.backend.facade.enums import (
+    AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+    BATCH_EXPORT_INTEGRATION_KINDS,
+    S3_SUPPORTED_COMPRESSIONS,
+)
 from products.batch_exports.backend.models.batch_export import BatchExportDestination
+from products.integrations.backend.presentation.fields import IntegrationReferenceField
 
 
 class DatabricksDestinationConfigSerializer(serializers.Serializer):
@@ -526,15 +528,15 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             "stripped from responses."
         ),
     )
-    integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+    integration = IntegrationReferenceField(
+        kinds=BATCH_EXPORT_INTEGRATION_KINDS,
         required=False,
         allow_null=True,
         help_text="The integration for this destination.",
     )
-    integration_id = TeamScopedPrimaryKeyRelatedField(
+    integration_id = IntegrationReferenceField(
+        kinds=BATCH_EXPORT_INTEGRATION_KINDS,
         write_only=True,
-        queryset=Integration.objects.all(),
         source="integration",
         required=False,
         allow_null=True,

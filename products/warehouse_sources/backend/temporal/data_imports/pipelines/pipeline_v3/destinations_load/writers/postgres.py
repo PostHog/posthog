@@ -40,7 +40,7 @@ import psycopg
 import pyarrow as pa
 from psycopg import sql
 
-from posthog.models.integration import Integration, PostgreSQLIntegration
+from posthog.models.integration import PostgreSQLIntegration
 from posthog.psycopg_helpers import has_ipv6_route, is_resolvable_hostname, is_temporary_resolution_failure
 
 from products.batch_exports.backend.facade.destinations.postgres import (
@@ -51,6 +51,8 @@ from products.batch_exports.backend.facade.destinations.postgres import (
     run_in_retryable_transaction,
 )
 from products.batch_exports.backend.facade.pipeline import CSVStreamTransformer
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -259,18 +261,16 @@ class PostgresDestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
-    def _client_from_integration(self, integration: Integration) -> PostgreSQLClient:
+    def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
         # `from_inputs` accepts anything exposing credentials/authority/tls, which the
         # integration wrapper does, so the batch export path and this one resolve credentials
         # identically.
         return PostgreSQLClient.from_inputs(PostgreSQLIntegration(integration), database=self._database)
 
-    async def _load_integration(self, integration_id: int) -> Integration:
+    async def _load_integration(self, integration_id: int) -> IntegrationRecord:
         try:
-            return await Integration.objects.aget(
-                id=integration_id, team_id=self._ctx.team_id, kind=self.integration_kind
-            )
-        except Integration.DoesNotExist as err:
+            return await IntegrationManager.kinds(self.integration_kind).aget(self._ctx.team_id, integration_id)
+        except IntegrationNotFound as err:
             # The same error batch exports raises, which its destinations never retry: a
             # deleted or re-kinded integration cannot be recovered by trying again.
             raise PostgreSQLIntegrationNotFoundError(

@@ -25,7 +25,6 @@ from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.models import Team, User
-from posthog.models.integration import Integration
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.batch_exports.backend.facade import api as batch_exports_api
@@ -59,6 +58,7 @@ from products.batch_exports.backend.presentation.views.utils import (
     check_hogql_batch_exports_enabled,
 )
 from products.batch_exports.backend.service import BatchExportSchema, sync_batch_export
+from products.integrations.backend.facade.api import IntegrationRecord
 
 from . import (
     destinations as destination_views,
@@ -654,7 +654,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
             # Running validation for a `detail=True` action.
             export_id = uuid.UUID(str(view.kwargs["pk"]))
 
-        integration: Integration | None = destination_attrs.get("integration")
+        integration: IntegrationRecord | None = destination_attrs.get("integration")
         try:
             batch_exports_api.validate_batch_export_destination(
                 self.context["team_id"],
@@ -979,7 +979,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
     def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: int) -> response.Response:
         destination = serializer.validated_data["destination"]
-        integration: Integration | None = destination.get("integration")
+        integration: IntegrationRecord | None = destination.get("integration")
         try:
             result = batch_exports_api.run_destination_test_step(
                 self.team_id,

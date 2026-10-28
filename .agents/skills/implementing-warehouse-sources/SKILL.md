@@ -898,7 +898,7 @@ client where the driver allows it (see `pinned_host_kwargs` in `common/mixins.py
 From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mixins.py`:
 
 - `SSHTunnelMixin` — `with_ssh_tunnel()` context plus `make_ssh_tunnel_func()` for deferred tunnel opening. Both re-check the SSH host and the database host on every open.
-- `OAuthMixin` — `get_oauth_integration()` to pull `Integration` from the DB.
+- `OAuthMixin` — `get_oauth_integration()` to pull the `Integration` row from the DB. It raises `ValueError("Integration not found: <id>")` when the row is gone. Code that reads a row directly uses `IntegrationManager` from `products.integrations.backend.facade.api`, for example `IntegrationManager.google_ads.oauth.get(team_id, integration_id)`, and catches `IntegrationNotFound`. Never use `Integration.objects`.
 - `ValidateDatabaseHostMixin` — `is_database_host_valid()` to block internal VPC IPs (unless SSH tunnel is used).
 
 ## Icons

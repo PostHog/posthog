@@ -6,6 +6,8 @@ from typing import Any
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+from rest_framework.fields import get_attribute
+from rest_framework.relations import PKOnlyObject
 
 from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.integrations.backend.facade.contracts import IntegrationNotFound
@@ -52,5 +54,15 @@ class IntegrationReferenceField(serializers.Field):
             self.fail("does_not_exist", pk_value=data)
         return record
 
-    def to_representation(self, value: IntegrationRecord | int) -> int:
-        return value if isinstance(value, int) else value.id
+    def get_attribute(self, instance: object) -> object:
+        # Read the foreign key column instead of the related row, so a list does not query once per row.
+        if self.source_attrs:
+            try:
+                parent = get_attribute(instance, self.source_attrs[:-1])
+                return PKOnlyObject(pk=parent.serializable_value(self.source_attrs[-1]))
+            except AttributeError:
+                pass
+        return super().get_attribute(instance)
+
+    def to_representation(self, value: IntegrationRecord | PKOnlyObject | int) -> int:
+        return value if isinstance(value, int) else value.pk

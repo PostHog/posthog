@@ -34,7 +34,6 @@ from django.db.models.functions import Coalesce
 import structlog
 
 from posthog.models import Team, User
-from posthog.models.integration import Integration
 
 from products.batch_exports.backend import (
     destination_tests,
@@ -49,8 +48,10 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
     get_batch_exports_using_integration,
 )
+from products.integrations.backend.facade.api import IntegrationManager
 
 from . import contracts
+from .enums import BATCH_EXPORT_INTEGRATION_KINDS
 
 if TYPE_CHECKING:
     from temporalio.client import Client
@@ -635,7 +636,7 @@ def run_destination_test_step(
 
     test_configuration = dict(config)
     if integration_id is not None:
-        integration = Integration.objects.get(id=integration_id, team_id=team_id)
+        integration = IntegrationManager.kinds(*BATCH_EXPORT_INTEGRATION_KINDS).get(team_id, integration_id)
         test_configuration = {
             **test_configuration,
             **integration.config,

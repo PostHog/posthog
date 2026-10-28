@@ -12,11 +12,11 @@ from posthog.models.integration import (
     GoogleAdsIntegration,
     GoogleAdsQuotaExhaustedError,
     GoogleAdsScopeInsufficientError,
-    Integration,
     OauthIntegration,
     google_ads_hierarchy_level,
 )
 
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -188,6 +188,8 @@ class GoogleAdsSource(
             # recover — the user must reconnect their Google Ads account. Model-specific so we don't
             # swallow unrelated `DoesNotExist` errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
+            # The SDK raises `IntegrationNotFound` ("No integration <id> in ...") for the same case.
+            "No integration ": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
             # gapic wraps a transport-level UNAUTHENTICATED into google.api_core.exceptions.Unauthenticated,
             # whose str() is "401 Request is missing required authentication credential. ..." — it never
             # contains the bare "UNAUTHENTICATED" token, so the gRPC-status keys above don't catch it.
@@ -587,7 +589,7 @@ class GoogleAdsSource(
                     'enable "Using MCC account?" and enter your manager\'s customer ID, then try again.',
                 )
             return True, None
-        except Integration.DoesNotExist:
+        except IntegrationNotFound:
             return (
                 False,
                 "The Google Ads connection for this source no longer exists. Please reconnect your Google Ads account.",
