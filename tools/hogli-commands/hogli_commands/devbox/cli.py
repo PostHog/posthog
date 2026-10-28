@@ -590,14 +590,16 @@ def _resolve_local_signing_key() -> str | None:
     if value.startswith(("ssh-", "ecdsa-", "sk-")):
         return value
     key_path = Path(os.path.expanduser(value))
-    # git also accepts a private key path. Read the .pub file next to it, because the
-    # returned value goes into a Coder secret and private key material must stay local.
-    if key_path.suffix != ".pub":
-        key_path = key_path.with_name(f"{key_path.name}.pub")
-    try:
-        return key_path.read_text().strip() or None
-    except OSError:
-        return None
+    # git also accepts a private key path. The returned value goes into a Coder secret, so
+    # only public key content is returned, and a private key path falls back to its .pub file.
+    for candidate in (key_path, key_path.with_name(f"{key_path.name}.pub")):
+        try:
+            content = candidate.read_text().strip()
+        except OSError:
+            continue
+        if content.startswith(("ssh-", "ecdsa-", "sk-")):
+            return content
+    return None
 
 
 def _read_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
