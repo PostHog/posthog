@@ -14,9 +14,10 @@ METRIC_CREATE_TOOL = "data-catalog-metric-create"
 METRIC_UPDATE_TOOL = "data-catalog-metric-update"
 
 # Must match the badge icons in the MCP metric-discovery instructions and the metric-run guidance. The
-# shield is the bare code point because rendered text may drop its variation selector.
+# shield and the warning sign are bare code points because rendered text may drop their variation selector.
 APPROVED_BADGE_CODE_POINT = "\U0001f6e1"
 PROPOSED_BADGE_ICON = "\U0001f4dd"
+DRIFTED_BADGE_CODE_POINT = "\u26a0"
 
 # Deliberately tighter than the server cap (validation.MAX_DESCRIPTION_LENGTH = 300): the eval
 # catches verbosity the hard cap would still admit.
@@ -119,6 +120,25 @@ PROPOSED_METRIC_DEFINITION: dict = {
     ),
 }
 
+# Proposed pair: same name and description, so the stored SQL is the only signal to run it or not.
+PROPOSED_UPLOADERS_METRIC_NAME = "weekly_active_uploaders"
+PROPOSED_UPLOADERS_METRIC_DESCRIPTION = "Distinct users who uploaded at least one file in the trailing 7 days."
+PROPOSED_UPLOADERS_METRIC_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT person_id) AS weekly_active_uploaders\n"
+        "FROM events\n"
+        "WHERE event = 'uploaded_file'\n"
+        "  AND timestamp >= now() - INTERVAL 7 DAY"
+    ),
+}
+PROPOSED_UPLOADERS_MISMATCHED_DEFINITION: dict = {
+    "kind": "HogQLQuery",
+    "query": PROPOSED_UPLOADERS_METRIC_DEFINITION["query"].replace("'uploaded_file'", "'downloaded_file'"),
+}
+# A silent no-op replace would make the mismatched case seed valid SQL and grade the wrong behavior.
+assert "'downloaded_file'" in PROPOSED_UPLOADERS_MISMATCHED_DEFINITION["query"]
+
 # Proactive-offer arm: a saved insight is the only place the measure is written down, so the
 # agent has to reconstruct the definition from it and then offer to catalog it. No metric is
 # seeded — the catalog is empty for this measure.
@@ -138,8 +158,8 @@ DEFINITION_INSIGHT_QUERY: dict = {
 # search would surface — the trap the listing case must not fall into.
 DECOY_INSIGHT_NAMES = ("Key metrics overview", "Revenue metrics by plan")
 
-# Drifted arm: approved from a source insight, then the insight's query is mutated so the
-# metric reads approved-but-drifted — trustworthy-looking, but not to be cited as canonical.
+# Drifted pair: approved from a source insight, then the insight's query is mutated so the
+# metric reads drifted. A run executes the SQL saved at approval, so that SQL decides the case.
 DRIFTED_METRIC_NAME = "weekly_active_users"
 DRIFTED_METRIC_DESCRIPTION = "Official WAU. Unique users with any activity event in the trailing 7 days."
 DRIFTED_INSIGHT_ORIGINAL_QUERY: dict = {
@@ -149,6 +169,19 @@ DRIFTED_INSIGHT_ORIGINAL_QUERY: dict = {
 DRIFTED_INSIGHT_MUTATED_QUERY: dict = {
     "kind": "HogQLQuery",
     "query": "SELECT count(DISTINCT person_id) FROM events WHERE timestamp >= now() - INTERVAL 14 DAY",
+}
+DRIFTED_MISMATCHED_INSIGHT_ORIGINAL_QUERY: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT person_id) FROM events WHERE event = 'signed_up' AND timestamp >= now() - INTERVAL 7 DAY"
+    ),
+}
+DRIFTED_MISMATCHED_INSIGHT_MUTATED_QUERY: dict = {
+    "kind": "HogQLQuery",
+    "query": (
+        "SELECT count(DISTINCT person_id) FROM events "
+        "WHERE event = 'signed_up' AND timestamp >= now() - INTERVAL 14 DAY"
+    ),
 }
 
 # Operational-telemetry arm: a governed measure that is not business-shaped — a reliability

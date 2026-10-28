@@ -281,7 +281,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
+    "posthog", "products.cdp", "products.tasks", "products.business_knowledge", "products.warehouse_sources", "products.customer_analytics", "products.access_control",
     # Facade-only: the deleted-ticket purge retracts the ticket's signal embeddings. products.signals
     # depends on products.conversations in turn, so keep this direction on the facade.
     "products.signals",
@@ -1602,8 +1602,6 @@ depends_on = [
     "products.product_analytics",
     "products.warehouse_sources",
     "products.data_modeling", "products.access_control",
-    # Facade-only: data catalog declares its Today highlight sources against the Today facade contract.
-    "products.today",
 ]
 layer = "modules"
 
@@ -1791,6 +1789,8 @@ depends_on = [
     "products.data_catalog",
     "products.data_modeling",
     "products.notifications",
+    # Facade-only: warehouse suggestions declares its Today highlight sources against the Today facade contract.
+    "products.today",
     "products.warehouse_sources",
 ]
 layer = "modules"
