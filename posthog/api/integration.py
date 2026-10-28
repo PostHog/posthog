@@ -133,7 +133,6 @@ from posthog.models.integration import (
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
-from posthog.models.integration.usages import IntegrationUsageType, integration_usages
 from posthog.models.user_integration import UserIntegration
 from posthog.permissions import (
     AccessControlPermission,
@@ -149,6 +148,8 @@ from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationInUse, IntegrationUsage
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
@@ -305,12 +306,28 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
             )
 
 
-_USAGE_TYPE_LABELS: dict[IntegrationUsageType, str] = {
-    IntegrationUsageType.WAREHOUSE_SOURCE: "data warehouse sources",
-    IntegrationUsageType.WORKFLOW: "active workflows",
-    IntegrationUsageType.HOG_FUNCTION: "enabled data pipelines",
-    IntegrationUsageType.BATCH_EXPORT: "batch exports",
+# Keyed by the `IntegrationUsage.type` that each product's `integration_usages.py` reports. The order
+# is the order of the message.
+_USAGE_TYPE_LABELS: dict[str, str] = {
+    "warehouse_source": "data warehouse sources",
+    "workflow": "active workflows",
+    "hog_function": "enabled data pipelines",
+    "batch_export": "batch exports",
 }
+
+
+def _integration_in_use_error(usages: list[IntegrationUsage]) -> ValidationError:
+    types = [*_USAGE_TYPE_LABELS, *sorted({usage.type for usage in usages} - set(_USAGE_TYPE_LABELS))]
+    used_by = [
+        f"{_USAGE_TYPE_LABELS.get(usage_type, usage_type)}: "
+        f"{', '.join(sorted(usage.name for usage in usages if usage.type == usage_type))}"
+        for usage_type in types
+        if any(usage.type == usage_type for usage in usages)
+    ]
+    return ValidationError(
+        f"This integration is used by {' and '.join(used_by)}. "
+        "Update them to use a different integration before disconnecting it."
+    )
 
 
 def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO, team_id: int) -> str:
@@ -1629,18 +1646,10 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
-        usages = integration_usages(team_id=instance.team_id, integration_pk=instance.pk)
-        used_by = [
-            f"{_USAGE_TYPE_LABELS[usage_type]}: {', '.join(sorted(usage.name for usage in usages if usage.type == usage_type))}"
-            for usage_type in IntegrationUsageType
-            if any(usage.type == usage_type for usage in usages)
-        ]
-
-        if used_by:
-            raise ValidationError(
-                f"This integration is used by {' and '.join(used_by)}. "
-                "Update them to use a different integration before disconnecting it."
-            )
+        # Check before the teardown below, which revokes grants at the provider. `delete` checks again.
+        usages = IntegrationManager.any.usages(instance.team_id, instance.id)
+        if usages:
+            raise _integration_in_use_error(usages)
 
         if instance.kind == "github":
             live_runs = get_in_progress_runs_for_github_integration(
@@ -1706,10 +1715,12 @@ class IntegrationViewSet(
                     github_audit.record("personal_cleanup_failed", failure_type=type(e).__name__)
 
         try:
-            super().perform_destroy(instance)
+            IntegrationManager.any.delete(instance.team_id, instance.id)
         except Exception as exc:
             if github_audit:
                 github_audit.record("disconnect_failed", stage="project_deletion", failure_type=type(exc).__name__)
+            if isinstance(exc, IntegrationInUse):
+                raise _integration_in_use_error(exc.usages) from exc
             raise
         if github_audit:
             github_audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")

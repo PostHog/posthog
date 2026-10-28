@@ -179,12 +179,6 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
             defaults = self._with_config_for_write(dict(defaults), kind)
         return super().update_or_create(defaults=defaults, create_defaults=create_defaults, **kwargs)
 
-    def holding_warehouse_source_fields(self) -> Self:
-        return self.filter(config__has_key=WAREHOUSE_SOURCE_TYPE_CONFIG_KEY)
-
-    def without_warehouse_source_fields(self) -> Self:
-        return self.exclude(config__has_key=WAREHOUSE_SOURCE_TYPE_CONFIG_KEY)
-
     def for_github_installation_id(self, installation_id: str | int) -> Self:
         return self.filter(
             Q(config__installation_id=str(installation_id)) | Q(config__installation_id=int(installation_id))

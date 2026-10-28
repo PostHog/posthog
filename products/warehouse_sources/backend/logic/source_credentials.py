@@ -1,10 +1,13 @@
 """The only code that reads or writes the `Integration` rows that hold warehouse sources' typed-in credentials.
 
 A row has the kind of the credential provider (`postgresql`, `stripe`, `ab-tasty`) and the auth type
-that the typed-in fields have (`password`, `api_key`, `credentials`). See `credential_auth_types.py`.
-The row holds the connection fields under `sensitive_config["fields"]`, and `config` holds the
+that the typed-in fields have (`token` or `credentials`). See `credential_auth_types.py`. The row holds
+the connection fields under `sensitive_config["fields"]`, and `config` holds the
 `warehouse_source_type` marker. A source points at its row with the `credentials_integration_id`
 key in its inputs. An OAuth source keeps its own `*_integration_id` key and has no row here.
+
+Every read and write goes through `IntegrationManager.source(kind)` of the integrations SDK, which sees
+only marked rows of the kind and auth type.
 
 Several sources (and later other products) can use one row. An edit of a shared row needs a
 confirmation, and an edit that changes where the credentials connect makes a new row. The store
@@ -16,7 +19,7 @@ methods without a change to the callers.
 
 import json
 from collections.abc import Iterable, Mapping
-from typing import Any, cast
+from typing import Any
 from uuid import UUID, uuid4
 
 from django.db import transaction
@@ -26,16 +29,13 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
-from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, Integration, IntegrationQuerySet
-from posthog.models.integration.auth_types import AUTH_TYPE_CONFIG_KEY
+from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.facade.contracts import SharedCredentialsError
-from products.warehouse_sources.backend.logic.credential_auth_types import (
-    credential_kind,
-    typed_in_auth_type,
-    typed_in_auth_types,
-)
+from products.integrations.backend.facade.api import AuthAccessor, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound, IntegrationPatch, IntegrationUsage
+from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE, SharedCredentialsError
+from products.warehouse_sources.backend.logic.credential_auth_types import credentials_accessor
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -63,6 +63,9 @@ IDENTIFYING_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+# Decrypts leaves with the same keys as `Integration.sensitive_config`. The keys come from the settings.
+_SENSITIVE_CONFIG_FIELD = EncryptedJSONField(default=dict, ignore_decrypt_errors=True)
+
 
 class CredentialsUnreadableError(ValueError):
     """A row exists but its `sensitive_config` does not hold readable fields. The cause is usually a
@@ -87,10 +90,12 @@ class WarehouseSourceCredentialsStore:
         treat that as "no fields".
         """
         pk = _pk(ref)
-        if pk is None:
+        rows = _accessor_or_none(source)
+        if pk is None or rows is None:
             return None
-        row = _rows_of(source).filter(id=pk).only("sensitive_config").first()
-        if row is None:
+        try:
+            row = rows.get(source.team_id, pk)
+        except IntegrationNotFound:
             return None
         fields = _fields_of(row.sensitive_config)
         if fields is None:
@@ -101,34 +106,26 @@ class WarehouseSourceCredentialsStore:
     def get_many(
         pairs: Iterable[tuple[ExternalDataSource, int | str | None]],
     ) -> dict[UUID, dict[str, Any] | CredentialsUnreadable]:
-        """`get` for each `(source, ref)` pair, keyed by source id, with one query per team.
+        """`get` for each `(source, ref)` pair, keyed by source id, with one query per team and source type.
 
         A source without a row is left out. A source whose row cannot be read maps to
         `CredentialsUnreadable`, so one bad row does not fail a whole list.
         """
-        by_team: dict[int, list[tuple[ExternalDataSource, int]]] = {}
+        groups: dict[tuple[int, str], list[tuple[ExternalDataSource, int]]] = {}
         for source, ref in pairs:
             pk = _pk(ref)
             if pk is not None:
-                by_team.setdefault(source.team_id, []).append((source, pk))
+                groups.setdefault((source.team_id, str(source.source_type)), []).append((source, pk))
 
         result: dict[UUID, dict[str, Any] | CredentialsUnreadable] = {}
-        for team_id, team_pairs in by_team.items():
-            auth_types = set().union(*(typed_in_auth_types(source.source_type) for source, _ in team_pairs))
-            rows = {
-                row.pk: row
-                for row in Integration.objects.with_auth(*sorted(auth_types))
-                .holding_warehouse_source_fields()
-                .filter(
-                    team_id=team_id,
-                    id__in={pk for _, pk in team_pairs},
-                    kind__in={credential_kind(source.source_type) for source, _ in team_pairs},
-                )
-                .only("id", "kind", "config", "sensitive_config")
-            }
-            for source, pk in team_pairs:
-                row = rows.get(pk)
-                if row is None or not _belongs_to(row, source):
+        for (team_id, _source_type), group in groups.items():
+            rows = _accessor_or_none(group[0][0])
+            if rows is None:
+                continue
+            found = rows.get_many(team_id, {pk for _, pk in group})
+            for source, pk in group:
+                row = found.get(pk)
+                if row is None:
                     continue
                 fields = _fields_of(row.sensitive_config)
                 result[source.id] = fields if fields is not None else CredentialsUnreadable()
@@ -137,13 +134,15 @@ class WarehouseSourceCredentialsStore:
     @staticmethod
     def create(source: ExternalDataSource, fields: Mapping[str, Any]) -> int:
         """Create a row with the connection fields of the source. Returns its pk, which the caller
-        stores under `CREDENTIALS_REFERENCE_KEY` in the source's inputs."""
+        stores under `CREDENTIALS_REFERENCE_KEY` in the source's inputs.
+
+        Raises ValueError for a source without typed-in credentials (an OAuth-only source, or Custom).
+        """
         source_type = str(source.source_type)
-        row = Integration.objects.with_auth(typed_in_auth_type(source_type, fields)).create(
-            team_id=source.team_id,
-            kind=credential_kind(source_type),
+        row = credentials_accessor(source_type).create(
+            source.team_id,
             # Opaque, so a typed-in row never takes the natural key of a row that other code writes.
-            integration_id=uuid4().hex,
+            external_id=uuid4().hex,
             config={
                 WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: source_type,
                 "display_name": f"{source_type} ({source.prefix})" if source.prefix else source_type,
@@ -151,7 +150,7 @@ class WarehouseSourceCredentialsStore:
             sensitive_config={"fields": dict(fields)},
             created_by_id=source.created_by_id,
         )
-        return row.pk
+        return row.id
 
     @staticmethod
     def update(
@@ -161,36 +160,38 @@ class WarehouseSourceCredentialsStore:
         now holds them: `ref`, or a new row.
 
         When other sources or products also use the row, a change to an identifying field (host,
-        account, auth type) makes a new row, so the other users keep their connection. A change to
-        the other fields (a secret rotation) raises `SharedCredentialsError` with the other users,
-        unless `allow_shared` confirms it. Raises `CredentialsNotFoundError` when there is no row.
+        account) makes a new row, so the other users keep their connection. A change to the other
+        fields (a secret rotation) raises `SharedCredentialsError` with the other users, unless
+        `allow_shared` confirms it. Raises `CredentialsNotFoundError` when there is no row.
         """
         pk = _pk(ref)
         if pk is None:
             raise CredentialsNotFoundError(f"Source {source.id} has no credentials reference")
         source_type = str(source.source_type)
-        auth_type = typed_in_auth_type(source_type, fields)
-        with transaction.atomic():
-            row = _rows_of(source).select_for_update().filter(id=pk).first()
-            if row is None:
-                raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist")
-            others = _other_usages(source, pk)
+        rows = credentials_accessor(source_type)
+        needs_new_row = False
+
+        def change(row: IntegrationRecord) -> IntegrationPatch:
+            nonlocal needs_new_row
+            others = _other_usages(rows, source, row.id)
             if others:
                 current = _fields_of(row.sensitive_config)
-                same_connection = (
-                    current is not None
-                    and row.auth_type == auth_type.value
-                    and _identity(source_type, current) == _identity(source_type, fields)
-                )
-                if not same_connection:
-                    return WarehouseSourceCredentialsStore.create(source, fields)
+                if current is None or _identity(source_type, current) != _identity(source_type, fields):
+                    needs_new_row = True
+                    return IntegrationPatch()
                 if not allow_shared:
-                    raise SharedCredentialsError(pk, others)
-            # `save` drops the key again when the auth type is the default of the kind.
-            row.config = {**row.config, AUTH_TYPE_CONFIG_KEY: auth_type.value}
-            row.sensitive_config = {"fields": dict(fields)}
-            row.save(update_fields=["config", "sensitive_config"])
-            return row.pk
+                    raise SharedCredentialsError(row.id, others)
+            return IntegrationPatch(sensitive_config_patch={"fields": dict(fields)})
+
+        # The outer transaction keeps the row locked until the new row exists.
+        with transaction.atomic():
+            try:
+                rows.update_atomically(source.team_id, pk, change)
+            except IntegrationNotFound as error:
+                raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
+            if needs_new_row:
+                return WarehouseSourceCredentialsStore.create(source, fields)
+            return pk
 
     @staticmethod
     def release(source: ExternalDataSource, ref: int | str | None) -> bool:
@@ -199,9 +200,14 @@ class WarehouseSourceCredentialsStore:
         The row stays, because a person may reuse it or delete it from the integrations list.
         """
         pk = _pk(ref)
-        if pk is None or not _rows_of(source).filter(id=pk).exists():
+        rows = _accessor_or_none(source)
+        if pk is None or rows is None:
             return False
-        if _other_usages(source, pk):
+        try:
+            others = _other_usages(rows, source, pk)
+        except IntegrationNotFound:
+            return False
+        if others:
             return False
         CREDENTIALS_ORPHANED_COUNTER.inc()
         logger.info("warehouse_source_credentials_orphaned", team_id=source.team_id, integration_id=pk)
@@ -225,19 +231,12 @@ class WarehouseSourceCredentialsStore:
         return await database_sync_to_async_pool(_update)()
 
 
-def _rows_of(source: ExternalDataSource) -> IntegrationQuerySet:
-    """The typed-in rows that the source can use: its team, its kind, the auth types it can write."""
-    source_type = str(source.source_type)
-    return (
-        Integration.objects.with_auth(*sorted(typed_in_auth_types(source_type)))
-        .holding_warehouse_source_fields()
-        .filter(team_id=source.team_id, kind=credential_kind(source_type))
-    )
-
-
-def _belongs_to(row: Integration, source: ExternalDataSource) -> bool:
-    source_type = str(source.source_type)
-    return row.kind == credential_kind(source_type) and row.auth_type in typed_in_auth_types(source_type)
+def _accessor_or_none(source: ExternalDataSource) -> AuthAccessor | None:
+    # A source without typed-in credentials (OAuth-only, Custom) has no row to read.
+    try:
+        return credentials_accessor(str(source.source_type))
+    except ValueError:
+        return None
 
 
 def _pk(ref: int | str | None) -> int | None:
@@ -250,18 +249,12 @@ def _pk(ref: int | str | None) -> int | None:
         return None
 
 
-def _other_usages(source: ExternalDataSource, pk: int) -> list[Any]:
-    # `usages` imports the warehouse facade, which imports the source inputs store. Import it here so
-    # the inputs store can import this module.
-    from posthog.models.integration.usages import (  # noqa: PLC0415 — breaks a circular import
-        IntegrationUsageType,
-        integration_usages,
-    )
-
+def _other_usages(rows: AuthAccessor, source: ExternalDataSource, pk: int) -> list[IntegrationUsage]:
+    """The usages of the row other than this source. Raises `IntegrationNotFound` when the row is not in scope."""
     return [
         usage
-        for usage in integration_usages(team_id=source.team_id, integration_pk=pk)
-        if not (usage.type == IntegrationUsageType.WAREHOUSE_SOURCE and usage.id == str(source.id))
+        for usage in rows.usages(source.team_id, pk)
+        if not (usage.type == WAREHOUSE_SOURCE_USAGE_TYPE and usage.id == str(source.id))
     ]
 
 
@@ -312,9 +305,7 @@ def _recover_leaves(value: Any) -> Any:
     if isinstance(value, list):
         return [_recover_leaves(item) for item in value]
     if isinstance(value, str) and value.startswith(FERNET_TOKEN_PREFIX):
-        # django-stubs can't see through `field_access_control`, so it doesn't know this field name.
-        field = cast(EncryptedJSONField, Integration._meta.get_field("sensitive_config"))  # type: ignore[misc]
-        recovered = field.decrypt_all_layers(value)
+        recovered = _SENSITIVE_CONFIG_FIELD.decrypt_all_layers(value)
         if recovered is None:
             raise _UndecryptableLeaf
         return recovered

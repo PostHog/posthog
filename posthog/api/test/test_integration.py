@@ -99,6 +99,8 @@ from products.batch_exports.backend.facade import testing as batch_exports_testi
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationInUse, IntegrationUsage
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -8148,15 +8150,12 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
 
 
 class TestWarehouseSourceIntegrationKind(APIBaseTest):
-    def _credentials_row(self, kind: str, auth_type: str | None = None) -> Integration:
-        config: dict[str, Any] = {WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres", "display_name": "Postgres (prod)"}
-        if auth_type:
-            config["auth_type"] = auth_type
-        return Integration.objects.with_auth(AuthTypeSelector.ANY).create(
-            team=self.team,
-            kind=kind,
-            integration_id=str(uuid4()),
-            config=config,
+    def _credentials_row(self, kind: str, auth_type: str = "credentials") -> Integration:
+        rows = IntegrationManager.source(kind)
+        return (rows.token if auth_type == "token" else rows.credentials).create(
+            self.team.id,
+            external_id=str(uuid4()),
+            config={WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres", "display_name": "Postgres (prod)"},
             sensitive_config={"fields": {"password": "fake-password"}},
         )
 
@@ -8175,19 +8174,19 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
 
     def test_typed_in_rows_are_listed_with_their_kind_and_auth_type(self) -> None:
         postgres = self._credentials_row("postgresql")
-        stripe = self._credentials_row("stripe", "api_key")
-        generated = self._credentials_row("ably")
+        stripe = self._credentials_row("stripe", "token")
+        generated = self._credentials_row("ably", "token")
 
         listed = self.client.get(f"/api/projects/{self.team.id}/integrations/").json()["results"]
 
         by_id = {row["id"]: row for row in listed}
         assert {key: by_id[postgres.id][key] for key in ("kind", "auth_type", "display_name")} == {
             "kind": "postgresql",
-            "auth_type": "password",
+            "auth_type": "credentials",
             "display_name": "Postgres (prod)",
         }
-        assert (by_id[stripe.id]["kind"], by_id[stripe.id]["auth_type"]) == ("stripe", "api_key")
-        assert (by_id[generated.id]["kind"], by_id[generated.id]["auth_type"]) == ("ably", "credentials")
+        assert (by_id[stripe.id]["kind"], by_id[stripe.id]["auth_type"]) == ("stripe", "token")
+        assert (by_id[generated.id]["kind"], by_id[generated.id]["auth_type"]) == ("ably", "token")
         assert "fake-password" not in json.dumps(listed)
         assert self.client.get(f"/api/projects/{self.team.id}/integrations/{stripe.id}/").status_code == 200
 
@@ -8198,20 +8197,46 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         )
 
         assert response.status_code == 400
-        assert not Integration.objects.with_auth(AuthTypeSelector.ANY).filter(kind=kind).exists()
+        assert not Integration.objects._with_auth(AuthTypeSelector.ANY).filter(kind=kind).exists()
         assert self.client.get(f"/api/projects/{self.team.id}/integrations/?kind={kind}").status_code == 400
 
-    def test_destroy_is_blocked_by_a_source_credentials_reference(self) -> None:
+    @parameterized.expand(
+        [
+            ("referenced", "postgresql", "credentials", True, 400),
+            ("unreferenced", "postgresql", "credentials", False, 204),
+            # Destroy reads only default-auth rows, so a typed-in row of an OAuth kind never reaches the
+            # provider teardown (grant revoke, app uninstall).
+            ("non_default_auth_type", "stripe", "token", False, 404),
+        ]
+    )
+    def test_destroy_of_a_source_credentials_row(
+        self, _name: str, kind: str, auth_type: str, referenced: bool, expected_status: int
+    ) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        row = self._credentials_row("postgresql")
-        self._source_pointing_at(row, key="credentials_integration_id")
+        row = self._credentials_row(kind, auth_type)
+        if referenced:
+            self._source_pointing_at(row, key="credentials_integration_id")
 
         response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
 
+        assert response.status_code == expected_status
+        assert IntegrationManager.any.exists(self.team.id, external_id=row.integration_id) == (expected_status != 204)
+        if referenced:
+            assert "data warehouse sources" in json.dumps(response.json())
+
+    def test_destroy_reports_an_in_use_race_after_the_teardown(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        row = self._credentials_row("postgresql")
+        usage = IntegrationUsage(type="warehouse_source", id="s1", name="Postgres (prod)")
+
+        with patch.object(IntegrationManager.any, "usages", return_value=[]):
+            with patch.object(IntegrationManager.any, "delete", side_effect=IntegrationInUse([usage])):
+                response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
+
         assert response.status_code == 400
-        assert "data warehouse sources" in json.dumps(response.json())
-        assert Integration.objects.filter(id=row.id).exists()
+        assert "data warehouse sources: Postgres (prod)" in json.dumps(response.json())
 
     @parameterized.expand(
         [
@@ -8236,6 +8261,6 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
             response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{integration.id}/")
 
         assert response.status_code == expected_status
-        assert Integration.objects.filter(id=integration.id).exists() == (expected_status == 400)
+        assert IntegrationManager.any.exists(self.team.id, external_id="L1") == (expected_status == 400)
         if expected_status == 400:
             assert "data warehouse sources" in json.dumps(response.json())

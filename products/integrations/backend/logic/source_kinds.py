@@ -9,12 +9,13 @@ import threading
 from collections.abc import Mapping
 
 from posthog.models.integration.auth_types import register_kind_auth_types
+from posthog.models.integration.model import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 
 from products.integrations.backend.facade.catalogue import KINDS
 from products.integrations.backend.facade.contracts import KindSpec
 from products.integrations.backend.facade.enums import AuthType
 
-SOURCE_MARKER_CONFIG_KEY = "warehouse_source_type"
+SOURCE_MARKER_CONFIG_KEY = WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 
 _lock = threading.Lock()
 _source_kinds: set[str] = set()

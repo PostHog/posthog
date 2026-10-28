@@ -606,7 +606,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             # Warehouse source rows are blocked by the marker, whatever their kind and auth type.
             ("single_warehouse_default_auth", "integration", "postgresql", None, "can't be used as a function input"),
             ("multi_warehouse_default_auth", "integration_multi", "postgresql", None, "can't be used"),
-            ("warehouse_typed_in_auth", "integration", "stripe", "api_key", "can't be used as a function input"),
+            ("warehouse_typed_in_auth", "integration", "stripe", "token", "can't be used as a function input"),
             ("warehouse_generated_kind", "integration", "ably", None, "can't be used as a function input"),
         ]
     )
@@ -618,7 +618,7 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         )
         if auth_type:
             config["auth_type"] = auth_type
-        integration = Integration.objects.with_auth(ANY).create(
+        integration = Integration.objects._with_auth(ANY).create(
             team=self.team, kind=kind, config=config, created_by=self.user
         )
         value = integration.id if item_type == "integration" else [integration.id]

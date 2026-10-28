@@ -24,6 +24,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from products.integrations.backend.facade.contracts import IntegrationUsage
+
 # The `job_inputs` key that holds the pk of the `Integration` row with a source's typed-in credentials.
 # An OAuth source keeps its own `*_integration_id` key instead and has no such row.
 CREDENTIALS_REFERENCE_KEY = "credentials_integration_id"
@@ -31,15 +33,18 @@ CREDENTIALS_REFERENCE_KEY = "credentials_integration_id"
 # The request flag that confirms an edit of credentials that other sources or products also use.
 UPDATE_SHARED_CREDENTIALS_PARAM = "update_shared_credentials"
 
+# The `IntegrationUsage.type` of a warehouse source that uses an integration row.
+WAREHOUSE_SOURCE_USAGE_TYPE = "warehouse_source"
+
 
 class SharedCredentialsError(Exception):
     """An edit would change a credentials row that other sources or products also use.
 
-    `usages` holds the other users (`posthog.models.integration.usages.IntegrationUsage`). The API
-    returns them in a 409 response, and the request can confirm with `update_shared_credentials`.
+    `usages` holds the other users, as the integrations SDK reports them. The API returns them in a
+    409 response, and the request can confirm with `update_shared_credentials`.
     """
 
-    def __init__(self, integration_id: int, usages: "Sequence[Any]") -> None:
+    def __init__(self, integration_id: int, usages: Sequence[IntegrationUsage]) -> None:
         super().__init__(f"Integration {integration_id} is also used by {len(usages)} other objects")
         self.integration_id = integration_id
         self.usages = tuple(usages)

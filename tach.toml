@@ -266,6 +266,7 @@ depends_on = [
     "posthog",
     "products.actions",
     "products.batch_exports",
+    "products.integrations",
 ]
 layer = "modules"
 
@@ -1194,6 +1195,7 @@ depends_on = [
     "products.replay_vision",
     # Facade-only: workflows declares its Today highlight sources against the Today facade contract.
     "products.today",
+    "products.integrations",
 ]
 layer = "modules"
 

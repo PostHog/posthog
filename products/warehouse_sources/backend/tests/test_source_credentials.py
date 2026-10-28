@@ -11,17 +11,19 @@ from cryptography.fernet import Fernet
 from parameterized import parameterized
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.integration import ANY, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, Integration
+from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, AuthTypeSelector, Integration
 from posthog.models.integration.auth_types import catalogued_kinds, kind_auth_types
 from posthog.models.integration.model import integration_kind_choices
 from posthog.models.team import Team
 
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationInUse, IntegrationUsage
+from products.integrations.backend.facade.enums import AuthType
 from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY, SharedCredentialsError
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 from products.warehouse_sources.backend.logic.credential_auth_types import (
-    INSTALLED_AUTH_TYPES,
+    UnknownCredentialKindError,
     typed_in_auth_type,
-    typed_in_auth_types,
 )
 from products.warehouse_sources.backend.logic.integration_references import list_sources_using_integration
 from products.warehouse_sources.backend.logic.source_credentials import (
@@ -50,6 +52,12 @@ PG_FIELDS: dict[str, Any] = {
     "ssh_tunnel": {"enabled": "True"},
 }
 
+STRIPE_FIELDS: dict[str, Any] = {"auth_method": {"selection": "api_key", "stripe_secret_key": "fake-key"}}
+
+
+def _row(pk: int) -> Integration:
+    return Integration.objects._with_auth(AuthTypeSelector.ANY).get(id=pk)
+
 
 class TestWarehouseSourceCredentialsStore(BaseTest):
     def _source(
@@ -72,17 +80,10 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
-            ("postgres_default_auth", ExternalDataSourceType.POSTGRES, PG_FIELDS, "postgresql", "password", False),
+            ("postgres_default_auth", ExternalDataSourceType.POSTGRES, PG_FIELDS, "postgresql", "credentials", False),
+            ("stripe_token_on_oauth_kind", ExternalDataSourceType.STRIPE, STRIPE_FIELDS, "stripe", "token", True),
             (
-                "stripe_api_key_on_oauth_kind",
-                ExternalDataSourceType.STRIPE,
-                {"auth_method": {"selection": "api_key", "stripe_secret_key": "fake-key"}},
-                "stripe",
-                "api_key",
-                True,
-            ),
-            (
-                "github_pat_on_app_kind",
+                "github_token_on_oauth_kind",
                 ExternalDataSourceType.GITHUB,
                 {"auth_method": {"selection": "pat", "personal_access_token": "fake-token"}},
                 "github",
@@ -90,30 +91,22 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
                 True,
             ),
             (
-                "twilio_auth_token_default",
-                ExternalDataSourceType.TWILIO,
-                {"account_sid": "AC1", "auth_method": {"selection": "auth_token", "auth_token": "fake"}},
-                "twilio",
-                "auth_token",
-                False,
-            ),
-            (
-                "twilio_api_key_selection",
+                "twilio_credentials_on_token_kind",
                 ExternalDataSourceType.TWILIO,
                 {"account_sid": "AC1", "auth_method": {"selection": "api_key", "api_key_secret": "fake"}},
                 "twilio",
-                "api_key",
+                "credentials",
                 True,
             ),
             (
-                "databricks_missing_selection_uses_config_default",
+                "databricks_default_auth",
                 ExternalDataSourceType.DATABRICKS,
                 {"host": "dbc.example.com", "auth_type": {"access_token": "fake"}},
                 "databricks",
-                "access_token",
-                True,
+                "credentials",
+                False,
             ),
-            ("generated_kind", ExternalDataSourceType.ABLY, {"api_key": "fake-key"}, "ably", "credentials", False),
+            ("generated_token_kind", ExternalDataSourceType.ABLY, {"api_key": "fake-key"}, "ably", "token", False),
         ]
     )
     def test_create_writes_a_marked_row_of_the_provider_kind_and_auth_type(
@@ -129,7 +122,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
         pk = WarehouseSourceCredentialsStore.create(source, fields)
 
-        row = Integration.objects.with_auth(auth_type).get(id=pk)
+        row = IntegrationManager.source(kind).any.get(self.team.id, pk)
         assert (row.team_id, row.kind, row.auth_type, row.created_by_id) == (
             self.team.id,
             kind,
@@ -145,33 +138,65 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
-            # A typed-in row on a kind with an OAuth or App default is invisible to code that did not ask for it.
-            ("stripe_api_key", ExternalDataSourceType.STRIPE, {"auth_method": {"selection": "api_key"}}, False),
-            ("github_token", ExternalDataSourceType.GITHUB, {"auth_method": {"selection": "pat"}}, False),
-            # A row with the default auth type of its kind is visible. The marker tells other code its shape.
-            ("postgres_password", ExternalDataSourceType.POSTGRES, PG_FIELDS, True),
+            ("clickup", ExternalDataSourceType.CLICKUP, "clickup"),
+            ("gitlab", ExternalDataSourceType.GITLAB, "gitlab"),
+            ("google_calendar", ExternalDataSourceType.GOOGLECALENDAR, "google-calendar"),
+            ("jira", ExternalDataSourceType.JIRA, "jira"),
+            ("pardot", ExternalDataSourceType.PARDOT, "pardot"),
+            ("twilio", ExternalDataSourceType.TWILIO, "twilio"),
+            ("vercel", ExternalDataSourceType.VERCEL, "vercel"),
         ]
     )
-    def test_unqualified_queries_see_only_default_auth_rows(
-        self, _name: str, source_type: ExternalDataSourceType, fields: dict[str, Any], visible_unqualified: bool
+    def test_catalogue_kind_accepts_the_derived_auth_type_of_its_source(
+        self, _name: str, source_type: ExternalDataSourceType, kind: str
+    ) -> None:
+        assert typed_in_auth_type(source_type.value) == AuthType.CREDENTIALS
+        assert AuthType.CREDENTIALS in kind_auth_types(kind).supported
+
+        pk = WarehouseSourceCredentialsStore.create(self._source(source_type), {"api_key": "fake-key"})
+
+        assert (_row(pk).kind, _row(pk).auth_type) == (kind, "credentials")
+
+    @parameterized.expand(
+        [
+            # A typed-in row on a kind with an OAuth default is invisible to code that did not ask for it.
+            ("stripe_token", ExternalDataSourceType.STRIPE, STRIPE_FIELDS, "stripe", False),
+            ("github_token", ExternalDataSourceType.GITHUB, {"auth_method": {"selection": "pat"}}, "github", False),
+            # A row with the default auth type of its kind passes the runtime filter. The SDK still skips it.
+            ("postgres_credentials", ExternalDataSourceType.POSTGRES, PG_FIELDS, "postgresql", True),
+        ]
+    )
+    def test_named_accessors_skip_source_rows(
+        self,
+        _name: str,
+        source_type: ExternalDataSourceType,
+        fields: dict[str, Any],
+        kind: str,
+        visible_unqualified: bool,
     ) -> None:
         pk = WarehouseSourceCredentialsStore.create(self._source(source_type), fields)
 
         assert Integration.objects.filter(id=pk).exists() == visible_unqualified
-        assert Integration.objects.with_auth(ANY).filter(id=pk).exists()
-        assert Integration.objects.with_auth(ANY).holding_warehouse_source_fields().filter(id=pk).exists()
-        assert not Integration.objects.with_auth(ANY).without_warehouse_source_fields().filter(id=pk).exists()
+        assert IntegrationManager.kinds(kind).get_many(self.team.id, [pk]) == {}
+        assert list(IntegrationManager.source(kind).any.get_many(self.team.id, [pk])) == [pk]
+        assert list(IntegrationManager.any.get_many(self.team.id, [pk])) == [pk]
 
     @parameterized.expand(
         [
-            ("oauth_default_kind", ExternalDataSourceType.HUBSPOT),
-            ("custom_has_no_kind", ExternalDataSourceType.CUSTOM),
+            ("oauth_only_source", ExternalDataSourceType.HUBSPOT, ValueError),
+            ("custom_has_no_kind", ExternalDataSourceType.CUSTOM, UnknownCredentialKindError),
         ]
     )
-    def test_source_without_a_typed_in_auth_type_gets_no_row(self, _name: str, source_type: ExternalDataSourceType):
-        with self.assertRaises(ValueError):
-            WarehouseSourceCredentialsStore.create(self._source(source_type), {"token": "fake"})
-        assert not Integration.objects.with_auth(ANY).exists()
+    def test_source_without_a_typed_in_auth_type_gets_no_row(
+        self, _name: str, source_type: ExternalDataSourceType, error: type[Exception]
+    ) -> None:
+        source = self._source(source_type)
+
+        with self.assertRaises(error):
+            WarehouseSourceCredentialsStore.create(source, {"token": "fake"})
+        assert not Integration.objects._with_auth(AuthTypeSelector.ANY).exists()
+        assert WarehouseSourceCredentialsStore.get(source, 1) is None
+        assert WarehouseSourceCredentialsStore.release(source, 1) is False
 
     @parameterized.expand(
         [
@@ -190,11 +215,11 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         other = {
             "other_team": WarehouseSourceCredentialsStore.create(self._source(team=other_team), PG_FIELDS),
             "stripe": WarehouseSourceCredentialsStore.create(
-                self._source(ExternalDataSourceType.STRIPE), {"auth_method": {"selection": "api_key"}}
+                self._source(ExternalDataSourceType.STRIPE), STRIPE_FIELDS
             ),
-            "native_postgres": Integration.objects.create(
-                team=self.team, kind="postgresql", integration_id="native", sensitive_config={"fields": PG_FIELDS}
-            ).pk,
+            "native_postgres": IntegrationManager.postgresql.credentials.create(
+                self.team.id, external_id="native", config={}, sensitive_config={"fields": PG_FIELDS}
+            ).id,
         }
 
         ref = ref_of(store_pk, other)
@@ -208,7 +233,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
     def test_unreadable_row_is_reported_distinctly(self, _name: str, stored: dict[str, Any]) -> None:
         source = self._source()
         pk = WarehouseSourceCredentialsStore.create(source, PG_FIELDS)
-        row = Integration.objects.get(id=pk)
+        row = _row(pk)
         row.sensitive_config = stored
         row.save()
 
@@ -232,23 +257,34 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             double_encrypted.id: {"password": "fake-password"},
         }
 
-    def test_get_many_uses_one_query_per_team_and_skips_rows_a_source_cannot_use(self) -> None:
-        postgres, stripe, without_ref, wrong_kind = (
+    def test_get_many_uses_one_query_per_team_and_source_type_and_skips_rows_a_source_cannot_use(self) -> None:
+        postgres, postgres_b, stripe, without_ref, wrong_kind = (
+            self._source(),
             self._source(),
             self._source(ExternalDataSourceType.STRIPE),
             self._source(),
             self._source(),
         )
-        stripe_fields = {"auth_method": {"selection": "api_key", "stripe_secret_key": "fake"}}
         postgres_pk = WarehouseSourceCredentialsStore.create(postgres, PG_FIELDS)
-        stripe_pk = WarehouseSourceCredentialsStore.create(stripe, stripe_fields)
+        postgres_b_pk = WarehouseSourceCredentialsStore.create(postgres_b, {**PG_FIELDS, "host": "b.example.com"})
+        stripe_pk = WarehouseSourceCredentialsStore.create(stripe, STRIPE_FIELDS)
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             result = WarehouseSourceCredentialsStore.get_many(
-                [(postgres, postgres_pk), (stripe, stripe_pk), (without_ref, None), (wrong_kind, stripe_pk)]
+                [
+                    (postgres, postgres_pk),
+                    (postgres_b, postgres_b_pk),
+                    (stripe, stripe_pk),
+                    (without_ref, None),
+                    (wrong_kind, stripe_pk),
+                ]
             )
 
-        assert result == {postgres.id: PG_FIELDS, stripe.id: stripe_fields}
+        assert result == {
+            postgres.id: PG_FIELDS,
+            postgres_b.id: {**PG_FIELDS, "host": "b.example.com"},
+            stripe.id: STRIPE_FIELDS,
+        }
 
     @parameterized.expand(
         [
@@ -275,7 +311,10 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             [WorkflowSummary(id="wf1", name="Nightly sync", status="active")] if other_user == "workflow" else []
         )
 
-        with patch("posthog.models.integration.usages.get_active_workflows_using_integration", return_value=workflows):
+        with patch(
+            "products.workflows.backend.integration_usages.get_active_workflows_using_integration",
+            return_value=workflows,
+        ):
             if outcome == "conflict":
                 with self.assertRaises(SharedCredentialsError) as raised:
                     WarehouseSourceCredentialsStore.update(source, pk, new_fields, allow_shared=allow_shared)
@@ -295,36 +334,21 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         assert WarehouseSourceCredentialsStore.get(source, new_pk) == {
             key: str(value) if key == "port" else value for key, value in new_fields.items()
         }
+        assert _row(new_pk).config[WAREHOUSE_SOURCE_TYPE_CONFIG_KEY] == "Postgres"
 
     @parameterized.expand(
         [
-            ("sole_user_changes_auth_type_in_place", False, "api_key", True),
-            ("sole_user_back_to_default", False, "auth_token", True),
-            ("shared_row_auth_type_change_makes_a_new_row", True, "api_key", False),
+            ("missing_row", lambda other: 12345),
+            ("row_of_another_kind", lambda other: other),
         ]
     )
-    def test_update_follows_the_auth_type_of_the_fields(
-        self, _name: str, shared: bool, new_selection: str, same_row: bool
-    ) -> None:
-        source = self._source(ExternalDataSourceType.TWILIO)
-        start = "api_key" if new_selection == "auth_token" else "auth_token"
-        pk = WarehouseSourceCredentialsStore.create(
-            source, {"account_sid": "AC1", "auth_method": {"selection": start, "auth_token": "fake"}}
-        )
-        if shared:
-            self._referencing(pk, ExternalDataSourceType.TWILIO)
+    def test_update_of_a_row_the_source_cannot_use_raises(self, _name: str, ref_of: Any) -> None:
+        stripe = self._source(ExternalDataSourceType.STRIPE)
+        stripe_pk = WarehouseSourceCredentialsStore.create(stripe, STRIPE_FIELDS)
 
-        new_pk = WarehouseSourceCredentialsStore.update(
-            source, pk, {"account_sid": "AC1", "auth_method": {"selection": new_selection, "auth_token": "fake"}}
-        )
-
-        assert (new_pk == pk) == same_row
-        assert Integration.objects.with_auth(ANY).get(id=new_pk).auth_type == new_selection
-        assert Integration.objects.with_auth(ANY).get(id=pk).auth_type == (new_selection if same_row else start)
-
-    def test_update_of_a_missing_row_raises(self) -> None:
         with self.assertRaises(CredentialsNotFoundError):
-            WarehouseSourceCredentialsStore.update(self._source(), 12345, PG_FIELDS)
+            WarehouseSourceCredentialsStore.update(self._source(), ref_of(stripe_pk), PG_FIELDS)
+        assert WarehouseSourceCredentialsStore.get(stripe, stripe_pk) == STRIPE_FIELDS
 
     @parameterized.expand(
         [
@@ -339,13 +363,13 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             self._referencing(pk)
 
         assert WarehouseSourceCredentialsStore.release(source, pk) is orphaned
-        assert Integration.objects.with_auth(ANY).filter(id=pk).exists()
+        assert IntegrationManager.source("postgresql").credentials.get(self.team.id, pk).id == pk
 
     def test_release_of_a_reference_the_source_cannot_use_is_a_no_op(self) -> None:
         source = self._source()
-        oauth_row = Integration.objects.create(team=self.team, kind="hubspot", integration_id="H1")
+        oauth_row = IntegrationManager.hubspot.oauth.create(self.team.id, external_id="H1", config={})
 
-        assert WarehouseSourceCredentialsStore.release(source, oauth_row.pk) is False
+        assert WarehouseSourceCredentialsStore.release(source, oauth_row.id) is False
         assert WarehouseSourceCredentialsStore.release(source, None) is False
 
     @patch("products.warehouse_sources.backend.models.external_data_source.capture_exception")
@@ -360,7 +384,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         ) as release:
             deleted.soft_delete()
         release.assert_called_once()
-        assert Integration.objects.with_auth(ANY).holding_warehouse_source_fields().count() == 2
+        assert len(IntegrationManager.source("postgresql").any.list(self.team.id)) == 2
 
         with patch.object(WarehouseSourceCredentialsStore, "release", side_effect=RuntimeError("boom")):
             failing.soft_delete()
@@ -404,6 +428,54 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         assert "update_shared_credentials=true" in response.data["detail"]
 
 
+class TestWarehouseSourceUsageProvider(BaseTest):
+    def _source(
+        self, job_inputs: dict[str, Any], prefix: str | None = None, deleted: bool = False
+    ) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status="Completed",
+            source_type=ExternalDataSourceType.POSTGRES,
+            job_inputs=job_inputs,
+            prefix=prefix,
+            deleted=deleted,
+        )
+
+    def _row(self) -> Integration:
+        return IntegrationManager.source("postgresql").credentials.create(
+            self.team.id, external_id="pg", config={WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres"}
+        )
+
+    @parameterized.expand(
+        [
+            ("credentials_reference", CREDENTIALS_REFERENCE_KEY, "prod", "Postgres (prod)"),
+            ("oauth_pointer_without_prefix", "linear_integration_id", None, "Postgres"),
+        ]
+    )
+    def test_the_sdk_reports_a_source_that_points_at_the_row(
+        self, _name: str, key: str, prefix: str | None, name: str
+    ) -> None:
+        row = self._row()
+        source = self._source({key: str(row.id)}, prefix=prefix)
+        self._source({key: str(row.id)}, deleted=True)
+
+        assert IntegrationManager.any.usages(self.team.id, row.id) == [
+            IntegrationUsage(type="warehouse_source", id=str(source.id), name=name)
+        ]
+
+    def test_delete_of_a_used_row_raises_and_keeps_the_row(self) -> None:
+        row = self._row()
+        self._source({CREDENTIALS_REFERENCE_KEY: str(row.id)})
+
+        with self.assertRaises(IntegrationInUse) as raised:
+            IntegrationManager.source("postgresql").any.delete(self.team.id, row.id)
+
+        assert [usage.type for usage in raised.exception.usages] == ["warehouse_source"]
+        assert IntegrationManager.any.get(self.team.id, row.id).id == row.id
+
+
 def _typed_in_source_types() -> list[str]:
     """Source types that can have a typed-in row: connection fields, and no top-level OAuth reference."""
     with open(CLASSIFICATION_AUDIT_PATH) as audit:
@@ -418,16 +490,13 @@ def _typed_in_source_types() -> list[str]:
 
 
 class TestCredentialAuthTypes(SimpleTestCase):
-    def test_every_typed_in_source_type_has_auth_types_its_kind_supports(self) -> None:
+    def test_every_typed_in_source_type_has_an_auth_type_its_kind_supports(self) -> None:
         source_types = _typed_in_source_types()
         assert len(source_types) > 800
 
         for source_type in source_types:
-            kind = CREDENTIAL_KINDS[source_type]
-            auth_types = typed_in_auth_types(source_type)
-            assert auth_types, source_type
-            assert not auth_types & INSTALLED_AUTH_TYPES, source_type
-            assert auth_types <= kind_auth_types(kind).supported, source_type
+            auth_type = typed_in_auth_type(source_type)
+            assert auth_type in kind_auth_types(CREDENTIAL_KINDS[source_type]).supported, source_type
 
     def test_every_credential_kind_is_a_valid_stored_kind(self) -> None:
         stored_kinds = {value for value, _ in integration_kind_choices()}
@@ -439,15 +508,15 @@ class TestCredentialAuthTypes(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("unknown_option", ExternalDataSourceType.TWILIO, {"auth_method": {"selection": "magic"}}),
-            ("oauth_only_source", ExternalDataSourceType.LINEAR, {}),
+            ("oauth_only_source", ExternalDataSourceType.LINEAR, ValueError),
+            ("custom_has_no_kind", ExternalDataSourceType.CUSTOM, UnknownCredentialKindError),
         ]
     )
-    def test_typed_in_auth_type_rejects_what_a_typed_in_row_cannot_be(
-        self, _name: str, source_type: ExternalDataSourceType, fields: dict[str, Any]
+    def test_typed_in_auth_type_rejects_a_source_without_typed_in_credentials(
+        self, _name: str, source_type: ExternalDataSourceType, error: type[Exception]
     ) -> None:
-        with self.assertRaises(ValueError):
-            typed_in_auth_type(source_type.value, fields)
+        with self.assertRaises(error):
+            typed_in_auth_type(source_type.value)
 
     @parameterized.expand(
         [

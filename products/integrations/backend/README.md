@@ -88,12 +88,13 @@ def integration_usages(team_id: int, integration_id: int) -> list[IntegrationUsa
 ```
 
 The SDK finds the module on the first call to `usages` or `delete`. Code outside a product calls `register_usage_provider` instead.
+The product sets `IntegrationUsage.type` (for example `warehouse_source`, `workflow`, `hog_function`, `batch_export`). The integrations API names these types in its error when a delete finds usages.
 
 ## Reference a row from a serializer
 
 Use `IntegrationReferenceField` from `presentation/fields.py` instead of a `PrimaryKeyRelatedField` on `Integration`.
 It reads the team from the serializer context, so a row of another team does not exist for the field.
-Pass `kinds=[...]` to accept only rows of these kinds.
+Pass `kinds=[...]` to accept only rows of these catalogue kinds. A field with `kinds` also refuses warehouse source rows, because their config does not have the shape of the kind.
 
 ## Why direct model use fails CI
 

@@ -6,7 +6,7 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from posthog.models import Team
-from posthog.models.integration import ANY, Integration
+from posthog.models.integration import ANY, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, Integration
 
 from products.integrations.backend.presentation.fields import IntegrationReferenceField
 
@@ -22,6 +22,12 @@ class TestIntegrationReferenceField(BaseTest):
         self.slack = Integration.objects._with_auth(ANY).create(team=self.team, kind="slack", integration_id="s")
         self.github = Integration.objects._with_auth(ANY).create(
             team=self.team, kind="github", integration_id="g", config={"auth_type": "token"}
+        )
+        self.github_source_row = Integration.objects._with_auth(ANY).create(
+            team=self.team,
+            kind="github",
+            integration_id="gs",
+            config={"auth_type": "token", WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Github"},
         )
         other_team = Team.objects.create(organization=self.organization, name="Other")
         self.other = Integration.objects._with_auth(ANY).create(team=other_team, kind="slack", integration_id="s")
@@ -58,6 +64,13 @@ class TestIntegrationReferenceField(BaseTest):
                 "github",
                 "does_not_exist",
             ),
+            # A field with kinds reads only named rows, so a warehouse source row of the kind does not exist.
+            (
+                "source_row_of_the_kind",
+                lambda self: {"integration": self.slack.id, "github": self.github_source_row.id},
+                "github",
+                "does_not_exist",
+            ),
             ("not_a_number", lambda self: {"integration": "abc"}, "integration", "incorrect_type"),
             ("bool", lambda self: {"integration": True}, "integration", "incorrect_type"),
             ("list", lambda self: {"integration": [1]}, "integration", "incorrect_type"),
@@ -67,6 +80,11 @@ class TestIntegrationReferenceField(BaseTest):
         serializer = self._validate(data(self))
 
         assert [error.code for error in serializer.errors[field]] == [code]
+
+    def test_a_field_without_kinds_accepts_a_source_row(self) -> None:
+        serializer = self._validate({"integration": self.github_source_row.id})
+
+        assert serializer.validated_data == {"integration": self.github_source_row}
 
     def test_needs_a_team_in_the_context(self) -> None:
         serializer = self._validate({"integration": self.slack.id}, context={})
