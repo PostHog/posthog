@@ -778,10 +778,13 @@ class Pipeline:
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.sized_files)
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
-        exempt_files = len(self.pr.files) - files
+        renovate_cleared = len(self.pr.files) - len(self.sized_files)
+        exempt_files = len(self.sized_files) - files
         suffix_parts = []
         if binary_count:
             suffix_parts.append(f"{binary_count} binary")
+        if renovate_cleared:
+            suffix_parts.append(f"{renovate_cleared} lockfile(s) proven by the Renovate check")
         if exempt_files:
             suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
         suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""

@@ -385,6 +385,8 @@ def _hosted_analytics_properties(run: ReviewRun) -> dict[str, object]:
     # completed events and LLM traces apart from reviews of human PRs.
     if (run.output or {}).get("inbox_review"):
         properties["stamphog_self_driving_review"] = True
+    if (run.output or {}).get("renovate_review"):
+        properties["stamphog_renovate_review"] = True
     return properties
 
 
