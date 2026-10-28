@@ -7,7 +7,6 @@ import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { CustomerIOImportModal } from '../../OptOuts/CustomerIOImportModal'
 import { OptOutCategories } from '../../OptOuts/OptOutCategories'
 import { workflowDataSuggestionsLogic } from '../suggestions/workflowDataSuggestionsLogic'
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
@@ -125,12 +124,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                 {currentStep === 'reach' && <WizardReachStep />}
                 {currentStep === 'channel' && <WizardChannelStep />}
                 {currentStep === 'domain' && <WizardDomainStep />}
-                {currentStep === 'opt-outs' && (
-                    <>
-                        <OptOutCategories />
-                        <CustomerIOImportModal />
-                    </>
-                )}
+                {currentStep === 'opt-outs' && <OptOutCategories />}
                 {currentStep === 'sending-rules' && <WizardSendingRulesStep />}
                 {currentStep === 'push' && <WizardPushStep />}
                 {(currentStep === 'journey' || currentStep === 'template') && <WizardTemplateStep />}

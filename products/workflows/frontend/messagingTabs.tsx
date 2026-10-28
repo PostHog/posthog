@@ -1,6 +1,7 @@
 import { Settings } from 'scenes/settings/Settings'
 
 import { MessageChannels } from './Channels/MessageChannels'
+import { ImportScene } from './Import/ImportScene'
 import { OptOutScene } from './OptOuts/OptOutScene'
 import { SuppressionScene } from './Suppression/SuppressionScene'
 import { MessageTemplatesTable } from './TemplateLibrary/MessageTemplatesTable'
@@ -14,11 +15,19 @@ export const MESSAGING_NAV_TAB_KEYS = [
     'suppression',
     'reputation',
     'settings',
+    'import',
 ] as const
 export type MessagingNavTabKey = (typeof MESSAGING_NAV_TAB_KEYS)[number]
 
 /** The tabs that configure sending, grouped under one "Messaging" tab. */
-export const MESSAGING_SETUP_TAB_KEYS = ['channels', 'opt-outs', 'suppression', 'reputation', 'settings'] as const
+export const MESSAGING_SETUP_TAB_KEYS = [
+    'channels',
+    'opt-outs',
+    'suppression',
+    'reputation',
+    'settings',
+    'import',
+] as const
 export type MessagingSetupTabKey = (typeof MESSAGING_SETUP_TAB_KEYS)[number]
 
 export const MESSAGING_TAB_LABELS: Record<MessagingNavTabKey, string> = {
@@ -28,6 +37,7 @@ export const MESSAGING_TAB_LABELS: Record<MessagingNavTabKey, string> = {
     suppression: 'Suppression list',
     reputation: 'Reputation',
     settings: 'Settings',
+    import: 'Import',
 }
 
 export const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
@@ -39,6 +49,7 @@ export const MESSAGING_TAB_CONTENT: Record<MessagingNavTabKey, JSX.Element> = {
     settings: (
         <Settings logicKey="workflowsMessagingSettings" sectionId="environment-workflows" handleLocally hideSections />
     ),
+    import: <ImportScene />,
 }
 
 export function isMessagingSetupTab(tab: string): tab is MessagingSetupTabKey {

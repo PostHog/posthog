@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
@@ -10,7 +11,7 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { customerIOImportLogic } from './customerIOImportLogic'
+import { messagingTabUrl } from '../messagingTabUrl'
 import { NewCategoryModal } from './NewCategoryModal'
 import { MessageCategory, optOutCategoriesLogic } from './optOutCategoriesLogic'
 import { OptOutList } from './OptOutList'
@@ -21,7 +22,7 @@ export function OptOutCategories(): JSX.Element {
     const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
     const { loadCategories, deleteCategory, closeNewCategoryModal, openNewCategoryModal } =
         useActions(optOutCategoriesLogic)
-    const { openImportModal } = useActions(customerIOImportLogic)
+    const { location } = useValues(router)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
 
     useEffect(() => {
@@ -136,7 +137,12 @@ export function OptOutCategories(): JSX.Element {
                             docsURL="https://posthog.com/docs/workflows/customerio-import"
                             actionElementOverride={
                                 <>
-                                    <LemonButton type="primary" icon={<IconDownload />} onClick={openImportModal}>
+                                    <LemonButton
+                                        type="primary"
+                                        icon={<IconDownload />}
+                                        to={messagingTabUrl(location.pathname, 'import')}
+                                        data-attr="opt-out-categories-import-from-customerio"
+                                    >
                                         Import from Customer.io
                                     </LemonButton>
                                     <LemonButton type="secondary" icon={<IconPlus />} onClick={openNewCategoryModal}>

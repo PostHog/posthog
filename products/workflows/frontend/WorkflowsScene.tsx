@@ -49,6 +49,7 @@ const WORKFLOW_SCENE_TABS = [
     'suppression',
     'reputation',
     'settings',
+    'import',
     'onboarding',
 ] as const
 export type WorkflowsSceneTab = (typeof WORKFLOW_SCENE_TABS)[number]
@@ -70,6 +71,7 @@ export interface workflowsSceneLogicActions {
         tab:
             | 'calendar'
             | 'channels'
+            | 'import'
             | 'library'
             | 'onboarding'
             | 'opt-outs'
@@ -89,6 +91,7 @@ export interface workflowsSceneLogicMeta {
             currentTab:
                 | 'calendar'
                 | 'channels'
+                | 'import'
                 | 'library'
                 | 'onboarding'
                 | 'opt-outs'
