@@ -92,7 +92,8 @@ def snuffle_payload(
     try:
         response = snuffle_request(team.pk, method, path, data=data, params=params, timeout=timeout)
     except SnuffleNotConfiguredError as exc:
-        raise PromQLQueryError("PromQL queries are not available on this PostHog instance.") from exc
+        # Deployment config, not the query, so an alert waiting on it is not counted as broken.
+        raise PromQLQueryError("PromQL queries are not available on this PostHog instance.", transient=True) from exc
     except requests.Timeout as exc:
         raise PromQLQueryError("The PromQL query timed out. Try a shorter date range.", transient=True) from exc
     except requests.RequestException as exc:

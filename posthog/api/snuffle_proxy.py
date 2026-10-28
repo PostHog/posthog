@@ -145,7 +145,7 @@ def snuffle_request(
         data=data,
         headers=headers,
         auth=auth,
-        timeout=timeout or settings.SNUFFLE_APM_TIMEOUT_SECONDS,
+        timeout=settings.SNUFFLE_APM_TIMEOUT_SECONDS if timeout is None else timeout,
     )
     bytes_read = _read_bytes_from(upstream)
     if bytes_read is not None:
