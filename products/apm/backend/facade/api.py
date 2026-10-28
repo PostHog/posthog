@@ -44,9 +44,17 @@ from products.apm.backend.logic.anomaly_detection.types import (
     TrafficTier,
     VerdictType,
 )
-from products.apm.backend.logic.health.contract import HealthRow, HealthStatus, ServiceHealth, rank_services, status_of
+from products.apm.backend.logic.health.contract import (
+    EndpointHealth,
+    HealthRow,
+    HealthStatus,
+    ServiceHealth,
+    rank_services,
+    status_of,
+)
 from products.apm.backend.logic.health.sources import (
     ServicesHealthResult,
+    list_endpoints_health as _list_endpoints_health,
     list_services_health as _list_services_health,
 )
 
@@ -56,10 +64,12 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 __all__ = [
+    "EndpointHealth",
     "HealthRow",
     "HealthStatus",
     "ServiceHealth",
     "ServicesHealthResult",
+    "list_endpoints_health",
     "list_services_health",
     "rank_services",
     "status_of",
@@ -101,3 +111,12 @@ def list_services_health(
     Pure contracts out: the presentation layer serializes `ServicesHealthResult` without touching logic.
     """
     return _list_services_health(team=team, date_from=date_from, date_to=date_to, environment=environment)
+
+
+def list_endpoints_health(
+    *, team: "Team", date_from: "datetime", date_to: "datetime", environment: str, service: str | None = None
+) -> list[EndpointHealth]:
+    """One health row per (service, entry span name) in the environment and window, worst first."""
+    return _list_endpoints_health(
+        team=team, date_from=date_from, date_to=date_to, environment=environment, service=service
+    )

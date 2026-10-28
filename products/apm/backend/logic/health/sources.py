@@ -17,10 +17,17 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
-from products.apm.backend.logic.health.contract import HealthRow, ServiceHealth, rank_services
+from products.apm.backend.logic.health.contract import (
+    EndpointHealth,
+    HealthRow,
+    ServiceHealth,
+    rank_endpoints,
+    rank_services,
+)
 
 SPARKLINE_POINTS = 24
 SERVICES_LIMIT = 500
+ENDPOINTS_LIMIT = 500
 DEFAULT_ENVIRONMENT = "default"
 
 ENVIRONMENT_ATTRIBUTES = (
@@ -90,6 +97,40 @@ def _services_query(date_from: datetime, date_to: datetime, environment: str) ->
             "env_expr": environment_expr(),
             "environment": ast.Constant(value=environment),
             "limit": ast.Constant(value=SERVICES_LIMIT),
+        },
+    )
+    assert isinstance(query, ast.SelectQuery)
+    return query
+
+
+def _endpoints_query(date_from: datetime, date_to: datetime, environment: str, service: str | None) -> ast.SelectQuery:
+    # An endpoint is an entry span name: what a server or consumer span handles, or what a root span
+    # starts (a job with no server spans). This is the entry definition the Tracing service health
+    # view uses, so a worker's job shows up here the same way it gets a row on the services tab.
+    query = parse_select(
+        """
+        SELECT
+            service_name,
+            name,
+            count() AS span_count,
+            countIf(status_code = 2) AS error_count,
+            quantile(0.95)(duration_nano) / 1e6 AS p95_ms
+        FROM posthog.trace_spans
+        WHERE {where} AND {env_expr} = {environment} AND {service_where} AND (is_root_span OR kind IN (2, 5))
+        GROUP BY service_name, name
+        ORDER BY error_count / span_count DESC, error_count DESC, service_name, name
+        LIMIT {limit}
+        """,
+        placeholders={
+            "where": _window_where(date_from, date_to),
+            "env_expr": environment_expr(),
+            "environment": ast.Constant(value=environment),
+            "service_where": (
+                parse_expr("service_name = {service}", placeholders={"service": ast.Constant(value=service)})
+                if service
+                else ast.Constant(value=True)
+            ),
+            "limit": ast.Constant(value=ENDPOINTS_LIMIT),
         },
     )
     assert isinstance(query, ast.SelectQuery)
@@ -176,3 +217,27 @@ def list_services_health(
         )
     environments = [row[0] for row in _run(team, _environments_query(date_from, date_to))]
     return ServicesHealthResult(services=rank_services(services), environments=environments)
+
+
+def list_endpoints_health(
+    *, team: Team, date_from: datetime, date_to: datetime, environment: str, service: str | None = None
+) -> list[EndpointHealth]:
+    seconds = max(1.0, (date_to - date_from).total_seconds())
+    endpoints = [
+        EndpointHealth(
+            service_name=service_name,
+            endpoint=name,
+            environment=environment,
+            health=HealthRow(
+                request_rate=span_count / seconds,
+                error_rate=error_count / span_count,
+                p95_ms=float(p95_ms) if p95_ms is not None else None,
+                span_count=int(span_count),
+                error_count=int(error_count),
+            ),
+        )
+        for service_name, name, span_count, error_count, p95_ms in _run(
+            team, _endpoints_query(date_from, date_to, environment, service)
+        )
+    ]
+    return rank_endpoints(endpoints)

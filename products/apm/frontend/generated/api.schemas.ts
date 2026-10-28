@@ -44,6 +44,40 @@ export interface HealthRowApi {
     error_count: number
 }
 
+export interface EndpointHealthApi {
+    /** The service.name resource attribute. */
+    service_name: string
+    /** The entry span name, for example the HTTP route or the job name. */
+    endpoint: string
+    /** The environment the row was computed for. */
+    environment: string
+    /** Health band from the error rate.
+     *
+     * * `good` - Good
+     * * `warning` - Warning
+     * * `serious` - Serious
+     * * `critical` - Critical */
+    status: HealthStatusEnumApi
+    /** The health row every surface renders. */
+    health: HealthRowApi
+}
+
+export interface EndpointsHealthResponseApi {
+    /** One row per service and endpoint, worst status first. */
+    results: EndpointHealthApi[]
+    /** The environment the rows were computed for. */
+    environment: string
+    /**
+     * The service filter applied, if any.
+     * @nullable
+     */
+    service: string | null
+    /** Start of the window used. */
+    date_from: string
+    /** End of the window used. */
+    date_to: string
+}
+
 export interface ServiceHealthApi {
     /** The service.name resource attribute. */
     service_name: string
@@ -73,6 +107,29 @@ export interface ServicesHealthResponseApi {
     date_from: string
     /** End of the window used. */
     date_to: string
+}
+
+export type ApmEndpointsListParams = {
+    /**
+     * Start of the window, ISO 8601. Defaults to one hour before date_to.
+     */
+    date_from?: string
+    /**
+     * End of the window, ISO 8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Environment to list, as resolved from span resource attributes. Defaults to 'default'.
+     * @minLength 1
+     * @maxLength 200
+     */
+    environment?: string
+    /**
+     * Only list the endpoints of this service.
+     * @minLength 1
+     * @maxLength 400
+     */
+    service?: string
 }
 
 export type ApmServicesListParams = {
