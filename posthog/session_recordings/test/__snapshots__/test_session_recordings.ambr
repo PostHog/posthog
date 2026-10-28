@@ -613,7 +613,7 @@
          "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
   FROM "posthog_mcp_custom_harness"
   WHERE "posthog_mcp_custom_harness"."team_id" = 99999
-  ORDER BY "posthog_mcp_custom_harness"."created_at" ASC
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.9
@@ -1284,7 +1284,7 @@
          "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
   FROM "posthog_mcp_custom_harness"
   WHERE "posthog_mcp_custom_harness"."team_id" = 99999
-  ORDER BY "posthog_mcp_custom_harness"."created_at" ASC
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.9
@@ -1952,7 +1952,7 @@
          "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
   FROM "posthog_mcp_custom_harness"
   WHERE "posthog_mcp_custom_harness"."team_id" = 99999
-  ORDER BY "posthog_mcp_custom_harness"."created_at" ASC
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.9
@@ -2620,7 +2620,7 @@
          "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
   FROM "posthog_mcp_custom_harness"
   WHERE "posthog_mcp_custom_harness"."team_id" = 99999
-  ORDER BY "posthog_mcp_custom_harness"."created_at" ASC
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.9
@@ -3291,7 +3291,7 @@
          "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
   FROM "posthog_mcp_custom_harness"
   WHERE "posthog_mcp_custom_harness"."team_id" = 99999
-  ORDER BY "posthog_mcp_custom_harness"."created_at" ASC
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.9
@@ -3962,7 +3962,7 @@
          "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
   FROM "posthog_mcp_custom_harness"
   WHERE "posthog_mcp_custom_harness"."team_id" = 99999
-  ORDER BY "posthog_mcp_custom_harness"."created_at" ASC
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.9
@@ -4633,7 +4633,7 @@
          "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
   FROM "posthog_mcp_custom_harness"
   WHERE "posthog_mcp_custom_harness"."team_id" = 99999
-  ORDER BY "posthog_mcp_custom_harness"."created_at" ASC
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.9

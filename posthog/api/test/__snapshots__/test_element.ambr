@@ -504,7 +504,7 @@
          "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
   FROM "posthog_mcp_custom_harness"
   WHERE "posthog_mcp_custom_harness"."team_id" = 99999
-  ORDER BY "posthog_mcp_custom_harness"."created_at" ASC
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
   '''
 # ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.9
