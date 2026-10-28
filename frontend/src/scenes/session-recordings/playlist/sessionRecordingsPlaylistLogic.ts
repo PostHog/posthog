@@ -654,6 +654,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     selectedRecordingsIds: string[]
     sessionRecordings: SessionRecordingType[]
     sessionRecordingsAPIErrored: boolean
+    sessionRecordingsAPIErrorDetail: string | null
     sessionRecordingsResponse: RecordingsQueryResponse & {
         order: RecordingsQuery['order']
         order_direction: RecordingsQuery['order_direction']
@@ -1499,6 +1500,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 setAdvancedFilters: () => false,
                 loadNext: () => false,
                 loadPrev: () => false,
+            },
+        ],
+        sessionRecordingsAPIErrorDetail: [
+            null as string | null,
+            {
+                loadSessionRecordingsFailure: (_, { errorObject }) =>
+                    typeof errorObject?.detail === 'string' ? errorObject.detail : null,
+                loadSessionRecordingsSuccess: () => null,
+                setFilters: () => null,
+                setAdvancedFilters: () => null,
+                loadNext: () => null,
+                loadPrev: () => null,
             },
         ],
         selectedRecordingsIds: [
