@@ -143,12 +143,12 @@ export interface modelsUsageLogicValues {
     materializationJobsLoading: boolean
     materializedViewOptions: MaterializedViewOption[]
     page: number
-    sortBy: ModelsUsageSortBy
-    sortDirection: ModelsUsageSortDirection
     selectedEngine: DataModelingUsageListEngine
     selectedJobStatus: DataModelingJobsListStatus | null
     selectedMaterializedViewOptions: MaterializedViewOption[]
     selectedSavedQueryIds: string[]
+    sortBy: ModelsUsageSortBy
+    sortDirection: ModelsUsageSortDirection
     statusChartLabels: string[]
     statusChartSeries: Series[]
     usage: ModelUsageApi | null
@@ -205,7 +205,6 @@ export interface modelsUsageLogicActions {
         dateFrom: string
         dateTo: string | null
     }
-    sortModels: (sortBy: ModelsUsageSortBy) => { sortBy: ModelsUsageSortBy; sortDirection: ModelsUsageSortDirection }
     setJobsPage: (page: number) => {
         page: number
     }
@@ -220,6 +219,10 @@ export interface modelsUsageLogicActions {
     }
     setSelectedSavedQueryIds: (savedQueryIds: string[]) => {
         savedQueryIds: string[]
+    }
+    sortModels: (sortBy: ModelsUsageSortBy) => {
+        sortBy: ModelsUsageSortBy
+        sortDirection: ModelsUsageSortDirection
     }
 }
 
