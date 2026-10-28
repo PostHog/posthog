@@ -448,6 +448,12 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         scoped_teams = get_authenticator_scoped_team_ids(getattr(self.request, "successful_authenticator", None))
         if scoped_teams is not None and parent_team.id not in scoped_teams:
             raise PermissionDenied(f"API key does not have access to the requested project: ID {parent_team.id}.")
+        # The membership check before the view ran saw only the URL's team, so the parent needs its own.
+        parent_access = UserAccessControl(
+            user=cast(User, self.request.user), team=parent_team, organization_id=self.organization_id
+        )
+        if not parent_access.check_access_level_for_object(parent_team, "member"):
+            raise PermissionDenied(f"You don't have access to the requested project: ID {parent_team.id}.")
         return parent_team
 
     @cached_property

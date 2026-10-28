@@ -219,6 +219,30 @@ class TestPlatformAlertAPI(APIBaseTest):
         assert [r["id"] for r in list_response.json()["results"]] == []
         assert retrieve_response.status_code == status.HTTP_404_NOT_FOUND, retrieve_response.json()
 
+    def test_a_project_denial_on_the_parent_survives_a_child_environment_url(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors")
+        child_environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "denied-project@posthog.com", "testtest")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        self.client.force_login(member)
+
+        list_response = self.client.get(f"/api/projects/{child_environment.id}/platform_alerts/")
+        retrieve_response = self.client.get(f"/api/projects/{child_environment.id}/platform_alerts/{configuration.id}/")
+
+        assert list_response.status_code == status.HTTP_403_FORBIDDEN, list_response.json()
+        assert retrieve_response.status_code == status.HTTP_403_FORBIDDEN, retrieve_response.json()
+
     @parameterized.expand([("retrieve", "not-a-uuid/"), ("legacy_id_filter", "?legacy_configuration_id=not-a-uuid")])
     def test_a_malformed_id_is_refused_rather_than_raising(self, _name: str, path: str) -> None:
         self._set_flag(True)
