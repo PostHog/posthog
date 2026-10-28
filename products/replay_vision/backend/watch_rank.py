@@ -11,6 +11,7 @@ import math
 import asyncio
 from collections import Counter
 from dataclasses import asdict
+from datetime import timedelta
 from typing import Any, Literal
 
 from django.core.cache import cache
@@ -33,6 +34,7 @@ from posthog.utils import dict_from_cursor_fetchall
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.embeddings import OBSERVATION_EMBEDDING_MODEL
 from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
     ReplayObservation,
     jsonb_typeof,
     watch_group_root,
@@ -104,6 +106,8 @@ WATCH_PICK_PEOPLE_BOOST = 0.25
 WATCH_PICK_PEOPLE_BOOST_CAP = 2.0
 # Copies of one finding the pick query keeps, so a viewed or restricted top copy does not hide the group.
 WATCH_PICK_GROUP_CANDIDATES = 3
+# Group members older than the feed's longest window before the oldest pick can never fall inside a requested window.
+WATCH_FEED_MEMBER_LOOKBACK = timedelta(days=90)
 
 _ANCHOR_CACHE_TTL_S = 7 * 24 * 3600
 
@@ -325,7 +329,7 @@ def _pick_window_rows(
     # Only fragments written here join the compiled ORM SQL; every value travels as a parameter.
     sql = f"""
         WITH scanner_counts AS ({counts_sql})
-        SELECT id, watch_percentile, watch_group_root FROM (
+        SELECT id, created_at, watch_percentile, watch_group_root FROM (
             SELECT scanner_top.*,
                 ((scanner_counts.scanner_rows - scanner_top.scanner_rank + 1) - 0.5)
                     / scanner_counts.scanner_rows::double precision AS watch_percentile
@@ -385,15 +389,23 @@ def select_embedding_picks(
     # below the cutoff still count, and a person who hit the problem twice counts once.
     person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
     roots = {row["watch_group_root"] for row in window_values.values()}
+    # Postgres misjudges the JSON filters and would walk the whole window, so the members come from the group index
+    # alone. Group ids are random UUIDs, so no other team's row matches; the next query applies the team scope.
+    oldest = min(row["created_at"] for row in window_values.values()) - WATCH_FEED_MEMBER_LOOKBACK
+    member_ids = list(
+        ReplayObservation.objects.filter(
+            status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, created_at__gte=oldest
+        )
+        .alias(member_root=group_root)
+        .filter(member_root__in=list(roots))
+        .values_list("id", flat=True)
+    )
     group_reach = {
         row["watch_group_root"]: row
         for row in accessible_observations(
             access,
             team_id,
-            # Matches the picks' groups on the indexed group root first, so only their members reach the snapshot gate.
-            current_ranks.alias(member_root=group_root).filter(
-                member_root__in=list(roots), watch_category__in=ISSUE_CATEGORIES
-            ),
+            current_ranks.filter(id__in=member_ids, watch_category__in=ISSUE_CATEGORIES),
         )
         .annotate(watch_group_root=group_root)
         .values("watch_group_root")

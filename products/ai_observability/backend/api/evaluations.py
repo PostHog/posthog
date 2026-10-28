@@ -37,7 +37,7 @@ from posthog.hogql_queries.ai.ai_table_resolver import AIEventsUnavailableError,
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.models.team import Team
 from posthog.permissions import AccessControlPermission, is_service_auth
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.message_utils import last_message_text
 from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
@@ -1874,8 +1874,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
             )
 
             io = extract_event_io(event_type, properties)
-            input_preview = extract_text_from_messages(io.input_raw)[:200]
-            output_preview = extract_text_from_messages(io.output_raw)[:200]
+            input_preview = last_message_text(io.input_raw, "user")[:200]
+            output_preview = last_message_text(io.output_raw, "assistant")[:200]
 
             results.append(
                 {
