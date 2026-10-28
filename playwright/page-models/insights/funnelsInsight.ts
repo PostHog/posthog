@@ -147,11 +147,19 @@ export class FunnelsInsight {
     }
 
     // The drop-off is the hatched track above a bar on the canvas, so click just above the bar's value label.
+    // The chart resolves a click from its hover state, so wait for the drop-off tooltip before clicking.
     async clickStepDropOff(index: number): Promise<void> {
         const label = this.stepValueLabel(index)
         await expect(label).toBeVisible()
         const box = (await label.boundingBox())!
-        await this.page.mouse.click(box.x + box.width / 2, box.y - 20)
+        const x = box.x + box.width / 2
+        const y = box.y - 20
+        await expect(async () => {
+            await this.page.mouse.move(x - 5, y - 5)
+            await this.page.mouse.move(x, y)
+            await expect(this.tooltip.first()).toContainText('Dropped off', { timeout: 1000 })
+        }).toPass({ timeout: 15000 })
+        await this.page.mouse.click(x, y)
     }
 
     // The steps chart renders its bars onto a canvas, so the tooltip is driven by
