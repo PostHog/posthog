@@ -1,3 +1,5 @@
+import time
+import datetime as dt
 import functools
 from typing import Protocol
 
@@ -32,10 +34,15 @@ ROLE_UNAVAILABLE_ERROR = (
     "Connecting with an IAM role is not available on this PostHog instance. Connect with access keys instead."
 )
 ROLE_ACCESS_DENIED_ERROR = "PostHog could not assume your IAM role"
+# Carries no AWS error code, so a source's error patterns cannot read it as a rejected customer key.
+ROLE_CREDENTIALS_RETRY_ERROR = (
+    "PostHog could not get credentials for your IAM role from AWS. Try again in a few minutes."
+)
 ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR = "Your IAM role does not require an external ID"
 
 # Each one stays the same on every attempt until the user changes the source or the role.
-# `ROLE_UNAVAILABLE_ERROR` is left out because only the deployment can fix it, so the sync retries.
+# `ROLE_UNAVAILABLE_ERROR` and `ROLE_CREDENTIALS_RETRY_ERROR` are left out, because the user cannot fix
+# them and the sync retries.
 AWS_AUTH_NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     MISSING_ACCESS_KEYS_ERROR: None,
     MISSING_ROLE_ERROR: None,
@@ -44,6 +51,11 @@ AWS_AUTH_NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     ROLE_ACCESS_DENIED_ERROR: None,
     ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR: None,
 }
+
+
+# botocore's mandatory refresh window. Inside it the credentials are about to expire, so always call STS.
+_MANDATORY_REFRESH_WINDOW = dt.timedelta(minutes=10)
+_REFRESH_BACKOFF_SECONDS = 60
 
 
 class AwsAuthError(Exception):
@@ -185,7 +197,21 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
         max_attempts=2,
     )
 
+    expires_at: dt.datetime | None = None
+    failed_at: float | None = None
+
     def fetch() -> dict[str, str]:
+        nonlocal expires_at, failed_at
+        # botocore tries a refresh on every signed request from 15 minutes before expiry, and keeps
+        # the current credentials if it fails before the last 10 minutes. During an STS outage that
+        # would add an STS round trip to every request, so a failed refresh waits a minute.
+        if (
+            failed_at is not None
+            and time.monotonic() - failed_at < _REFRESH_BACKOFF_SECONDS
+            and expires_at is not None
+            and expires_at - dt.datetime.now(dt.UTC) > _MANDATORY_REFRESH_WINDOW
+        ):
+            raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR)
         try:
             assumed = async_to_sync(assume_role)()
         except ExternalRoleArnNotConfiguredError:
@@ -199,12 +225,14 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
             # is theirs to fix. A denial of PostHog's own role is a deployment problem, so it retries.
             error = e.response.get("Error", {})
             if error.get("Code") != "AccessDenied" or integration.aws_role_arn not in (error.get("Message") or ""):
-                raise
+                failed_at = time.monotonic()
+                raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
             raise AwsAuthError(
                 f"{ROLE_ACCESS_DENIED_ERROR}. Check that its trust policy allows PostHog's role and requires the external ID {external_id}."
             ) from None
 
         assert assumed.aws_session_token and assumed.expiration
+        expires_at, failed_at = assumed.expiration, None
         return {
             "access_key": assumed.aws_access_key_id,
             "secret_key": assumed.aws_secret_access_key,

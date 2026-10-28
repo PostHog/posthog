@@ -19,8 +19,10 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     InvalidCredentialsError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
     KEY_CONNECTION_FOR_ROLE_ERROR,
     ROLE_ACCESS_DENIED_ERROR,
+    ROLE_CREDENTIALS_RETRY_ERROR,
     ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR,
     ROLE_NOT_FOUND_ERROR,
     ROLE_UNAVAILABLE_ERROR,
@@ -129,22 +131,43 @@ class TestResolveAwsCredentials(BaseTest):
         [
             ("throttled", "Throttling", ""),
             (
+                "posthog_credentials_rejected",
+                "InvalidClientTokenId",
+                "The security token included in the request is invalid.",
+            ),
+            (
                 "posthog_role_denied",
                 "AccessDenied",
                 "not authorized to perform: sts:AssumeRole on resource: arn:aws:iam::000000000000:role/posthog-external",
             ),
         ]
     )
-    def test_failure_the_user_cannot_fix_is_raised_as_is_so_the_sync_retries(
+    def test_failure_the_user_cannot_fix_retries_without_the_aws_code(
         self, _name: str, code: str, message: str
     ) -> None:
         integration = self._integration(self.team, aws_role_arn=ROLE_ARN)
 
         with (
             patch(ASSUME_ROLE, side_effect=ClientError({"Error": {"Code": code, "Message": message}}, "AssumeRole")),
-            self.assertRaises(ClientError),
+            self.assertRaises(AwsAuthError) as raised,
         ):
             resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
+
+        assert str(raised.exception) == ROLE_CREDENTIALS_RETRY_ERROR
+        assert ROLE_CREDENTIALS_RETRY_ERROR not in AWS_AUTH_NON_RETRYABLE_ERRORS
+
+    def test_failed_advisory_refresh_waits_before_calling_sts_again(self) -> None:
+        integration = self._integration(self.team, aws_role_arn=ROLE_ARN)
+        throttled = ClientError({"Error": {"Code": "Throttling", "Message": ""}}, "AssumeRole")
+        assume = AsyncMock(side_effect=[assumed("FIRST", dt.timedelta(minutes=12)), throttled, throttled])
+
+        with patch(ASSUME_ROLE, assume):
+            credentials = resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
+            first = credentials.get_frozen_credentials()
+            second = credentials.get_frozen_credentials()
+
+        assert first.access_key == second.access_key == "ASIAFIRST"
+        assert assume.call_count == 2
 
 
 def _expiry(**delta: int) -> str:
