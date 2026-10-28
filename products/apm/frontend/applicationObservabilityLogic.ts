@@ -106,8 +106,8 @@ export interface applicationObservabilityLogicActions {
         servicesHealth: ServicesHealthResponseApi
         payload?: void
     }
-    requestReload: () => {
-        value: true
+    requestReload: (includeServices?: boolean) => {
+        includeServices: boolean
     }
     setEndpointsService: (service: string | null) => {
         service: string | null
@@ -118,11 +118,11 @@ export interface applicationObservabilityLogicActions {
     setTab: (tab: ApplicationObservabilityTab) => {
         tab: ApplicationObservabilityTab
     }
-    showServiceEndpoints: (service: string) => {
-        service: string
-    }
     setTimeRange: (timeRange: TimeRange) => {
         timeRange: TimeRange
+    }
+    showServiceEndpoints: (service: string) => {
+        service: string
     }
 }
 
@@ -132,8 +132,8 @@ export interface applicationObservabilityLogicMeta {
         services: (servicesHealth: ServicesHealthResponseApi | null) => ServiceHealthApi[]
         environments: (servicesHealth: ServicesHealthResponseApi | null) => string[]
         resolvedEnvironment: (environment: string | null, servicesHealth: ServicesHealthResponseApi | null) => string
-        attentionCount: (services: ServiceHealthApi[]) => number
         endpoints: (endpointsHealth: EndpointsHealthResponseApi | null) => EndpointHealthApi[]
+        attentionCount: (services: ServiceHealthApi[]) => number
     }
 }
 
@@ -155,7 +155,8 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
         setEndpointsService: (service: string | null) => ({ service }),
         showServiceEndpoints: (service: string) => ({ service }),
         // Internal: coalesces the picker actions and the initial URL sync into a single reload.
-        requestReload: true,
+        // `includeServices` is false for changes that only affect the active tab's own data.
+        requestReload: (includeServices: boolean = true) => ({ includeServices }),
     }),
 
     reducers({
@@ -297,16 +298,20 @@ export const applicationObservabilityLogic = kea<applicationObservabilityLogicTy
     listeners(({ actions, values, cache }) => ({
         setEnvironment: () => actions.requestReload(),
         setTimeRange: () => actions.requestReload(),
-        setTab: () => actions.requestReload(),
-        setEndpointsService: () => actions.requestReload(),
-        showServiceEndpoints: () => actions.requestReload(),
+        setTab: () => actions.requestReload(false),
+        setEndpointsService: () => actions.requestReload(false),
+        showServiceEndpoints: () => actions.requestReload(false),
         // Debounced with a replaceable timer: several `requestReload` calls in the same tick
         // (e.g. the initial URL sync setting both the environment and the range at once, or that
         // sync landing in the same tick as the mount-time load) collapse into a single request.
-        requestReload: () => {
+        requestReload: ({ includeServices }) => {
+            cache.reloadServices = cache.reloadServices || includeServices
             cache.disposables.add(() => {
                 const timerId = setTimeout(() => {
-                    actions.loadServicesHealth()
+                    if (cache.reloadServices) {
+                        cache.reloadServices = false
+                        actions.loadServicesHealth()
+                    }
                     if (values.tab === 'endpoints') {
                         actions.loadEndpointsHealth()
                     }

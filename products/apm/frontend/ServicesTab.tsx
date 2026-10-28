@@ -2,13 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
-import { applicationObservabilityLogic, drillDownParams } from './applicationObservabilityLogic'
+import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import type { ServiceHealthApi } from './generated/api.schemas'
-import { formatMs, formatPercent, formatRate } from './healthDisplay'
-import { HealthStatusTag } from './HealthStatusTag'
+import { healthColumns } from './healthColumns'
 import { Sparkline } from './Sparkline'
+import { TelemetryLinks } from './TelemetryLinks'
 
 export function ServicesTab(): JSX.Element {
     const { services, servicesHealthLoading, hasLoadError, resolvedEnvironment, timeRange, attentionCount } =
@@ -21,29 +19,7 @@ export function ServicesTab(): JSX.Element {
             key: 'service_name',
             render: (_, row) => <span className="font-semibold">{row.service_name}</span>,
         },
-        {
-            title: 'Status',
-            key: 'status',
-            render: (_, row) => <HealthStatusTag status={row.status} />,
-        },
-        {
-            title: 'Requests',
-            key: 'request_rate',
-            align: 'right',
-            render: (_, row) => <span className="font-mono">{formatRate(row.health.request_rate)}</span>,
-        },
-        {
-            title: 'Errors',
-            key: 'error_rate',
-            align: 'right',
-            render: (_, row) => <span className="font-mono">{formatPercent(row.health.error_rate)}</span>,
-        },
-        {
-            title: 'p95',
-            key: 'p95_ms',
-            align: 'right',
-            render: (_, row) => <span className="font-mono">{formatMs(row.health.p95_ms)}</span>,
-        },
+        ...healthColumns<ServiceHealthApi>(),
         {
             title: 'Trend',
             key: 'sparkline',
@@ -57,8 +33,7 @@ export function ServicesTab(): JSX.Element {
                     <Link onClick={() => showServiceEndpoints(row.service_name)} data-attr="apm-service-endpoints">
                         Endpoints
                     </Link>
-                    <Link to={`${urls.tracing()}?${drillDownParams(row.service_name, timeRange)}`}>Traces</Link>
-                    <Link to={`${urls.logs()}?${drillDownParams(row.service_name, timeRange)}`}>Logs</Link>
+                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} />
                 </span>
             ),
         },

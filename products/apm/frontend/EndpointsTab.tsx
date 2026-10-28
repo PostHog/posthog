@@ -4,10 +4,10 @@ import { LemonBanner, LemonSelect, LemonTable, LemonTableColumns, Link } from '@
 
 import { urls } from 'scenes/urls'
 
-import { applicationObservabilityLogic, drillDownParams } from './applicationObservabilityLogic'
+import { applicationObservabilityLogic } from './applicationObservabilityLogic'
 import type { EndpointHealthApi } from './generated/api.schemas'
-import { formatMs, formatPercent, formatRate } from './healthDisplay'
-import { HealthStatusTag } from './HealthStatusTag'
+import { healthColumns } from './healthColumns'
+import { TelemetryLinks } from './TelemetryLinks'
 
 export function EndpointsTab(): JSX.Element {
     const { endpoints, endpointsHealthLoading, endpointsLoadError, services, endpointsService, timeRange } =
@@ -38,36 +38,13 @@ export function EndpointsTab(): JSX.Element {
             key: 'service_name',
             render: (_, row) => row.service_name,
         },
-        {
-            title: 'Status',
-            key: 'status',
-            render: (_, row) => <HealthStatusTag status={row.status} />,
-        },
-        {
-            title: 'Requests',
-            key: 'request_rate',
-            align: 'right',
-            render: (_, row) => <span className="font-mono">{formatRate(row.health.request_rate)}</span>,
-        },
-        {
-            title: 'Errors',
-            key: 'error_rate',
-            align: 'right',
-            render: (_, row) => <span className="font-mono">{formatPercent(row.health.error_rate)}</span>,
-        },
-        {
-            title: 'p95',
-            key: 'p95_ms',
-            align: 'right',
-            render: (_, row) => <span className="font-mono">{formatMs(row.health.p95_ms)}</span>,
-        },
+        ...healthColumns<EndpointHealthApi>(),
         {
             title: 'Open in',
             key: 'links',
             render: (_, row) => (
                 <span className="flex gap-2">
-                    <Link to={`${urls.tracing()}?${drillDownParams(row.service_name, timeRange)}`}>Traces</Link>
-                    <Link to={`${urls.logs()}?${drillDownParams(row.service_name, timeRange)}`}>Logs</Link>
+                    <TelemetryLinks serviceName={row.service_name} timeRange={timeRange} />
                 </span>
             ),
         },

@@ -184,6 +184,7 @@ describe('applicationObservabilityLogic', () => {
 
         it('shows the endpoints of one service from a services row', async () => {
             await expectLogic(logic).toDispatchActions(['loadServicesHealthSuccess'])
+            const servicesRequestsBefore = requests.length
             logic.actions.showServiceEndpoints('web')
             await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
             expect(router.values.searchParams).toMatchObject({ tab: 'endpoints', service: 'web' })
@@ -193,6 +194,8 @@ describe('applicationObservabilityLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadEndpointsHealthSuccess'])
             expect(router.values.searchParams.service).toBeUndefined()
             expect(endpointRequests[endpointRequests.length - 1]).not.toContain('service=')
+            // The service filter only narrows endpoints, so service health must not reload with it.
+            expect(requests.length).toBe(servicesRequestsBefore)
         })
     })
 })

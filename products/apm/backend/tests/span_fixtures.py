@@ -31,7 +31,7 @@ def restore_trace_spans_tables() -> None:
     sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
 
-@dataclass
+@dataclass(frozen=False)
 class SpanWriter:
     """Builds span rows for one team and inserts them in one statement.
 

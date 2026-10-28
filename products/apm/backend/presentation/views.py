@@ -21,6 +21,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.models.user import User
 
@@ -43,14 +44,25 @@ def _check_flag(team: Team, user: User) -> None:
         raise PermissionDenied("Application observability is not enabled for this project.")
 
 
-def _window(params: ServicesHealthRequestSerializer) -> tuple[datetime, datetime, str]:
+@frozen
+class HealthWindow:
+    date_from: datetime
+    date_to: datetime
+    environment: str
+
+
+def _window(params: ServicesHealthRequestSerializer) -> HealthWindow:
     """The window and environment every APM health route reads, with the same defaults and cap."""
     params.is_valid(raise_exception=True)
     date_to = params.validated_data.get("date_to") or timezone.now()
     date_from = params.validated_data.get("date_from") or date_to - DEFAULT_WINDOW
     if date_from >= date_to or date_to - date_from > MAX_WINDOW:
         raise ValidationError("date_from must precede date_to by at most 7 days.")
-    return date_from, date_to, params.validated_data.get("environment") or DEFAULT_ENVIRONMENT
+    return HealthWindow(
+        date_from=date_from,
+        date_to=date_to,
+        environment=params.validated_data.get("environment") or DEFAULT_ENVIRONMENT,
+    )
 
 
 class ServicesHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -66,17 +78,19 @@ class ServicesHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, *args, **kwargs) -> Response:
         _check_flag(self.team, cast(User, request.user))
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
-        date_from, date_to, environment = _window(ServicesHealthRequestSerializer(data=request.query_params))
+        window = _window(ServicesHealthRequestSerializer(data=request.query_params))
 
-        result = list_services_health(team=self.team, date_from=date_from, date_to=date_to, environment=environment)
+        result = list_services_health(
+            team=self.team, date_from=window.date_from, date_to=window.date_to, environment=window.environment
+        )
         payload = {
             "results": [
                 {**asdict(row), "status": row.status.value, "sparkline": list(row.sparkline)} for row in result.services
             ],
             "environments": result.environments,
-            "environment": environment,
-            "date_from": date_from,
-            "date_to": date_to,
+            "environment": window.environment,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
         }
         return Response(ServicesHealthResponseSerializer(payload).data, status=status.HTTP_200_OK)
 
@@ -91,17 +105,21 @@ class EndpointsHealthViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         _check_flag(self.team, cast(User, request.user))
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         params = EndpointsHealthRequestSerializer(data=request.query_params)
-        date_from, date_to, environment = _window(params)
+        window = _window(params)
         service = params.validated_data.get("service")
 
         rows = list_endpoints_health(
-            team=self.team, date_from=date_from, date_to=date_to, environment=environment, service=service
+            team=self.team,
+            date_from=window.date_from,
+            date_to=window.date_to,
+            environment=window.environment,
+            service=service,
         )
         payload = {
             "results": [{**asdict(row), "status": row.status.value} for row in rows],
-            "environment": environment,
+            "environment": window.environment,
             "service": service,
-            "date_from": date_from,
-            "date_to": date_to,
+            "date_from": window.date_from,
+            "date_to": window.date_to,
         }
         return Response(EndpointsHealthResponseSerializer(payload).data, status=status.HTTP_200_OK)
