@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
 use crate::bytescan::{self as scan, Span};
-use crate::url_policy::{self, MAX_URL_LEN};
+use crate::url_policy::{is_fetched_image_type, is_remote, MAX_URL_LEN};
 
 use super::css;
 use super::events::{field, fields, number, text};
@@ -82,7 +82,10 @@ enum Media {
     },
     SvgImage,
     Video,
-    PictureSource,
+    /// A `source` under a `picture`. Its `type` can name a media type the fetcher does not store, such as AVIF.
+    PictureSource {
+        unfetched_type: bool,
+    },
     /// A `picture`, so that a `source` added under it later is known to be a picture source.
     Picture,
 }
@@ -204,6 +207,18 @@ pub struct RemoteUrls {
     urls: HashSet<String>,
     bytes: usize,
     pub limit: Option<UrlLimit>,
+    /// Each image-slot srcset value, and whether it belongs to a source of a type the fetcher does not store. The
+    /// writer rebuilds each from the candidates it keeps. Past the cap it keeps no more, which is safe: the writer still
+    /// replaces each URL in `urls` on its own.
+    srcsets: HashMap<String, bool>,
+}
+
+/// An image-slot srcset value as the event holds it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Srcset {
+    pub text: String,
+    /// The value belongs to a `<source>` whose `type` the fetcher does not store, so none of its images is stored.
+    pub unfetched_type: bool,
 }
 
 impl RemoteUrls {
@@ -224,11 +239,33 @@ impl RemoteUrls {
         };
     }
 
+    /// A value seen on a source of a stored type and on one of another type keeps its candidates.
+    fn insert_srcset(&mut self, text: &str, unfetched_type: bool) {
+        if let Some(known) = self.srcsets.get_mut(text) {
+            *known &= unfetched_type;
+        } else if self.srcsets.len() < MAX_BLOCK_REMOTE_URLS && text.len() <= MAX_REMOTE_URL_BYTES {
+            self.srcsets.insert(text.to_owned(), unfetched_type);
+        }
+    }
+
     pub fn extend(&mut self, other: RemoteUrls) {
         self.limit = self.limit.or(other.limit);
         for url in &other.urls {
             self.insert(url);
         }
+        for (text, unfetched_type) in &other.srcsets {
+            self.insert_srcset(text, *unfetched_type);
+        }
+    }
+
+    pub fn take_srcsets(&mut self) -> Vec<Srcset> {
+        std::mem::take(&mut self.srcsets)
+            .into_iter()
+            .map(|(text, unfetched_type)| Srcset {
+                text,
+                unfetched_type,
+            })
+            .collect()
     }
 
     pub fn into_urls(self) -> Vec<String> {
@@ -251,22 +288,6 @@ struct Urls {
 fn fetchable(url: &str) -> Option<&str> {
     let url = url.trim();
     (url.len() <= MAX_URL_LEN && is_remote(url)).then_some(url)
-}
-
-/// A URL scheme is not case sensitive, so `HTTPS://` loads as `https://` does. A browser reads any run of slashes and
-/// backslashes after `http:` or `https:` as `//`, and none at all on a page of another scheme, so `https:\\host` and
-/// `https:host` can load from the host too. A protocol-relative URL does as well. The writer must replace each of them
-/// like any other remote URL.
-fn is_remote(url: &str) -> bool {
-    let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
-        url.get(..scheme.len())
-            .filter(|start| start.eq_ignore_ascii_case(scheme))
-            .map(|_| &url[scheme.len()..])
-    });
-    match after_scheme {
-        Some(rest) => !rest.is_empty(),
-        None => url_policy::is_protocol_relative(url),
-    }
 }
 
 impl Urls {
@@ -338,7 +359,7 @@ struct Walk {
     hidden: Vec<(i64, HiddenSources)>,
     /// `source` elements that are a walk's root, with their srcset. Whether each is a picture source depends on the
     /// parent that the mutation names.
-    root_sources: Vec<(Option<i64>, Option<Span>)>,
+    root_sources: Vec<(Option<i64>, Option<Span>, Option<Span>)>,
 }
 
 impl Walk {
@@ -380,6 +401,25 @@ impl Walk {
         }
     }
 
+    fn push_srcset_value(&mut self, bytes: &[u8], value: Option<Span>, unfetched_type: bool) {
+        if let Some(srcset) = text(bytes, value) {
+            self.image_urls
+                .remote
+                .insert_srcset(&srcset, unfetched_type);
+        }
+    }
+
+    /// A picture source of a type the fetcher does not store gets no fetch job, and the writer empties its srcset, so
+    /// the browser falls back to the next source or the img.
+    fn push_source(&mut self, bytes: &[u8], srcset: Option<Span>, unfetched_type: bool) {
+        if unfetched_type {
+            self.push_remote(bytes, srcset, true);
+        } else {
+            self.push_srcset(bytes, srcset);
+        }
+        self.push_srcset_value(bytes, srcset, unfetched_type);
+    }
+
     fn push_css(&mut self, bytes: &[u8], value: Option<Span>) {
         let Some(value) = value else { return };
         if let Some(text) = text(bytes, Some(value)) {
@@ -401,10 +441,11 @@ impl Walk {
     }
 }
 
-/// The URLs of a srcset, parsed as HTML parses one: a URL is a run of non-whitespace, so it can hold a comma. A comma
-/// ends a candidate only at the end of its URL or after its descriptors.
-fn srcset_urls(srcset: &str, found: &mut impl FnMut(&str)) {
+/// The candidates of a srcset as (URL, descriptors), parsed as HTML parses one: a URL is a run of non-whitespace, so
+/// it can hold a comma. A comma ends a candidate only at the end of its URL or after its descriptors.
+pub fn srcset_candidates(srcset: &str) -> Vec<(&str, &str)> {
     let bytes = srcset.as_bytes();
+    let mut candidates = Vec::new();
     let mut position = 0;
     loop {
         while bytes
@@ -414,7 +455,7 @@ fn srcset_urls(srcset: &str, found: &mut impl FnMut(&str)) {
             position += 1;
         }
         if position >= bytes.len() {
-            return;
+            return candidates;
         }
         let start = position;
         while bytes
@@ -424,20 +465,32 @@ fn srcset_urls(srcset: &str, found: &mut impl FnMut(&str)) {
             position += 1;
         }
         let url = srcset[start..position].trim_end_matches(',');
-        found(url);
         if url.len() < position - start {
+            candidates.push((url, ""));
             continue;
         }
+        let descriptors = position;
+        let mut end = bytes.len();
         let mut in_parens = false;
         while let Some(&byte) = bytes.get(position) {
             position += 1;
             match byte {
                 b'(' => in_parens = true,
                 b')' => in_parens = false,
-                b',' if !in_parens => break,
+                b',' if !in_parens => {
+                    end = position - 1;
+                    break;
+                }
                 _ => {}
             }
         }
+        candidates.push((url, srcset[descriptors..end].trim()));
+    }
+}
+
+fn srcset_urls(srcset: &str, found: &mut impl FnMut(&str)) {
+    for (url, _) in srcset_candidates(srcset) {
+        found(url);
     }
 }
 
@@ -464,6 +517,7 @@ struct Attributes {
     hidden: Option<Span>,
     width: Option<Span>,
     height: Option<Span>,
+    source_type: Option<Span>,
 }
 
 impl Attributes {
@@ -481,6 +535,7 @@ impl Attributes {
             b"hidden" => &mut self.hidden,
             b"width" => &mut self.width,
             b"height" => &mut self.height,
+            b"type" => &mut self.source_type,
             _ => return None,
         })
     }
@@ -503,6 +558,7 @@ impl Attributes {
         walk.push_remote(bytes, self.src, false);
         walk.push_remote(bytes, self.rr_src, false);
         walk.push_remote(bytes, self.srcset, true);
+        walk.push_srcset_value(bytes, self.srcset, false);
         walk.push_remote(bytes, self.href, false);
         walk.push_remote(bytes, self.xlink_href, false);
         walk.push_remote(bytes, self.poster, false);
@@ -515,23 +571,31 @@ impl Attributes {
                 walk.push_url(bytes, self.src);
                 walk.push_url(bytes, self.rr_src);
                 walk.push_srcset(bytes, self.srcset);
+                walk.push_srcset_value(bytes, self.srcset, false);
             }
             Some(Media::Img { .. }) => {
                 walk.push_remote(bytes, self.src, false);
                 walk.push_remote(bytes, self.rr_src, false);
                 walk.push_remote(bytes, self.srcset, true);
+                walk.push_srcset_value(bytes, self.srcset, false);
             }
             Some(Media::SvgImage) => {
                 walk.push_url(bytes, self.href);
                 walk.push_url(bytes, self.xlink_href);
             }
             Some(Media::Video) => walk.push_url(bytes, self.poster),
-            Some(Media::PictureSource) => walk.push_srcset(bytes, self.srcset),
+            Some(Media::PictureSource { unfetched_type }) => {
+                walk.push_source(bytes, self.srcset, unfetched_type)
+            }
             _ => {}
         }
         walk.push_css(bytes, self.style);
         walk.push_css(bytes, self.css_text);
     }
+}
+
+fn is_unfetched_type(bytes: &[u8], source_type: Option<Span>) -> bool {
+    text(bytes, source_type).is_some_and(|t| !is_fetched_image_type(&t))
 }
 
 /// A CSS or HTML length read as pixels, as in v3: `1`, `1px` and `1.0` are one pixel, other units are unknown.
@@ -650,7 +714,7 @@ struct NodeFrame {
     /// Child text, and child `source` elements with their srcset, which count only under a `style` or a `picture`.
     /// They wait here because the tag can come after the children.
     child_texts: Vec<(Option<i64>, Span)>,
-    child_sources: Vec<(Option<i64>, Option<Span>)>,
+    child_sources: Vec<(Option<i64>, Option<Span>, Option<Span>)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -748,9 +812,11 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
         }
     }
     if node.tag == Tag::Picture {
-        for &(id, srcset) in &node.child_sources {
-            walk.media.extend(id.map(|id| (id, Media::PictureSource)));
-            walk.push_srcset(bytes, srcset);
+        for &(id, srcset, source_type) in &node.child_sources {
+            let unfetched_type = is_unfetched_type(bytes, source_type);
+            walk.media
+                .extend(id.map(|id| (id, Media::PictureSource { unfetched_type })));
+            walk.push_source(bytes, srcset, unfetched_type);
         }
     }
     match node.id {
@@ -814,7 +880,11 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
                     .extend(node.text.map(|text| (node.id, text)));
             }
             if node.tag == Tag::Source {
-                parent.child_sources.push((node.id, node.attributes.srcset));
+                parent.child_sources.push((
+                    node.id,
+                    node.attributes.srcset,
+                    node.attributes.source_type,
+                ));
             }
         }
         None => {
@@ -822,7 +892,11 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
                 walk.push_id(id, None);
             }
             if node.tag == Tag::Source {
-                walk.root_sources.push((node.id, node.attributes.srcset));
+                walk.root_sources.push((
+                    node.id,
+                    node.attributes.srcset,
+                    node.attributes.source_type,
+                ));
             }
         }
     }
@@ -1318,11 +1392,13 @@ fn observe_mutation(
                 .filter(|(_, media)| *media == Media::Picture)
                 .map(|&(id, _)| id)
                 .collect();
-            for (parent, (id, srcset)) in sources {
+            for (parent, (id, srcset, source_type)) in sources {
                 let Some(parent) = parent else { continue };
                 if pictures.contains(&parent) || dom.media.get(&parent) == Some(&Media::Picture) {
-                    walk.media.extend(id.map(|id| (id, Media::PictureSource)));
-                    walk.push_srcset(list.bytes, srcset);
+                    let unfetched_type = is_unfetched_type(list.bytes, source_type);
+                    walk.media
+                        .extend(id.map(|id| (id, Media::PictureSource { unfetched_type })));
+                    walk.push_source(list.bytes, srcset, unfetched_type);
                 }
             }
         }
@@ -1359,6 +1435,11 @@ fn observe_mutation(
                         let was_hidden = visibility.hides();
                         visibility.update(attributes.bytes, &values);
                         hidden = Some((id, was_hidden, visibility.hides()));
+                    }
+                    if let (Media::PictureSource { unfetched_type }, Some(_)) =
+                        (&mut *known, values.source_type)
+                    {
+                        *unfetched_type = is_unfetched_type(attributes.bytes, values.source_type);
                     }
                     media = Some(*known);
                 }

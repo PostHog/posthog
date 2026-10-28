@@ -346,6 +346,32 @@ pub fn is_protocol_relative(raw: &str) -> bool {
     matches!(raw.trim().as_bytes(), [b'/' | b'\\', b'/' | b'\\', ..])
 }
 
+/// Whether the browser loads the URL from a host. A URL scheme is not case sensitive, so `HTTPS://` loads as
+/// `https://` does. A browser reads any run of slashes and backslashes after `http:` or `https:` as `//`, so
+/// `https:\\host` loads from the host too. A protocol-relative URL does as well.
+pub fn is_remote(url: &str) -> bool {
+    let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
+        url.get(..scheme.len())
+            .filter(|start| start.eq_ignore_ascii_case(scheme))
+            .map(|_| &url[scheme.len()..])
+    });
+    match after_scheme {
+        Some(rest) => matches!(rest.as_bytes(), [b'/' | b'\\', ..]),
+        None => is_protocol_relative(url),
+    }
+}
+
+/// The media types the image fetcher stores, the `ALLOWED_CONTENT_TYPES` of `image-fetch-v4/image-fetcher.ts`.
+pub const FETCHED_IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/// Whether a `<source type>` names a type the fetcher stores, ignoring parameters such as `codecs`.
+pub fn is_fetched_image_type(source_type: &str) -> bool {
+    let essence = source_type.split(';').next().unwrap_or_default().trim();
+    FETCHED_IMAGE_TYPES
+        .iter()
+        .any(|fetched| fetched.eq_ignore_ascii_case(essence))
+}
+
 pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     if raw.len() > MAX_URL_LEN {
         return Err(Decline::TooLong);
