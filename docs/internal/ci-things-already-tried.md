@@ -341,7 +341,7 @@ _Also asked as:_ postgres fsync off, synchronous_commit off, full_page_writes, d
 
 ### Cache the hypothesis constants pool across the backend shards
 
-**Verdict: reverted** · Oct 2026 · added by [#88886](https://github.com/PostHog/posthog/pull/88886), removed by [#123459](https://github.com/PostHog/posthog/pull/123459)
+**Verdict: reverted** · Oct 2026 · [#88886](https://github.com/PostHog/posthog/pull/88886), reverted by [#123459](https://github.com/PostHog/posthog/pull/123459)
 
 Backend CI restored `.hypothesis/constants` on every Django shard and saved it from Core shard 1 on master.
 The restore missed on all 212 sampled shard attempts, because the save never wrote anything.
