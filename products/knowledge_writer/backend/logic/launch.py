@@ -20,6 +20,7 @@ from .records import (
 )
 from .routing import SectionRouting
 
+WRITER_IDLE_TIMEOUT_SECONDS = 120
 PUSH_TO_NEW_BRANCH = "Commit your docs change and push it to a new branch. Do not open a pull request."
 PUSH_TO_CHECKED_OUT_BRANCH = (
     "This branch already backs an open docs pull request. "
@@ -79,6 +80,7 @@ def start_writer(
             origin_key=request.dedupe_id,
             branch=joining.head_branch if joining is not None else None,
             start_workflow=start_workflow,
+            inactivity_timeout_seconds=WRITER_IDLE_TIMEOUT_SECONDS,
         )
         for key, value in state_entries.items():
             tasks_facade.update_task_state_entry(created.task_id, team.id, key, replace_entry_with(value))
