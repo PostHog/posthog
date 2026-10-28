@@ -406,20 +406,28 @@ Rules:
 
 #### Credential kind
 
-Each source has a credential kind: the `Integration` kind that holds its typed-in credentials. It is at most 32 characters. `sources/common/credential_kind.py` derives it in this order:
+Each source has a credential kind: the `Integration` kind that holds its typed-in credentials. It is at most 32 characters. The source gives it with the `credential_kind` property on its own class. The default on `BaseSource` is:
 
 1. The kind of the source's OAuth field (`SourceFieldOauthConfig.kind`), at any depth.
-2. `EXISTING_KIND_OVERRIDES`, for sources that share the shape of an existing kind (`Postgres` is `postgresql`, `AmazonS3` is `aws-s3`).
-3. `BRAND_CASING_OVERRIDES`, for one-word brands that kebab-case splits (`MySQL` is `mysql`, not `my-sql`).
-4. The kebab-case source type (`AwsCloudTrail` is `aws-cloud-trail`).
+2. Else the kebab-case source type (`AwsCloudTrail` is `aws-cloud-trail`).
 
-The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind. Add an override when a new source needs one of the cases above. The Custom source has no credential kind.
+Override `credential_kind` in your `source.py` when the default is wrong:
 
-Each credential kind also has a default auth type, which `sources/common/credential_auth_type.py` derives from the connection fields:
+- The source has the credential shape of an existing `Integration` kind (`PostgresSource` returns `postgresql`, `AmazonS3Source` returns `aws-s3`).
+- Kebab-case splits a one-word brand name (`MySQLSource` returns `mysql`, not `my-sql`).
+- The source has no credential kind. Return `None` (`CustomSource` does this).
+
+A subclass inherits the override of its parent, so a subclass of an overriding source sets its own kind (`NeonSource` returns `neon`, not the `postgresql` of `PostgresSource`).
+
+The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. Never change the kind of a released source. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind.
+
+Each credential kind also has a default auth type: the `credential_auth_type` property on the source class. The default on `BaseSource` (`derive_credential_auth_type` in `sources/common/credential_auth_type.py`) reads the connection fields:
 
 - `oauth`: the source has an OAuth field and no typed-in connection field.
 - `token`: the source has exactly one typed-in field, and it is a secret.
 - `credentials`: every other source.
+
+Override `credential_auth_type` in your `source.py` only when this rule gives the wrong type for the source.
 
 The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `products/integrations/backend/facade/api.py`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
 

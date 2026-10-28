@@ -18,7 +18,8 @@ class IntegrationReferenceField(serializers.Field):
     """An integration id of the request's team. Use it instead of a `PrimaryKeyRelatedField` on `Integration`.
 
     It reads the team from the serializer context (`team_id`, or `get_team`), so a row of another team
-    is "does not exist". Pass `kinds` to accept only rows of these kinds.
+    is "does not exist". Pass `kinds` to accept only rows of these catalogue kinds. A field with `kinds`
+    also refuses warehouse source rows, because their config does not have the shape of the kind.
     """
 
     default_error_messages = {
@@ -29,6 +30,7 @@ class IntegrationReferenceField(serializers.Field):
 
     def __init__(self, *, kinds: Iterable[str] = (), **kwargs: Any) -> None:
         self.kinds = frozenset(kinds)
+        self._rows = IntegrationManager.kinds(*sorted(self.kinds)) if self.kinds else IntegrationManager.any
         super().__init__(**kwargs)
 
     def _team_id(self) -> int:
@@ -47,21 +49,21 @@ class IntegrationReferenceField(serializers.Field):
         except ValueError:
             self.fail("incorrect_type", data_type=type(data).__name__)
         try:
-            record = IntegrationManager.any.get(self._team_id(), integration_id)
+            return self._rows.get(self._team_id(), integration_id)
         except IntegrationNotFound:
             self.fail("does_not_exist", pk_value=data)
-        if self.kinds and record.kind not in self.kinds:
-            self.fail("does_not_exist", pk_value=data)
-        return record
 
     def get_attribute(self, instance: object) -> object:
         # Read the foreign key column instead of the related row, so a list does not query once per row.
         if self.source_attrs:
             try:
                 parent = get_attribute(instance, self.source_attrs[:-1])
-                return PKOnlyObject(pk=parent.serializable_value(self.source_attrs[-1]))
+                value = parent.serializable_value(self.source_attrs[-1])
             except AttributeError:
                 pass
+            else:
+                # `serializable_value` returns the attribute itself when it is not a model field.
+                return PKOnlyObject(pk=getattr(value, "pk", value))
         return super().get_attribute(instance)
 
     def to_representation(self, value: IntegrationRecord | PKOnlyObject | int) -> int:

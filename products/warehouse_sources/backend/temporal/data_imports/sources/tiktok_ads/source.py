@@ -86,6 +86,10 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TIKTOKADS
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "tiktok-ads"
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.canonical_descriptions import (
             CANONICAL_DESCRIPTIONS,

@@ -6,8 +6,10 @@ from parameterized import parameterized
 from rest_framework import serializers
 
 from posthog.models import Team
+from posthog.models.comment.slack_thread import CommentSlackThread
 from posthog.models.integration import ANY, Integration
 
+from products.integrations.backend.logic.source_kinds import SOURCE_MARKER_CONFIG_KEY
 from products.integrations.backend.presentation.fields import IntegrationReferenceField
 
 
@@ -22,6 +24,12 @@ class TestIntegrationReferenceField(BaseTest):
         self.slack = Integration.objects._with_auth(ANY).create(team=self.team, kind="slack", integration_id="s")
         self.github = Integration.objects._with_auth(ANY).create(
             team=self.team, kind="github", integration_id="g", config={"auth_type": "token"}
+        )
+        self.github_source_row = Integration.objects._with_auth(ANY).create(
+            team=self.team,
+            kind="github",
+            integration_id="gs",
+            config={"auth_type": "token", SOURCE_MARKER_CONFIG_KEY: "Github"},
         )
         other_team = Team.objects.create(organization=self.organization, name="Other")
         self.other = Integration.objects._with_auth(ANY).create(team=other_team, kind="slack", integration_id="s")
@@ -58,6 +66,13 @@ class TestIntegrationReferenceField(BaseTest):
                 "github",
                 "does_not_exist",
             ),
+            # A field with kinds reads only named rows, so a warehouse source row of the kind does not exist.
+            (
+                "source_row_of_the_kind",
+                lambda self: {"integration": self.slack.id, "github": self.github_source_row.id},
+                "github",
+                "does_not_exist",
+            ),
             ("not_a_number", lambda self: {"integration": "abc"}, "integration", "incorrect_type"),
             ("bool", lambda self: {"integration": True}, "integration", "incorrect_type"),
             ("list", lambda self: {"integration": [1]}, "integration", "incorrect_type"),
@@ -67,6 +82,11 @@ class TestIntegrationReferenceField(BaseTest):
         serializer = self._validate(data(self))
 
         assert [error.code for error in serializer.errors[field]] == [code]
+
+    def test_a_field_without_kinds_accepts_a_source_row(self) -> None:
+        serializer = self._validate({"integration": self.github_source_row.id})
+
+        assert serializer.validated_data == {"integration": self.github_source_row}
 
     def test_needs_a_team_in_the_context(self) -> None:
         serializer = self._validate({"integration": self.slack.id}, context={})
@@ -80,3 +100,38 @@ class TestIntegrationReferenceField(BaseTest):
             self.slack.id,
             self.slack.id,
         )
+
+
+class _ReadSerializer(serializers.Serializer):
+    integration = IntegrationReferenceField(allow_null=True)
+
+
+class _Holder:
+    def __init__(self, integration: Integration | None) -> None:
+        self.integration = integration
+
+
+class TestIntegrationReferenceFieldRead(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.slack = Integration.objects._with_auth(ANY).create(team=self.team, kind="slack", integration_id="s")
+
+    def test_reads_the_foreign_key_column_without_a_query(self) -> None:
+        thread = CommentSlackThread(team=self.team, integration_id=self.slack.id)
+
+        with self.assertNumQueries(0):
+            data = _ReadSerializer(thread).data
+
+        assert data == {"integration": self.slack.id}
+
+    @parameterized.expand(
+        [
+            ("model_field_null", lambda self: CommentSlackThread(team=self.team, integration_id=None), None),
+            ("plain_attribute", lambda self: _Holder(self.slack), "slack"),
+            ("plain_attribute_null", lambda self: _Holder(None), None),
+        ]
+    )
+    def test_represents(self, _name: str, build: Any, expected: str | None) -> None:
+        data = _ReadSerializer(build(self)).data
+
+        assert data == {"integration": None if expected is None else getattr(self, expected).id}
