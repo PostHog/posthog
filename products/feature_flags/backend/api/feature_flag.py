@@ -1356,6 +1356,15 @@ class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
         help_text="Identifier used to bucket users into rollout percentages and variants: 'distinct_id' "
         "(user ID, the default) or 'device_id'. Using 'device_id' is incompatible with ensure_experience_continuity=True.",
     )
+    version = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text=(
+            "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is "
+            "2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags "
+            "do not check it."
+        ),
+    )
 
 
 class FeatureFlagExperimentSetMetadataSerializer(serializers.Serializer):

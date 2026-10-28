@@ -1,0 +1,25 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "destination_ids": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The full list of destination ids for this source, at least one. A destination left out is detached."
+        },
+        "id": {
+            "description": "A UUID string identifying this external data source.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
