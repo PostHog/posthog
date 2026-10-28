@@ -184,7 +184,8 @@ describe('Hogflow Executor', () => {
             recipientPreferencesService,
             emailValidationService,
             cohortMembershipRepository,
-            hub.integrationManager
+            hub.integrationManager,
+            null
         )
     })
 

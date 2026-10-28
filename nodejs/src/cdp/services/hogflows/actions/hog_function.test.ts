@@ -6,13 +6,16 @@ import { register } from 'prom-client'
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
+import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { workflowStepDispatchKeyFromInvocation } from '~/cdp/utils/workflow-step-dispatch-key'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
@@ -23,6 +26,7 @@ import { HogInputsService } from '../../hog-inputs.service'
 import { HogFunctionTemplateManagerService } from '../../managers/hog-function-template-manager.service'
 import { RecipientsManagerService } from '../../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
+import { EmailStatusService } from '../../messaging/email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../../messaging/email-suppression.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { EmailService } from '../../messaging/email.service'
@@ -31,6 +35,7 @@ import { RecipientPreferencesService } from '../../messaging/recipient-preferenc
 import { RecipientTokensService } from '../../messaging/recipient-tokens.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
+import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflow-sensitivity'
 import { findActionByType } from '../hogflow-utils'
 import { HogFunctionHandler, messageOptOutsAfterStep } from './hog_function'
 
@@ -133,7 +138,8 @@ describe('HogFunctionHandler', () => {
             mockHogFlowFunctionsService,
             mockRecipientPreferencesService,
             mockEmailValidationService,
-            'fetch'
+            'fetch',
+            null
         )
 
         // Simple hog function that prints the inputs
@@ -557,6 +563,99 @@ describe('HogFunctionHandler', () => {
         }
     )
 
+    describe('transactional email status', () => {
+        const skipOptedOut = (): void => {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('opted_out')
+        }
+        const skipSuppressed = (): void => {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce('suppressed')
+        }
+        const skipUnreachable = (): void => {
+            ;(mockEmailValidationService.getSkipReason as jest.Mock).mockResolvedValueOnce(
+                'Skipping send: the domain has no reachable mail servers.'
+            )
+        }
+        const skipFrequencyCapped = (): void => {
+            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+        }
+
+        it.each([
+            ['an opt-out', skipOptedOut, TRANSACTIONAL_EMAIL_EVENT, 'function_email', false, 'recipient_opted_out'],
+            [
+                'a suppression',
+                skipSuppressed,
+                TRANSACTIONAL_EMAIL_EVENT,
+                'function_email',
+                false,
+                'recipient_suppressed',
+            ],
+            [
+                'a predicted bounce',
+                skipUnreachable,
+                TRANSACTIONAL_EMAIL_EVENT,
+                'function_email',
+                false,
+                'recipient_unreachable',
+            ],
+            [
+                'the frequency cap',
+                skipFrequencyCapped,
+                TRANSACTIONAL_EMAIL_EVENT,
+                'function_email',
+                false,
+                'frequency_capped',
+            ],
+            ['a suppression of a test send', skipSuppressed, TRANSACTIONAL_EMAIL_EVENT, 'function_email', true, null],
+            ['a suppression of a workflow email', skipSuppressed, '$pageview', 'function_email', false, null],
+            ['a suppression of an SMS step', skipSuppressed, TRANSACTIONAL_EMAIL_EVENT, 'function_sms', false, null],
+        ] as const)(
+            'records the email status of a send skipped by %s',
+            async (_desc, skip, triggerEvent, actionType, isTest, reason) => {
+                const produce = jest.fn().mockResolvedValue(undefined)
+                const emailStatusService = new EmailStatusService(
+                    { produce } as unknown as IngestionOutputs<EmailStatusOutput>,
+                    { EMAIL_STATUS_ENABLED: true }
+                )
+                const handler = new HogFunctionHandler(
+                    mockHogFlowFunctionsService,
+                    mockRecipientPreferencesService,
+                    mockEmailValidationService,
+                    'email',
+                    emailStatusService
+                )
+                invocation.id = new UUIDT().toString()
+                invocation.state.event.event = triggerEvent
+                skip()
+                const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                    queue: 'hog',
+                    queuePriority: 0,
+                })
+
+                await handler.execute({
+                    invocation,
+                    action: { ...action, type: actionType } as Extract<HogFlowAction, { type: typeof actionType }>,
+                    result: invocationResult,
+                    hogExecutorOptions: { isTest },
+                })
+                await emailStatusService.flush()
+
+                const rows = produce.mock.calls.map(([, message]) => parseJSON(message.value.toString()))
+                expect(rows).toEqual(
+                    reason
+                        ? [
+                              expect.objectContaining({
+                                  team_id: team.id,
+                                  message_id: invocation.id,
+                                  status: 'failed',
+                                  reason,
+                              }),
+                          ]
+                        : []
+                )
+            }
+        )
+    })
+
     // The billing kind is the whole point of the per-channel handlers: push bills at its own rate
     // (roughly half of email), so a completed invocation must emit exactly one billable_invocation
     // carrying the handler's billing type — never fall back to another channel's kind.
@@ -575,6 +674,7 @@ describe('HogFunctionHandler', () => {
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
                 billingType,
+                null,
                 usageReporter
             )
 
@@ -618,6 +718,7 @@ describe('HogFunctionHandler', () => {
             mockRecipientPreferencesService,
             mockEmailValidationService,
             'push',
+            null,
             usageReporter
         )
 
@@ -663,7 +764,8 @@ describe('HogFunctionHandler', () => {
                 mockHogFlowFunctionsService,
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
-                billingType
+                billingType,
+                null
             )
             // The run entered on v1; v3 is what is live now and what this step executes under.
             const republished = {
@@ -859,6 +961,7 @@ describe('HogFunctionHandler', () => {
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
                 'fetch',
+                null,
                 undefined,
                 { awaitedStepsEnabled: true }
             )
@@ -925,6 +1028,7 @@ describe('HogFunctionHandler', () => {
                 mockRecipientPreferencesService,
                 mockEmailValidationService,
                 'fetch',
+                null,
                 undefined,
                 { awaitedStepsEnabled }
             )
@@ -1042,6 +1146,7 @@ describe('HogFunctionHandler', () => {
                     mockRecipientPreferencesService,
                     mockEmailValidationService,
                     'fetch',
+                    null,
                     undefined,
                     { awaitedStepsEnabled }
                 )

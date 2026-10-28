@@ -55,6 +55,7 @@ describe('InvocationResultsService', () => {
         } as unknown as jest.Mocked<ConversionWatchersService>
 
         emailStatusService = {
+            queueInvocationResults: jest.fn(),
             flush: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<EmailStatusService>
 
@@ -83,6 +84,8 @@ describe('InvocationResultsService', () => {
             expect(capturedEventsService.queueInvocationResults).toHaveBeenCalledWith(results)
             expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledTimes(1)
             expect(messageAssetsService.queueInvocationResults).toHaveBeenCalledWith(results)
+            expect(emailStatusService.queueInvocationResults).toHaveBeenCalledTimes(1)
+            expect(emailStatusService.queueInvocationResults).toHaveBeenCalledWith(results)
         })
 
         it('awaits the captured-events service (which is async)', async () => {

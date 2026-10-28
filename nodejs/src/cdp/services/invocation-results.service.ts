@@ -33,8 +33,9 @@ export interface ResultSink {
  *                                    Assets tab
  * - `ConversionWatchersService`   — per-run conversion watchers, which outlive the
  *                                    run so a late conversion stays observable
- * - `EmailStatusService`          — status rows of transactional emails that the
- *                                    email service queues at send time
+ * - `EmailStatusService`          — status rows of transactional emails: the run
+ *                                    outcome when a run fails or is canceled, and
+ *                                    the rows the email service queues at send time
  *
  * Callers interact with this one service instead of coordinating queue/flush
  * calls across the five individually. `queueInvocationResultsAndFlush` is the
@@ -72,6 +73,7 @@ export class InvocationResultsService {
             this.warehouseWebhooksService.queueInvocationResults(results)
             this.messageAssetsService.queueInvocationResults(results)
             this.conversionWatchersService.queueInvocationResults(results)
+            this.emailStatusService.queueInvocationResults(results)
             await this.capturedEventsService.queueInvocationResults(results)
         })
     }

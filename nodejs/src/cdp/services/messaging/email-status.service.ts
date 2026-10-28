@@ -5,8 +5,9 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 
 import { EMAIL_STATUS_OUTPUT, EmailStatusOutput } from '../../outputs/outputs'
-import { CyclotronJobInvocationHogFunction } from '../../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../../types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
+import { classifyError } from '../monitoring/hog-invocation-results.service'
 
 const counterEmailStatusRowsProduced = new Counter({
     name: 'cdp_email_status_rows_produced',
@@ -23,8 +24,33 @@ const counterEmailStatusWriteFailed = new Counter({
 export type EmailStatus = 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
 
 export type EmailStatusReason =
+    // A bounce type, in the words the `$bounce_type` event property uses.
+    | 'hard'
+    | 'soft'
+    | 'unknown'
     // A failed send. The provider rejected the email, or the send could not be made.
-    'provider_error'
+    | 'provider_error'
+    // The provider refused the email after it accepted the send, for example because it found a virus.
+    | 'provider_rejected'
+    // A send that was skipped. The first four are also the codes the transactional email API
+    // returns when it refuses a send before it queues the run.
+    | EmailSkipReason
+    // A run that was canceled before it finished.
+    | 'canceled'
+    // A run whose workflow or team no longer exists when it is dequeued.
+    | 'workflow_unavailable'
+    // A run that failed. The reason is the `error_kind` that hog_invocation_results stores for the
+    // run, for example `hog_error` or `timeout`.
+    | (string & {})
+
+export type EmailSkipReason =
+    | 'recipient_suppressed'
+    | 'sending_paused'
+    | 'sending_suspended'
+    | 'recipient_unreachable'
+    | 'missing_recipient'
+    | 'recipient_opted_out'
+    | 'frequency_capped'
 
 // The rank is the high part of `version`, so a message's status only moves forward in the
 // ReplacingMergeTree, whatever order the rows arrive in. `failed` ranks below `sent` so that a
@@ -38,6 +64,14 @@ const STATUS_RANK: Record<EmailStatus, bigint> = {
     bounced: 6n,
     complained: 7n,
 }
+
+// A run that fails on its email step fails after the step recorded why, for example
+// `provider_error`. The run's own failure ranks lower, so it never replaces that reason.
+const RUN_FAILED_RANK = 1n
+
+// A provider rejection comes after the provider accepted the send, so it must replace `sent`. The
+// provider never delivers a rejected email, so `delivered` and later statuses still rank above it.
+const PROVIDER_REJECTED_RANK = 4n
 
 // 2^48 ms is past the year 10000, so the status time never reaches into the rank bits.
 const STATUS_AT_BITS = 48n
@@ -66,6 +100,8 @@ export interface EmailStatusUpdate {
     reason?: EmailStatusReason
     // When the status changed. Defaults to now.
     statusAt?: Date
+    // A failure of the whole run rather than of the email step.
+    runOutcome?: boolean
 }
 
 const isoMicroseconds = (date: Date): string => {
@@ -83,7 +119,15 @@ const uuidtCreatedAt = (messageId: string): Date => {
 
 export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow => {
     const statusAt = update.statusAt && !Number.isNaN(update.statusAt.getTime()) ? update.statusAt : new Date()
-    const version = (STATUS_RANK[update.status] << STATUS_AT_BITS) + BigInt(statusAt.getTime())
+    const rank =
+        update.status !== 'failed'
+            ? STATUS_RANK[update.status]
+            : update.runOutcome
+              ? RUN_FAILED_RANK
+              : update.reason === 'provider_rejected'
+                ? PROVIDER_REJECTED_RANK
+                : STATUS_RANK.failed
+    const version = (rank << STATUS_AT_BITS) + BigInt(statusAt.getTime())
     return {
         team_id: update.teamId,
         message_id: update.messageId,
@@ -100,6 +144,13 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
 // A transactional email run is triggered by the synthetic event that the transactional email API creates.
 export const isTransactionalEmailSend = (invocation: CyclotronJobInvocationHogFunction): boolean =>
     invocation.state?.globals?.event?.event === TRANSACTIONAL_EMAIL_EVENT
+
+const isTransactionalEmailRun = (invocation: CyclotronJobInvocation): boolean =>
+    'hogFlow' in invocation && invocation.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
+
+// A dequeued job has no `hogFlow` yet, so only its state says which event triggered it.
+const isTransactionalEmailJob = (job: CyclotronJobInvocation): boolean =>
+    (job.state as { event?: { event?: string } } | null)?.event?.event === TRANSACTIONAL_EMAIL_EVENT
 
 /**
  * Records each status change of a transactional email for the email_status ClickHouse table.
@@ -131,6 +182,48 @@ export class EmailStatusService {
                 status: update.status,
             })
         }
+    }
+
+    // A skipped send has no later status, so it is recorded as failed. Otherwise the message stays
+    // queued, and the caller never learns that the email did not go out.
+    queueSkippedSend(invocation: CyclotronJobInvocationHogFunction, reason: EmailSkipReason, isTest: boolean): void {
+        if (isTest || !isTransactionalEmailSend(invocation)) {
+            return
+        }
+        this.queue({ teamId: invocation.teamId, messageId: invocation.id, status: 'failed', reason })
+    }
+
+    // A run that fails or is canceled before its email step never reaches the email service, so the
+    // run's outcome is the email's. A failed row is written even when the email went out or failed
+    // earlier in the run, because a run failure ranks below both and so never replaces them.
+    queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
+        for (const result of results) {
+            if (!(result.error || result.canceled) || !isTransactionalEmailRun(result.invocation)) {
+                continue
+            }
+            this.queue({
+                teamId: result.invocation.teamId,
+                messageId: result.invocation.id,
+                status: 'failed',
+                // Same precedence as the lifecycle row in hog_invocation_results: an error wins over a cancel.
+                reason: result.error ? classifyError(result.error).kind : 'canceled',
+                runOutcome: true,
+            })
+        }
+    }
+
+    // A job whose workflow or team is gone is dropped without a result, so nothing else records it.
+    queueUnavailableRun(job: CyclotronJobInvocation): void {
+        if (!isTransactionalEmailJob(job)) {
+            return
+        }
+        this.queue({
+            teamId: job.teamId,
+            messageId: job.id,
+            status: 'failed',
+            reason: 'workflow_unavailable',
+            runOutcome: true,
+        })
     }
 
     // Required by ResultSink. The rows go through the shared Kafka outputs, which the server
