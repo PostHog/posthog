@@ -4,6 +4,7 @@ from django import forms
 from django.conf import settings
 from django.contrib import admin, messages
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
 from django.http import Http404, HttpRequest, HttpResponse
 from django.shortcuts import redirect, render
 from django.urls import path, reverse
@@ -76,9 +77,11 @@ class DataModelingDAGAdmin(admin.ModelAdmin):
             if node is None:
                 continue
             marker = Marker(node=node, engine=item["engine"], at=item["at"], reason="")
-            if unsuspend_nodes([node], by=resumed_by, engine=marker.engine, only_if=marker.unchanged):
-                cleared += 1
-                self.log_change(request, node, f"Cleared {marker.engine} suspension. By / note: {resumed_by}")
+            # The reset and its audit entry commit together, so a failed log write cannot leave an unaudited reset.
+            with transaction.atomic():
+                if unsuspend_nodes([node], by=resumed_by, engine=marker.engine, only_if=marker.unchanged):
+                    cleared += 1
+                    self.log_change(request, node, f"Cleared {marker.engine} suspension. By / note: {resumed_by}")
         skipped = len(preview["markers"]) - cleared
         self.message_user(
             request,

@@ -93,6 +93,19 @@ class TestClearNodeSuspensionsAdmin(BaseTest):
         assert is_node_suspended(node, "clickhouse")
         assert not LogEntry.objects.filter(object_id=str(node.pk)).exists()
 
+    def test_failed_audit_entry_rolls_back_the_reset(self) -> None:
+        node = self._node()
+        preview = self.client.post(self.url, {"engine": "clickhouse", "node_ids": str(node.pk)})
+
+        with patch(
+            "products.data_modeling.backend.admin.DataModelingDAGAdmin.log_change", side_effect=RuntimeError("boom")
+        ):
+            with self.assertRaises(RuntimeError):
+                self.client.post(self.url, {"action": "clear", "preview_token": preview.context["preview_token"]})
+
+        node.refresh_from_db()
+        assert is_node_suspended(node, "clickhouse")
+
     @parameterized.expand(
         [
             ({"engine": "clickhouse"}, "Enter error text"),
