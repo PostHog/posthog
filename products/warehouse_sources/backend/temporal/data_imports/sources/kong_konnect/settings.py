@@ -34,6 +34,19 @@ CORE_ENTITY_PAGE_SIZE = 1000
 # out over) individually, so listing entities on the group too would duplicate them.
 CONTROL_PLANE_GROUP_CLUSTER_TYPE = "CLUSTER_TYPE_CONTROL_PLANE_GROUP"
 
+# A metrics query returns at most 3 metrics, so each day is queried once per group and the groups are
+# merged on the gateway service.
+SERVICE_METRICS_GROUPS: tuple[tuple[str, ...], ...] = (
+    ("request_count", "error_rate", "response_latency_average"),
+    ("response_latency_p99", "upstream_latency_p99", "kong_latency_p99"),
+)
+
+# Above this many services in one day, Konnect folds the rest into a single `____OTHER____` row.
+METRICS_QUERY_LIMIT = 1000
+
+# The metrics API rejects time ranges older than 32 days, whatever the configured initial sync window.
+METRICS_MAX_LOOKBACK_DAYS = 31
+
 
 @dataclass(frozen=True)
 class KongKonnectEndpointConfig:
@@ -45,16 +58,19 @@ class KongKonnectEndpointConfig:
     partition_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["request_id"])
     should_sync_default: bool = True
-    # `analytics` is the time-windowed POST query; `page_number` is a `page[number]` list; `cursor` is a
-    # `page[after]` list; `core_entity` fans out over every control plane.
-    kind: Literal["analytics", "page_number", "cursor", "core_entity"] = "analytics"
+    # `analytics` is the time-windowed POST query; `metrics` is the per-day aggregate POST query;
+    # `page_number` is a `page[number]` list; `cursor` is a `page[after]` list; `core_entity` fans out
+    # over every control plane.
+    kind: Literal["analytics", "metrics", "page_number", "cursor", "core_entity"] = "analytics"
     # Konnect versions each API separately, so the path prefix is per endpoint.
-    api_version: Literal["v1", "v2"] = "v2"
+    api_version: Literal["v1", "v2", "v3"] = "v2"
     sort: Optional[str] = None
     # A child endpoint fans out over the rows of `parent` (an endpoint of the same kind). `{id}` in `path`
     # is the parent row ID, which is copied onto each child row as `parent_id_field`.
     parent: Optional[str] = None
     parent_id_field: Optional[str] = None
+    # Dotted paths dropped from every row before it is written, because they can hold credentials.
+    excluded_fields: tuple[str, ...] = ()
     description: Optional[str] = None
 
 
@@ -76,6 +92,24 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
         ],
         description="Detailed records for every request proxied through the gateway (Advanced Analytics). "
         "Historical depth on initial sync is limited by your Konnect plan's data retention.",
+    ),
+    # Aggregates from the Analytics Metrics API, one row per gateway service per UTC day. Each run re-reads
+    # the last synced day, because that day can still be in progress, and the merge replaces its rows.
+    "daily_service_metrics": KongKonnectEndpointConfig(
+        name="daily_service_metrics",
+        path="/metrics",
+        kind="metrics",
+        partition_key="day",
+        primary_keys=["day", "gateway_service"],
+        incremental_fields=[
+            {
+                "label": "day",
+                "type": IncrementalFieldType.DateTime,
+                "field": "day",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        description="Daily traffic, error rate, and latency for each gateway service, from the Konnect Analytics Metrics API.",
     ),
     # Lookups that resolve the IDs carried on api_requests rows. None of these list endpoints accept a
     # timestamp filter, so they sync as full refresh.
@@ -114,6 +148,32 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
         primary_keys=["control_plane_id", "id"],
         incremental_fields=[],
         description="Gateway consumers across all control planes. Resolves the consumer ID on api_requests.",
+    ),
+    "plugins": KongKonnectEndpointConfig(
+        name="plugins",
+        path="/core-entities/plugins",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        excluded_fields=("config",),
+        incremental_fields=[],
+        description="Gateway plugins across all control planes, with the service, route, or consumer each one is scoped to.",
+    ),
+    "upstreams": KongKonnectEndpointConfig(
+        name="upstreams",
+        path="/core-entities/upstreams",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        excluded_fields=("healthchecks.active.headers",),
+        incremental_fields=[],
+        description="Gateway upstreams across all control planes, with their load balancing and health check settings.",
+    ),
+    "targets": KongKonnectEndpointConfig(
+        name="targets",
+        path="/core-entities/targets",
+        kind="core_entity",
+        primary_keys=["control_plane_id", "id"],
+        incremental_fields=[],
+        description="Upstream targets across all control planes: the backend host and port each upstream balances over.",
     ),
     "consumer_groups": KongKonnectEndpointConfig(
         name="consumer_groups",
@@ -212,6 +272,30 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
         primary_keys=["realm_id", "id"],
         incremental_fields=[],
         description="Consumers registered in each Konnect identity realm, shared across the control planes the realm allows.",
+    ),
+    # Metering & Billing v3. Subscriptions sort by ID because their ULIDs are stable and time-ordered,
+    # while the default `active_from` can change.
+    "meters": KongKonnectEndpointConfig(
+        name="meters",
+        path="/openmeter/meters",
+        kind="page_number",
+        api_version="v3",
+        sort="created_at",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Metering & Billing meters: the event type and aggregation that each usage meter counts.",
+    ),
+    "subscriptions": KongKonnectEndpointConfig(
+        name="subscriptions",
+        path="/openmeter/subscriptions",
+        kind="page_number",
+        api_version="v3",
+        sort="id",
+        partition_key="created_at",
+        primary_keys=["id"],
+        incremental_fields=[],
+        description="Metering & Billing customer subscriptions, with their plan, status, and current billing period.",
     ),
 }
 
