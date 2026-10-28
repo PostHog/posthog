@@ -26,7 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.s
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class TrunkIoResumeConfig:
     """Unified resume shape for every Trunk endpoint. Each `source_for_pipeline` call gets its
     own resumable-source-manager key (namespaced by job id), so only the fields relevant to the
