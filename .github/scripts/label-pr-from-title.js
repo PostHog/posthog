@@ -3,8 +3,7 @@
 // Adds team/feature labels to a PR based on its conventional-commit scope
 // (`type(scope): summary`) and the paths it changes, plus the `docs` label for docs-typed or Inkeep-bot
 // PRs, plus the feature flags team's `review/low-hanging-fruit` label (see the
-// feature flags team section below). Additive only — it never removes labels, so manual labels and the
-// ownership-based labeler (assign-reviewers.js) are left intact.
+// feature flags team section below).
 //
 // The scope and path -> labels mapping lives in .github/auto-assign-labels.json, OUTSIDE
 // this script, so the owning team can adjust mappings without changing (and
@@ -106,45 +105,62 @@ function labelsForFiles(files, rules) {
     return Array.from(labels)
 }
 
-const PR_FILES_PAGE_SIZE = 100
+const GITHUB_TOKEN_LOGIN = 'github-actions[bot]'
+
+function staleLabels(eventsOldestFirst, wantedLabels, rules) {
+    const configLabels = new Set(rules.flatMap((rule) => rule.labels || []))
+    const lastEventByLabel = new Map()
+    for (const event of eventsOldestFirst) {
+        if ((event.event === 'labeled' || event.event === 'unlabeled') && event.label) {
+            lastEventByLabel.set(event.label.name, event)
+        }
+    }
+
+    return Array.from(lastEventByLabel.values())
+        .filter((event) => event.event === 'labeled' && event.actor?.login === GITHUB_TOKEN_LOGIN)
+        .map((event) => event.label.name)
+        .filter((label) => configLabels.has(label) && !wantedLabels.includes(label))
+}
+
+const PAGE_SIZE = 100
 
 // The job applies every label after this request, and it has a five-minute
 // timeout. A stalled request must give up well before that, so the team and
 // docs labels still get applied.
-const PR_FILES_REQUEST_TIMEOUT_MS = 10_000
+const REQUEST_TIMEOUT_MS = 10_000
 
 // Returns null on failure, because a missing file list must not fail the job or
 // apply the low-hanging-fruit label.
-async function fetchPrFiles() {
-    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
-    const files = []
+async function fetchAllPages(resource) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY } = process.env
+    const items = []
 
     try {
         for (let page = 1; ; page++) {
             const response = await fetch(
-                `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=${PR_FILES_PAGE_SIZE}&page=${page}`,
+                `https://api.github.com/repos/${GITHUB_REPOSITORY}/${resource}?per_page=${PAGE_SIZE}&page=${page}`,
                 {
                     headers: {
                         Authorization: `token ${GITHUB_TOKEN}`,
                         Accept: 'application/vnd.github.v3+json',
                     },
-                    signal: AbortSignal.timeout(PR_FILES_REQUEST_TIMEOUT_MS),
+                    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
                 }
             )
 
             if (!response.ok) {
-                console.warn(`⚠️  Could not list PR files: ${response.status} ${response.statusText}`)
+                console.warn(`⚠️  Could not list ${resource}: ${response.status} ${response.statusText}`)
                 return null
             }
 
             const batch = await response.json()
-            files.push(...batch)
-            if (batch.length < PR_FILES_PAGE_SIZE) {
-                return files
+            items.push(...batch)
+            if (batch.length < PAGE_SIZE) {
+                return items
             }
         }
     } catch (error) {
-        console.warn(`⚠️  Could not list PR files: ${error?.message ?? error}`)
+        console.warn(`⚠️  Could not list ${resource}: ${error?.message ?? error}`)
         return null
     }
 }
@@ -165,7 +181,7 @@ async function addLabels(labels) {
 
     try {
         // Idempotent: GitHub keeps labels already present, so re-runs on title
-        // edits are safe. Additive — we never strip labels that no longer match.
+        // edits are safe.
         const response = await fetch(`https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels`, {
             method: 'POST',
             headers: {
@@ -188,6 +204,32 @@ async function addLabels(labels) {
         // A non-Error throw has no `.message`; fall back to the value itself so
         // the real reason still surfaces in the log.
         console.warn(`⚠️  Skipping labels: ${error?.message ?? error}`)
+    }
+}
+
+async function removeLabels(labels) {
+    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
+
+    for (const label of labels) {
+        console.info(`Removing stale label: ${label}`)
+        try {
+            const response = await fetch(
+                `https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels/${encodeURIComponent(label)}`,
+                {
+                    method: 'DELETE',
+                    headers: {
+                        Authorization: `token ${GITHUB_TOKEN}`,
+                        Accept: 'application/vnd.github.v3+json',
+                    },
+                    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                }
+            )
+            if (!response.ok) {
+                console.warn(`⚠️  Could not remove ${label}: ${response.status} ${response.statusText}`)
+            }
+        } catch (error) {
+            console.warn(`⚠️  Could not remove ${label}: ${error?.message ?? error}`)
+        }
     }
 }
 
@@ -333,7 +375,7 @@ async function main() {
 
     try {
         const rules = loadRules()
-        const files = await fetchPrFiles()
+        const files = await fetchAllPages(`pulls/${PR_NUMBER}/files`)
         const labels = Array.from(new Set([...labelsForTitle(PR_TITLE, rules), ...labelsForFiles(files ?? [], rules)]))
         if (docsLabelApplies(PR_TITLE, PR_AUTHOR) && !labels.includes('docs')) {
             labels.push('docs')
@@ -344,6 +386,10 @@ async function main() {
         }
         console.info(`PR title: ${PR_TITLE || '(empty)'}`)
         await addLabels(labels)
+        if (files) {
+            const events = await fetchAllPages(`issues/${PR_NUMBER}/events`)
+            await removeLabels(staleLabels(events ?? [], labels, rules))
+        }
     } catch (error) {
         console.error('Error:', error?.message ?? error)
         process.exit(1)
@@ -360,6 +406,7 @@ module.exports = {
     docsLabelApplies,
     labelsForTitle,
     labelsForFiles,
+    staleLabels,
     loadRules,
     isFlagsLowHangingFruitCandidate,
     isFlagsLowHangingFruit,
