@@ -16,6 +16,7 @@ from django.utils import timezone as django_timezone
 
 import redis as redis_lib
 import structlog
+from cachetools import TTLCache, cached
 from clickhouse_driver.errors import ServerException
 from prometheus_client import Counter
 
@@ -46,12 +47,13 @@ from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
-from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
+from posthog.settings import CLICKHOUSE_AUX_CLUSTER, DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -187,6 +189,14 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
     ["table"],
 )
 
+# Any increment means a spread-read table's cluster grew past two replicas per shard. Inserts
+# stay correct but now fail when any one replica is down; review CONSISTENCY.md.
+LAZY_COMPUTATION_FULL_REPLICA_QUORUM_INSERTS_TOTAL = Counter(
+    "lazy_computation_full_replica_quorum_inserts_total",
+    "Spread-read inserts that waited for every replica because the cluster has more than two per shard.",
+    ["table", "replicas"],
+)
+
 
 def _get_insert_settings(
     team_id: int,
@@ -214,14 +224,15 @@ def _get_insert_settings(
     into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
 
     `load_balancing` comes from the HogQL table that reads `table`, so the INSERT and the
-    later SELECT choose replicas the same way. A table that sets none uses the profile default.
+    later SELECT choose replicas the same way. A table that sets none uses the profile default,
+    so its quorum is the live replica count of its cluster instead of "auto" (`_insert_quorum`).
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
     settings.update(
         {
             "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
-            "insert_quorum": PREAGGREGATION_INSERT_QUORUM if read_after_write else 0,
+            "insert_quorum": _insert_quorum(table, read_after_write),
             "insert_quorum_timeout": PREAGGREGATION_INSERT_QUORUM_TIMEOUT_MS,
             # The executor marks a job READY as soon as the INSERT returns, so rows must be on the
             # shards by then — not sitting in the initiator's async distribution queue, where they
@@ -633,6 +644,51 @@ def _read_table_load_balancing(table: LazyComputationTable) -> dict[str, str]:
         return {}
     load_balancing = read_table.top_level_settings.load_balancing
     return {"load_balancing": load_balancing} if load_balancing is not None else {}
+
+
+# The cluster of each table whose HogQL read table spreads reads over replicas (sets no
+# `load_balancing`). A spread read is exact only when the INSERT quorum covers every replica.
+_SPREAD_READ_TABLE_CLUSTERS: dict[LazyComputationTable, str] = {
+    LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED: CLICKHOUSE_AUX_CLUSTER,
+}
+
+_REPLICAS_PER_SHARD_CACHE: TTLCache = TTLCache(maxsize=8, ttl=300)
+
+
+@cached(cache=_REPLICAS_PER_SHARD_CACHE)
+def _replicas_per_shard(cluster: str) -> int:
+    rows = sync_execute(
+        """
+        SELECT max(replicas)
+        FROM (SELECT count() AS replicas FROM system.clusters WHERE cluster = %(cluster)s GROUP BY shard_num)
+        """,
+        {"cluster": cluster},
+        workload=Workload.DEFAULT,
+    )
+    return int(rows[0][0]) if rows else 0
+
+
+def _insert_quorum(table: LazyComputationTable, read_after_write: bool) -> str | int:
+    if not read_after_write or PREAGGREGATION_INSERT_QUORUM == 0:
+        return 0
+    cluster = _SPREAD_READ_TABLE_CLUSTERS.get(table)
+    if cluster is None:
+        return PREAGGREGATION_INSERT_QUORUM
+    try:
+        replicas = _replicas_per_shard(cluster)
+    except Exception:
+        logger.warning(
+            "lazy_computation.replica_count_lookup_failed", table=table.value, cluster=cluster, exc_info=True
+        )
+        return PREAGGREGATION_INSERT_QUORUM
+    if replicas < 1:
+        return PREAGGREGATION_INSERT_QUORUM
+    # With two replicas this equals "auto". With more, "auto" acknowledges a majority only,
+    # and a spread read can reach a replica that does not have the part yet.
+    if replicas > 2:
+        LAZY_COMPUTATION_FULL_REPLICA_QUORUM_INSERTS_TOTAL.labels(table=table.value, replicas=str(replicas)).inc()
+        logger.warning("lazy_computation.full_replica_quorum", table=table.value, cluster=cluster, replicas=replicas)
+    return replicas
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
