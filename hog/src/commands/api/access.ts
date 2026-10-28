@@ -1,5 +1,32 @@
+import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
+
 import { defineCommand } from '@/core/command'
+import type { Context } from '@/core/context'
+import { plural } from '@/core/text'
+import { ApiError } from '@/posthog/api'
 import { apiConnection, groupSlug, unwrap } from '@/posthog/api-tools'
+
+const TOP_SCOPES = 10
+
+// A key can be limited to projects or to organizations. An organization limit needs the project's organization.
+async function reachesProject(ctx: Context, access: ApiKeyAccess, projectId: string): Promise<boolean> {
+    if (access.scopedTeams.length > 0) {
+        return access.scopedTeams.includes(Number(projectId))
+    }
+    if (access.scopedOrganizations.length === 0) {
+        return true
+    }
+    try {
+        const api = await ctx.posthog()
+        const project = await api.get<{ organization: string }>(`/api/projects/${projectId}/`)
+        return access.scopedOrganizations.includes(project.organization)
+    } catch (error) {
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+            return false
+        }
+        throw error
+    }
+}
 
 export default defineCommand({
     description: 'Show what the personal API key can reach, and the scopes that would unlock more tools',
@@ -10,7 +37,7 @@ export default defineCommand({
         const library = await ctx.apiTools()
         const connection = await apiConnection(ctx)
         const access = unwrap(await library.keyAccess(connection))
-        const projectId = Number(connection.projectId)
+        const projectId = connection.projectId ?? ''
         const blocked = new Map<string, { tools: number; groups: Set<string> }>()
         let usable = 0
         const tools = library.tools()
@@ -27,7 +54,7 @@ export default defineCommand({
         return {
             scopes: access.scopes,
             projectId: connection.projectId ?? null,
-            projectAllowed: access.scopedTeams.length === 0 || access.scopedTeams.includes(projectId),
+            projectAllowed: await reachesProject(ctx, access, projectId),
             scopedProjects: access.scopedTeams,
             scopedOrganizations: access.scopedOrganizations,
             tools: tools.length,
@@ -51,8 +78,14 @@ export default defineCommand({
             out.line()
             out.table(
                 ['missing scope', 'tools', 'groups'],
-                result.missingScopes.map((entry) => [entry.scope, entry.tools, entry.groups.join(', ')])
+                result.missingScopes
+                    .slice(0, TOP_SCOPES)
+                    .map((entry) => [entry.scope, entry.tools, entry.groups.join(', ')])
             )
+            const more = result.missingScopes.length - TOP_SCOPES
+            if (more > 0) {
+                out.line(out.style(`${plural(more, 'more missing scope')}. \`-o json\` lists them all.`, 'dim'))
+            }
         }
     },
 })

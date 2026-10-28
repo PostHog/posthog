@@ -21,6 +21,7 @@ const tool = (
     destructive: kind === 'destructive',
     idempotent: kind === 'read',
     openWorld: true,
+    requiresAiConsent: false,
 })
 
 const TOOLS = [
@@ -33,10 +34,14 @@ interface FakeLibrary extends ApiToolLibrary {
     calls: { tool: string; input: Record<string, unknown>; connection: ApiConnection; confirm: boolean }[]
 }
 
-function fakeLibrary(
-    scopes: string[],
-    callResult: ApiToolResult<unknown> = { ok: true, value: { ok: 1 } }
-): FakeLibrary {
+interface FakeLibraryOptions {
+    callResult?: ApiToolResult<unknown>
+    scopedOrganizations?: string[]
+    lookupFails?: boolean
+}
+
+function fakeLibrary(scopes: string[], options: FakeLibraryOptions = {}): FakeLibrary {
+    const { callResult = { ok: true, value: { ok: 1 } }, scopedOrganizations = [], lookupFails = false } = options
     const calls: FakeLibrary['calls'] = []
     return {
         calls,
@@ -51,7 +56,10 @@ function fakeLibrary(
                 ? { valid: false, error: 'parameter "limit" must be of type number' }
                 : { valid: true, input },
         missingScopes: (granted, required) => required.filter((scope) => !granted.includes(scope)),
-        keyAccess: async () => ({ ok: true, value: { scopes, scopedTeams: [], scopedOrganizations: [] } }),
+        keyAccess: async () =>
+            lookupFails
+                ? { ok: false, error: { code: 'api_error', message: 'Server error', status: 500 } }
+                : { ok: true, value: { scopes, scopedTeams: [], scopedOrganizations } },
         call: async (name, input, connection, confirm) => {
             calls.push({ tool: name, input, connection, confirm })
             return callResult
@@ -72,8 +80,11 @@ describe('hog api', () => {
         )
     })
 
-    test('tools are browsable without credentials', async () => {
-        const result = await runHog(['api', 'tools', 'Feature flags'], { apiTools: fakeLibrary([]) })
+    test.each([
+        ['without credentials', {}, fakeLibrary([])],
+        ['when the key lookup fails', { env: TEST_CREDENTIALS }, fakeLibrary([], { lookupFails: true })],
+    ])('tools are browsable %s', async (_name, options, library) => {
+        const result = await runHog(['api', 'tools', 'Feature flags'], { ...options, apiTools: library })
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toBe(
             '{"group":"feature-flags","kind":"read","missingScopes":null,"name":"flag-list","summary":"Summary of flag-list","usable":null}\n' +
@@ -102,6 +113,25 @@ describe('hog api', () => {
             ['--dry-run'],
             { input: { limit: 2 }, tool: 'flag-list', valid: true },
             [],
+        ],
+        [
+            'an organization override drops the saved project',
+            ['--organization-id', 'org-b'],
+            { ok: 1 },
+            [
+                {
+                    tool: 'flag-list',
+                    input: { limit: 2 },
+                    connection: {
+                        apiKey: 'phx_test',
+                        host: 'https://ph.example.com',
+                        organizationId: 'org-b',
+                        clientName: 'hog',
+                        clientVersion: expect.any(String),
+                    },
+                    confirm: false,
+                },
+            ],
         ],
         [
             'a call runs as hog in the chosen project',
@@ -133,10 +163,16 @@ describe('hog api', () => {
         expect(library.calls).toEqual(calls)
     })
 
-    test('a refused call names every scope the key is missing', async () => {
+    test.each([
+        ['names every scope the key is missing', false, 'insight:write, query:read'],
+        ['keeps the scope PostHog named when the key lookup fails', true, 'insight:write'],
+    ])('a refused call %s', async (_name, lookupFails, scopes) => {
         const library = fakeLibrary(['feature_flag:read'], {
-            ok: false,
-            error: { code: 'permission_denied', message: 'denied', status: 403, missingScope: 'insight:write' },
+            lookupFails,
+            callResult: {
+                ok: false,
+                error: { code: 'permission_denied', message: 'denied', status: 403, missingScope: 'insight:write' },
+            },
         })
         const result = await runHog(['api', 'call', 'insight-create', '{}'], {
             env: TEST_CREDENTIALS,
@@ -144,19 +180,24 @@ describe('hog api', () => {
         })
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
-            message: 'The personal API key needs insight:write, query:read to call insight-create.',
+            message: `The personal API key needs ${scopes} to call insight-create.`,
         })
     })
 
-    test('access lists each missing scope with the tools it blocks', async () => {
+    test.each([
+        ['an unlimited key reaches the project', [], undefined, true],
+        ["a key limited to the project's organization reaches it", ['org-a'], 'org-a', true],
+        ['a key limited to another organization does not', ['org-b'], 'org-a', false],
+    ])('access: %s', async (_name, scopedOrganizations, projectOrganization, projectAllowed) => {
         const result = await runHog(['api', 'access'], {
             env: TEST_CREDENTIALS,
-            apiTools: fakeLibrary(['feature_flag:read', 'feature_flag:write']),
+            apiTools: fakeLibrary(['feature_flag:read', 'feature_flag:write'], { scopedOrganizations }),
+            respond: () => ({ status: 200, body: { id: 7, organization: projectOrganization } }),
         })
         expect(result.json()).toMatchObject({
             usable: 2,
             tools: 3,
-            projectAllowed: true,
+            projectAllowed,
             missingScopes: [
                 { scope: 'insight:write', tools: 1, groups: ['insights-analytics'] },
                 { scope: 'query:read', tools: 1, groups: ['insights-analytics'] },
