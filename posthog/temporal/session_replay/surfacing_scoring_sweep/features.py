@@ -248,9 +248,9 @@ def out_of_contract_row_mask(df: pd.DataFrame, *, feature_names: tuple[str, ...]
     """Boolean mask of rows whose feature values break the trained contract.
 
     Flags +/-inf (a feature-engineering bug — division returning inf), values
-    that overflow float32, and values outside `FEATURE_RANGES` bounds. NaN passes — XGBoost handles it
-    natively, and our SQL deliberately produces NULL (→ NaN) when
-    denominators are zero.
+    that overflow float32, and values outside `FEATURE_RANGES` bounds. NaN
+    passes — XGBoost handles it natively, and our SQL deliberately produces
+    NULL (→ NaN) when denominators are zero.
 
     Replay events are client-controlled, so a single crafted session can
     produce an out-of-range derived feature. Flagging per-row lets callers
