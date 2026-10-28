@@ -40,9 +40,7 @@ export function SentryMigrationItemCard({
                 />
                 <div className="flex flex-wrap items-center gap-1">
                     {builtInFilter ? (
-                        <LemonTag type={item.already_in_posthog ? 'completion' : 'success'}>
-                            {item.already_in_posthog ? 'Already on' : 'Built into PostHog'}
-                        </LemonTag>
+                        item.already_in_posthog && <LemonTag type="completion">Already on</LemonTag>
                     ) : (
                         <>
                             {item.already_in_posthog && <LemonTag type="completion">Already in PostHog</LemonTag>}
