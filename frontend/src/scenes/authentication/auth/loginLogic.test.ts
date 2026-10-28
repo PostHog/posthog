@@ -542,6 +542,7 @@ describe('loginLogic', () => {
         const originalContext = window.POSTHOG_APP_CONTEXT
         const originalLocation = window.location
         let hrefSpy: jest.Mock
+        let replaceSpy: jest.Mock
 
         beforeEach(() => {
             initKeaTests()
@@ -549,6 +550,7 @@ describe('loginLogic', () => {
             window.POSTHOG_APP_CONTEXT = { current_team: { id: 5 } } as any
             window.sessionStorage.clear()
             hrefSpy = jest.fn()
+            replaceSpy = jest.fn()
             Object.defineProperty(window, 'location', {
                 value: {
                     origin: 'http://localhost',
@@ -558,6 +560,7 @@ describe('loginLogic', () => {
                     set href(url: string) {
                         hrefSpy(url)
                     },
+                    replace: replaceSpy,
                 },
                 configurable: true,
             })
@@ -587,7 +590,8 @@ describe('loginLogic', () => {
             window.POSTHOG_APP_CONTEXT = { anonymous: true, current_team: { id: 5 } } as any
             router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
             handleLoginRedirect()
-            expect(hrefSpy).toHaveBeenCalledWith('/project/5/dashboard/1')
+            // A replace (not an href assignment) so the stale signed-out document leaves history.
+            expect(replaceSpy).toHaveBeenCalledWith('/project/5/dashboard/1')
         })
 
         it('stays client-side when the full navigation came straight back signed out', () => {
@@ -598,7 +602,7 @@ describe('loginLogic', () => {
             router.actions.push(`/login?next=${encodeURIComponent('/project/5/dashboard/1')}`)
             handleLoginRedirect()
 
-            expect(hrefSpy).toHaveBeenCalledTimes(1)
+            expect(replaceSpy).toHaveBeenCalledTimes(1)
             expect(posthog.capture).toHaveBeenCalledWith('signed-out page redirect repeated')
         })
 

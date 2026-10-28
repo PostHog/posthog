@@ -137,7 +137,8 @@ function claimFullLoadFromSignedOutPage(nextURL: string): boolean {
         window.sessionStorage.setItem(SIGNED_OUT_PAGE_FULL_LOAD_KEY, JSON.stringify({ url: nextURL, at: Date.now() }))
         return true
     } catch {
-        return false
+        // sessionStorage being unavailable isn't a repeat redirect, so still claim the full load.
+        return true
     }
 }
 
@@ -151,7 +152,9 @@ export function handleLoginRedirect(): void {
     // stable chunk import map holds only the signed-out scenes. The app must arrive as a new document.
     if (!isUserLoggedIn()) {
         if (claimFullLoadFromSignedOutPage(nextURL)) {
-            window.location.href = nextURL
+            // Replace rather than assign so the stale signed-out document doesn't stay in history —
+            // otherwise Back would return to /login, or redirect into the app again.
+            window.location.replace(nextURL)
             return
         }
         posthog.capture('signed-out page redirect repeated')
