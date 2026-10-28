@@ -1907,6 +1907,15 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             bytecode: personPropertyBytecode('plan', 'growth'),
             properties: [{ key: 'plan', type: 'person', value: 'growth', operator: 'exact' }],
         }
+        const READS_EVENT_AND_PERSON_FILTERS = {
+            bytecode: READS_EVENT_FILTERS.bytecode,
+            properties: [...READS_EVENT_FILTERS.properties, ...READS_PERSON_FILTERS.properties],
+        }
+        // variables.tier == 'gold'
+        const READS_VARIABLE_FILTERS = {
+            bytecode: ['_H', 1, 32, 'gold', 32, 'tier', 32, 'variables', 1, 2, 11],
+            properties: [{ key: 'tier', type: 'workflow_variable', value: 'gold', operator: 'exact' }],
+        }
 
         const parkOn = (filters: Record<string, any>): void => {
             matcher.findRows = [
@@ -1949,10 +1958,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 person: { id: 'person-uuid-1', properties: { plan: 'growth' }, name: '', url: '' },
             })
 
-        it('wakes a wait whose condition reads the event, and leaves the decision to the worker', async () => {
+        it('wakes a wait whose condition reads the person and the event, and leaves the decision to the worker', async () => {
             // The synthetic person event carries no properties, so evaluating here would read the
             // condition as false and strand the wait until its ceiling.
-            parkOn(READS_EVENT_FILTERS)
+            parkOn(READS_EVENT_AND_PERSON_FILTERS)
 
             await matcher.runWake([personWake()], 'person')
 
@@ -1975,6 +1984,18 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             const written = parseJSON(update!.params[1][0].toString('utf-8'))
             expect(written.state.currentAction.eventMatched).toBe(true)
             expect(written.state.currentAction.recheckWake).toBeUndefined()
+        })
+
+        it.each([
+            ['the event', READS_EVENT_FILTERS],
+            ['a workflow variable', READS_VARIABLE_FILTERS],
+        ])('does not wake a wait whose condition reads only %s on a person change', async (_, filters) => {
+            // Nothing in the condition can change with the person, so a wake would only re-park.
+            parkOn(filters)
+
+            await matcher.runWake([personWake()], 'person')
+
+            expect(matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))).toBeUndefined()
         })
 
         it('does not wake on the events stream, where the real event is present', async () => {

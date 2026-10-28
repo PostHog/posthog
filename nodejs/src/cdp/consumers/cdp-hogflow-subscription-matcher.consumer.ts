@@ -165,16 +165,31 @@ type PersonDistinctIdMove = {
 // A parked job the matcher needs to act on this batch: either resume it (stepMatched, or a
 // conversion match on an exit-on-conversion flow) and/or count its conversion once. Carries the
 // fields needed to emit the `conversion` metric without re-reading the hogflow.
+// Filter types that read the trigger event or the run's own variables. Neither changes while the run
+// waits, so a person change cannot move a term of these types.
+const PERSON_INDEPENDENT_FILTER_TYPES = new Set([
+    'event',
+    'event_metadata',
+    'meta',
+    'element',
+    'feature',
+    'session',
+    'workflow_variable',
+    'group',
+])
+
 // A person wake carries a synthetic $person_updated event with no properties and no workflow
 // variables, so anything but a pure person-property condition reads as false here and would strand
 // the wait until its ceiling. Wake the job and let the worker, which holds the run's own globals, decide.
+// A condition with no term a person change can move is left alone: the worker would only re-park it.
 function conditionNeedsRunGlobals(action: Extract<HogFlowAction, { type: 'wait_until_condition' }>): boolean {
     const properties = action.config.condition?.filters?.properties
     if (!Array.isArray(properties) || properties.length === 0) {
         // An event-shaped condition needs an event, which the events stream delivers.
         return false
     }
-    return properties.some((p: { type?: string }) => p?.type !== 'person')
+    const types: (string | undefined)[] = properties.map((p: { type?: string }) => p?.type)
+    return types.some((t) => t !== 'person') && types.some((t) => !PERSON_INDEPENDENT_FILTER_TYPES.has(t ?? ''))
 }
 
 type MatchedJob = {
