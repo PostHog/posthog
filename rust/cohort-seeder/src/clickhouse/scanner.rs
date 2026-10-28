@@ -146,7 +146,8 @@ impl ChunkScanner {
             counter!(CHUNKS_VACUOUS, "reason" => "empty_scan").increment(1);
             return Ok((Vec::new(), ScanVolume::default()));
         }
-        // A partial day would build tiles that undercount, and the run would still complete.
+        // The TTL may already have dropped some of this day's rows, so the tiles would undercount
+        // and the run would still complete.
         if let Some((expired, ..)) = planned
             .iter()
             .find(|(table, ..)| table.past_retention(&domain, now_ms))
@@ -161,10 +162,10 @@ impl ChunkScanner {
             spec,
             cohort_id: run.sole_cohort_id(),
         };
-        let mut arms = Vec::with_capacity(planned.len());
+        let mut queries = Vec::with_capacity(planned.len());
         for (table, scan, scan_spec) in planned {
-            arms.push(
-                self.narrow_arm(
+            queries.push(
+                self.narrow_table_query(
                     run,
                     analyses,
                     table,
@@ -179,12 +180,12 @@ impl ChunkScanner {
         }
 
         let (tiles, volume, projected_fold) = self
-            .scan_arms(
+            .scan_tables(
                 spec,
                 run,
                 &domain,
                 &active,
-                arms.iter().map(ScanArm::parts),
+                queries.iter().map(TableQuery::parts),
                 ScanKind::Behavioral,
                 comment,
                 lease_cancel,
@@ -195,7 +196,10 @@ impl ChunkScanner {
         drop(timer);
 
         if self.shadow_compare {
-            match CompareSkip::of(arms.iter().map(|arm| &arm.projection), projected_fold) {
+            match CompareSkip::of(
+                queries.iter().map(|query| &query.projection),
+                projected_fold,
+            ) {
                 Some(skip) => {
                     let team = team_label(&self.allowlist, run.team_id);
                     counter!(SHADOW_COMPARE, "result" => skip.as_str(), "team_id" => team)
@@ -207,7 +211,7 @@ impl ChunkScanner {
                         run,
                         &domain,
                         &active,
-                        &arms,
+                        &queries,
                         &tiles,
                         projected_fold,
                         lease_cancel,
@@ -223,7 +227,7 @@ impl ChunkScanner {
     /// Narrow one table's scan to the conditions its rows can reach: its projection, its row
     /// filter, and the materialized columns of its table.
     #[allow(clippy::too_many_arguments)]
-    async fn narrow_arm(
+    async fn narrow_table_query(
         &self,
         run: &PinnedRun,
         analyses: &ConditionAnalyses,
@@ -233,7 +237,7 @@ impl ChunkScanner {
         comment: ScanLogComment,
         lease_cancel: &CancellationToken,
         shutdown: &CancellationToken,
-    ) -> Result<ScanArm, ScanHalt> {
+    ) -> Result<TableQuery, ScanHalt> {
         let projection = analyses.projection(&scan.active);
         let exact = analyses.column_exact_keys(&scan.active);
         let row_filter = analyses.row_filter(&scan.event_names, &run.filters, &scan.active);
@@ -249,7 +253,7 @@ impl ChunkScanner {
         };
         let narrowed = narrow_scan(scan_spec, sourcing, &row_filter, &columns);
         self.record_narrowing(run.team_id, table, &narrowed);
-        Ok(ScanArm {
+        Ok(TableQuery {
             spec: narrowed.filtered.spec,
             projection: narrowed.sourced.into_projection(),
         })
@@ -263,13 +267,13 @@ impl ChunkScanner {
     /// are emitted for the authoritative [`ScanKind::Behavioral`] arm only, so a diagnostic
     /// re-scan of the same rows never doubles a throughput series.
     #[allow(clippy::too_many_arguments)]
-    async fn scan_arms<'a>(
+    async fn scan_tables<'a>(
         &self,
         spec: ChunkSpec,
         run: &PinnedRun,
         domain: &SeedDomain,
         active: &ActiveConditions,
-        arms: impl IntoIterator<Item = (&'a ScanSpec, &'a ChunkProjection)>,
+        queries: impl IntoIterator<Item = (&'a ScanSpec, &'a ChunkProjection)>,
         kind: ScanKind,
         comment: ScanLogComment,
         lease_cancel: &CancellationToken,
@@ -279,7 +283,7 @@ impl ChunkScanner {
             ChunkAccumulator::new(run.team_id, &run.filters, active).map_err(ScanError::from)?;
         let mut volume = ScanVolume::default();
         let mut summary = FoldSummary::default();
-        for (scan_spec, projection) in arms {
+        for (scan_spec, projection) in queries {
             let mut cursor = self
                 .client
                 .query(&scan_sql(scan_spec, projection))
@@ -333,7 +337,7 @@ impl ChunkScanner {
         run: &PinnedRun,
         domain: &SeedDomain,
         active: &ActiveConditions,
-        arms: &[ScanArm],
+        queries: &[TableQuery],
         projected_tiles: &[SeedTile],
         projected_fold: FoldSummary,
         lease_cancel: &CancellationToken,
@@ -345,12 +349,15 @@ impl ChunkScanner {
         let _timer = MetricTimer::start(SHADOW_COMPARE_DURATION_SECONDS);
         let wide = ChunkProjection::FullColumns;
         let (legacy_tiles, legacy_fold) = match self
-            .scan_arms(
+            .scan_tables(
                 spec,
                 run,
                 domain,
                 active,
-                arms.iter().map(ScanArm::spec).zip(iter::repeat(&wide)),
+                queries
+                    .iter()
+                    .map(TableQuery::spec)
+                    .zip(iter::repeat(&wide)),
                 ScanKind::BehavioralCompare,
                 ScanLogComment::BehavioralCompareChunk {
                     spec,
@@ -514,14 +521,14 @@ impl ChunkScanner {
 
 /// One table's narrowed scan within a chunk.
 #[derive(Debug)]
-struct ScanArm {
+struct TableQuery {
     spec: ScanSpec,
     projection: ChunkProjection,
 }
 
 /// Methods rather than closures, because a closure that returns a borrow of its argument fails the
 /// `Send` check on the spawned chunk future.
-impl ScanArm {
+impl TableQuery {
     const fn spec(&self) -> &ScanSpec {
         &self.spec
     }
@@ -1100,7 +1107,7 @@ mod tests {
     /// reads them by label. This pins the three sampling rules the recorder applies, which no test
     /// over the projection types themselves can see: a full blob takes no key sample at all, an
     /// unread one takes a `0`, and the outcome label follows the arm. Each series also names the
-    /// table its arm scanned, which is how a rollout tells the two tables apart.
+    /// table its query scanned, which is how a rollout tells the two tables apart.
     ///
     /// The recorder here is a plain one, not the configured one — which ladder
     /// [`PROJECTION_KEYS`] renders under is `observability::metrics`'s question, and answering it
@@ -1232,8 +1239,8 @@ mod tests {
                 "{blob} took a sample from the full-columns chunk:\n{rendered}"
             );
         }
-        // The flag arm's increments carry `table="flag_evaluations"`, so they leave the events
-        // series above unchanged.
+        // The `flag_evaluations` query's increments carry `table="flag_evaluations"`, so they leave
+        // the events series above unchanged.
         for series in [
             format!("{CHUNKS_PROJECTED}{{outcome=\"full_columns\",table=\"flag_evaluations\",team_id=\"2\"}} 1"),
             format!("{SCAN_PROPERTIES_SOURCE}{{source=\"whole\",table=\"flag_evaluations\",team_id=\"2\"}} 1"),
@@ -1597,8 +1604,8 @@ mod tests {
     }
 
     /// Tiles built from what the TTL left of a day would undercount while the run still completes.
-    /// The flag arm comes second, so a check of the first arm alone passes the chunk. The refusal
-    /// comes before any query, so the client needs no server.
+    /// The `flag_evaluations` query comes second, so a check of the first query alone passes the
+    /// chunk. The refusal comes before any query, so the client needs no server.
     #[tokio::test]
     async fn a_chunk_whose_flag_calls_are_past_retention_fails_rather_than_scanning() {
         let scanner = ChunkScanner::new(
@@ -1649,7 +1656,7 @@ mod tests {
 
         /// `$pageview` comes from `events`, and flag calls from `flag_evaluations`. `events` also
         /// holds a flag call by person 4, which a run pinned to `flag_evaluations` must not count.
-        /// Each table pair backs `$feature_flag` with a column of its own name, so an arm that
+        /// Each table pair backs `$feature_flag` with a column of its own name, so a query that
         /// reads the other pair's column fails.
         async fn mixed_chunk_database(database: &str) -> ClickHouseClient {
             let events_columns = "uuid UUID, event String, properties String, \
