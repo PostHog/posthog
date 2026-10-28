@@ -9,7 +9,6 @@ from typing import Any, Literal, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.core.cache import cache
 from django.test import override_settings
 
 import httpx
@@ -47,11 +46,6 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
     UnsupportedModelError,
-)
-from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
-from products.ai_observability.backend.llm.providers.openrouter import (
-    MODEL_MODALITIES_CACHE_KEY,
-    MODEL_MODALITIES_LAST_GOOD_CACHE_KEY,
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
@@ -312,18 +306,14 @@ def _mock_config_with_active_key(provider: str = "openai") -> MagicMock:
     return MagicMock(active_provider_key=key)
 
 
-@pytest.mark.parametrize("flag", [True, False, None])
 @pytest.mark.parametrize("judge_method", [None, "llm"])
-def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enabled(
-    flag: bool | None, judge_method: str | None
-) -> None:
+def test_openrouter_catalogue_outage_only_affects_automatic_routing(judge_method: str | None) -> None:
     key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
     with (
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
         patch(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities", return_value=None
         ) as catalogue,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
     ):
@@ -333,7 +323,7 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
         complete.return_value = MagicMock(parsed=BooleanEvalResult(verdict=True, reasoning="Polite"), usage=None)
         with (
             pytest.raises(TransientJudgeError, match="OpenRouter model capabilities")
-            if flag and judge_method is None
+            if judge_method is None
             else nullcontext()
         ):
             result = call_llm_judge(
@@ -348,22 +338,18 @@ def test_openrouter_catalogue_outage_only_affects_projects_with_decisions_enable
                 user_prompt="Hello!",
                 allows_na=False,
             )
-    if flag and judge_method is None:
+    if judge_method is None:
         complete.assert_not_called()
     else:
         assert result["verdict"] is True
-        if judge_method is None:
-            catalogue.assert_called_once_with(refresh=False)
-        else:
-            catalogue.assert_not_called()
+        catalogue.assert_not_called()
     decide.assert_not_called()
 
 
 @pytest.mark.parametrize("provider,model", [("openrouter", "example/dual-model"), ("openai", "gpt-6-luna")])
-@pytest.mark.parametrize("flag", [True, False, None])
 @pytest.mark.parametrize("judge_method", [None, "llm"])
 def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
-    provider: str, model: str, flag: bool | None, judge_method: str | None
+    provider: str, model: str, judge_method: str | None
 ) -> None:
     key = MagicMock(provider=provider, encrypted_config={"api_key": "example-token"})
     with (
@@ -372,7 +358,6 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
             "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
             return_value={"example/dual-model": ["text", "decisions"]},
         ),
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client.complete") as complete,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.OpenAIDecisionAdapter.evaluate") as native_decide,
@@ -475,7 +460,6 @@ def test_legacy_and_explicit_llm_methods_use_chat_for_a_dual_capability_model(
 def test_openai_native_decisions_use_shared_result_semantics(
     applicable: bool, output_type: str, output_config: dict, answers: list[dict], expected: dict
 ) -> None:
-    team = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
     evaluation = {
         "id": "example-evaluation",
         "name": "Response quality",
@@ -500,11 +484,8 @@ def test_openai_native_decisions_use_shared_result_semantics(
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as transport,
     ):
-        teams.return_value.get.return_value = team
         spec.return_value.resolve.return_value = MagicMock(
             provider="openai",
             model="gpt-6-luna",
@@ -536,72 +517,6 @@ def test_openai_native_decisions_use_shared_result_semantics(
             assert result["score"] < 4.9
     if output_type != "boolean":
         assert "probability" not in result
-
-
-@pytest.mark.parametrize("flag", [False, None])
-def test_openai_decisions_disabled_flag_skips_without_invalidating_key(flag: bool | None) -> None:
-    with (
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag),
-        patch("httpx.AsyncHTTPTransport.handle_async_request") as transport,
-    ):
-        spec.return_value.resolve.return_value = MagicMock(
-            provider="openai",
-            model="gpt-6-luna",
-            is_byok=True,
-            provider_key=MagicMock(encrypted_config={"api_key": "example-token"}),
-        )
-        result = call_llm_judge(
-            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Check the reply.", "judge_method": "decision"}},
-            system_prompt="",
-            user_prompt="Example reply.",
-            allows_na=False,
-        )
-    assert result["skip_reason"] == "system_one_unavailable"
-    assert "terminal_user_error" not in result
-    assert "provider_key_state" not in result
-    transport.assert_not_called()
-
-
-@pytest.mark.parametrize("flag", [False, None])
-@pytest.mark.parametrize("cached", [True, False])
-def test_openrouter_decision_model_with_disabled_flag_skips_without_disabling(flag: bool | None, cached: bool) -> None:
-    cache.delete_many([MODEL_MODALITIES_CACHE_KEY, MODEL_MODALITIES_LAST_GOOD_CACHE_KEY])
-    model = "example/decision"
-    if cached:
-        cache.set(MODEL_MODALITIES_LAST_GOOD_CACHE_KEY, {model: ["decisions"]}, timeout=None)
-    key = MagicMock(provider="openrouter", encrypted_config={"api_key": "example-token"})
-    try:
-        with (
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-            patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=flag
-            ),
-            patch.object(OpenAIAdapter, "complete", side_effect=ModelNotFoundError(model)) as complete,
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge.DecisionClient.evaluate") as decide,
-            patch("products.ai_observability.backend.llm.providers.openrouter.httpx.get") as catalogue,
-        ):
-            spec.return_value.resolve.return_value = MagicMock(
-                provider="openrouter", model=model, provider_key=key, is_byok=True
-            )
-            catalogue.return_value.json.return_value = {
-                "data": [{"id": model, "architecture": {"output_modalities": ["decisions"]}}]
-            }
-            result = call_llm_judge(
-                evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is the response polite?"}},
-                system_prompt="",
-                user_prompt="Hello!",
-                allows_na=False,
-            )
-        assert result["skipped"] is True
-        assert result["skip_reason"] == "system_one_unavailable"
-        assert "terminal_user_error" not in result
-        assert "provider_key_state" not in result
-        assert complete.call_count == (0 if cached else 1)
-        assert catalogue.call_count == (0 if cached else 1)
-        decide.assert_not_called()
-    finally:
-        cache.delete_many([MODEL_MODALITIES_CACHE_KEY, MODEL_MODALITIES_LAST_GOOD_CACHE_KEY])
 
 
 @pytest.mark.parametrize(
@@ -698,11 +613,8 @@ def test_system_one_judge_emits_boolean_probability_without_reasoning(
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
-        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
         spec.return_value.resolve.return_value = resolved
         result = call_llm_judge(
             evaluation=evaluation,
@@ -795,7 +707,6 @@ def test_system_one_categorical_results_use_category_keys_without_boolean_probab
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -878,7 +789,6 @@ def test_decision_numeric_scores_use_configured_bounds(
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             return_value=httpx.Response(
@@ -924,7 +834,6 @@ def test_system_one_numeric_requires_a_score_range(output_config: dict[str, floa
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -938,42 +847,6 @@ def test_system_one_numeric_requires_a_score_range(output_config: dict[str, floa
                 "output_config": output_config,
                 "evaluation_config": {"prompt": "Score quality."},
             },
-            system_prompt="",
-            user_prompt="Hello!",
-            allows_na=False,
-        )
-    assert result["skipped"] is True
-    request.assert_not_called()
-
-
-@pytest.mark.parametrize(
-    "provider,base_url,flag",
-    [
-        ("system_one", "https://decisions.example.com/v1", False),
-        ("system_one", "https://ai-gateway.us.posthog.com/v1", False),
-    ],
-)
-def test_system_one_restricted_connection_does_not_send_evaluation_data(
-    provider: str, base_url: str, flag: bool
-) -> None:
-    with (
-        override_settings(POSTHOG_INTERNAL_ORG_IDS=[]),
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("products.ai_observability.backend.llm.decisions.Team.objects.only") as teams,
-        patch("products.ai_observability.backend.llm.decisions.get_feature_flag_or_none", return_value=flag),
-        patch("httpx.AsyncHTTPTransport.handle_async_request") as request,
-    ):
-        teams.return_value.get.return_value = Team(id=1, organization_id=uuid.uuid4(), uuid=uuid.uuid4())
-        spec.return_value.resolve.return_value = MagicMock(
-            provider=provider,
-            model="custom-model",
-            provider_key=MagicMock(
-                provider=provider, encrypted_config={"base_url": base_url, "api_key": "example-token"}
-            ),
-            is_byok=True,
-        )
-        result = call_llm_judge(
-            evaluation={"team_id": 1, "evaluation_config": {"prompt": "Is this a greeting?"}},
             system_prompt="",
             user_prompt="Hello!",
             allows_na=False,
@@ -1015,7 +888,6 @@ def test_provider_rejections_distinguish_blocked_endpoints_from_bad_inputs(
         ),
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch("httpx.AsyncHTTPTransport.handle_async_request", return_value=response) as request,
     ):
         spec.return_value.resolve.return_value = MagicMock(
@@ -1192,7 +1064,6 @@ def test_custom_provider_rate_limit_retries_without_disabling_the_evaluation(
     with (
         patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")}),
         patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
-        patch("posthog.temporal.ai_observability.evaluation_llm_judge.decision_evaluations_enabled", return_value=True),
         patch(
             "httpx.AsyncHTTPTransport.handle_async_request",
             side_effect=[

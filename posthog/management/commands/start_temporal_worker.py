@@ -856,6 +856,9 @@ class Command(BaseCommand):
 
         # enable faulthandler to print stack traces on segfaults
         faulthandler.enable()
+        # `kill -USR1 <pid>` dumps every thread's stack to stderr and leaves the worker running. It
+        # works while a thread holds the GIL, and in containers where py-spy cannot ptrace.
+        faulthandler.register(signal.SIGUSR1)
 
         metrics_port = int(options["metrics_port"])
 

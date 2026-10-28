@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-27 10:06:22 UTC
+// Generated at: 2026-10-27 20:04:24 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -134,6 +134,7 @@ export type CanonicalProvider =
     | 'liquid-bf16'
     | 'liquid-fp8'
     | 'makora'
+    | 'makora-bf16'
     | 'makora-fp4'
     | 'makora-fp8'
     | 'mancer-fp4'

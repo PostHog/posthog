@@ -87,7 +87,7 @@ rules:
       owners: [team-devex, team-agent-infrastructure]
       sensitive: true
     - match: '/cli/'
-      owners: team-error-tracking
+      owners: team-growth
     - match: '/docs/onboarding/ai-observability/'
       owners: team-ai-observability
     - match: '/docs/published/handbook/engineering/developing-locally.md'
@@ -96,6 +96,8 @@ rules:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
       owners: platform-ux
+    - match: '/hog/'
+      owners: team-growth
     - match: '/nodejs/tests/'
       owners: team-ingestion
     - match: '/packages/quill/'
@@ -194,4 +196,5 @@ rules:
           - '/services/*'
           - '/packages/*'
           - '/cli/*'
+          - '/hog/*'
       additions: team-devex
