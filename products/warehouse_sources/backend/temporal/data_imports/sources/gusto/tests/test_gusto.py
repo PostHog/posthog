@@ -332,6 +332,15 @@ class TestGetRowsFanOut:
                 ["/v1/company_benefits/cb-2/employee_benefits"],
                 [("cb-2", "eb-3")],
             ),
+            (
+                "resume_partway_through_a_benefit",
+                GustoResumeConfig(company_index=0, employee_index=0, next_page=2),
+                [
+                    "/v1/company_benefits/cb-1/employee_benefits",
+                    "/v1/company_benefits/cb-2/employee_benefits",
+                ],
+                [("cb-1", "eb-2"), ("cb-2", "eb-3")],
+            ),
         ]
     )
     def test_walks_every_page_of_each_company_benefit(
@@ -363,6 +372,7 @@ class TestGetRowsFanOut:
         assert result.paths[3:] == expected_child_paths
         assert [(row["_company_benefit_uuid"], row["uuid"]) for row in result.rows] == expected_rows
         assert {row["_company_uuid"] for row in result.rows} == {"c-1"}
+        assert set(result.params("include")[3:]) == {"all_benefits"}
 
 
 class TestGetRowsWindowed:

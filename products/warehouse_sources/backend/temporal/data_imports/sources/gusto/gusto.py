@@ -44,11 +44,12 @@ FUTURE_WINDOW_DAYS = 365
 WINDOW_CHUNK_SIZE = 1000
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class GustoResumeConfig:
     # Index into the ordered company list to restart at.
     company_index: int = 0
-    # Next 1-indexed page to fetch within that company.
+    # Next 1-indexed page to fetch within that company, or within the current parent of a
+    # paginated fan-out endpoint.
     next_page: int = 1
     # For fan-out endpoints: index into that company's ordered parent list (employees, or company
     # benefits). The name predates fan-out over other parents and is kept so saved state still loads.
@@ -358,6 +359,14 @@ def get_rows(
 
         return save
 
+    def checkpoint_parent_page(company_index: int, parent_index: int) -> Callable[[int], None]:
+        def save(page: int) -> None:
+            resumable_source_manager.save_state(
+                GustoResumeConfig(company_index=company_index, employee_index=parent_index, next_page=page)
+            )
+
+        return save
+
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None:
         logger.debug(
@@ -389,7 +398,17 @@ def get_rows(
                 path = config.path.format(**{parent_key: parent_uuid})
                 child_parents = {**parents, f"_{parent_key}": parent_uuid}
                 if config.paginated:
-                    yield from _paginate(client, config, path, child_parents, first_page=1)
+                    yield from _paginate(
+                        client,
+                        config,
+                        path,
+                        child_parents,
+                        first_page=resume.next_page
+                        if (resuming_here and resume is not None and parent_index == first_parent)
+                        else 1,
+                        extra_params=config.extra_params,
+                        on_page=checkpoint_parent_page(company_index, parent_index),
+                    )
                 else:
                     body, _ = client.get_json(path)
                     rows = _stamp_parents(extract_rows(config, body), child_parents)

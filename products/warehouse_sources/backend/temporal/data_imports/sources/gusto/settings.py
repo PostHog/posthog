@@ -19,7 +19,7 @@ class GustoEndpointConfig:
     # Fan-out endpoints are fetched once per row of this parent endpoint (see FAN_OUT_PARENT_KEYS)
     # in each company.
     fan_out_parent: str | None = None
-    # Static query parameters sent on every page of a paginated company-scoped endpoint.
+    # Static query parameters sent on every page of a paginated endpoint.
     extra_params: dict[str, str] | None = None
     # Rows nested under this key in the response body (None = the body is the array itself).
     data_key: str | None = None
@@ -144,6 +144,8 @@ GUSTO_ENDPOINTS: dict[str, GustoEndpointConfig] = {
         path="/v1/company_benefits/{company_benefit_uuid}/employee_benefits",
         primary_keys=["_company_benefit_uuid", "uuid"],
         fan_out_parent="company_benefits",
+        # By default Gusto returns only the benefits active today, not past or future effective-dated ones.
+        extra_params={"include": "all_benefits"},
     ),
     "employment_history": GustoEndpointConfig(
         name="employment_history",
