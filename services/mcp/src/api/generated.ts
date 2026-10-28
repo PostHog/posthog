@@ -66061,36 +66061,6 @@ export namespace Schemas {
       recipe_snapshot: IterationTrailWithRecipeRecipeSnapshot;
     }
 
-    /**
-     * * `visible_error` - Error on screen
-     * * `silent_failure` - Action silently failed
-     * * `unresponsive` - Clicks went nowhere
-     * * `slow_or_stuck` - Slow or stuck
-     * * `blocked` - Blocked
-     * * `cant_find` - Couldn't find it
-     * * `confused` - Confused
-     * * `workaround` - Took a workaround
-     * * `abandoned` - Gave up
-     * * `churn_signal` - Churn signal
-     * * `success` - Worked well
-     */
-    export type JevWatchReasonEnum = typeof JevWatchReasonEnum[keyof typeof JevWatchReasonEnum];
-
-
-    export const JevWatchReasonEnum = {
-      VisibleError: 'visible_error',
-      SilentFailure: 'silent_failure',
-      Unresponsive: 'unresponsive',
-      SlowOrStuck: 'slow_or_stuck',
-      Blocked: 'blocked',
-      CantFind: 'cant_find',
-      Confused: 'confused',
-      Workaround: 'workaround',
-      Abandoned: 'abandoned',
-      ChurnSignal: 'churn_signal',
-      Success: 'success',
-    } as const;
-
     export interface JiraIssueSignalExtra {
       key: string;
       url: string | null;
@@ -74192,7 +74162,7 @@ export namespace Schemas {
     }
 
     /**
-     * Why the calling user marked an observation not useful in What to watch.
+     * Why the calling user marked an observation not useful in the Highlights feed.
      */
     export interface ObservationFeedDismissal {
       /** Optional reason the observation was not useful. Omit or send null when the user gave none.
@@ -122986,7 +122956,7 @@ export namespace Schemas {
       /** The client's id for the feed load that showed these cards. One load counts each card once. */
       feed_load_id: string;
       /**
-         * Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.
+         * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
          * @minItems 1
          * @maxItems 100
          */
@@ -122994,15 +122964,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `signal_emitted` - Signal Emitted
-     * * `unusual_verdict` - Unusual Verdict
-     * * `notable` - Notable
-     * * `verdict_yes` - Verdict Yes
-     * * `outlier_score` - Outlier Score
-     * * `rare_tag` - Rare Tag
-     * * `novel_summary` - Novel Summary
-     * * `friction` - Friction
-     * * `jev_watchable` - Jev Watchable
      * * `embedding_pick` - Embedding Pick
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent
@@ -123011,117 +122972,21 @@ export namespace Schemas {
 
 
     export const WatchFeedReasonEnum = {
-      SignalEmitted: 'signal_emitted',
-      UnusualVerdict: 'unusual_verdict',
-      Notable: 'notable',
-      VerdictYes: 'verdict_yes',
-      OutlierScore: 'outlier_score',
-      RareTag: 'rare_tag',
-      NovelSummary: 'novel_summary',
-      Friction: 'friction',
-      JevWatchable: 'jev_watchable',
       EmbeddingPick: 'embedding_pick',
       UnviewedRecent: 'unviewed_recent',
       Recent: 'recent',
     } as const;
 
     /**
-     * One signal an observation raised, named rather than counted.
-     */
-    export interface WatchFeedSignal {
-      /** Issue type: `bug`, `crash`, `design_flaw`, or `ux_friction`. */
-      problem_type: string;
-      /** The finding in a few words, written by the scan. The full description lives on the signal itself. */
-      headline: string;
-    }
-
-    /**
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
     export interface WatchFeedReason {
-      /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth; teams on the embedding ranker only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+      /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
-       * * `signal_emitted` - Signal Emitted
-       * * `unusual_verdict` - Unusual Verdict
-       * * `notable` - Notable
-       * * `verdict_yes` - Verdict Yes
-       * * `outlier_score` - Outlier Score
-       * * `rare_tag` - Rare Tag
-       * * `novel_summary` - Novel Summary
-       * * `friction` - Friction
-       * * `jev_watchable` - Jev Watchable
        * * `embedding_pick` - Embedding Pick
        * * `unviewed_recent` - Unviewed Recent
        * * `recent` - Recent */
       kind: WatchFeedReasonEnum;
-      /**
-         * Signals this observation emitted, for `signal_emitted`.
-         * @nullable
-         */
-      signals_count?: number | null;
-      /** Issue type of each emitted signal (`bug`, `crash`, `design_flaw`, `ux_friction`), one entry per signal in the order raised, for `signal_emitted`. Absent on signals scanned before this shipped. */
-      problem_types?: string[];
-      /** Each emitted signal in the order raised, for `signal_emitted`. Carries what the card needs to name the findings instead of counting them. Absent on sessions scanned before this shipped, which carry `problem_types` alone. */
-      signals?: WatchFeedSignal[];
-      /**
-         * The monitor's answer, for `unusual_verdict`.
-         * @nullable
-         */
-      verdict?: string | null;
-      /**
-         * Share (0-1) of the scanner's window observations with this answer, for `unusual_verdict`.
-         * @nullable
-         */
-      verdict_share?: number | null;
-      /**
-         * The scan's own 0-1 judgment of how much a team would benefit from watching, for `notable`.
-         * @nullable
-         */
-      notability?: number | null;
-      /**
-         * The decision model's 0-1 judgment that the session is worth watching, for `jev_watchable`.
-         * @nullable
-         */
-      jev_probability?: number | null;
-      /**
-         * The scan's own sentence naming why the session is worth watching. Present on the `notable` and `jev_watchable` reason kinds when the scan itself found the session notable, and preferred over copy derived from the reason kind. Absent on observations scanned before notability shipped.
-         * @nullable
-         */
-      notability_reason?: string | null;
-      /** Why the decision model rated the session worth watching, picked from a fixed list, for `jev_watchable`. Absent when no reason on the list fits, or on sessions judged before reasons shipped.
-       *
-       * * `visible_error` - Error on screen
-       * * `silent_failure` - Action silently failed
-       * * `unresponsive` - Clicks went nowhere
-       * * `slow_or_stuck` - Slow or stuck
-       * * `blocked` - Blocked
-       * * `cant_find` - Couldn't find it
-       * * `confused` - Confused
-       * * `workaround` - Took a workaround
-       * * `abandoned` - Gave up
-       * * `churn_signal` - Churn signal
-       * * `success` - Worked well */
-      watch_reason?: JevWatchReasonEnum;
-      /**
-         * The observation's score, for `outlier_score`.
-         * @nullable
-         */
-      score?: number | null;
-      /**
-         * The scanner's mean score in the window, for `outlier_score`.
-         * @nullable
-         */
-      window_mean?: number | null;
-      /**
-         * The rare tag that ranked the observation, for `rare_tag`.
-         * @nullable
-         */
-      tag?: string | null;
-      /**
-         * Share (0-1) of the scanner's window observations carrying `tag`, for `rare_tag`.
-         * @nullable
-         */
-      tag_share?: number | null;
       /** What the session reads like, for `embedding_pick`.
        *
        * * `failure` - Failure
@@ -123134,7 +122999,7 @@ export namespace Schemas {
          */
       similar_count?: number | null;
       /**
-         * Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+         * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
          * @nullable
          */
       affected_people?: number | null;
@@ -123151,20 +123016,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `weighted-score` - Weighted Score
-     * * `jev` - Jev
-     * * `embedding` - Embedding
-     */
-    export type WatchFeedRankerEnum = typeof WatchFeedRankerEnum[keyof typeof WatchFeedRankerEnum];
-
-
-    export const WatchFeedRankerEnum = {
-      WeightedScore: 'weighted-score',
-      Jev: 'jev',
-      Embedding: 'embedding',
-    } as const;
-
-    /**
      * Response of GET /vision/scanners/watch_feed/.
      */
     export interface WatchFeedResponse {
@@ -123174,17 +123025,6 @@ export namespace Schemas {
       has_more: boolean;
       /** The time this feed ranks as of. Send it back with later pages. */
       as_of: string;
-      /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `embedding` on the rank the watch rank consumer wrote from the observation's embedding, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
-       *
-       * * `weighted-score` - Weighted Score
-       * * `jev` - Jev
-       * * `embedding` - Embedding */
-      ranker: WatchFeedRankerEnum;
-      /**
-         * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
-         * @nullable
-         */
-      ranker_variant: string | null;
     }
 
     export interface WebAnalyticsBotCondition {
@@ -143000,11 +142840,6 @@ export namespace Schemas {
      * @minLength 1
      */
     scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
-    /**
-     * Case-insensitive text to match against the scan's own words (title, summary, reasoning, and the notability sentence) and the scanner's name. Applied before ranking, so it searches the whole window rather than the items that would have surfaced without it.
-     * @minLength 1
-     */
-    search?: string;
     /**
      * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
      * @minLength 1
