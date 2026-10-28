@@ -120,7 +120,7 @@ import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflo
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { PluginConfigSchema } from './legacy-plugin-scaffold'
-import { InferredSelector } from './toolbar/product-tours/elementInference'
+import { InferredSelector } from './toolbar/shared/product-tours/elementInference'
 
 export enum ConversionRateInputType {
     MANUAL = 'manual',
@@ -6344,9 +6344,6 @@ export interface DataModelingEdge {
     id: string
     source_id: string
     target_id: string
-    properties: Record<string, unknown>
-    created_at: string
-    updated_at: string
 }
 
 export type DataModelingSyncInterval = '15min' | '30min' | '1hour' | '6hour' | '12hour' | '24hour' | '7day' | '30day'

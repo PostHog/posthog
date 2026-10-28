@@ -77,6 +77,20 @@ def trino_shadow_workflow_id(workflow_id: str, dag_id: str) -> str:
     return f"execute-dag-trino-{dag_id}"
 
 
+def manual_trino_workflow_id(dag_id: str) -> str:
+    """The fixed id of a Trino run that a person starts by hand.
+
+    It shares the `execute-dag-trino-{dag_id}` prefix with the scheduled shadows, so one
+    visibility query finds every Trino run of the DAG.
+    """
+    return f"execute-dag-trino-{dag_id}-manual"
+
+
+def trino_runs_of_dag_query(dag_id: str) -> str:
+    prefix = f"execute-dag-trino-{dag_id}"
+    return f'WorkflowId >= "{prefix}" AND WorkflowId < "{prefix}~" AND ExecutionStatus = "Running"'
+
+
 async def _kill_switch_child_limit(team_id: int) -> int:
     try:
         level = await temporalio.workflow.execute_activity(
@@ -166,6 +180,7 @@ class ExecuteDAGInputs:
             all materializable nodes in the DAG will be processed.
         shadow: a Trino shadow of a ClickHouse run. Its failures stay in job rows and metrics,
             so it runs no data quality checks and sends no failure notifications.
+        manually_triggered_by_id: the user who asked for this run, when a person did.
     """
 
     team_id: int
@@ -176,6 +191,7 @@ class ExecuteDAGInputs:
     # Old workflow payloads contain this field, so removing it would prevent replay after deployment.
     duckgres_only: bool = False
     shadow: bool = False
+    manually_triggered_by_id: int | None = None
 
     @property
     def properties_to_log(self) -> dict:
@@ -510,6 +526,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                         node_id=node_id,
                         managed_warehouse_only=managed_warehouse_only,
                         dangerously_execute_raw_sql=inputs.dangerously_execute_raw_sql,
+                        manually_triggered_by_id=inputs.manually_triggered_by_id,
                         skip_trino=bool(blocked_trino_upstreams),
                     )
                     trino_skip = (

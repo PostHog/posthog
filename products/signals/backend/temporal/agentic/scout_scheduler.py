@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
@@ -33,7 +33,7 @@ from products.signals.backend.quota import (
     notify_scout_quota_paused,
     self_driving_quota_gate,
 )
-from products.signals.backend.report_check_agent import _refuse_dispatch
+from products.signals.backend.report_check_agent import _refuse_dispatch, legacy_check_dispatch_ready
 from products.signals.backend.report_check_final_agents import (
     MonitoringScoutCheck,
     bound_monitoring_scout_run,
@@ -89,6 +89,7 @@ class RunSignalsScoutInput:
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
     # its run and the run can record the check's verdict.
     check_id: str | None = None
+    check_dispatched_at: datetime | None = None
     # The rows the pre-check found, set by the workflow on a scheduled run the pre-check started.
     precheck_rows: str | None = None
     # Which pre-check started the run (`config` or `skill_default`), stamped on the run row.
@@ -270,9 +271,15 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
-    # Queued check workflows can outlive their dispatch, so retiring the coordinator lane alone
-    # cannot prevent them from starting paid scout work.
-    if input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK:
+    # A queued workflow must still own a live check before starting paid scout work.
+    if (input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK) and not await database_sync_to_async(
+        legacy_check_dispatch_ready, thread_sensitive=False
+    )(
+        team_id=input.team_id,
+        skill_name=input.skill_name,
+        check_id=input.check_id,
+        dispatched_at=input.check_dispatched_at,
+    ):
         return RunSignalsScoutOutput(
             run_id=None,
             task_run_id=None,
@@ -649,6 +656,7 @@ async def _start_off_schedule_run(
     workflow_origin_key: str | None = None,
     run_note: str | None = None,
     check_id: str | None = None,
+    check_dispatched_at: datetime | None = None,
     trigger_workflow_id: str | None = None,
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
@@ -672,6 +680,7 @@ async def _start_off_schedule_run(
             workflow_origin_key=workflow_origin_key,
             run_note=run_note,
             check_id=check_id,
+            check_dispatched_at=check_dispatched_at,
             trigger_workflow_id=trigger_workflow_id,
         ),
         id=workflow_id,
@@ -755,7 +764,7 @@ def check_run_workflow_id(team_id: int, skill_name: str) -> str:
 
 
 def start_check_signals_scout_run(
-    client: Client, *, team_id: int, skill_name: str, run_note: str, check_id: str
+    client: Client, *, team_id: int, skill_name: str, run_note: str, check_id: str, dispatched_at: datetime
 ) -> str:
     """Dispatch one scout run to answer a report check; return its workflow id.
 
@@ -775,6 +784,7 @@ def start_check_signals_scout_run(
         source=TRIGGERED_BY_CHECK,
         run_note=run_note,
         check_id=check_id,
+        check_dispatched_at=dispatched_at,
     )
 
 

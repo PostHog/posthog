@@ -423,6 +423,7 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+    startup_failure = models.JSONField(null=True, blank=True)
     # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
     # the report's content rather than its artefact log: a chart illustrates the summary, so it is
     # replaced with the summary rather than accumulating versions beside it. `summary` places one
@@ -487,6 +488,12 @@ class SignalReport(UUIDModel):
     # receivers.py keep them current. NULL means the report has no parseable judgment.
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
+
+    # Cached from `implementation_pr_report_filter`, with and without `active_only`, so the inbox
+    # filters on a column instead of evaluating five link subqueries for every report.
+    # implementation_pr_cache.py keeps them current.
+    has_implementation_pr = models.BooleanField(default=False, db_default=False)
+    has_active_implementation_pr = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         indexes = [
@@ -618,6 +625,8 @@ class SignalReport(UUIDModel):
                 self.last_run_at = timezone.now()
                 self.signals_at_run = self.signal_count + signals_at_run_increment
                 self.run_count += 1
+                self.startup_failure = None
+                updated_fields.add("startup_failure")
                 updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
 
             # A summary run paused mid-workflow by the self-driving credits quota gate returns to
@@ -634,7 +643,8 @@ class SignalReport(UUIDModel):
                 self.title = title
                 self.summary = summary
                 self.error = None
-                updated_fields.update(["title", "summary", "error"])
+                self.startup_failure = None
+                updated_fields.update(["title", "summary", "error", "startup_failure"])
 
             # A `None` title or summary keeps the current one, so a run that did no research (e.g. no
             # repository selected) does not erase the content the report is searched and deduplicated by.
@@ -2565,6 +2575,7 @@ class SignalReportCheck(UUIDModel):
     expires_at = models.DateTimeField()
     monitoring_fallback_expires_at = models.DateTimeField(null=True, blank=True)
     monitoring_dispatch_after = models.DateTimeField(null=True, blank=True)
+    legacy_monitoring_attempt_id = models.UUIDField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)

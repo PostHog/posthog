@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Any, cast
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -8,6 +9,8 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.schema import QueryStatus
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -21,6 +24,56 @@ from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
 from products.product_analytics.backend.insight_series import _visible
 from products.product_analytics.backend.models.insight import Insight
+
+
+class TestBoundedInsightQuery(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("cached", True, False, False, 0.0, 0),
+            ("finishes", False, True, False, 0.0, 1),
+            ("fails", False, True, True, 0.0, 1),
+            ("still_running", False, False, False, 0.0, 3),
+            ("starts_near_deadline", False, False, False, 0.5, 1),
+            ("already_expired", False, False, False, 0.6, 0),
+        ]
+    )
+    def test_wait_returns_results_or_stops_at_the_shared_deadline(
+        self, _name: str, cached: bool, complete: bool, error: bool, start: float, polls: int
+    ) -> None:
+        clock = [start]
+        results = {"results": [_result("signed up")]}
+        pending = {"query_status": {"id": "query-1", "complete": False}}
+
+        def advance(seconds: float) -> None:
+            clock[0] += seconds
+
+        with (
+            patch("posthog.api.services.query.process_query_dict", return_value=results if cached else pending) as run,
+            patch.object(insight_series, "monotonic", side_effect=lambda: clock[0]),
+            patch.object(insight_series, "sleep", side_effect=advance),
+            patch.object(
+                insight_series,
+                "get_query_status",
+                return_value=QueryStatus(
+                    id="query-1", team_id=1, complete=complete, error=error, results=results if complete else None
+                ),
+            ) as status,
+        ):
+            found = insight_series.insight_series(
+                cast(Team, SimpleNamespace(pk=1)),
+                cast(User, None),
+                short_id="abc",
+                name="Sign-ups",
+                query={"kind": "TrendsQuery", "series": [SIGNED_UP]},
+                dashboard=None,
+                blocking=True,
+                wait_until=0.6,
+            )
+
+        self.assertEqual(found is not None and bool(found.series), cached or (complete and not error))
+        self.assertEqual(status.call_count, polls)
+        self.assertLessEqual(clock[0], 0.6)
+        self.assertEqual(run.call_args.kwargs["execution_mode"], ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE)
 
 
 class TestVisibleResults(SimpleTestCase):

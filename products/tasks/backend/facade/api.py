@@ -45,6 +45,7 @@ from django.db.models import (
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Coalesce
 from django.utils import timezone as django_timezone
+from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
 
 import posthoganalytics
@@ -56,6 +57,8 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import Team, User
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration import Integration
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
@@ -1131,6 +1134,30 @@ def get_task_run(run_id: str | UUID, team_id: int | None = None) -> contracts.Ta
     if run is None:
         return None
     return _task_run_to_dto(run)
+
+
+def latest_agent_startup_success(*, team_id: int, repository: str, provider: str, runtime: str) -> datetime | None:
+    started = (
+        TaskRun.objects.filter(
+            team_id=team_id,
+            state__has_key="agent_startup_success",
+            state__agent_startup_success__repository=repository.lower(),
+            state__agent_startup_success__provider=provider,
+            state__agent_startup_success__runtime=runtime,
+        )
+        .order_by("-state__agent_startup_success__started_at")
+        .values_list("state__agent_startup_success__started_at", flat=True)
+        .first()
+    )
+    if not isinstance(started, str):
+        return None
+    try:
+        started_at = parse_datetime(started)
+    except ValueError:
+        return None
+    if started_at is None or django_timezone.is_naive(started_at):
+        return None
+    return started_at
 
 
 def find_signal_implementation_run(
@@ -2574,6 +2601,38 @@ def accept_desktop_beta_terms(organization_id: UUID, user_id: int) -> contracts.
     return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=True)
 
 
+def revoke_desktop_beta_terms(organization_id: UUID, user: User) -> contracts.DesktopBetaTermsAcceptanceDTO:
+    with transaction.atomic():
+        acceptance = DesktopBetaTermsAcceptance.objects.filter(organization_id=organization_id).first()
+        if acceptance is not None:
+            acceptance.delete()
+            # The deleted row is the only record of who accepted and when, so the audit entry keeps both.
+            log_activity(
+                organization_id=organization_id,
+                team_id=None,
+                user=user,
+                was_impersonated=get_was_impersonated(),
+                item_id=organization_id,
+                scope="Organization",
+                activity="updated",
+                detail=Detail(
+                    changes=[
+                        Change(
+                            type="Organization",
+                            action="revoked",
+                            field="PostHog Desktop beta terms",
+                            before={
+                                "accepted_by_user_id": acceptance.accepted_by_user_id,
+                                "accepted_at": acceptance.accepted_at.isoformat(),
+                            },
+                            after=None,
+                        )
+                    ]
+                ),
+            )
+    return contracts.DesktopBetaTermsAcceptanceDTO(is_desktop_beta_terms_accepted=False)
+
+
 # --- Sandbox environments (presentation CRUD) ---
 # Visibility: an environment is reachable by a team member if it is non-private, or it is
 # theirs (``created_by``). ``list`` additionally hides ``internal`` environments.
@@ -2971,6 +3030,13 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "token_cost_incomplete",
         "compute_cost",
         "failure_error_type",
+        "startup_failure",
+        "startup_started_at",
+        "startup_completed_at",
+        "startup_provider",
+        "startup_runtime",
+        "agent_startup_attempt",
+        "agent_startup_success",
         "unprocessed_request_ids",
         TASK_OWNERSHIP_VERSION_STATE_KEY,
         "pr_authorship_mode",

@@ -1,9 +1,7 @@
 import dataclasses
 from datetime import UTC, datetime
-from typing import Any
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -20,7 +18,6 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.replay_linkage import (
@@ -32,6 +29,7 @@ from products.experiments.backend.replay_linkage import (
     resolve_in_session_exposure_semantics,
 )
 from products.experiments.backend.session_exposure import resolve_session_exposure
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -178,11 +176,7 @@ class TestResolveInSessionExposureSemantics(BaseTest):
             team=self.team, project_id=self.team.project_id, event=EXPERIMENT_EXPOSURE_EVENT, property="$session_id"
         )
 
-        # Only answer for the rollout flag; a blanket True would flip unrelated rollouts on too.
-        def rollout_only(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG
-
-        with patch("posthoganalytics.feature_enabled", side_effect=rollout_only):
+        with patch_exposure_event_flag(enabled=True):
             semantics = resolve_in_session_exposure_semantics(self.team, experiment)
 
         assert semantics.session_exposure is not None

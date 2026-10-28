@@ -7288,6 +7288,43 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    @parameterized.expand([(False,), (True,)])
+    @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
+    def test_patch_cannot_forge_startup_outcomes(self, sandbox_agent: bool, _mock_publish) -> None:
+        task = self.create_task()
+        attempt = {
+            "started_at": django_timezone.now().isoformat(),
+            "repository": "example/research",
+            "provider": "claude",
+            "runtime": "gvisor",
+        }
+        state = {"agent_startup_attempt": attempt, "agent_startup_success": attempt}
+        run = TaskRun.objects.create(team=self.team, task=task, status=TaskRun.Status.IN_PROGRESS, state=state)
+        client = self._sandbox_oauth_client(task.id, internal_scope=True) if sandbox_agent else self.client
+        forged = {
+            "agent_startup_attempt": {**attempt, "provider": "pi"},
+            "agent_startup_success": {**attempt, "provider": "pi"},
+            "startup_failure": {
+                "provider": "claude",
+                "phase": "sdk_initialization",
+                "reason": "proxy_invalid",
+                "retryability": "requires_action",
+            },
+            "startup_started_at": "forged",
+            "startup_completed_at": "forged",
+            "startup_provider": "pi",
+            "startup_runtime": "vm",
+        }
+        for payload in [
+            {"state": forged},
+            {"state_remove_keys": list(forged)},
+            {"state_append": forged},
+        ]:
+            response = client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", payload, format="json")
+            assert response.status_code == status.HTTP_200_OK
+            run.refresh_from_db()
+            assert {key: run.state.get(key) for key in forged} == {key: state.get(key) for key in forged}
+
     def _create_run_for_origin(self, origin_product: Task.OriginProduct) -> tuple[Task, TaskRun]:
         task = Task.objects.create(
             team=self.team,
