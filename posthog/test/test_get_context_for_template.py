@@ -6,6 +6,7 @@ from unittest import mock
 from unittest.mock import MagicMock
 
 from django.conf import settings
+from django.contrib.auth import get_user
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpRequest, HttpResponse
@@ -192,6 +193,19 @@ class TestShouldDeferAppContext(SimpleTestCase):
 
 
 class TestGetContextForTemplate(APIBaseTest):
+    def test_signed_out_session_reason_survives_auth_flushing_a_stale_session(self):
+        self.client.force_login(self.user)
+        session_key = self.client.session.session_key
+        assert session_key is not None
+        self.user.set_password("a-different-password-1234")
+        self.user.save()
+        request = RequestFactory().get("/")
+        request.COOKIES[settings.SESSION_COOKIE_NAME] = session_key
+        request.session = SessionStore(session_key)
+
+        assert get_user(request).is_anonymous
+        assert signed_out_session_reason(request) == "session_without_user"
+
     def test_get_context_for_template(self):
         with (
             self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]),
