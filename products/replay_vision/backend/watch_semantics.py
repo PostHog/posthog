@@ -99,18 +99,19 @@ def assign_semantics_batch(
                     defaults={"team_id": team_id, "vector_sum": pack(np.zeros(SEMANTIC_DIMENSIONS, dtype=np.float32))},
                 )
             )
+            keys = [_as_uuid(item.observation_id) for item in items]
             rows = {
-                str(row["id"]): row
+                row["id"]: row
                 for row in ReplayObservation.objects.filter(
-                    team_id=team_id, id__in=[item.observation_id for item in items]
+                    team_id=team_id, id__in=[key for key in keys if key]
                 ).values("id", "watch_rank", "scanner_result", "scanner_snapshot")
             }
             center_sum = unpack(center.vector_sum).copy()
             member_count = center.member_count
             group_writes = ClusterWrites(ReplayScannerFeedGroup, team_id, scanner_id)
             themes: ThemeBatch | None = None
-            for item in items:
-                row = rows.get(item.observation_id)
+            for item, key in zip(items, keys):
+                row = rows.get(key) if key else None
                 rank = current_rank({"watch_rank": row["watch_rank"]}) if row else None
                 if row is None or rank is None or rank.get("group"):
                     continue
@@ -174,6 +175,14 @@ def assign_semantics_batch(
     return assigned
 
 
+def _as_uuid(observation_id: str) -> uuid.UUID | None:
+    # A message's document id is an unchecked string, so its spelling may differ from the UUID Postgres returns.
+    try:
+        return uuid.UUID(observation_id)
+    except ValueError:
+        return None
+
+
 def merge_watch_ranks(team_id: int, keys_by_observation: dict[str, dict[str, Any]]) -> None:
     """Add keys to each observation's rank without rewriting what another writer put there, and drop the retired
     duplicate link."""
@@ -187,6 +196,7 @@ def merge_watch_ranks(team_id: int, keys_by_observation: dict[str, dict[str, Any
                 When(id=observation_id, then=Value(observation_keys, output_field=JSONField()))
                 for observation_id, observation_keys in chunk
             ),
+            default=Value({}, output_field=JSONField()),
             output_field=JSONField(),
         )
         ReplayObservation.objects.filter(

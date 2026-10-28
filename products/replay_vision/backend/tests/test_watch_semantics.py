@@ -169,11 +169,19 @@ class TestAssignSemantics(BaseTest):
                 items=[SemanticItem(observation_id=str(o.id), vector=v, now=timezone.now()) for o, v in vectors],
             )
             joined: list[Any] = [assigned[str(first.id)], assigned[str(close.id)]]
-            far_assignment, routine_assignment = assigned[str(far.id)], assigned[str(routine.id)]
+            far_assignment: Any = assigned[str(far.id)]
+            routine_assignment: Any = assigned[str(routine.id)]
         else:
             joined = [self._assign(first, _vector(1.0)), self._assign(close, _vector(1.0, 0.1))]
             far_assignment = self._assign(far, _vector(0.0, 1.0))
-            routine_assignment = self._assign(routine, _vector(1.0))
+            # A message may spell the id in another case, and the row must still be found.
+            routine_assignment = assign_semantics(
+                team_id=self.team.id,
+                scanner_id=str(self.scanner.id),
+                observation_id=str(routine.id).upper(),
+                vector=_vector(1.0),
+                now=timezone.now(),
+            )
         assert joined[0].group_id == joined[1].group_id
         assert joined[0].theme.theme_id == joined[1].theme.theme_id
         assert self._assign(first, _vector(1.0)) is None
@@ -256,14 +264,20 @@ class TestAssignSemantics(BaseTest):
 
         assert self._counts(ReplayScannerFeedGroup) == [1, 2]
 
-    def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self) -> None:
+    # An embedding stored long after its observation was created falls outside the slice's bounded read.
+    @parameterized.expand([("embedded_on_time", False), ("embedded_late", True)])
+    def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self, _name: str, late: bool) -> None:
         grouped = self._observation()
         ReplayObservation.objects.filter(id=grouped.id).update(
             watch_rank={**_rank(), "group": "kept"}, status="succeeded", completed_at=timezone.now()
         )
         vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+        def stored(_team_id: int, ids: list[str], _since: Any, until: Any) -> dict[str, np.ndarray]:
+            return {} if late and until is not None else dict.fromkeys(ids, vector)
+
         with (
-            patch(f"{_BACKFILL}.stored_vectors_between", return_value={str(grouped.id): vector}),
+            patch(f"{_BACKFILL}.stored_vectors_between", side_effect=stored),
             patch(f"{_BACKFILL}.anchor_vectors", AsyncMock(return_value=axis_anchors())),
         ):
             backfill_team_semantics(self.team.id, timezone.now() - timedelta(days=1))

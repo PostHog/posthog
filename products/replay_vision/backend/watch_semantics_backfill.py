@@ -24,7 +24,7 @@ from products.replay_vision.backend.watch_rank import (
     classify,
     save_anchor_similarities,
 )
-from products.replay_vision.backend.watch_rank_backfill import _VECTOR_CHUNK, stored_vectors_between
+from products.replay_vision.backend.watch_rank_backfill import stored_vectors_between
 from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics_batch, merge_watch_ranks
 from products.replay_vision.backend.watch_themes import name_theme, naming_candidates
 
@@ -34,6 +34,8 @@ logger = structlog.get_logger(__name__)
 _SLICE_ROWS = 5_000
 # An embedding lands a few minutes after its observation, so a slice reads a little past its newest row.
 _EMBEDDING_LAG = timedelta(hours=2)
+# Observations per centre lock, kept small so a live consumer message for the same scanner waits seconds at most.
+_ASSIGN_CHUNK = 100
 
 
 @frozen
@@ -95,12 +97,15 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
 
 
 def _backfill_slice(team_id: int, slice_rows: list[_Pending], anchors: dict[WatchCategory, np.ndarray]) -> int:
-    vectors = stored_vectors_between(
-        team_id,
-        [row.observation_id for row in slice_rows],
-        slice_rows[0].created_at,
-        slice_rows[-1].created_at + _EMBEDDING_LAG,
-    )
+    ids = [row.observation_id for row in slice_rows]
+    since = slice_rows[0].created_at
+    vectors = stored_vectors_between(team_id, ids, since, slice_rows[-1].created_at + _EMBEDDING_LAG)
+    # A scan delayed by a backlog embeds long after its observation was created, so rows the bounded read missed get
+    # one read with no upper bound.
+    if late := [observation_id for observation_id in ids if observation_id not in vectors]:
+        vectors |= stored_vectors_between(team_id, late, since, None)
+        if missing := sum(observation_id not in vectors for observation_id in late):
+            logger.info("replay_vision.watch_semantics_backfill.no_vector", team_id=team_id, observations=missing)
     readings: dict[str, AnchorReading] = {
         row.observation_id: classify(vectors[row.observation_id], anchors)
         for row in slice_rows
@@ -130,7 +135,7 @@ def _backfill_slice(team_id: int, slice_rows: list[_Pending], anchors: dict[Watc
             )
     assigned = 0
     for scanner_id, items in by_scanner.items():
-        for chunk in batched(items, _VECTOR_CHUNK, strict=False):
+        for chunk in batched(items, _ASSIGN_CHUNK, strict=False):
             assigned += len(assign_semantics_batch(team_id=team_id, scanner_id=scanner_id, items=chunk))
     return assigned
 

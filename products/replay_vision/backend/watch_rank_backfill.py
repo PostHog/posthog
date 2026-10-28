@@ -86,13 +86,15 @@ def _stored_vectors(
 
 
 def stored_vectors_between(
-    team_id: int, observation_ids: list[str], since: datetime, until: datetime
+    team_id: int, observation_ids: list[str], since: datetime, until: datetime | None
 ) -> dict[str, np.ndarray]:
-    """Each observation's stored unit vector, across all of a team's scanners, from embeddings stored in a time range.
-    One read covers a whole slice of a team's history, so ClickHouse scans each stretch of time once."""
+    """Each observation's stored unit vector, across all of a team's scanners, from embeddings stored since `since`
+    and before `until` when given. One read covers a whole slice of a team's history, so ClickHouse scans each
+    stretch of time once."""
+    upper = "" if until is None else " AND timestamp < %(until)s"
     return _waiting_out_capacity(
         team_id,
-        f"{TEAM_EMBEDDINGS_PREWHERE} AND timestamp >= %(since)s AND timestamp < %(until)s",
+        f"{TEAM_EMBEDDINGS_PREWHERE} AND timestamp >= %(since)s{upper}",
         {**team_embeddings_params(team_id), "since": since, "until": until, "ids": observation_ids},
     )
 
