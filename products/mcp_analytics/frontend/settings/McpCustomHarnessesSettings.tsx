@@ -1,68 +1,86 @@
 import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonTable } from '@posthog/lemon-ui'
-
-import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
+import { McpCustomHarnessForm } from './McpCustomHarnessForm'
 
 export function McpCustomHarnessesSettings(): JSX.Element {
-    const { customHarnesses, customHarnessesLoading, isNewCustomHarnessSubmitting, deletingHarnessId } =
+    const { customHarnesses, customHarnessesLoading, editingHarnessId, deletingHarnessId } =
         useValues(mcpCustomHarnessesLogic)
-    const { deleteCustomHarness } = useActions(mcpCustomHarnessesLogic)
+    const { startAddingHarness, startEditingHarness, deleteCustomHarness } = useActions(mcpCustomHarnessesLogic)
 
     return (
-        <div className="flex flex-col gap-4">
-            <LemonTable
-                dataSource={customHarnesses ?? []}
-                loading={customHarnessesLoading}
-                emptyState="No custom harnesses yet. Add one to name calls from your own clients."
-                columns={[
-                    { title: 'Name', dataIndex: 'name' },
-                    { title: 'Matches', dataIndex: 'match_pattern' },
-                    {
-                        width: 0,
-                        render: (_, harness) => (
-                            <LemonButton
-                                size="small"
-                                status="danger"
-                                loading={deletingHarnessId === harness.id}
-                                onClick={() => deleteCustomHarness(harness.id)}
-                                data-attr="mcp-custom-harness-delete"
-                            >
-                                Delete
-                            </LemonButton>
-                        ),
-                    },
-                ]}
-            />
-            <Form logic={mcpCustomHarnessesLogic} formKey="newCustomHarness" enableFormOnSubmit>
-                <div className="flex flex-col gap-2">
-                    <div className="flex flex-wrap items-start gap-2">
-                        <LemonField name="name" label="Name" className="flex-1 min-w-60">
-                            <LemonInput placeholder="Acme agent" maxLength={100} />
-                        </LemonField>
-                        <LemonField
-                            name="match_pattern"
-                            label="Client name contains"
-                            help="Not case sensitive. Matches the client name or User-Agent product the harness reports."
-                            className="flex-1 min-w-60"
+        <div className="flex flex-col gap-2" data-attr="mcp-custom-harnesses">
+            {editingHarnessId === 'new' ? (
+                <McpCustomHarnessForm />
+            ) : (
+                <LemonButton
+                    className="w-full"
+                    type="secondary"
+                    icon={<IconPlus />}
+                    onClick={startAddingHarness}
+                    data-attr="mcp-custom-harness-add"
+                >
+                    Add custom harness
+                </LemonButton>
+            )}
+
+            {customHarnesses === null && customHarnessesLoading ? (
+                <LemonSkeleton className="h-10" repeat={2} />
+            ) : customHarnesses?.length === 0 && editingHarnessId !== 'new' ? (
+                <p className="text-secondary m-0">
+                    No custom harnesses yet. Add one to name calls from your own clients.
+                </p>
+            ) : (
+                customHarnesses?.map((harness) =>
+                    editingHarnessId === harness.id ? (
+                        <McpCustomHarnessForm key={harness.id} />
+                    ) : (
+                        <div
+                            key={harness.id}
+                            className="border rounded flex items-center gap-2 p-2 pl-4 bg-surface-primary"
                         >
-                            <LemonInput placeholder="acme-agent" maxLength={100} />
-                        </LemonField>
-                    </div>
-                    <LemonButton
-                        type="primary"
-                        htmlType="submit"
-                        loading={isNewCustomHarnessSubmitting}
-                        data-attr="mcp-custom-harness-add"
-                        className="self-start"
-                    >
-                        Add harness
-                    </LemonButton>
-                </div>
-            </Form>
+                            <span className="flex-1 min-w-0 truncate font-semibold" title={harness.name}>
+                                {harness.name}
+                            </span>
+                            <span className="flex-1 min-w-0 truncate text-secondary" title={harness.match_pattern}>
+                                Matches <code>{harness.match_pattern}</code>
+                            </span>
+                            <div className="flex gap-1 shrink-0">
+                                <LemonButton
+                                    icon={<IconPencil />}
+                                    tooltip="Edit"
+                                    aria-label={`Edit ${harness.name}`}
+                                    onClick={() => startEditingHarness(harness)}
+                                    data-attr="mcp-custom-harness-edit"
+                                />
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    tooltip="Delete"
+                                    aria-label={`Delete ${harness.name}`}
+                                    loading={deletingHarnessId === harness.id}
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: `Delete ${harness.name}?`,
+                                            description:
+                                                'Calls from this client go back to the built-in harness names.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Delete',
+                                                onClick: () => deleteCustomHarness(harness.id),
+                                            },
+                                            secondaryButton: { children: 'Cancel' },
+                                        })
+                                    }
+                                    data-attr="mcp-custom-harness-delete"
+                                />
+                            </div>
+                        </div>
+                    )
+                )
+            )}
         </div>
     )
 }

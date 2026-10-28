@@ -24,12 +24,19 @@ describe('McpCustomHarnessesSettings', () => {
                     const body = (await request.json()) as { name: string; match_pattern: string }
                     const created = {
                         ...body,
-                        id: 'new',
+                        id: '0193f2a1-0000-7000-8000-000000000001',
                         created_at: '2026-01-01T00:00:00Z',
                         updated_at: '2026-01-01T00:00:00Z',
                     }
                     stored = [...stored, created]
                     return [201, created]
+                },
+            },
+            patch: {
+                [`${HARNESSES_URL}:id/`]: async ({ params, request }) => {
+                    const body = (await request.json()) as Partial<MCPCustomHarnessApi>
+                    stored = stored.map((h) => (h.id === params.id ? { ...h, ...body } : h))
+                    return [200, stored.find((h) => h.id === params.id)]
                 },
             },
         })
@@ -40,20 +47,27 @@ describe('McpCustomHarnessesSettings', () => {
         cleanup()
     })
 
-    it('adds a harness from the form and lists it', async () => {
+    it('adds a harness inline, then edits it in place', async () => {
         render(
             <Provider>
                 <McpCustomHarnessesSettings />
             </Provider>
         )
-        await screen.findByText('No custom harnesses yet. Add one to name calls from your own clients.')
-
+        await userEvent.click(await screen.findByText('Add custom harness'))
         await userEvent.type(screen.getByPlaceholderText('Acme agent'), 'Beta bot')
         await userEvent.type(screen.getByPlaceholderText('acme-agent'), 'beta-bot')
-        await userEvent.click(screen.getByText('Add harness'))
+        await userEvent.click(screen.getByText('Save'))
 
-        expect(await screen.findByText('beta-bot')).toBeInTheDocument()
-        expect(screen.getByText('Beta bot')).toBeInTheDocument()
-        await waitFor(() => expect(screen.getByPlaceholderText('Acme agent')).toHaveValue(''))
+        expect(await screen.findByText('Beta bot')).toBeInTheDocument()
+        expect(screen.queryByPlaceholderText('Acme agent')).not.toBeInTheDocument()
+
+        await userEvent.click(screen.getByLabelText('Edit Beta bot'))
+        const nameInput = screen.getByDisplayValue('Beta bot')
+        await userEvent.clear(nameInput)
+        await userEvent.type(nameInput, 'Beta assistant')
+        await userEvent.click(screen.getByText('Save'))
+
+        expect(await screen.findByText('Beta assistant')).toBeInTheDocument()
+        await waitFor(() => expect(screen.queryByText('Beta bot')).not.toBeInTheDocument())
     })
 })
