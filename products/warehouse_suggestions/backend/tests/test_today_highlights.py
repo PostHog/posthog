@@ -115,7 +115,15 @@ class TestCatalogApprovalsHighlight(SimpleTestCase):
         )
 
     def _context(self) -> HighlightContext:
-        return cast(HighlightContext, SimpleNamespace(team=SimpleNamespace(id=1), user=SimpleNamespace(id=1)))
+        return cast(
+            HighlightContext,
+            SimpleNamespace(
+                team=SimpleNamespace(id=1),
+                user=SimpleNamespace(id=1),
+                guard=lambda _name, provider, _default: provider(),
+                allows=lambda *_required: True,
+            ),
+        )
 
 
 class TestModelSuggestionsHighlight(BaseTest):
@@ -140,14 +148,42 @@ class TestModelSuggestionsHighlight(BaseTest):
             ("2 model suggestions wait for review", "Review them in Models.", "/models?tab=models")
         ]
 
+    @parameterized.expand(
+        [
+            ("session", None, 1),
+            ("umbrella warehouse scope", frozenset({"warehouse_objects:write"}), 1),
+            ("view scope", frozenset({"warehouse_view:write"}), 1),
+            ("read only view scope", frozenset({"warehouse_view:read"}), 0),
+            ("table scope", frozenset({"warehouse_table:write"}), 0),
+            ("catalog scopes only", frozenset({"data_catalog:read", "data_catalog_approval:write"}), 0),
+        ]
+    )
+    def test_counts_only_subjects_the_token_can_write(
+        self, _name: str, scopes: frozenset[str] | None, expected_items: int
+    ) -> None:
+        self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("orders").id)
+
+        found = today_highlights.find_model_suggestions(self._context(scopes))
+
+        assert len(found.items) == expected_items
+
     def test_no_item_when_suggestions_are_off(self) -> None:
         self._suggest(WarehouseSuggestionKind.MATERIALIZE, self._view("orders").id)
         self.flag.return_value = False
 
         assert today_highlights.find_model_suggestions(self._context()).items == ()
 
-    def _context(self) -> HighlightContext:
-        return highlight_context(team=self.team, user=self.user, today=date(2026, 10, 27))
+    def test_a_failed_suggestion_count_keeps_the_catalog_proposals(self) -> None:
+        review = TeamPendingReview(team_id=self.team.id, team_name="Team", groups=[ONE_CERTIFICATION], total=1)
+        self.flag.side_effect = RuntimeError("flag service down")
+
+        with patch.object(today_highlights, "build_team_pending_review", return_value=review):
+            found = today_highlights.find_catalog_approvals(self._context())
+
+        assert [item.title for item in found.items] == ["1 certification waits for approval"]
+
+    def _context(self, scopes: frozenset[str] | None = None) -> HighlightContext:
+        return highlight_context(team=self.team, user=self.user, today=date(2026, 10, 27), scopes=scopes)
 
     def _view(self, name: str) -> DataWarehouseSavedQuery:
         return DataWarehouseSavedQuery.objects.create(

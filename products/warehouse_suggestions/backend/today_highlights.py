@@ -3,7 +3,8 @@ from products.data_catalog.backend.facade.api import PendingGroup, PendingKind, 
 from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
 from products.today.backend.facade.enums import HighlightLabel
 
-from .facade.enums import WarehouseSuggestionKind
+from .facade.contracts import SUBJECT_SCOPE_OBJECTS, WAREHOUSE_SCOPE_OBJECT
+from .facade.enums import WarehouseSuggestionKind, WarehouseSuggestionSubjectKind
 from .logic.access import CATALOG_KINDS, actionable_open_count
 
 APPROVER_ACCESS_LEVEL: AccessControlLevel = "editor"
@@ -21,6 +22,7 @@ MANY_MODEL_TITLE = "{count} model suggestions wait for review"
 ONE_MODEL_DETAIL = "Review it in Models."
 MANY_MODEL_DETAIL = "Review them in Models."
 MODELS_URL = "/models?tab=models"
+SUGGESTION_COUNT_GUARD = "data_catalog_approvals.suggestions"
 
 
 def find_catalog_approvals(context: HighlightContext) -> HighlightFindings:
@@ -48,7 +50,7 @@ def find_catalog_approvals(context: HighlightContext) -> HighlightFindings:
 
 
 def find_model_suggestions(context: HighlightContext) -> HighlightFindings:
-    count = actionable_open_count(context.team, context.user, MODEL_KINDS)
+    count = _open_count(context, MODEL_KINDS)
     if not count:
         return HighlightFindings()
     one = count == 1
@@ -71,7 +73,7 @@ def find_model_suggestions(context: HighlightContext) -> HighlightFindings:
 def _pending_groups(context: HighlightContext) -> list[PendingGroup]:
     review = build_team_pending_review(context.team, sample_size=0)
     groups = list(review.groups) if review else []
-    suggested = actionable_open_count(context.team, context.user, CATALOG_KINDS)
+    suggested = context.guard(SUGGESTION_COUNT_GUARD, lambda: _open_count(context, CATALOG_KINDS), 0)
     if suggested:
         groups.append(
             PendingGroup(
@@ -82,6 +84,18 @@ def _pending_groups(context: HighlightContext) -> list[PendingGroup]:
             )
         )
     return groups
+
+
+def _open_count(context: HighlightContext, kinds: frozenset[WarehouseSuggestionKind]) -> int:
+    return actionable_open_count(context.team, context.user, kinds, _writable_subject_kinds(context))
+
+
+def _writable_subject_kinds(context: HighlightContext) -> frozenset[WarehouseSuggestionSubjectKind]:
+    return frozenset(
+        subject_kind
+        for subject_kind, scope_object in SUBJECT_SCOPE_OBJECTS.items()
+        if context.allows(f"{WAREHOUSE_SCOPE_OBJECT}:write") or context.allows(f"{scope_object}:write")
+    )
 
 
 def _join(groups: list[PendingGroup]) -> str:

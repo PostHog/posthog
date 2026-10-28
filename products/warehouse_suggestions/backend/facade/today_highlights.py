@@ -8,9 +8,5 @@ HIGHLIGHT_SOURCES = (
         find=find_catalog_approvals,
         scopes=("data_catalog:read", "data_catalog_approval:write"),
     ),
-    HighlightSource(
-        name="warehouse_model_suggestions",
-        find=find_model_suggestions,
-        scopes=("warehouse_view:write",),
-    ),
+    HighlightSource(name="warehouse_model_suggestions", find=find_model_suggestions),
 )
