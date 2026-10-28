@@ -32,6 +32,8 @@ from .coder import (
     DEFAULT_TEMPLATE,
     EXPECTED_TAILNET,
     GIT_SIGNING_KEY_SECRET,
+    INSTANCE_TYPE_PARAMETER,
+    INSTANCE_TYPES,
     REGIONS,
     _diagnose_unreachable_coder,
     _fail,
@@ -82,6 +84,7 @@ from .coder import (
     share_workspace,
     ssh_replace,
     start_workspace,
+    start_workspace_with_parameters,
     stop_workspace,
     tailscale_state,
     unshare_workspace,
@@ -375,7 +378,12 @@ def _resume_sync(name: str) -> None:
 
 
 def _start_existing_workspace(
-    name: str, workspace: dict[str, Any], *, start_app: bool | None = None, verbose: bool
+    name: str,
+    workspace: dict[str, Any],
+    *,
+    start_app: bool | None = None,
+    instance_type: str | None = None,
+    verbose: bool,
 ) -> None:
     """Handle `devbox:start` when the workspace already exists."""
     if start_app is not None:
@@ -385,6 +393,13 @@ def _start_existing_workspace(
         )
 
     status = get_workspace_status(workspace)
+    if instance_type is not None and status not in ("stopped", "failed"):
+        _fail(
+            f"--instance-type only applies to a stopped devbox, and '{name}' is {status}. "
+            "Run `hogli devbox:stop` first.",
+            cause="instance_type_on_unstopped",
+        )
+
     if status == "running":
         click.echo(f"Devbox '{name}' is already running.")
         _print_connection_info(name)
@@ -395,8 +410,11 @@ def _start_existing_workspace(
         click.echo("Wait for the current operation to complete.")
         return
 
-    if status == "stopped":
-        if workspace.get("outdated"):
+    if status == "stopped" or instance_type is not None:
+        if instance_type is not None:
+            click.echo(f"Starting devbox '{name}' on {instance_type}...")
+            start_workspace_with_parameters(workspace, {INSTANCE_TYPE_PARAMETER: instance_type}, verbose=verbose)
+        elif workspace.get("outdated"):
             click.echo(f"Starting devbox '{name}' on the latest template...")
             update_workspace(name, verbose=verbose)
         else:
@@ -1485,6 +1503,15 @@ def _maybe_hint_region_mismatch(name: str) -> None:
     default=None,
     help=("Bring the PostHog app up in the background on every workspace start. Applies when the devbox is created."),
 )
+@click.option(
+    "--instance-type",
+    type=click.Choice(INSTANCE_TYPES),
+    default=None,
+    help=(
+        "EC2 instance type, kept for later starts. Pick another when a start fails with "
+        "InsufficientInstanceCapacity. Changes a stopped devbox in place and keeps its disk."
+    ),
+)
 @click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
 def devbox_start(
     workspace: str | None,
@@ -1493,6 +1520,7 @@ def devbox_start(
     preset: str,
     region: str | None,
     start_app: bool | None,
+    instance_type: str | None,
     verbose: bool,
 ) -> None:
     """Start or create the remote devbox."""
@@ -1512,7 +1540,7 @@ def devbox_start(
     if ws is not None:
         if workspace is None and region is None:
             _maybe_hint_region_mismatch(name)
-        _start_existing_workspace(name, ws, start_app=start_app, verbose=verbose)
+        _start_existing_workspace(name, ws, start_app=start_app, instance_type=instance_type, verbose=verbose)
         return
 
     config = load_config()
@@ -1528,6 +1556,7 @@ def devbox_start(
         template=template,
         preset=preset,
         start_app=start_app,
+        instance_type=instance_type,
         verbose=verbose,
     )
     _wait_until_ready(name)

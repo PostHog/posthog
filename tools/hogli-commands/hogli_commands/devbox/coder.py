@@ -84,6 +84,13 @@ DISK_SIZE_PARAMETER = "disk_size"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
 
+# Mutable parameter. The template changes the type of the same EC2 instance, so
+# a box keeps its disk. Valid values match the template's options exactly.
+INSTANCE_TYPE_PARAMETER = "instance_type"
+INSTANCE_TYPES = ("m8g.4xlarge", "m7g.4xlarge", "m6g.4xlarge")
+# AWS error code when a zone has no free capacity for the requested type.
+_CAPACITY_ERROR = "InsufficientInstanceCapacity"
+
 # Immutable, create-time parameter consumed by `devbox:clone`: the EC2 instance
 # of the source devbox. The template images that instance server-side and boots
 # the new box from the capture, so the duplicate comes up with the source's full
@@ -296,13 +303,29 @@ def _run_build(args: list[str], *, verbose: bool = False) -> subprocess.Complete
 
     returncode = proc.wait()
 
-    if returncode != 0 and not verbose:
-        click.echo()
-        click.echo(click.style("Build failed. Full output:", fg="red"))
-        for line in captured:
-            click.echo(line, nl=False)
+    output = "".join(captured)
+    if returncode != 0:
+        if not verbose:
+            click.echo()
+            click.echo(click.style("Build failed. Full output:", fg="red"))
+            click.echo(output, nl=False)
+        _echo_capacity_hint(output)
 
-    return subprocess.CompletedProcess(args, returncode, "".join(captured), "")
+    return subprocess.CompletedProcess(args, returncode, output, "")
+
+
+def _echo_capacity_hint(build_output: str) -> None:
+    """Tell the user how to retry on another instance type when AWS ran out of capacity."""
+    if _CAPACITY_ERROR not in build_output:
+        return
+    click.echo(
+        click.style(
+            "AWS has no free capacity for this instance type in the devbox's availability zone. "
+            "Run `hogli devbox:start` again with `--instance-type` set to another of: "
+            f"{', '.join(INSTANCE_TYPES)}.",
+            fg="yellow",
+        )
+    )
 
 
 def _append_parameter_flags(args: list[str], parameters: dict[str, str]) -> list[str]:
@@ -1325,6 +1348,7 @@ def create_workspace(
     template: str = DEFAULT_TEMPLATE,
     preset: str = DEFAULT_PRESET,
     start_app: bool | None = None,
+    instance_type: str | None = None,
     verbose: bool = False,
 ) -> None:
     """Create a new Coder workspace.
@@ -1359,6 +1383,8 @@ def create_workspace(
     if dotfiles_uri:
         parameters[DOTFILES_URI_PARAMETER] = dotfiles_uri
     parameters.update(_start_app_param(start_app))
+    if instance_type:
+        parameters[INSTANCE_TYPE_PARAMETER] = instance_type
 
     resolved_preset = resolve_template_preset(template, preset)
     base_args = [
@@ -1576,14 +1602,53 @@ def update_workspace(name: str, *, verbose: bool = False) -> None:
     adds with its default instead of prompting behind the spinner.
     """
     result = _run_build(["coder", "update", name, "--use-parameter-defaults"], verbose=verbose)
+    _exit_if_streamed_build_failed(name, result, verbose=verbose)
+
+
+def start_workspace_with_parameters(
+    workspace: dict[str, Any], parameters: dict[str, str], *, verbose: bool = False
+) -> None:
+    """Start a workspace on the active template version with new mutable parameter values.
+
+    The Coder CLI cannot change a mutable parameter on an existing workspace:
+    it resolves the value to the last build's after any ``--parameter`` flag
+    (cli/parameterresolver.go). The build API takes a provided value first, so
+    hogli calls it directly, as the Coder dashboard does.
+    """
+    name = workspace["name"]
+    token = _run(["coder", "login", "token"], capture_output=True)
+    if token.returncode != 0:
+        _fail("Could not read your Coder session token. Run `hogli devbox:setup`.")
+    response = requests.post(
+        f"{get_coder_url()}/api/v2/workspaces/{workspace['id']}/builds",
+        headers={"Coder-Session-Token": token.stdout.strip()},
+        json={
+            "transition": "start",
+            "template_version_id": workspace["template_active_version_id"],
+            "rich_parameter_values": [{"name": key, "value": value} for key, value in parameters.items()],
+        },
+        timeout=30,
+    )
+    if not response.ok:
+        _fail(f"Coder refused to start '{name}': {response.text}")
+    result = _run_build(["coder", "logs", name, "--follow"], verbose=verbose)
+    _exit_if_streamed_build_failed(name, result, verbose=verbose)
+
+
+def _exit_if_streamed_build_failed(name: str, result: subprocess.CompletedProcess[str], *, verbose: bool) -> None:
+    """Exit when a command that only streams build logs ran over a failed build.
+
+    `coder update` and `coder logs` exit 0 whatever the build result, so the
+    workspace status is the only reliable signal.
+    """
     if result.returncode != 0:
         raise SystemExit(result.returncode)
-    # `coder update` only streams the build logs, so it exits 0 when the build fails.
     workspace = get_workspace(name)
     if workspace is not None and get_workspace_status(workspace) == "failed":
         if not verbose:
             click.echo(click.style("Build failed. Full output:", fg="red"))
             click.echo(result.stdout, nl=False)
+        _echo_capacity_hint(result.stdout)
         raise SystemExit(1)
 
 
