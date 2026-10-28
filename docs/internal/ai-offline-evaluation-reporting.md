@@ -435,10 +435,8 @@ Exact retries add no usage, including retries split or regrouped into different 
 Mixed uploads count only new results, and changed content still returns a conflict.
 
 Each entry stores the environment's team ID, the owning organization's ID at acceptance, the experiment ID, and the same server acceptance timestamp as its new results.
-New entries also snapshot billing eligibility: demo environments and internal-metrics organizations are exempt.
-These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove usage.
+These identifiers are stored independently of the product records, so deleting results, experiments, or their owners does not remove ledger entries.
 Moving a project to another organization does not rewrite historical attribution.
-The ownership and eligibility snapshots preserve attribution even after a project move or deletion.
 
 Recording begins with newly accepted results after deployment; there is no historical backfill, compaction, or ledger cleanup.
 The ledger has no editing API, admin registration, or production update/delete path.
@@ -460,32 +458,31 @@ Both `organization usage report` and `llm analytics usage` expose:
 | `ai_offline_eval_metric_count_in_period` | Sum of eligible offline ledger quantities accepted in the reporting window.                            |
 | `ai_event_count_in_period`               | The sum of the two components.                                                                         |
 
-Organization reports include the same breakdown in each `teams` entry, including historical environments that have moved or been deleted. A moved environment can appear under both organizations, with only the usage attributed to each.
+Organization reports include the same breakdown in each `teams` entry, including existing environments that have moved. A moved environment can appear under both organizations, with only the usage attributed to each.
 `team_count` continues to count live billable teams; historical entries do not increase it.
 The existing `ai_event_count_in_period` → `llm_events` contract remains the shared AIO meter. Reporting does not deduct the standard 100,000-unit monthly allowance or determine prices or custom allowances; billing owns those calculations.
 The existing `ai_metric_count`, event-type analytics, traces, costs, tokens, and dimension breakdowns remain ClickHouse-derived.
 
-`get_offline_evaluation_usage` performs database-side `SUM(quantity)` grouped by the stored organization, environment, and eligibility snapshot, with `accepted_at >= period_start AND accepted_at < period_end`.
+`get_offline_evaluation_usage` performs database-side `SUM(quantity)` grouped by the stored organization and environment, with `accepted_at >= period_start AND accepted_at < period_end`.
+Eligibility follows current team records, like ingested AI events: deleted teams, demo teams, and teams in internal-metrics organizations are excluded. The stored organization must also still exist and not be internal-metrics.
+The ledger retains all accepted usage; reporting applies these exclusions without recording a separate eligibility field.
 It uses timezone-aware UTC windows and never counts ledger rows or current results. Scheduled daily reports and current-day quota refresh use midnight-to-midnight windows, including the final microsecond of the day.
-The existing acceptance-time index supports the range filter. Only grouped totals and a bulk organization lookup reach Python; there is no query per metric, team, or organization.
+The existing acceptance-time index supports the range filter. Team and organization eligibility use SQL subqueries in the same aggregation query. Only grouped totals reach Python; there is no query per metric, team, or organization.
 
 Celery and Temporal compose offline quantities after selecting the ingested counter source, so source switching and shadow comparisons remain about ingested events only.
 Temporal queries the ledger in its aggregation activity before emitting chunks; existing query files and activity inputs need no new serialized counter.
-Offline-only organizations, including surviving organizations with no live teams, reach the normal delivery path.
-Deleted organizations are omitted under the existing organization lifecycle policy, with an `offline_evaluation_usage_for_deleted_organizations` warning. No customer or organization is recreated; settlement after organization deletion remains a billing lifecycle decision outside these reporters.
-Currently internal-metrics organizations are also excluded, even if they have older eligible entries.
+Offline-only organizations reach the normal delivery path when they have eligible usage. Stored attribution can include an organization whose team has since moved elsewhere.
+Deleted teams' usage is omitted from newly generated reports, even though its ledger entries remain. Deleted organizations are also omitted; no customer or organization is recreated.
 
-Current-day quota refresh adds offline usage to `llm_events.todays_usage` by the stored organization, including usage from deleted environments.
+Current-day quota refresh adds eligible offline usage to `llm_events.todays_usage` by the stored organization, using the same current-team exclusions.
 It leaves the prior-period `usage` received from billing intact. Ledger failures abort before quota updates or report delivery, allowing existing retries without publishing an incomplete total.
-Unknown eligibility in a reporting window also fails reporting rather than guessing from current or missing team records.
 Reports are absolute totals: rereading an unchanged window does not consume or modify ledger entries. Existing analytics dispatch claims and already-reported checks still apply.
 Separately scheduled reports can observe different late-arriving ingested data; identical windows and source snapshots produce matching AIO totals.
 
 ### Deployment
 
 Offline usage reporting uses the requested reporting window without a separate charging-start date or activation setting.
-Deploy the nullable eligibility migration first, then deploy the new upload writers and all reporting/quota workers. Old writers remain compatible and write null eligibility.
-All billable entries in a reporting window must have an eligibility snapshot; legacy nulls are intentionally not backfilled.
+The reporting integration uses the existing ledger schema without an additional migration.
 Temporal's exclusive-day-end patch preserves the window recorded by pre-deploy workflows. Already serialized reports are not rewritten.
 
 ## Resource tags

@@ -137,7 +137,6 @@ class TestOfflineEvaluationService(TestCase):
         self.assertEqual(ledger.quantity, 4)
         self.assertEqual(ledger.organization_id, self.team.organization_id)
         self.assertEqual(ledger.experiment_id, self.experiment.id)
-        self.assertTrue(ledger.billing_eligible)
         self.assertEqual({result.accepted_at for result in accepted.results}, {ledger.accepted_at})
         self.assertEqual(
             set(OfflineEvaluationResult.objects.for_team(self.team.id).values_list("accepted_at", flat=True)),
@@ -194,20 +193,6 @@ class TestOfflineEvaluationService(TestCase):
         new_ledger = OfflineEvaluationUsageLedger.objects.for_team(self.team.id).exclude(id=original_ledger.id).get()
         self.assertEqual(new_ledger.organization_id, other_organization.id)
         self.assertEqual(new_ledger.quantity, 1)
-
-    @parameterized.expand([(True, False), (False, True), (False, False)])
-    def test_usage_snapshots_billing_exemptions(self, demo: bool, internal: bool) -> None:
-        Team.objects.filter(id=self.team.id).update(is_demo=demo)
-        Organization.objects.filter(id=self.team.organization_id).update(for_internal_metrics=internal)
-        self.ingestion.upload(self.experiment.id, self.submission)
-        ledger = OfflineEvaluationUsageLedger.objects.for_team(self.team.id).get()
-        self.assertEqual(ledger.billing_eligible, not (demo or internal))
-        Team.objects.filter(id=self.team.id).update(is_demo=not demo)
-        Organization.objects.filter(id=self.team.organization_id).update(for_internal_metrics=not internal)
-        self.ingestion.upload(self.experiment.id, self.submission)
-        ledger.refresh_from_db()
-        self.assertEqual(ledger.billing_eligible, not (demo or internal))
-        self.assertEqual(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).count(), 1)
 
     def test_privileged_result_deletion_removes_retry_identity_but_not_recorded_usage(self) -> None:
         self.ingestion.upload(self.experiment.id, self.submission)

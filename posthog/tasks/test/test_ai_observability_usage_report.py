@@ -654,7 +654,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
 
     @parameterized.expand([(False,), (True,)])
     @time_machine.travel("2026-11-01T00:01:00Z", tick=False)
-    def test_both_reports_keep_historical_ownership_after_move_and_deletion(self, deleted_team: bool) -> None:
+    def test_both_reports_preserve_moved_team_usage_but_exclude_deleted_teams(self, deleted_team: bool) -> None:
         period = DayRange(start=datetime(2026, 10, 31, tzinfo=UTC), end=datetime(2026, 11, 1, tzinfo=UTC))
         new_org = Organization.objects.create(name="New owner")
         for org, quantity in ((self.organization, 30), (new_org, 4)):
@@ -664,7 +664,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
                 experiment_id=uuid4(),
                 accepted_at=period.start,
                 quantity=quantity,
-                billing_eligible=True,
             )
         Team.objects.filter(id=self.team.id).update(organization=new_org)
         if deleted_team:
@@ -673,6 +672,10 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         reports = _get_all_org_reports(period=period)
         for org, expected in ((self.organization, 30), (new_org, 4)):
             org_id = str(org.id)
+            if deleted_team:
+                self.assertNotIn(org_id, analytics)
+                self.assertNotIn(org_id, reports)
+                continue
             self.assertEqual(analytics[org_id]["ai_offline_eval_metric_count_in_period"], expected)
             self.assertEqual(analytics[org_id]["ai_event_count_in_period"], expected)
             self.assertEqual(reports[org_id].ai_event_count_in_period, expected)
@@ -685,7 +688,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             experiment_id=uuid4(),
             accepted_at=datetime(2026, 10, 31, tzinfo=UTC),
             quantity=30,
-            billing_eligible=True,
         )
 
         def fail_ledger_read(

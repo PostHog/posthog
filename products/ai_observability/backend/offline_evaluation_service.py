@@ -456,9 +456,6 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             .filter(id__in={result.scorer_version_id for _, result in new_results})
             .select_related("definition")
         }
-        acceptance_owner = Team.objects.values("organization_id", "is_demo", "organization__for_internal_metrics").get(
-            id=experiment.team_id
-        )
         accepted_at = timezone.now()
         new_items: list[OfflineExperimentItem] = []
         if dataset_versions is not None:
@@ -522,15 +519,13 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             ]
         )
         if new_result_rows:
+            organization_id = Team.objects.values_list("organization_id", flat=True).get(id=experiment.team_id)
             OfflineEvaluationUsageLedger.objects.for_team(experiment.team_id).create(
                 team_id=experiment.team_id,
-                organization_id=acceptance_owner["organization_id"],
+                organization_id=organization_id,
                 experiment_id=experiment.id,
                 accepted_at=accepted_at,
                 quantity=len(new_result_rows),
-                billing_eligible=not (
-                    acceptance_owner["is_demo"] or acceptance_owner["organization__for_internal_metrics"]
-                ),
             )
         return UploadReceipt(
             items=[

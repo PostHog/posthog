@@ -223,7 +223,6 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
                 experiment_id=uuid.uuid4(),
                 accepted_at=ctx.period_start,
                 quantity=quantity,
-                billing_eligible=True,
             )
             for quantity in (20, 10)
         ]

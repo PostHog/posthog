@@ -104,7 +104,6 @@ class TestQuotaLimiting(BaseTest):
                 experiment_id=uuid4(),
                 accepted_at=accepted_at,
                 quantity=quantity,
-                billing_eligible=True,
             )
         if deleted_team:
             self.team.delete()
@@ -112,7 +111,7 @@ class TestQuotaLimiting(BaseTest):
             self._run_quota_limiting()
             self.organization.refresh_from_db()
             self.assertEqual(self.organization.usage["llm_events"]["usage"], 50)
-            self.assertEqual(self.organization.usage["llm_events"]["todays_usage"], 30)
+            self.assertEqual(self.organization.usage["llm_events"]["todays_usage"], 0 if deleted_team else 30)
 
     @patch("posthoganalytics.capture")
     @patch("posthoganalytics.feature_enabled", return_value=True)

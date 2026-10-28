@@ -225,7 +225,6 @@ class OfflineEvaluationUsageLedger(UUIDModel):
     experiment_id = models.UUIDField(editable=False)
     accepted_at = models.DateTimeField(default=timezone.now, editable=False)
     quantity = models.PositiveBigIntegerField(editable=False)
-    billing_eligible = models.BooleanField(null=True, editable=False)
 
     objects = EnvironmentScopedManager()
 
