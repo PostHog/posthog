@@ -1405,6 +1405,13 @@ export interface TraceTimelineRowApi {
     hasError: boolean
 }
 
+export interface TraceGitApi {
+    /** The git branch checked out when the trace ran. */
+    branch: string
+    /** The repository as owner/name, or null when the branch's event has none. */
+    repo: string | null
+}
+
 export interface TraceApi {
     id: string
     name: string | null
@@ -1420,6 +1427,8 @@ export interface TraceApi {
     threadNodeIds: string[]
     defaultNodeId: string
     nodeIdsByAlias: TraceApiNodeIdsByAlias
+    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+    git: TraceGitApi | null
 }
 
 export type TraceEvaluationResultOutcomeEnumApi =
