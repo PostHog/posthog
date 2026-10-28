@@ -899,8 +899,6 @@ class Command(BaseCommand):
             activities = list(ACTIVITIES_DICT[task_queue])
         except KeyError:
             raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
-        worker_role = WorkerRole(options["worker_role"])
-        workflows, activities = registrations_for_role(worker_role, workflows, activities)
 
         # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
         # SDKs register protobuf descriptors into a process-global pool that rejects a second
@@ -911,6 +909,10 @@ class Command(BaseCommand):
         # import the vendor SDKs, so they keep their fast startup.
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
+
+        # After the source preload, because an activities-only data-sync worker still runs the syncs.
+        worker_role = WorkerRole(options["worker_role"])
+        workflows, activities = registrations_for_role(worker_role, workflows, activities)
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
