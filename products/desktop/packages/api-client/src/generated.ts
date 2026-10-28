@@ -256,7 +256,10 @@ export namespace Schemas {
     export type QueryScanFindingKind =
         | "no_event_filter"
         | "no_start_date"
-        | "persons_join";
+        | "persons_join"
+        | "repeated_cte_expansion"
+        | "cross_join_equality"
+        | "date_arrays_before_breakdown_limit";
     export type QueryScanWarning = {
         /**
          * Whether the person can change the query so it reads less and still answers the same question. Surfaces show the full advice and "Fix with AI" only when a finding is actionable.

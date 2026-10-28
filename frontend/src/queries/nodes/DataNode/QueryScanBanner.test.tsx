@@ -85,6 +85,22 @@ describe('QueryScanBanner', () => {
             fixer: false,
         },
         {
+            label: 'an informational query structure',
+            findings: [
+                {
+                    ...BY_DESIGN_FINDING,
+                    kind: 'cross_join_equality' as const,
+                    by_design: false,
+                    message: 'This query uses a CROSS JOIN with an equality filter.',
+                },
+            ],
+            assistantPrompt: null,
+            advice: ['This query uses a CROSS JOIN with an equality filter.'],
+            banner: false,
+            note: true,
+            fixer: false,
+        },
+        {
             label: 'a by-design finding beside one to act on',
             findings: [BY_DESIGN_FINDING, FINDING],
             assistantPrompt: 'Help me get what this query is trying to find, as fast as possible.',

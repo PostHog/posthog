@@ -2902,6 +2902,9 @@ export namespace Schemas {
       NoEventFilter: 'no_event_filter',
       NoStartDate: 'no_start_date',
       PersonsJoin: 'persons_join',
+      RepeatedCteExpansion: 'repeated_cte_expansion',
+      CrossJoinEquality: 'cross_join_equality',
+      DateArraysBeforeBreakdownLimit: 'date_arrays_before_breakdown_limit',
     } as const;
 
     export interface QueryScanWarning {

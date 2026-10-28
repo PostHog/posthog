@@ -149,6 +149,46 @@ class TestTreeFacts(BaseTest):
             ),
             ("the last event", "SELECT max(timestamp) FROM events", TreeFacts()),
             ("a plain count", f"SELECT count() FROM events WHERE {_RECENT}", TreeFacts(timestamp_bound=True)),
+            (
+                "a repeated CTE",
+                "WITH counts AS (SELECT event, count() AS n FROM events GROUP BY event) SELECT sum(n) FROM counts UNION ALL SELECT max(n) FROM counts",
+                TreeFacts(groups_by_event=True, repeated_cte_expansions=1),
+            ),
+            (
+                "a materialized CTE",
+                "WITH counts AS MATERIALIZED (SELECT event, count() AS n FROM events GROUP BY event) SELECT sum(n) FROM counts UNION ALL SELECT max(n) FROM counts",
+                TreeFacts(groups_by_event=True),
+            ),
+            (
+                "nested CTE names do not combine",
+                "WITH counts AS (SELECT event, count() AS n FROM events GROUP BY event) SELECT sum(n) FROM counts UNION ALL SELECT n FROM (WITH counts AS (SELECT 1 AS n) SELECT n FROM counts)",
+                TreeFacts(groups_by_event=True),
+            ),
+            (
+                "a cross join with a direct equality",
+                "SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id",
+                TreeFacts(cross_join_equalities=1),
+            ),
+            (
+                "an equality inside OR",
+                "SELECT count() FROM events l CROSS JOIN events r WHERE l.distinct_id = r.distinct_id OR l.event = 'example'",
+                TreeFacts(),
+            ),
+            (
+                "an explicit inner join",
+                "SELECT count() FROM events l INNER ALL JOIN events r ON l.distinct_id = r.distinct_id",
+                TreeFacts(),
+            ),
+            (
+                "date arrays built during breakdown ranking",
+                "SELECT breakdown_value, groupArray(day_start), rowNumberInAllBlocks() AS row_number FROM (SELECT event AS breakdown_value, timestamp AS day_start FROM events) GROUP BY breakdown_value",
+                TreeFacts(date_arrays_before_breakdown_limit=True),
+            ),
+            (
+                "date arrays built after breakdown limiting",
+                "SELECT breakdown_value, groupArray(day_start) FROM (SELECT event AS breakdown_value, timestamp AS day_start FROM events LIMIT 5) GROUP BY breakdown_value",
+                TreeFacts(),
+            ),
         ]
     )
     def test_reads_the_facts_off_the_tree(self, _name: str, sql: str, expected: TreeFacts) -> None:
