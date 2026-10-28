@@ -11,7 +11,13 @@ python -c "import grpc_tools" 2>/dev/null || { echo "Error: grpcio-tools is not 
 echo "Cleaning old generated files..."
 rm -rf "$OUT_DIR/personhog"
 
-mapfile -d '' PROTO_FILES < <(find "$PROTO_DIR/personhog/service" "$PROTO_DIR/personhog/types" -name '*.proto' -print0)
+# The facade, the identity server's two services and the types they share: the same set the Node
+# codegen emits (nodejs/package.json, generate:personhog-proto). Django never talks to the leader
+# or the replica directly, so their protos stay out.
+mapfile -d '' PROTO_FILES < <(
+    find "$PROTO_DIR/personhog/service" "$PROTO_DIR/personhog/identity" "$PROTO_DIR/personhog/lifecycle" "$PROTO_DIR/personhog/types" \
+        -name '*.proto' -print0 | sort -z
+)
 
 echo "Generating Python protobuf and gRPC stubs..."
 python -m grpc_tools.protoc \

@@ -74,6 +74,14 @@ The `PersonHogClient` in `client.py` exposes typed methods for every RPC:
 **Person split:**
 `split_person` — splits distinct_ids off a person onto new persons (max 250 per request); the sole write path for person splits, with no ORM fallback
 
+**Lifecycle sagas (identity server):**
+`delete_persons_lifecycle` runs the fenced delete saga for up to 250 person ids of one team and returns one outcome per requested id (`DELETED`, `NOT_FOUND`, `SKIPPED_CONFLICT`).
+It goes out on a second channel to `PERSONHOG_LIFECYCLE_ADDR` (a router with the identity proxy enabled); without that setting the method raises `PersonHogLifecycleUnavailable`.
+The call waits for the saga to complete, so its deadline is `PERSONHOG_LIFECYCLE_TIMEOUT_MS` rather than `PERSONHOG_TIMEOUT_MS`.
+Every request carries a caller-generated `op_id`. Retry a transient failure with the same `op_id` and the identical `person_ids` list; the retry attaches to the existing operation and returns its recorded outcome.
+A `FAILED_PRECONDITION` whose `semantic_refusal_reason()` (in `interceptor.py`) is `op_id_reused` means the `op_id` belongs to a different request; reissue under a fresh `op_id` instead of retrying.
+The request and response types are re-exported from `posthog.personhog_client.proto` as `LifecycleDeletePersonsRequest` and `LifecycleDeletePersonsResponse`, because the facade's delete messages share their names.
+
 **Version floors:**
 `ensure_person_version_floors` (raise each tombstone to a minimum version, inserting a tombstone where no row exists, and leave live rows unchanged; a lost insert race fails the whole request with `FAILED_PRECONDITION`).
 Each write takes at most 250 keys in one transaction. Use the helper in `posthog/models/person/util.py`: it batches and retries a lost race.
