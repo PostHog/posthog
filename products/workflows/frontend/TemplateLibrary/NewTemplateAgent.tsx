@@ -1,13 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { IconLetter } from '@posthog/icons'
-import { LemonInput } from '@posthog/lemon-ui'
 
 import { AiFirstCreateScene } from 'scenes/max/aiFirstCreate/AiFirstCreateScene'
 import { aiFirstHandoffLogic } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 
-import { filterMessageTemplates } from './filterMessageTemplates'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { NEW_TEMPLATE_HANDOFF } from './newTemplateHandoff'
@@ -15,7 +12,7 @@ import { NEW_TEMPLATE_SUGGESTIONS, PICKED_TEMPLATE_PROMPT } from './templateAgen
 import { TemplateStartingPointCard } from './TemplateStartingPointCard'
 import { MessageTemplate } from './types'
 
-// Without a search the row shows the newest few, so the prompt cards stay in view.
+// The library lists every saved template; the row shows the newest few so the prompt cards stay in view.
 const STARTING_POINT_LIMIT = 8
 
 /** The AI-first "New template" screen: the composer first, with the team's saved templates as starting points. */
@@ -29,10 +26,7 @@ export function NewTemplateAgent(): JSX.Element {
         setPickedTemplate(template)
         fillComposer(PICKED_TEMPLATE_PROMPT)
     }
-    const [search, setSearch] = useState('')
-    const startingPoints = search
-        ? filterMessageTemplates(templates, { search })
-        : templates.slice(0, STARTING_POINT_LIMIT)
+    const startingPoints = templates.slice(0, STARTING_POINT_LIMIT)
 
     return (
         <AiFirstCreateScene
@@ -44,38 +38,24 @@ export function NewTemplateAgent(): JSX.Element {
             suggestionIcon={<IconLetter />}
             belowComposer={
                 // Nothing to pick from is not an empty state worth a screen; the prompt cards are the page then.
-                !templatesLoading && templates.length > 0 ? (
+                !templatesLoading && startingPoints.length > 0 ? (
                     // Same width as the composer, with no side padding, so four cards fit in one row and the
                     // edges line up. The bottom margin keeps the pick row apart from the prompt cards.
                     <div
                         className="flex flex-col gap-2 w-full max-w-2xl mb-4"
                         data-attr="new-template-agent-starting-points"
                     >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                            <span className="text-secondary text-xs font-semibold">Start from a template</span>
-                            <LemonInput
-                                type="search"
-                                size="small"
-                                placeholder="Search templates"
-                                value={search}
-                                onChange={setSearch}
-                                data-attr="new-template-agent-starting-points-search"
-                            />
+                        <span className="text-secondary text-xs font-semibold">Start from a template</span>
+                        <div className="flex flex-wrap gap-2">
+                            {startingPoints.map((template) => (
+                                <TemplateStartingPointCard
+                                    key={template.id}
+                                    template={template}
+                                    picked={pickedTemplate?.id === template.id}
+                                    onClick={() => pickTemplate(template)}
+                                />
+                            ))}
                         </div>
-                        {startingPoints.length > 0 ? (
-                            <div className="flex flex-wrap gap-2">
-                                {startingPoints.map((template) => (
-                                    <TemplateStartingPointCard
-                                        key={template.id}
-                                        template={template}
-                                        picked={pickedTemplate?.id === template.id}
-                                        onClick={() => pickTemplate(template)}
-                                    />
-                                ))}
-                            </div>
-                        ) : (
-                            <span className="text-secondary text-sm">No templates match your search.</span>
-                        )}
                     </div>
                 ) : null
             }
