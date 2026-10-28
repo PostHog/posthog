@@ -203,6 +203,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_increase_upper_threshold_breached(
@@ -378,6 +379,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (-1) increased less than lower threshold (2)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         # check percentage alert
@@ -401,6 +403,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (-50.00%) increased less than lower threshold (50.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_increase_lower_threshold_breached_2(
@@ -576,6 +579,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (2) decreased more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         run_alert_check(percentage_alert["id"])
@@ -598,6 +602,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (66.67%) decreased more than upper threshold (20.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_decrease_lower_threshold_breached(
@@ -677,6 +682,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (1) decreased less than lower threshold (2)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         run_alert_check(percentage_alert["id"])
@@ -699,6 +705,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (50.00%) decreased less than lower threshold (80.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_increase_no_threshold_breached(
@@ -1004,6 +1011,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (2) increased more than upper threshold (1)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
                 call(
                     ANY,
@@ -1011,6 +1019,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (200.00%) increased more than upper threshold (20.00%)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
             ]
         )
@@ -1132,6 +1141,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Firefox) for previous week (0) increased less than lower threshold (1)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
                 call(
                     ANY,
@@ -1139,6 +1149,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Firefox) for previous week (0.00%) increased less than lower threshold (20.00%)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
             ]
         )
@@ -1260,6 +1271,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (-2) decreased less than lower threshold (1)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
                 call(
                     ANY,
@@ -1267,6 +1279,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (-200.00%) decreased less than lower threshold (20.00%)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
             ]
         )
@@ -1389,6 +1402,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (2) decreased more than upper threshold (1)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
                 call(
                     ANY,
@@ -1396,6 +1410,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                         "The insight value (signed_up - Chrome) for previous week (66.67%) decreased more than upper threshold (20.00%)"
                     ],
                     idempotency_key=ANY,
+                    extra_properties=ANY,
                 ),
             ]
         )
@@ -1696,6 +1711,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for current week (2) increased more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         run_alert_check(percentage_alert["id"])
@@ -1718,6 +1734,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for current week (200.00%) increased more than upper threshold (20.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_current_interval_relative_increase_does_not_fallback_to_previous_interval(
@@ -1899,6 +1916,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (2) increased more than upper threshold (1)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
         run_alert_check(percentage_alert["id"])
@@ -1921,6 +1939,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (inf%) increased more than upper threshold (20.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     def test_relative_decrease_when_previous_value_is_0(
@@ -2006,6 +2025,7 @@ class TestTimeSeriesTrendsRelativeAlerts(APIBaseTest, ClickhouseDestroyTablesMix
             ANY,
             ["The insight value (signed_up) for previous week (inf%) decreased more than upper threshold (20.00%)"],
             idempotency_key=ANY,
+            extra_properties=ANY,
         )
 
     @patch(

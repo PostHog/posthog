@@ -825,7 +825,8 @@
                         }
                     ]
                 }
-            ]
+            ],
+            []
         ],
         "body": [
             {
@@ -866,7 +867,143 @@
             "*{person.name}* triggered event: '{event.event}'",
             "Alert triggered: {event.properties.insight_name}"
         ],
-        "username": ["PostHog"]
+        "username": ["PostHog"],
+        "attachments": [
+            [
+                {
+                    "color": "#D97706",
+                    "fallback": "{concat(event.properties.slack_alert_type == 'Anomaly detected' ? 'Anomaly alert' : 'Insight alert', ' ‘', event.properties.alert_name, '’ triggered')}",
+                    "blocks": [
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {
+                                            "type": "text",
+                                            "text": "{concat('⚠️ ', event.properties.slack_alert_type == 'Anomaly detected' ? 'Anomaly alert' : 'Insight alert', ' ‘')}",
+                                            "style": {
+                                                "bold": true
+                                            }
+                                        },
+                                        {
+                                            "type": "link",
+                                            "url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}",
+                                            "text": "{event.properties.alert_name}",
+                                            "style": {
+                                                "bold": true
+                                            }
+                                        },
+                                        {
+                                            "type": "text",
+                                            "text": "’ triggered",
+                                            "style": {
+                                                "bold": true
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        {
+                            "type": "rich_text",
+                            "elements": [
+                                {
+                                    "type": "rich_text_section",
+                                    "elements": [
+                                        {
+                                            "type": "text",
+                                            "text": "📁 Project: "
+                                        },
+                                        {
+                                            "type": "link",
+                                            "url": "{project.url}",
+                                            "text": "{project.name}"
+                                        }
+                                    ]
+                                }
+                            ]
+                        },
+                        "{event.properties.slack_alert_details ?? {'type': 'section', 'text': {'type': 'plain_text', 'text': substring(event.properties.breaches, 1, 3000)}}}",
+                        "{event.properties.slack_alert_timing ?? {'type': 'context', 'elements': [{'type': 'plain_text', 'text': event.timestamp}]}}",
+                        "{event.properties.slack_alert_tags ?? {'type': 'divider'}}"
+                    ]
+                },
+                {
+                    "blocks": [
+                        "{event.properties.insight_chart_url ? {'type': 'image', 'image_url': event.properties.insight_chart_url, 'alt_text': 'Insight chart'} : {'type': 'divider'}}",
+                        {
+                            "type": "actions",
+                            "block_id": "insight_alert_snooze:{event.properties.alert_id}",
+                            "elements": [
+                                {
+                                    "url": "{event.properties.investigation_notebook_url ? event.properties.investigation_notebook_url : concat(project.url, '/insights/', event.properties.insight_id, '/alerts?alert_id=', event.properties.alert_id, '&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack')}",
+                                    "text": {
+                                        "text": "{event.properties.investigation_notebook_url ? '🔎 View investigation' : '🔎 View alert'}",
+                                        "type": "plain_text"
+                                    },
+                                    "type": "button"
+                                },
+                                {
+                                    "url": "{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack",
+                                    "text": {
+                                        "text": "📊 View insight",
+                                        "type": "plain_text"
+                                    },
+                                    "type": "button"
+                                },
+                                {
+                                    "action_id": "insight_alert_snooze",
+                                    "placeholder": {
+                                        "text": "Snooze…",
+                                        "type": "plain_text"
+                                    },
+                                    "options": [
+                                        {
+                                            "text": {
+                                                "text": "For 1 hour",
+                                                "type": "plain_text"
+                                            },
+                                            "value": "{event.properties.alert_id}|1h"
+                                        },
+                                        {
+                                            "text": {
+                                                "text": "For 6 hours",
+                                                "type": "plain_text"
+                                            },
+                                            "value": "{event.properties.alert_id}|6h"
+                                        },
+                                        {
+                                            "text": {
+                                                "text": "For 1 day",
+                                                "type": "plain_text"
+                                            },
+                                            "value": "{event.properties.alert_id}|1d"
+                                        },
+                                        {
+                                            "text": {
+                                                "text": "For 1 week",
+                                                "type": "plain_text"
+                                            },
+                                            "value": "{event.properties.alert_id}|1w"
+                                        },
+                                        {
+                                            "text": {
+                                                "text": "Pick a date & time…",
+                                                "type": "plain_text"
+                                            },
+                                            "value": "{event.properties.alert_id}|custom"
+                                        }
+                                    ],
+                                    "type": "static_select"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        ]
     },
     "template-webhook": {
         "body": [

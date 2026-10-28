@@ -12,6 +12,8 @@ from uuid import UUID
 import pydantic
 import structlog
 
+from posthog.schema import ExperimentEventExposureConfig
+
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -229,7 +231,9 @@ def _exposes_on_flag_calls(experiment_id: int, exposure_criteria: dict | None) -
     return criteria is None or (
         criteria.activation_config is None
         and is_default_exposure_config(criteria.exposure_config)
-        and not (criteria.exposure_config and criteria.exposure_config.properties)
+        and not (
+            isinstance(criteria.exposure_config, ExperimentEventExposureConfig) and criteria.exposure_config.properties
+        )
     )
 
 
