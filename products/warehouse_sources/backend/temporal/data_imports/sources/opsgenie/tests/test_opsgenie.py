@@ -140,6 +140,24 @@ class TestFanout:
         assert [(row["incident_id"], row["id"]) for row in result.rows] == [("inc-1", "e1"), ("inc-1", "e2")]
         assert result.saved_states == []
 
+    def test_alert_logs_follow_each_alerts_next_link(self) -> None:
+        next_url = "https://api.opsgenie.com/v2/alerts/a1/logs?offset=o1&direction=next&limit=100&order=asc"
+        result = _driver().run(
+            "alert_logs",
+            [
+                _page([{"id": "a1"}]),
+                ScriptedResponse(json={"data": [{"offset": "o1", "log": "created"}], "paging": {"next": next_url}}),
+                ScriptedResponse(json={"data": [{"offset": "o2", "log": "closed"}], "paging": {"first": next_url}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v2/alerts", "/v2/alerts/a1/logs", "/v2/alerts/a1/logs"]
+        assert result.requests[0].param("sort") == "createdAt"
+        assert result.requests[1].param("order") == "asc"
+        assert result.params("offset") == ["0", None, "o1"]
+        assert [(row["alert_id"], row["offset"]) for row in result.rows] == [("a1", "o1"), ("a1", "o2")]
+
     @pytest.mark.parametrize(
         "endpoint,parent_path,child_body,expected",
         [
