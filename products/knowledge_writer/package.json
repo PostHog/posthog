@@ -1,7 +1,7 @@
 {
     "name": "@posthog/products-knowledge-writer",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests -v --tb=short",
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests merge_check/tests -v --tb=short",
         "backend:contract-check": "echo 'Contract files unchanged'"
     }
 }

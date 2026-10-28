@@ -4,8 +4,10 @@
         "backend:contract-check": {
             "inputs": [
                 "backend/facade/**",
+                "backend/routes.py",
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
+                "backend/temporal/**",
                 "backend/migrations/**"
             ],
             "outputs": [],
