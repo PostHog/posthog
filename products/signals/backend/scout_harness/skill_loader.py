@@ -8,6 +8,7 @@ from django.db.models import Max, Min, QuerySet
 
 from posthog.models.team.team import Team
 
+from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.skills.backend.models.skills import CATEGORY_BY_NAME_PREFIX, LLMSkill, LLMSkillFile, LLMSkillOwner
 
 if TYPE_CHECKING:
@@ -29,6 +30,8 @@ def reserved_scout_name_error(name: str) -> str | None:
     Applied by the scout create serializer and by explicit config registration — the two paths
     that mint a scout — so both refuse the same set.
     """
+    if name in SYSTEM_SCOUT_NAMES:
+        return "This scout is managed by Self-Driving onboarding."
     if name.lower() in RESERVED_SCOUT_NAMES:
         return (
             f"'{name}' is reserved by the inbox and cannot be a scout name. "

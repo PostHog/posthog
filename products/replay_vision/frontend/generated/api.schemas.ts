@@ -935,7 +935,7 @@ export interface ObservationSearchResponseApi {
 }
 
 export interface SearchSuggestionsResponseApi {
-    /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
+    /** Up to 4 example searches naming the largest active themes in recent issue observations. Empty until a scanner has a named theme. */
     queries: string[]
 }
 
@@ -1345,9 +1345,9 @@ export interface ReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits: number | null
-    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
     readonly credits_this_month: number
-    /** Succeeded observations this scanner produced in the current billing period. */
+    /** Billed observations this scanner created in the current billing period, including deleted ones. */
     readonly observations_this_month: number
     /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit: number
@@ -1489,9 +1489,9 @@ export interface PatchedReplayScannerApi {
      * @nullable
      */
     readonly estimated_monthly_credits?: number | null
-    /** Credits this scanner's succeeded observations consumed in the current billing period (1 credit = $0.01). Matches the window of the org-wide quota meter. */
+    /** Credits billed for this scanner's observations created in the current billing period (1 credit = $0.01), each at the price frozen when it succeeded. Deleted observations still count. */
     readonly credits_this_month?: number
-    /** Succeeded observations this scanner produced in the current billing period. */
+    /** Billed observations this scanner created in the current billing period, including deleted ones. */
     readonly observations_this_month?: number
     /** Credits counted against `credit_limit` for the current billing period: settled receipts plus in-flight observations, priced from their frozen snapshot model. This is what the limit gate measures, so it includes work still in progress. It is not the same as `credits_this_month`, which counts only succeeded observations. For a `free_only` scanner bound by the organization's free credits, this is the organization's usage, not the scanner's own. */
     readonly credits_used_against_limit?: number
@@ -2912,69 +2912,6 @@ export interface ScannerStatsResponseApi {
 }
 
 /**
- * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
- */
-export interface SuggestTagsRequestApi {
-    /**
-     * The classifier's instruction prompt — the single dimension to categorize sessions by.
-     * @maxLength 10000
-     */
-    prompt: string
-    /**
-     * The categories already configured, so suggestions never duplicate one the user has.
-     * @maxItems 200
-     * @items.maxLength 200
-     */
-    tags?: string[]
-    /** Whether the classifier assigns multiple tags per session. */
-    multi_label?: boolean
-    /** Whether the classifier may emit tags outside the fixed vocabulary. */
-    allow_freeform_tags?: boolean
-    /**
-     * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
-     * @nullable
-     */
-    scanner_id?: string | null
-}
-
-/**
- * * `observed` - observed
- * * `product` - product
- * * `prompt` - prompt
- */
-export type TagSuggestionSourceEnumApi = (typeof TagSuggestionSourceEnumApi)[keyof typeof TagSuggestionSourceEnumApi]
-
-export const TagSuggestionSourceEnumApi = {
-    Observed: 'observed',
-    Product: 'product',
-    Prompt: 'prompt',
-} as const
-
-/**
- * One grounded tag suggestion.
- */
-export interface TagSuggestionApi {
-    /** Suggested tag to add to the vocabulary, normalized to lowercase. */
-    tag: string
-    /** One sentence explaining the specific evidence this tag is grounded in. */
-    rationale: string
-    /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
-     *
-     * * `observed` - observed
-     * * `product` - product
-     * * `prompt` - prompt */
-    source: TagSuggestionSourceEnumApi
-}
-
-/**
- * Grounded tag suggestions for the classifier config editor.
- */
-export interface SuggestTagsResponseApi {
-    /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
-    suggestions: TagSuggestionApi[]
-}
-
-/**
  * * `signal_emitted` - Signal Emitted
  * * `unusual_verdict` - Unusual Verdict
  * * `notable` - Notable
@@ -2984,6 +2921,7 @@ export interface SuggestTagsResponseApi {
  * * `novel_summary` - Novel Summary
  * * `friction` - Friction
  * * `jev_watchable` - Jev Watchable
+ * * `embedding_pick` - Embedding Pick
  * * `unviewed_recent` - Unviewed Recent
  * * `recent` - Recent
  */
@@ -2999,6 +2937,7 @@ export const WatchFeedReasonEnumApi = {
     NovelSummary: 'novel_summary',
     Friction: 'friction',
     JevWatchable: 'jev_watchable',
+    EmbeddingPick: 'embedding_pick',
     UnviewedRecent: 'unviewed_recent',
     Recent: 'recent',
 } as const
@@ -3043,10 +2982,23 @@ export const JevWatchReasonEnumApi = {
 } as const
 
 /**
+ * * `failure` - Failure
+ * * `struggle` - Struggle
+ * * `revenue` - Revenue
+ */
+export type WatchFeedCategoryEnumApi = (typeof WatchFeedCategoryEnumApi)[keyof typeof WatchFeedCategoryEnumApi]
+
+export const WatchFeedCategoryEnumApi = {
+    Failure: 'failure',
+    Struggle: 'struggle',
+    Revenue: 'revenue',
+} as const
+
+/**
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
 export interface WatchFeedReasonApi {
-    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+    /** Highest-priority rule the observation satisfied: `signal_emitted` (it pushed a signal), `unusual_verdict` (a monitor answer that is the minority for that scanner this window), `verdict_yes` (a monitor hit, when the window is too thin to know which answer is unusual), `outlier_score` (far from the scanner's window average), `rare_tag` (a tag uncommon for the scanner this window), `novel_summary` (a summary that reads unlike the scanner's other sessions this window), `notable` (the scan itself judged the session worth watching), `friction` (the scan describes errors, retries, or dead ends), `jev_watchable` (the decision model judged the session worth watching; teams on the Jev ranker experiment only), `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth; teams on the embedding ranker only), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
      *
      * * `signal_emitted` - Signal Emitted
      * * `unusual_verdict` - Unusual Verdict
@@ -3057,6 +3009,7 @@ export interface WatchFeedReasonApi {
      * * `novel_summary` - Novel Summary
      * * `friction` - Friction
      * * `jev_watchable` - Jev Watchable
+     * * `embedding_pick` - Embedding Pick
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent */
     kind: WatchFeedReasonEnumApi
@@ -3128,6 +3081,22 @@ export interface WatchFeedReasonApi {
      * @nullable
      */
     tag_share?: number | null
+    /** What the session reads like, for `embedding_pick`.
+     *
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue */
+    watch_category?: WatchFeedCategoryEnumApi
+    /**
+     * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+     * @nullable
+     */
+    similar_count?: number | null
+    /**
+     * Distinct people across the session's duplicate group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+     * @nullable
+     */
+    affected_people?: number | null
 }
 
 /**
@@ -3141,14 +3110,16 @@ export interface WatchFeedItemApi {
 }
 
 /**
- * * `weighted-score` - weighted-score
- * * `jev` - jev
+ * * `weighted-score` - Weighted Score
+ * * `jev` - Jev
+ * * `embedding` - Embedding
  */
-export type RankerEnumApi = (typeof RankerEnumApi)[keyof typeof RankerEnumApi]
+export type WatchFeedRankerEnumApi = (typeof WatchFeedRankerEnumApi)[keyof typeof WatchFeedRankerEnumApi]
 
-export const RankerEnumApi = {
+export const WatchFeedRankerEnumApi = {
     WeightedScore: 'weighted-score',
     Jev: 'jev',
+    Embedding: 'embedding',
 } as const
 
 /**
@@ -3157,16 +3128,35 @@ export const RankerEnumApi = {
 export interface WatchFeedResponseApi {
     /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
     results: WatchFeedItemApi[]
-    /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
+    /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+    has_more: boolean
+    /** The time this feed ranks as of. Send it back with later pages. */
+    as_of: string
+    /** Which ranker ordered this feed: `jev` ranks on the decision model's cached judgments, `embedding` on the rank the watch rank consumer wrote from the observation's embedding, `weighted-score` on the deterministic blend. The arm is decided server-side per team, so clients read it from here rather than evaluating the flag themselves.
      *
-     * * `weighted-score` - weighted-score
-     * * `jev` - jev */
-    ranker: RankerEnumApi
+     * * `weighted-score` - Weighted Score
+     * * `jev` - Jev
+     * * `embedding` - Embedding */
+    ranker: WatchFeedRankerEnumApi
     /**
-     * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
+     * The team's variant of the `vision-watch-feed-ranker` experiment flag (`control`, `jev-shadow`, `jev`, `embedding`), or null when the team takes no part. Unlike `ranker`, it tells the shadow arm from control. Clients report it on the feed-viewed event as `$feature/vision-watch-feed-ranker`, which is the exposure the experiment counts.
      * @nullable
      */
     ranker_variant: string | null
+}
+
+/**
+ * Body of POST /vision/scanners/watch_feed_impressions/.
+ */
+export interface WatchFeedImpressionsApi {
+    /** The client's id for the feed load that showed these cards. One load counts each card once. */
+    feed_load_id: string
+    /**
+     * Observations the calling user saw in What to watch, at most 100. Ids the user cannot read are ignored.
+     * @minItems 1
+     * @maxItems 100
+     */
+    observation_ids: string[]
 }
 
 export type VisionAlertsListParams = {
@@ -3287,6 +3277,10 @@ export type VisionObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionObservationsThumbnailRetrieveParams = {
@@ -3295,7 +3289,23 @@ export type VisionObservationsThumbnailRetrieveParams = {
      * @minimum 0
      */
     chapter?: number
+    /**
+     * `large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. A frame rendered before small copies existed serves the large image for both.
+     *
+     * * `large` - Large
+     * * `small` - Small
+     * @minLength 1
+     */
+    size?: VisionObservationsThumbnailRetrieveSize
 }
+
+export type VisionObservationsThumbnailRetrieveSize =
+    (typeof VisionObservationsThumbnailRetrieveSize)[keyof typeof VisionObservationsThumbnailRetrieveSize]
+
+export const VisionObservationsThumbnailRetrieveSize = {
+    Large: 'large',
+    Small: 'small',
+} as const
 
 export type VisionObservationsSearchRetrieveParams = {
     /**
@@ -3514,6 +3524,10 @@ export type VisionScannersObservationsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsRetrieveParams = {
@@ -3573,6 +3587,10 @@ export type VisionScannersObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsSignalReportsListParams = {
@@ -3632,6 +3650,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsThumbnailRetrieveParams = {
@@ -3640,7 +3662,23 @@ export type VisionScannersObservationsThumbnailRetrieveParams = {
      * @minimum 0
      */
     chapter?: number
+    /**
+     * `large` is up to 1280px wide, for detail views. `small` is up to 480px wide, for lists and grids. A frame rendered before small copies existed serves the large image for both.
+     *
+     * * `large` - Large
+     * * `small` - Small
+     * @minLength 1
+     */
+    size?: VisionScannersObservationsThumbnailRetrieveSize
 }
+
+export type VisionScannersObservationsThumbnailRetrieveSize =
+    (typeof VisionScannersObservationsThumbnailRetrieveSize)[keyof typeof VisionScannersObservationsThumbnailRetrieveSize]
+
+export const VisionScannersObservationsThumbnailRetrieveSize = {
+    Large: 'large',
+    Small: 'small',
+} as const
 
 export type VisionScannersObservationsStatsRetrieveParams = {
     /**
@@ -3699,9 +3737,17 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersWatchFeedRetrieveParams = {
+    /**
+     * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
+     */
+    as_of?: string
     /**
      * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
      * @minLength 1
@@ -3718,11 +3764,17 @@ export type VisionScannersWatchFeedRetrieveParams = {
      */
     date_to?: string
     /**
-     * Ceiling on feed items to return, at most 50. The feed is bounded, not paginated, and routinely returns far fewer: a window is not padded to this number with clips that carry no finding.
+     * Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.
      * @minimum 1
      * @maximum 50
      */
     limit?: number
+    /**
+     * How many ranked items to skip. Send `as_of` with every page after the first.
+     * @minimum 0
+     * @maximum 1000
+     */
+    offset?: number
     /**
      * Comma-separated scanner UUIDs to restrict the feed to. Defaults to every scanner you can read.
      * @minLength 1

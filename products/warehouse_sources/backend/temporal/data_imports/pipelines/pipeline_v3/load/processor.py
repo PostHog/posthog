@@ -61,6 +61,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
     DeltaWriter,
     commit_members_tag,
+    dedupe_incremental_batch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
@@ -369,6 +370,34 @@ def _apply_partitioning(
     return pa_table
 
 
+def _dedupe_before_write(pa_table: pa.Table, primary_keys: list[str]) -> pa.Table:
+    """Drop the rows that `DeltaWriter.write` would drop, before the batch goes to the writer.
+
+    The writer deduplicates too, but its caller holds the batch until the write returns. If only
+    the writer deduplicated, the batch as read and its deduplicated copy would both stay in memory
+    for the whole upsert. The caller rebinds its batch to this result, so the batch as read is freed
+    first, and a set holds one Arrow copy of its rows through the write (see `_ARROW_COPIES_HELD`).
+
+    This keys on the partition column whenever the batch has one. The writer keys on it only when
+    the table is partitioned by it, so these keys are never fewer than the keys of the writer. The
+    last row of each writer key is also the last row of its key here, so the rows that land do not
+    change. When both use the same keys, the pass in the writer finds no repeated key and makes no
+    copy.
+    """
+    deduped, dedupe_keys = dedupe_incremental_batch(
+        pa_table, primary_keys, use_partitioning=PARTITION_KEY in pa_table.column_names
+    )
+    dropped = pa_table.num_rows - deduped.num_rows
+    if dropped > 0:
+        logger.warning(
+            "dropped_duplicate_primary_key_rows",
+            dropped=dropped,
+            dedupe_keys=dedupe_keys,
+            batch_rows=pa_table.num_rows,
+        )
+    return deduped
+
+
 def _partial_data_loading_applies(export_signal: ExportSignalMessage, schema: ExternalDataSchema) -> bool:
     """Whether this batch feeds partial data loading (first-ever sync, Stripe only).
 
@@ -587,6 +616,7 @@ def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
         before_batch_index=export_signal.batch_index,
     )
     if unfinished.count == 0:
+        _refuse_unloaded_continued_jobs(export_signal)
         return
 
     INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
@@ -599,6 +629,37 @@ def _refuse_incomplete_run(export_signal: ExportSignalMessage) -> None:
         before_batch_index=export_signal.batch_index,
         unfinished_batches=unfinished.count,
         first_unfinished_batch_index=unfinished.first_batch_index,
+        unfinished_states=list(unfinished.states),
+    )
+    raise IncompleteRunError()
+
+
+def _refuse_unloaded_continued_jobs(export_signal: ExportSignalMessage) -> None:
+    """Raise when a batch of a job whose cursor this run continues did not load.
+
+    Those batches hold the rows before the continued cursor, and no later run reads them again
+    once this run completes. A failed job keeps the committed cursor, and the next job does not
+    continue it, so that job reads those rows again.
+    """
+    if not export_signal.continued_job_ids:
+        return
+    unfinished = BatchQueue.get_unfinished_batches_of_jobs_sync(
+        settings.WAREHOUSE_SOURCES_DATABASE_URL,
+        team_id=export_signal.team_id,
+        schema_id=export_signal.schema_id,
+        job_ids=export_signal.continued_job_ids,
+    )
+    if unfinished.count == 0:
+        return
+
+    INCOMPLETE_RUN_COMPLETIONS_REFUSED_TOTAL.inc()
+    logger.error(
+        "run_completion_refused_unfinished_continued_job_batches",
+        team_id=export_signal.team_id,
+        external_data_schema_id=export_signal.schema_id,
+        external_data_job_id=export_signal.job_id,
+        continued_job_ids=export_signal.continued_job_ids,
+        unfinished_batches=unfinished.count,
         unfinished_states=list(unfinished.states),
     )
     raise IncompleteRunError()
@@ -1537,6 +1598,9 @@ def _process_message_reported(
             with timer.step("ownership_check"):
                 verify_ownership()
 
+        # The row metrics count the batch as read, before the dedupe below drops repeated keys.
+        source_rows = pa_table.num_rows
+
         # The writer narrows this to `merge` for an upsert; an append stays `write` to its commit.
         report_phase("write")
         if cdc_write_mode == "scd2_append":
@@ -1586,6 +1650,8 @@ def _process_message_reported(
                 timer.step("write"),
                 DELTA_WRITE_DURATION_SECONDS.labels(write_type=write_type).time(),
             ):
+                if write_type == "incremental" and primary_keys:
+                    pa_table = _dedupe_before_write(pa_table, primary_keys)
                 delta_writer = DeltaWriter(delta_table_ref)
                 delta_table = async_to_sync(delta_writer.write)(
                     data=pa_table,
@@ -1597,7 +1663,7 @@ def _process_message_reported(
                 )
                 deltalite_file_count_change = delta_writer.deltalite_file_count_change
 
-        DELTA_ROWS_WRITTEN_TOTAL.inc(pa_table.num_rows)
+        DELTA_ROWS_WRITTEN_TOTAL.inc(source_rows)
 
         # Marked as soon as the commit lands, before post-load: the final row of a run carries its own
         # data now, so a post-load failure must send the retry down the post-load-only path rather
@@ -1640,7 +1706,7 @@ def _process_message_reported(
             team_id=export_signal.team_id,
             external_data_schema_id=export_signal.schema_id,
             batch_index=export_signal.batch_index,
-            rows_written=pa_table.num_rows,
+            rows_written=source_rows,
             batch_count=len(members),
             delta_version=delta_table_ref.latest_known_version(delta_table),
             file_count=file_count,

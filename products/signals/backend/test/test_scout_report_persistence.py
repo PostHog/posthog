@@ -1,6 +1,8 @@
 import json
 from contextlib import AbstractContextManager, nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
@@ -12,7 +14,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.artefact_schemas import (
@@ -33,6 +35,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalScoutConfig,
     SignalScoutRun,
+    SignalSpend,
 )
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_metrics import ReportMetric
@@ -46,6 +49,7 @@ from products.signals.backend.scout_report import (
     append_report_note,
     create_scout_report,
     record_content_revision,
+    scout_report_tags_in_use,
     set_report_charts,
     set_report_metrics,
     set_report_suggested_prompts,
@@ -57,7 +61,8 @@ from products.signals.backend.scout_report import (
 )
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
 from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
-from products.signals.backend.spend import signal_spend_totals
+from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
+from products.signals.backend.spend import register_report_task_spend, signal_spend_totals
 from products.tasks.backend.models import Task, TaskRun
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
@@ -101,21 +106,31 @@ class TestScoutReportPersistence(BaseTest):
         )
         return run
 
-    def test_empty_selection_enrolls_a_new_report_in_the_writer(self) -> None:
+    @parameterized.expand([False, True])
+    def test_agent_selection_enrolls_a_new_report_in_the_writer(self, selected: bool) -> None:
+        member = User.objects.create(email="scout-reviewer@example.com")
+        OrganizationMembership.objects.create(user=member, organization=self.organization)
+        chosen = [member, self.user] if selected else []
         with (
             patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=True),
             patch("products.signals.backend.assignment_flags.feature_enabled_or_false", return_value=False),
         ):
             result = create_scout_report(
                 team_id=self.team.id,
-                title="A report without reviewers",
-                summary="No suitable owner was selected.",
+                title="A report with an agent reviewer decision",
+                summary="Checked current responsibility.",
                 signals=[ScoutReportSignal(description="A synthetic finding", source_id="example", weight=1.0)],
                 attribution=ArtefactAttribution.system(),
+                suggested_reviewers=SuggestedReviewers(
+                    root=[SuggestedReviewerEntry(user_uuid=str(user.uuid)) for user in chosen]
+                ),
             )
             snapshot = ReviewerRules.read_for_report(team_id=self.team.id, report_id=result.report_id)
             assert snapshot.state.corrections_id is not None
-            assert snapshot.reviewers == ()
+            assert [entry.user_uuid for entry in snapshot.reviewers] == [str(user.uuid) for user in chosen]
+            assert resolve_suggested_reviewer_user_ids(SignalReport.objects.get(id=result.report_id)) == {
+                user.id for user in chosen
+            }
             assert not assignment_side_effects_allowed(team_id=self.team.id, report_id=result.report_id)
 
     @parameterized.expand(
@@ -142,10 +157,14 @@ class TestScoutReportPersistence(BaseTest):
         report = SignalReport.objects.get(id=result.report_id)
         assert (report.first_visible_at is not None) is expect_stamp
 
-    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_create_refuses_a_second_report_for_a_key_one_already_holds(self, first_report: bool) -> None:
         # The case the emit path's own pre-check can't see: a retry arriving mid-judge passes it and
         # reaches the insert too. The index has to stop it, and surface the first report, not a 500.
         run = self._make_run()
+        if first_report:
+            run.skill_name = "signals-scout-first-report"
+            run.save(update_fields=["skill_name"])
         first = create_scout_report(
             team_id=self.team.id,
             title="Checkout API p99 latency regressed",
@@ -163,7 +182,7 @@ class TestScoutReportPersistence(BaseTest):
                 signals=[ScoutReportSignal(description="p99 doubled on /checkout", source_id="obs-1", weight=1.0)],
                 attribution=ArtefactAttribution.from_task(str(run.task_run.task_id)),
                 run=run,
-                idempotency_key="emission-1",
+                idempotency_key="a-different-key" if first_report else "emission-1",
             )
         assert raised.value.existing.report_id == first.report_id
         assert raised.value.existing.status == SignalReport.Status.READY
@@ -230,19 +249,28 @@ class TestScoutReportPersistence(BaseTest):
             patch("posthog.temporal.common.client.async_connect", new=AsyncMock()),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            TaskRun.objects.create(
-                team=self.team,
-                task=task,
+            implementation_run = task.create_run(
                 environment=TaskRun.Environment.CLOUD,
-                state={
+                extra_state={
                     "ai_stage": "implementation",
                     "unprocessed_request_ids": [],
                     "token_cost": {"model": {"provider": {"cost_microusd": 10_001}}},
                 },
             )
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=doc_ids) == {doc_ids[0]: 5.0001}
+        register_report_task_spend(
+            team_id=self.team.id,
+            run_id=str(implementation_run.id),
+            report_id=str(report.id),
+            stage="implementation",
+            implementation_kind=SignalSpend.Kind.SCOUT_TRIGGERED_IMPLEMENTATION,
+        )
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=implementation_run.id)
+        assert spend.report_id == report.id
+        assert spend.signal_id is None
+        assert spend.spend == Decimal("5.0001")
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=doc_ids) == {}
         report.refresh_from_db()
-        assert str(report.triggering_signal_id) == doc_ids[0]
+        assert report.triggering_signal_id == (None if legacy else UUID(doc_ids[0]))
 
         # Provenance: a note artefact marks the report scout-authored and is attributed to the task.
         note = SignalReportArtefact.objects.get(report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE)
@@ -1113,3 +1141,24 @@ class TestScoutReportSuggestedPrompts(BaseTest):
             )
         with team_scope(other_team.id):
             assert self._stored(other_report.report_id) == []
+
+
+class TestScoutReportTagsInUse(BaseTest):
+    def test_lists_the_team_s_live_tags_most_used_first(self) -> None:
+        for tags in (["billing", "api"], ["api"], ["web"], []):
+            SignalReport.objects.create(team=self.team, tags=tags)
+        SignalReport.objects.create(team=self.team, tags=["deleted-only"], status=SignalReport.Status.DELETED)
+        SignalReport.objects.create(team=self.team, tags=["unsafe-only"], status=SignalReport.Status.SUPPRESSED)
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        SignalReport.objects.create(team=other_team, tags=["theirs"])
+
+        assert scout_report_tags_in_use(team_id=self.team.id) == ["api", "billing", "web"]
+
+    def test_reads_only_the_newest_reports_tagged_or_not(self) -> None:
+        now = timezone.now()
+        for days_ago, tags in ((3, ["old"]), (2, ["new"]), (1, []), (0, [])):
+            report = SignalReport.objects.create(team=self.team, tags=tags)
+            SignalReport.objects.filter(id=report.id).update(created_at=now - timedelta(days=days_ago))
+
+        with patch("products.signals.backend.scout_report.persistence._TAGS_IN_USE_REPORT_SAMPLE", 3):
+            assert scout_report_tags_in_use(team_id=self.team.id) == ["new"]

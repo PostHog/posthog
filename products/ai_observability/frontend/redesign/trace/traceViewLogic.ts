@@ -20,8 +20,18 @@ import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { aiObservabilityTracesNodesRetrieve, aiObservabilityTracesRetrieve } from '../../generated/api'
-import type { TraceApi, TraceNodeApi, TraceNodeDetailApi, TraceTimelineRowApi } from '../../generated/api.schemas'
+import {
+    aiObservabilityTracesEvaluationsRetrieve,
+    aiObservabilityTracesNodesRetrieve,
+    aiObservabilityTracesRetrieve,
+} from '../../generated/api'
+import type {
+    TraceApi,
+    TraceEvaluationResultsApi,
+    TraceNodeApi,
+    TraceNodeDetailApi,
+    TraceTimelineRowApi,
+} from '../../generated/api.schemas'
 import { TraceSummaryBarProps } from './components/TraceSummaryBar'
 import { encodeTraceIdSegment } from './traceIdSegment'
 import type { LoadFailure, NodeLoad, NodeLoadTrigger } from './types'
@@ -38,6 +48,9 @@ export interface traceViewLogicValues {
     createdAt: string | null
     defaultNodeId: string
     errorMessage: string
+    evaluationResults: TraceEvaluationResultsApi | null
+    evaluationResultsFailed: boolean
+    evaluationResultsLoading: boolean
     loadFailure: LoadFailure | null
     nodeIdsByAlias: Record<string, string>
     nodes: Record<string, NodeLoad>
@@ -67,6 +80,21 @@ export interface traceViewLogicActions {
         collapsed: boolean | null
         owner: string
     } // panelLayoutLogic
+    loadEvaluationResults: () => any
+    loadEvaluationResultsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadEvaluationResultsSuccess: (
+        evaluationResults: TraceEvaluationResultsApi,
+        payload?: any
+    ) => {
+        evaluationResults: TraceEvaluationResultsApi
+        payload?: any
+    }
     loadNode: (
         nodeId: string,
         trigger: NodeLoadTrigger
@@ -185,8 +213,25 @@ export const traceViewLogic = kea<traceViewLogicType>([
                 },
             },
         ],
+        evaluationResults: [
+            null as TraceEvaluationResultsApi | null,
+            {
+                loadEvaluationResults: async (): Promise<TraceEvaluationResultsApi> =>
+                    await aiObservabilityTracesEvaluationsRetrieve(
+                        String(ApiConfig.getCurrentProjectId()),
+                        encodeTraceIdSegment(props.traceId)
+                    ),
+            },
+        ],
     })),
     reducers({
+        evaluationResultsFailed: [
+            false,
+            {
+                loadEvaluationResults: () => false,
+                loadEvaluationResultsFailure: () => true,
+            },
+        ],
         loadFailure: [
             null as LoadFailure | null,
             {
@@ -341,6 +386,7 @@ export const traceViewLogic = kea<traceViewLogicType>([
     }),
     afterMount(({ actions, props }) => {
         actions.loadTrace()
+        actions.loadEvaluationResults()
         actions.setLayoutNavCollapsedOverride(layoutNavOverrideOwner(props), true)
     }),
     beforeUnmount(({ actions, props }) => {

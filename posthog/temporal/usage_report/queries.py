@@ -87,6 +87,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_signals_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
+    get_teams_with_workflow_transactional_emails_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService
@@ -278,6 +279,9 @@ QUERIES: list[QuerySpec] = [
             "node_events": "teams_with_node_events_count_in_period",
             "node_mcp_events": "teams_with_node_mcp_events_count_in_period",
             "python_mcp_events": "teams_with_python_mcp_events_count_in_period",
+            "rust_mcp_events": "teams_with_rust_mcp_events_count_in_period",
+            "go_mcp_events": "teams_with_go_mcp_events_count_in_period",
+            "ruby_mcp_events": "teams_with_ruby_mcp_events_count_in_period",
             "mcp_tool_call_events": "teams_with_mcp_tool_call_events_count_in_period",
             "mcp_missing_capability_events": "teams_with_mcp_missing_capability_events_count_in_period",
             "mcp_initialize_events": "teams_with_mcp_initialize_events_count_in_period",
@@ -307,6 +311,8 @@ QUERIES: list[QuerySpec] = [
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
+            "godot_events": "teams_with_godot_events_count_in_period",
+            "unreal_events": "teams_with_unreal_events_count_in_period",
             "roblox_events": "teams_with_roblox_events_count_in_period",
             "rust_events": "teams_with_rust_events_count_in_period",
         },
@@ -524,6 +530,10 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_workflow_emails_sent_in_period",
         fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_EMAILS, b, e),
+    ),
+    QuerySpec(
+        name="teams_with_workflow_transactional_emails_sent_in_period",
+        fn=get_teams_with_workflow_transactional_emails_sent_in_period,
     ),
     QuerySpec(
         name="teams_with_workflow_push_sent_in_period",

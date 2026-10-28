@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 import psycopg
 from psycopg import sql
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -23,6 +25,7 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
     Handles SSH tunnel and delegates the actual connection
     to _connect_to_postgres which owns SSL cert overrides.
     """
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import tls_options
     from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
         _connect_to_postgres,
         source_requires_ssl,
@@ -30,7 +33,7 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
     from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
     source_impl = PostgresSource()
-    config = source_impl.parse_config(source.job_inputs or {})
+    config = source_impl.parse_config(SourceInputsStore.load(source))
     # Pass `config` so the SSH-tunnel `require_tls` opt-out is honored, matching the main
     # pipeline path. Without it SSL is forced on, and a database reached over an SSH tunnel
     # that doesn't speak SSL fails with "server does not support SSL, but SSL was required".
@@ -45,6 +48,7 @@ def cdc_pg_connection(source: ExternalDataSource, connect_timeout: int = 15) -> 
             password=config.password,
             require_ssl=require_ssl,
             connect_timeout=connect_timeout,
+            tls=tls_options(config),
             team_id=source.team_id,
         )
         try:

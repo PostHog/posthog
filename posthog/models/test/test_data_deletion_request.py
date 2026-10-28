@@ -361,7 +361,7 @@ def _flag_call_request(team: Team, hogql_predicate: str) -> DataDeletionRequest:
     )
 
 
-@pytest.mark.parametrize("table_visible", [True, False], ids=["org_sees_the_table", "org_flag_hides_the_table"])
+@pytest.mark.parametrize("table_visible", [True, False], ids=["org_sees_the_table", "org_mode_hides_the_table"])
 def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
     team, materialized_browser, table_visible
 ):

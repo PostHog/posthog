@@ -17,6 +17,7 @@ import { AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID, aiObservabilitySharedLogic } 
 import { EVALUATION_METRICS_COLLECTION_ID } from './evaluations/components/EvaluationMetrics'
 import { evaluationMetricsLogic } from './evaluations/evaluationMetricsLogic'
 import { llmEvaluationsLogic } from './evaluations/llmEvaluationsLogic'
+import { evaluationsOverviewLogic } from './evaluations/overview/evaluationsOverviewLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
 
@@ -55,7 +56,6 @@ export function AIObservabilityReloadAction(): JSX.Element {
     const { reloadAll: reloadEvaluationMetrics } = useActions(
         dataNodeCollectionLogic({ key: EVALUATION_METRICS_COLLECTION_ID })
     )
-    const { refreshMetrics: refreshEvaluationMetrics } = useActions(evaluationMetricsLogic)
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
     const { sessionsLoading } = useValues(aiObservabilitySessionsViewLogic)
     const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
@@ -67,9 +67,11 @@ export function AIObservabilityReloadAction(): JSX.Element {
         if (activeTab === 'dashboard') {
             triggerDashboardRefresh()
         } else if (activeTab === 'evaluations') {
-            // Refresh evaluations list and metrics
+            // Refresh evaluations list and metrics. Only the view on screen has its logic mounted, and mounting the
+            // other one from here would start its queries for nothing.
             loadEvaluations()
-            refreshEvaluationMetrics()
+            evaluationMetricsLogic.findMounted()?.actions.refreshMetrics()
+            evaluationsOverviewLogic.findMounted()?.actions.reloadOverview()
             reloadEvaluationMetrics()
         } else if (activeTab === 'sessions') {
             // The sessions list is a custom loader, not part of the data-node collection reloadAll() drives.

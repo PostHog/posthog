@@ -85,4 +85,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "versionUrl": "URL of the versioned deployment, when available.",
         },
     },
+    "LocalizationGroups": {
+        "description": "Groups of translatable content, such as a page or a CMS item, with their source strings and the status of each locale.",
+        "docs_url": "https://www.framer.com/developers/localization",
+        "columns": {
+            "id": "Unique identifier of the localization group.",
+            "name": "Name of the localization group.",
+            "type": "Kind of content the group represents: collection, collection-item, component, page, settings, or template.",
+            "supportsExcludedStatus": "Whether the group can be excluded from a locale.",
+            "sources": "Translatable strings in the group, each with its type, default-locale value, and localized values and status by locale id.",
+            "statusByLocale": "Status of the group in each locale (excluded or ready), keyed by locale id.",
+        },
+    },
+    "UnpublishedPageChanges": {
+        "description": "Web pages that were added, updated, or removed since the project was last published.",
+        "docs_url": "https://www.framer.com/developers/server-api-reference",
+        "columns": {
+            "nodeId": "Stable node identifier of the changed page.",
+            "path": "Page path: the current path for added and updated pages, and the last-published path for removed pages.",
+            "status": "Change that publishing applies to the page: added, updated, or removed.",
+        },
+    },
 }

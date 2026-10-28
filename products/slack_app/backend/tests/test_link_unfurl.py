@@ -36,6 +36,7 @@ from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import testing as error_tracking_testing
+from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -48,6 +49,7 @@ from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOP
 from products.slack_app.backend.slack_link_unfurl import (
     _card_blocks,
     _date_range,
+    _experiment_chart,
     _flag_chart,
     _insight_resource_label,
     _question_list,
@@ -284,6 +286,42 @@ class TestCardText:
         questions = [{"question": f"Question {index}"} for index in range(7)]
         assert _question_list(questions) == "1. Question 0\n2. Question 1\n3. Question 2\n+ 4 more"
 
+    @parameterized.expand(
+        [
+            (
+                "variant_without_data",
+                "funnel",
+                0.2,
+                (0.25, None),
+                ["control  ████████████████░░░░  20.0%", "empty    ░░░░░░░░░░░░░░░░░░░░  —"],
+            ),
+            ("negative_means", "mean", -10.0, (-5.0, -20.0), ["control    -10.00", "test       -5.00"]),
+        ]
+    )
+    def test_experiment_chart_shows_measured_values_only(
+        self,
+        _name: str,
+        metric_type: str,
+        control: float,
+        means: tuple[float | None, float | None],
+        expected: list[str],
+    ) -> None:
+        stats = StoredPrimaryResult(
+            metric_name="Metric",
+            metric_type=metric_type,
+            proportion=metric_type == "funnel",
+            goal=None,
+            baseline=StoredArmResult(key="control", number_of_samples=100, mean=control),
+            variants=(
+                StoredArmResult(key="test", number_of_samples=100, mean=means[0]),
+                StoredArmResult(key="empty", number_of_samples=0, mean=means[1]),
+            ),
+        )
+
+        lines = (_experiment_chart(stats) or "").splitlines()
+
+        assert all(line in lines for line in expected)
+
 
 @pytest.mark.django_db
 class TestHandlePosthogLinkUnfurl(APIBaseTest):
@@ -338,8 +376,15 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("allowed", True, True),
-            ("public_sharing_off", False, False),
+            ("allowed", True, None, True),
+            ("public_sharing_off", False, None, False),
+            (
+                "edited_in_editor",
+                True,
+                {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "dateRange": {"date_from": "-90d"}}},
+                True,
+            ),
+            ("unchanged_in_editor", True, {"kind": "InsightVizNode", "source": {"kind": "TrendsQuery"}}, True),
         ]
     )
     @patch("products.slack_app.backend.tasks.start_slack_unfurl_charts.delay")
@@ -350,6 +395,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self,
         _name: str,
         public_sharing: bool,
+        link_query: dict | None,
         expect_started: bool,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
@@ -363,6 +409,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_sync_connect.return_value.start_workflow = AsyncMock()
         url = f"http://testserver/project/{self.team.pk}/insights/{self.insight.short_id}"
+        if link_query is not None:
+            url += f"/edit?dashboard=1#q={quote(json.dumps(link_query))}"
 
         handle_posthog_link_unfurl(
             {"channel": "C1", "message_ts": "123.456", "user": "U1", "links": [{"url": url}]},
@@ -374,7 +422,10 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             start_workflow.assert_not_called()
             return
         inputs = start_workflow.call_args.args[1]
-        assert [chart.insight_id for chart in inputs.charts] == [self.insight.id]
+        edited = link_query is not None and link_query != self.insight.query
+        assert [(chart.insight_id, chart.query) for chart in inputs.charts] == [
+            (None, link_query) if edited else (self.insight.id, None)
+        ]
         assert (
             inputs.unfurls == mock_slack_integration_class.return_value.client.chat_unfurl.call_args.kwargs["unfurls"]
         )
@@ -566,10 +617,12 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            # (run told to link, thread has a run, author resolved)
-            ("linking_run", True, True, "U_ACTOR"),
-            ("run_not_told_to_link", False, True, "U00"),
-            ("no_run_in_thread", True, False, "U00"),
+            # (event author, run told to link, thread has a run, author resolved)
+            ("placeholder_linking_run", "U00", True, True, "U_ACTOR"),
+            ("placeholder_run_not_told_to_link", "U00", False, True, "U00"),
+            ("placeholder_no_run_in_thread", "U00", True, False, "U00"),
+            ("our_bot_linking_run", "U_OUR_BOT", True, True, "U_ACTOR"),
+            ("our_bot_no_run_in_thread", "U_OUR_BOT", True, False, "U_OUR_BOT"),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -577,16 +630,18 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def test_bot_reply_link_unfurls_for_the_thread_actor(
         self,
         _name: str,
+        author: str,
         run_links: bool,
         has_run: bool,
         expected_resolved: str,
         mock_slack_integration_class: MagicMock,
         mock_resolve: MagicMock,
     ) -> None:
-        # Slack reports a bot-posted message under a placeholder author that resolves to no PostHog
-        # user, so without this path a chart link in the agent's answer never unfurls. The
-        # attribution stays narrow: a thread whose run was told to share links, and the actor is
-        # the one the run recorded rather than the mapping's stale column.
+        # Slack credits a bot-posted message to our bot user or to a placeholder author, and neither
+        # resolves to a PostHog user, so without this path a chart link in the agent's answer never
+        # unfurls. The attribution stays narrow: a thread whose run was told to share links, and the
+        # actor is the one the run recorded rather than the mapping's stale column.
+        write_auth_state_ok(self.integration.id, bot_user_id="U_OUR_BOT")
         mock_resolve.side_effect = lambda _slack, _integration, uid, *_a, **_k: (
             MagicMock(user=self.user) if uid == "U_ACTOR" else None
         )
@@ -623,7 +678,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "channel": "C1",
                 "message_ts": "123.456",
                 "thread_ts": "100.000",
-                "user": "U00",
+                "user": author,
                 "links": [{"url": url}],
             },
             self.integration,
@@ -1144,6 +1199,65 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert "*Paused*" in text
+
+    @parameterized.expand(
+        [
+            ("winner", 0.15, True, ["*Winner so far: test.* +15.0% vs control.", "20.0%", "23.0%  +15.0% ✓"]),
+            ("too_early", None, None, ["*Too early to call.* 10,400 exposed so far.", "23.0%  +15.0%"]),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_experiment_card_shows_the_stored_primary_result(
+        self,
+        _name: str,
+        change: float | None,
+        significant: bool | None,
+        expected: list[str],
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="checkout-copy",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment = Experiment.objects.create(team=self.team, name="Checkout copy", feature_flag=flag)
+        stored = StoredPrimaryResult(
+            metric_name="Completed checkout",
+            metric_type="funnel",
+            proportion=True,
+            goal=None,
+            baseline=StoredArmResult(key="control", number_of_samples=5200, mean=0.2),
+            variants=(
+                StoredArmResult(key="test", number_of_samples=5200, mean=0.23, change=change, significant=significant),
+            ),
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment.pk}"
+
+        with patch(
+            "products.slack_app.backend.slack_link_unfurl.experiments_facade.get_stored_primary_result",
+            return_value=stored,
+        ):
+            self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Metric: Completed checkout" in text
+        assert "Split 50/50" in text
+        for fragment in expected:
+            assert fragment in text
 
     @staticmethod
     def _assert_slack_accepts(unfurl: dict) -> None:

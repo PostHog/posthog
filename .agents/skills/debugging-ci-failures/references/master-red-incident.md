@@ -53,17 +53,20 @@ The commands above read the same evidence.
 
 ### The lane on Depot CI
 
-`Backend CI (scheduled)` is the hourly full test matrix. It runs on Depot CI, so GitHub has no runs or logs for it.
-The alert gives this lane a Depot run ID, ten characters such as `b1c2d3f4g5`, and a depot.dev URL.
-The alerter reads the lane from Depot when it opens the incident, so the alerted run is the newest failing run.
+`Backend CI (scheduled)` is the hourly full test matrix.
+`Backend CI` without the suffix is the master push run.
+Depot stores both types of runs and their logs; GitHub receives job checks.
+The alert includes a Depot run ID, such as `b1c2d3f4g5`, and a depot.dev URL.
+The alerter reads Depot when it opens the incident, so the alert identifies the newest failing run at that time.
 
 Depot posts a check for each job on the master commit that the run tested.
 Those checks give each job's conclusion and times, with no log text.
-Several hourly runs can test one commit, so keep the checks whose `details_url` holds the workflow ID from the alert's URL:
+Several hourly runs can test one commit, so the command keeps the checks whose `details_url` holds the workflow ID from the alert's URL.
+Depot posts these checks from more than one GitHub app, so do not filter them by app:
 
 ```bash
-gh api "repos/PostHog/posthog/commits/<sha>/check-runs?app_id=219785&filter=all&per_page=100" --paginate \
-  --jq '.check_runs[] | select(.conclusion != "success" and .conclusion != "skipped") | {name, conclusion, started_at, completed_at, details_url}'
+gh api "repos/PostHog/posthog/commits/<sha>/check-runs?filter=all&per_page=100" --paginate \
+  --jq '.check_runs[] | select(((.details_url // "") | contains("/workflows/<workflow-id>")) and .conclusion != "success" and .conclusion != "skipped") | {name, conclusion, started_at, completed_at, details_url}'
 ```
 
 The logs are in the warehouse once it has synced Depot, which can trail the run by hours.
@@ -79,10 +82,10 @@ With rows, pass that `run_id` and `"ci_engine": "depot_ci"` to the failure-log c
 It returns failed jobs only, so a job that Depot cancelled at its timeout is not in the answer.
 The failed gate job prints a `Failing backend & product tests` table.
 
-This query lists the gate checks of the hourly runs on the newest 100 master commits, newest first:
+This query lists the gate checks of the hourly runs on the newest 100 master commits, newest first.
 
 ```bash
-gh api graphql -f query='{repository(owner:"PostHog",name:"posthog"){ref(qualifiedName:"master"){target{... on Commit{history(first:100){nodes{oid checkSuites(first:5,filterBy:{appId:219785}){nodes{checkRuns(first:30,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{status conclusion startedAt detailsUrl}}}}}}}}}}}' \
+gh api graphql -f query='{repository(owner:"PostHog",name:"posthog"){ref(qualifiedName:"master"){target{... on Commit{history(first:100){nodes{oid checkSuites(first:5,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{checkRuns(first:30,filterBy:{checkName:"Backend CI on Depot / Django Tests Pass on Depot"}){nodes{status conclusion startedAt detailsUrl}}}}}}}}}}}' \
   --jq '[.data.repository.ref.target.history.nodes[] | {headSha: .oid} + (.checkSuites.nodes[].checkRuns.nodes[])] | sort_by(.startedAt) | reverse'
 ```
 

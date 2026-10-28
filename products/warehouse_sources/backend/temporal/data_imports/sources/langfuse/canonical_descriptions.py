@@ -68,13 +68,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "scores": {
-        "description": "Evaluation scores attached to traces, observations, sessions, or experiments. The value type depends on dataType (numeric, boolean, categorical, text, or correction).",
+        "description": "Evaluation scores attached to traces, observations, sessions, or experiments. Numeric and boolean values are in value, text values are in stringValue.",
         "docs_url": "https://api.reference.langfuse.com/#tag/scoresv3/get/api/public/v3/scores",
         "columns": {
             "id": "The unique identifier of the score.",
             "projectId": "The project ID this score belongs to.",
             "name": "The name of the score.",
-            "value": "The score value. Its type depends on dataType: number for NUMERIC, boolean for BOOLEAN, string otherwise.",
+            "value": "The numeric score value. 1 or 0 for BOOLEAN scores, empty for CATEGORICAL, TEXT, and CORRECTION scores.",
+            "stringValue": "The text score value for CATEGORICAL, TEXT, and CORRECTION scores, or True or False for BOOLEAN scores.",
             "dataType": "The data type of the score (NUMERIC, BOOLEAN, CATEGORICAL, TEXT, CORRECTION).",
             "source": "The source of the score (e.g. API, ANNOTATION, EVAL).",
             "timestamp": "The timestamp of the score.",

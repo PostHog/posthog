@@ -699,6 +699,17 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         assert event_def.verified_by == self.user
         assert event_def.verified_at is not None
 
+    def test_clear_owner(self):
+        License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))
+        event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="owned_event", owner=self.user)
+
+        response = self.client.patch(f"/api/projects/@current/event_definitions/{event.id}/", {"owner": None})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["owner"] is None
+        event.refresh_from_db()
+        assert event.owner is None
+
     def test_cannot_assign_owner_from_another_organization(self):
         """Owner must belong to the current organization (PATCH)."""
         License.objects.create(key="test_key", plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7))

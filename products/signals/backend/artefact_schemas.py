@@ -306,6 +306,34 @@ class ReviewerState(BaseModel):
     corrections_id: UUID | None = None
 
 
+class PROwnerIdentityProof(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source: Literal["github_user_integration", "github_oauth"]
+    user_uuid: UUID
+    github_user_id: int
+    verified_at: datetime
+    expires_at: datetime
+
+
+class PROwnerIdentity(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    login: str = Field(pattern=r"^[a-z0-9](?:-?[a-z0-9]){0,38}$")
+    proof: PROwnerIdentityProof | None = None
+
+
+class PROwnerAssignment(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    repository: str
+    pr_number: int = Field(gt=0)
+    owners: tuple[PROwnerIdentity, ...]
+    origin: Literal["report", "claim", "legacy"]
+    assigned_at: datetime
+    replaced_logins: tuple[str, ...] = ()
+
+
 class ReviewerCorrections(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -509,13 +537,14 @@ class RankingScore(BaseModel):
         return self
 
 
-# Reason code shared by the dismissal writer (the state API) and the corrections reader
-# (`repo_corrections`), defined here so the two cannot drift apart.
+# Reason-only routing feedback still needs to reach the authoring scout.
+DISMISSAL_REASON_WRONG_ASSIGNEE = "wrong_assignee"
+# Shared by the dismissal writer and repository-corrections reader so they cannot drift apart.
 DISMISSAL_REASON_WRONG_REPO = "wrong_repo"
 # Reason codes that claim the issue is fixed, rather than stating a preference about the report.
 # A later matching signal contradicts the claim, so the grouping stage treats these dismissals the
 # way it treats a resolved report: the recurrence gets a fresh report (see `recurrence.py`). The
-# `wontfix_*` codes and the rest stay sinks, because they say "I do not want this".
+# `wrong_repo` can also start a fresh report, but does not claim a previous fix.
 FIXED_DISMISSAL_REASONS = frozenset({"already_fixed", "fixed_outside_posthog", "pr_merged"})
 # Bounds shared by the state API and this schema, so the generic artefact endpoint cannot store a
 # dismissal the state API would reject. Readers scan these rows in bulk (`repo_corrections`), so an
@@ -1233,6 +1262,7 @@ StatusArtefactContent = (
 )
 LogArtefactContent = (
     CodeReference
+    | PROwnerAssignment
     | Commit
     | TaskRunArtefact
     | NoteArtefact
@@ -1267,6 +1297,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "repo_selection": RepoSelectionResult,
     "suggested_reviewers": SuggestedReviewers,
     "reviewer_corrections": ReviewerCorrections,
+    "pr_owner_assignment": PROwnerAssignment,
     "channel_assignment": ChannelAssignment,
     "ranking_score": RankingScore,
     "dismissal": Dismissal,
@@ -1322,6 +1353,7 @@ _ARTEFACT_TYPE_BY_MODEL: Mapping[type[BaseModel], str] = {model: t for t, model 
 NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
     {
         "reviewer_corrections",
+        "pr_owner_assignment",
         "task_run",
         "video_segment",
         "title_change",

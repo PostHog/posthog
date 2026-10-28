@@ -134,8 +134,8 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
             kind="boolean", version=UUID("01a15a27-735b-700b-9f5b-51533df620b3")
         ),
         "no_markdown_data_table": OfflineScorer(kind="boolean", version=UUID("01a15a27-69b4-7bc0-b6f6-b366acc272b2")),
-        "chart_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a15a27-5e27-7511-9f3e-58a57e74556d")),
-        "chart_shown": OfflineScorer(kind="boolean", version=UUID("01a15a27-553d-72d2-aeb2-903e7ed54473")),
+        "chart_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a16420-8c66-7f91-9939-997516aafc3b")),
+        "chart_shown": OfflineScorer(kind="boolean", version=UUID("01a16420-30a5-770e-a4f3-16ff4f7dcb84")),
         "answer_from_typed_query": OfflineScorer(kind="boolean", version=UUID("01a15a27-4bce-7e6c-b3ef-34d292489b30")),
         "answer_tool_not_execute_sql": OfflineScorer(
             kind="boolean", version=UUID("01a15581-3926-7c14-a907-e994586bd216")
@@ -164,7 +164,10 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
             kind="boolean", version=UUID("01a15581-6891-7f9b-bbb4-199b8b2edec0")
         ),
         "saved_insight": OfflineScorer(kind="boolean", version=UUID("01a15581-ee89-7754-b0dd-6012efeaa1c4")),
+        "saved_sql_insight": OfflineScorer(kind="boolean", version=UUID("01a17d33-592a-7516-b59c-ab51d460d9de")),
         "schema_discovery_order": OfflineScorer(kind="boolean", version=UUID("01a15581-7429-7fff-85a7-9c223feddee6")),
+        "sql_follows_date_filter": OfflineScorer(kind="boolean", version=UUID("01a17d33-6182-7c29-aa06-d8e641975951")),
+        "sql_time_axis_ascending": OfflineScorer(kind="boolean", version=UUID("01a17d33-6cdf-784d-b73b-9ca1ed42971e")),
         "trends_schema_alignment": OfflineScorer(kind="numeric", version=UUID("01a15581-a78c-7d03-bb2d-de43ab247f81")),
         "trends_time_range_relevancy": OfflineScorer(
             kind="boolean", version=UUID("01a15581-b135-7a70-ae09-b3d0e93bc894")

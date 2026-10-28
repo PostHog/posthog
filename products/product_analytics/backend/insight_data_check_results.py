@@ -23,6 +23,10 @@ PROBLEM_SHARE = 0.2
 # An event with no user agent has the type "Automation", and server-side SDKs send those, so it is not a crawler.
 CRAWLER_TRAFFIC_TYPES = ("Bot", "AI Agent")
 
+_SKIP_REASONS_WITH_NOTHING_TO_CHECK = frozenset(
+    {InsightDataCheckSkipReason.FILTERED_BY_TRAFFIC_TYPE, InsightDataCheckSkipReason.TOO_FEW_SAMPLED_EVENTS}
+)
+
 LOCAL_HOST_PATTERN = r"(?i)^(localhost|[a-z0-9.-]+\.localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:[0-9]+)?$"
 
 
@@ -259,4 +263,9 @@ def status_of(checks: list[InsightDataCheck]) -> InsightDataChecksStatus:
         return InsightDataChecksStatus.PROBLEM
     if InsightDataCheckLevel.WARNING in levels:
         return InsightDataChecksStatus.WARNING
+    if any(
+        check.level == InsightDataCheckLevel.SKIPPED and check.skip_reason not in _SKIP_REASONS_WITH_NOTHING_TO_CHECK
+        for check in checks
+    ):
+        return InsightDataChecksStatus.PARTIAL
     return InsightDataChecksStatus.PASSED
