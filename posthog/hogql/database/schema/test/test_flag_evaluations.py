@@ -5,6 +5,8 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -32,6 +34,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BU
 from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.utils import is_json_verbatim
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
@@ -820,6 +823,17 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert len(from_events) == 1
         assert swapped.clickhouse is not None
         assert "FROM flag_evaluations" in swapped.clickhouse
+        if (
+            settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            and isinstance(response, str)
+            and not is_json_verbatim(response)
+        ):
+            # The native-JSON events table decodes JSON escapes in a property value. flag_evaluations returns the
+            # escaped text, as the legacy events table does.
+            assert [row[:2] for row in swapped.results] == [row[:2] for row in from_events]
+            assert from_events[0][2] == response
+            assert swapped.results[0][2] == json.dumps(response)[1:-1]
+            return
         assert swapped.results == from_events
 
     def test_swapped_prewhere_that_reads_an_overridden_person_id_runs(self):
