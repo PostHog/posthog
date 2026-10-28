@@ -3,6 +3,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { CyclotronJobInvocationResult } from '../types'
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
+import { EmailStatusService } from './messaging/email-status.service'
 import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
@@ -32,6 +33,8 @@ export interface ResultSink {
  *                                    Assets tab
  * - `ConversionWatchersService`   — per-run conversion watchers, which outlive the
  *                                    run so a late conversion stays observable
+ * - `EmailStatusService`          — status rows of transactional emails that the
+ *                                    email service queues at send time
  *
  * Callers interact with this one service instead of coordinating queue/flush
  * calls across the five individually. `queueInvocationResultsAndFlush` is the
@@ -48,7 +51,8 @@ export class InvocationResultsService {
         public readonly warehouseWebhooksService: WarehouseWebhooksService,
         public readonly capturedEventsService: CapturedEventsService,
         public readonly messageAssetsService: MessageAssetsService,
-        public readonly conversionWatchersService: ConversionWatchersService
+        public readonly conversionWatchersService: ConversionWatchersService,
+        public readonly emailStatusService: EmailStatusService
     ) {
         this.sinks = [
             monitoringService,
@@ -57,6 +61,7 @@ export class InvocationResultsService {
             capturedEventsService,
             messageAssetsService,
             conversionWatchersService,
+            emailStatusService,
         ]
     }
 
