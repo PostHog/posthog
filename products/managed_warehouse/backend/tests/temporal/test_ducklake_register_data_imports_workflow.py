@@ -13,6 +13,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
+from trino.exceptions import TrinoUserError
 
 from posthog.sync import database_sync_to_async
 
@@ -1256,10 +1257,21 @@ def _parquet_bytes(table: pa.Table) -> bytes:
     return sink.getvalue()
 
 
-def _mock_trino(monkeypatch, *, registered_rows: int = 0, table_names: list[str] | None = None):
+def _mock_trino(
+    monkeypatch,
+    *,
+    registered_rows: int = 0,
+    table_names: list[str] | None = None,
+    publish_error: Exception | None = None,
+):
     statements: list[str] = []
     connection = MagicMock(catalog="tenant_catalog")
     cursor = connection.cursor.return_value
+
+    def execute(statement: str) -> None:
+        statements.append(statement)
+        if publish_error is not None and "EXECUTE publish_as" in statement:
+            raise publish_error
 
     def fetchall() -> list[list[object]]:
         statement = statements[-1]
@@ -1273,7 +1285,7 @@ def _mock_trino(monkeypatch, *, registered_rows: int = 0, table_names: list[str]
             return [["replaced_tables", 1]]
         return []
 
-    cursor.execute.side_effect = statements.append
+    cursor.execute.side_effect = execute
     cursor.fetchall.side_effect = fetchall
     connect = MagicMock()
     connect.return_value.__enter__.return_value = connection
@@ -1287,15 +1299,30 @@ def _mock_trino(monkeypatch, *, registered_rows: int = 0, table_names: list[str]
     return connect, statements
 
 
-@pytest.mark.parametrize(
-    "registered_rows, should_publish, outcome",
-    [
-        (3, True, "published"),
-        (2, True, "row_count_mismatch"),
-        (3, False, "stale"),
-    ],
-)
-def test_copy_activity_registers_through_trino(monkeypatch, registered_rows, should_publish, outcome):
+@dataclasses.dataclass(frozen=True)
+class _TrinoRegistrationHarness:
+    s3: _FakePreparedGenerationS3
+    connect: MagicMock
+    statements: list[str]
+    workload_metrics: MagicMock
+    stale_metric: MagicMock
+    inputs: DuckLakeRegisterDataImportsActivityInputs
+    staging_name: str
+    attempt_landing: str
+
+    @property
+    def staging(self) -> str:
+        return f'"tenant_catalog"."posthog_data_imports_team_1"."{self.staging_name}"'
+
+
+def _trino_registration_harness(
+    monkeypatch,
+    *,
+    registered_rows: int = 3,
+    should_publish: bool = True,
+    publish_error: Exception | None = None,
+    table_names: list[str] | None = None,
+) -> _TrinoRegistrationHarness:
     s3 = _FakePreparedGenerationS3(
         {
             "_ph_partition_key=2026-07/a.parquet": _parquet_bytes(
@@ -1306,7 +1333,9 @@ def test_copy_activity_registers_through_trino(monkeypatch, registered_rows, sho
     )
     monkeypatch.setattr(registration_module, "get_s3_client", lambda: s3)
     monkeypatch.setattr(registration_module, "_should_publish_prepared_generation", lambda inputs: should_publish)
-    connect, statements = _mock_trino(monkeypatch, registered_rows=registered_rows)
+    connect, statements = _mock_trino(
+        monkeypatch, registered_rows=registered_rows, table_names=table_names, publish_error=publish_error
+    )
     heartbeater = MagicMock()
     heartbeater.__enter__ = MagicMock(return_value=heartbeater)
     heartbeater.__exit__ = MagicMock(return_value=False)
@@ -1315,12 +1344,37 @@ def test_copy_activity_registers_through_trino(monkeypatch, registered_rows, sho
     stale_metric = MagicMock()
     monkeypatch.setattr(registration_module, "get_ducklake_register_data_imports_stale_metric", stale_metric)
     inputs = _trino_activity_inputs()
-    names = inputs.registration_table_names
-    assert names is not None
-    attempt_landing = (
-        "ducklake/_imports/posthog_data_imports_team_1/postgres_customers/schema/job/"
-        f"1234567890_abcdef12/{names.attempt_token}"
+    assert inputs.registration_table_names is not None
+    return _TrinoRegistrationHarness(
+        s3=s3,
+        connect=connect,
+        statements=statements,
+        workload_metrics=workload_metrics,
+        stale_metric=stale_metric,
+        inputs=inputs,
+        staging_name=inputs.registration_table_names.shadow_name,
+        attempt_landing=(
+            "ducklake/_imports/posthog_data_imports_team_1/postgres_customers/schema/job/"
+            f"1234567890_abcdef12/{inputs.registration_table_names.attempt_token}"
+        ),
     )
+
+
+@pytest.mark.parametrize(
+    "registered_rows, should_publish, outcome",
+    [
+        (3, True, "published"),
+        (2, True, "row_count_mismatch"),
+        (3, False, "stale"),
+    ],
+)
+def test_copy_activity_registers_through_trino(monkeypatch, registered_rows, should_publish, outcome):
+    harness = _trino_registration_harness(monkeypatch, registered_rows=registered_rows, should_publish=should_publish)
+    inputs = harness.inputs
+    statements = harness.statements
+    workload_metrics = harness.workload_metrics
+    stale_metric = harness.stale_metric
+    attempt_landing = harness.attempt_landing
 
     if outcome == "row_count_mismatch":
         with pytest.raises(ApplicationError, match="row count mismatch") as error:
@@ -1329,12 +1383,12 @@ def test_copy_activity_registers_through_trino(monkeypatch, registered_rows, sho
     else:
         assert copy_and_register_ducklake_data_imports_activity(inputs) is (outcome == "published")
 
-    assert sorted(s3.copied) == [
+    assert sorted(harness.s3.copied) == [
         f"{attempt_landing}/_ph_partition_key=2026-07/a.parquet",
         f"{attempt_landing}/_ph_partition_key=2026-08/b.parquet",
     ]
-    connect.assert_called_once_with("org-id", principal="posthog:ducklake-register:team:1:schema:schema")
-    staging = f'"tenant_catalog"."posthog_data_imports_team_1"."{names.shadow_name}"'
+    harness.connect.assert_called_once_with("org-id", principal="posthog:ducklake-register:team:1:schema:schema")
+    staging = harness.staging
     assert statements[:4] == [
         'CREATE SCHEMA IF NOT EXISTS "tenant_catalog"."posthog_data_imports_team_1"',
         f'CREATE TABLE {staging} ("id" BIGINT, "name" VARCHAR, "_ph_partition_key" VARCHAR) '
@@ -1357,6 +1411,47 @@ def test_copy_activity_registers_through_trino(monkeypatch, registered_rows, sho
         stale_metric.assert_called_once_with(team_id=1, schema_id="schema", stage="publish")
     else:
         stale_metric.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "staging_present, target_present, completes",
+    [
+        (False, True, True),
+        (True, True, False),
+        (False, False, False),
+    ],
+)
+def test_copy_activity_completes_when_publish_as_committed_but_its_response_was_lost(
+    monkeypatch, staging_present, target_present, completes
+):
+    lost_response = TrinoUserError(
+        {"errorName": "TABLE_NOT_FOUND", "errorType": "USER_ERROR", "message": "Table does not exist"}, "query"
+    )
+    present_tables: list[str] = []
+    harness = _trino_registration_harness(monkeypatch, publish_error=lost_response, table_names=present_tables)
+    if staging_present:
+        present_tables.append(harness.staging_name)
+    if target_present:
+        present_tables.append("postgres_customers")
+
+    if completes:
+        assert copy_and_register_ducklake_data_imports_activity(harness.inputs) is True
+        harness.workload_metrics.rows.record.assert_called_once_with(3.0)
+    else:
+        with pytest.raises(TrinoUserError) as error:
+            copy_and_register_ducklake_data_imports_activity(harness.inputs)
+        assert error.value is lost_response
+
+    publish_index = harness.statements.index(
+        f"ALTER TABLE {harness.staging} EXECUTE publish_as(target => 'postgres_customers')"
+    )
+    assert harness.statements[publish_index + 1] == (
+        'SELECT table_name FROM "tenant_catalog".information_schema.tables '
+        "WHERE table_schema = 'posthog_data_imports_team_1' "
+        f"AND table_name IN ('{harness.staging_name}', 'postgres_customers')"
+    )
+    drops = harness.statements[publish_index + 2 :]
+    assert drops == ([] if completes else [f"DROP TABLE IF EXISTS {harness.staging}"])
 
 
 def test_cleanup_activity_drops_trino_registration_tables_and_sweeps_stale_ones(monkeypatch):

@@ -284,12 +284,49 @@ class TrinoRegistrationCatalog:
         rows = self._run(f"SELECT count(*) FROM {self._table(schema, table)}")
         return int(rows[0][0]) if rows else 0
 
-    def publish_as(self, schema: str, table: str, *, target: str) -> int:
-        """Drop `target` if it exists and rename `table` to it, in one DuckLake snapshot."""
-        rows = self._run(
-            f"ALTER TABLE {self._table(schema, table)} EXECUTE publish_as(target => {escape_trino_string(target)})"
-        )
+    def publish_as(self, schema: str, table: str, *, target: str) -> int | None:
+        """Drop `target` if it exists and rename `table` to it, in one DuckLake snapshot.
+
+        Returns the number of replaced tables, or None when the swap committed but its response was lost.
+        """
+        try:
+            rows = self._run(
+                f"ALTER TABLE {self._table(schema, table)} EXECUTE publish_as(target => {escape_trino_string(target)})"
+            )
+        except Exception as error:
+            # publish_as is not idempotent. When its response is lost after the commit, the staging table is
+            # gone and a client retry fails with TABLE_NOT_FOUND. Only this attempt uses the staging table's
+            # name, so a missing staging table next to an existing target means the swap committed.
+            if self._publish_committed(schema, table, target):
+                LOGGER.warning(
+                    "DuckLake publish_as failed after its commit; the staging table is published",
+                    error_name=getattr(error, "error_name", None),
+                    table_name=f"{schema}.{target}",
+                )
+                return None
+            LOGGER.warning(
+                "DuckLake publish_as failed",
+                error_name=getattr(error, "error_name", None),
+                table_name=f"{schema}.{table}",
+                target=target,
+            )
+            raise
         return _procedure_count(rows, "replaced_tables")
+
+    def _publish_committed(self, schema: str, table: str, target: str) -> bool:
+        # Not cancellable, because a deadline cancel can be what interrupted the publish.
+        try:
+            rows = self._run(
+                f"SELECT table_name FROM {self._catalog}.information_schema.tables "
+                f"WHERE table_schema = {escape_trino_string(schema)} "
+                f"AND table_name IN ({escape_trino_string(table)}, {escape_trino_string(target)})",
+                cancellable=False,
+            )
+        except Exception:
+            LOGGER.warning("Could not check whether DuckLake publish_as committed", exc_info=True)
+            return False
+        tables = {str(row[0]) for row in rows}
+        return table not in tables and target in tables
 
     def drop_table(self, schema: str, table: str) -> None:
         self._run(f"DROP TABLE IF EXISTS {self._table(schema, table)}")

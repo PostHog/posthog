@@ -239,7 +239,7 @@ class DuckLakeRegisterDataImportsInputs:
         }
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class DuckLakeRegisterDataImportsMetadata:
     source_schema_id: str
     prepared_queryable_folder: str
