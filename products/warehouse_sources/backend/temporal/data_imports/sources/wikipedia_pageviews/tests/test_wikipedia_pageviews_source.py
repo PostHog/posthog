@@ -1,3 +1,5 @@
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     scripted_network,
@@ -7,7 +9,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.settings import (
     ARTICLE_PAGEVIEWS_ENDPOINT,
+    COUNTRY_TOP_ARTICLES_ENDPOINT,
     MAX_ARTICLES,
+    MAX_COUNTRIES,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.source import (
     WikipediaPageviewsSource,
@@ -39,6 +43,26 @@ class TestWikipediaPageviewsSource:
         )
         assert is_valid is False
         assert message is not None and "article" in message.lower()
+
+    @parameterized.expand(
+        [
+            ("schema_without_countries", None, COUNTRY_TOP_ARTICLES_ENDPOINT, "country codes"),
+            ("not_two_letters", "US, FRA, 1", None, "FRA, 1"),
+            (
+                "too_many",
+                ",".join(f"{chr(65 + i)}{chr(65 + i)}" for i in range(MAX_COUNTRIES + 1)),
+                None,
+                str(MAX_COUNTRIES),
+            ),
+        ]
+    )
+    def test_validate_credentials_rejects_bad_countries(self, _name, countries, schema_name, expected_in_message):
+        config = WikipediaPageviewsSourceConfig(project="en.wikipedia.org", countries=countries)
+        with scripted_network([]) as network:
+            is_valid, message = self.source.validate_credentials(config, self.team_id, schema_name=schema_name)
+        assert is_valid is False
+        assert message is not None and expected_in_message in message
+        assert network.requests_log == []
 
     def test_validate_credentials_plumbs_to_validate_project(self):
         with scripted_network([ScriptedResponse(json={"items": []})]) as network:
