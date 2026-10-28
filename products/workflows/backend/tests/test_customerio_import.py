@@ -712,10 +712,11 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 4
         urls = [media.get_absolute_url() for media in copies]
         assert html == (
+            '<div style="font-family: Arial, Helvetica, sans-serif;">'
             f'<img src="{urls[0]}"><img src="{gone}"><img src="https://cdn.example.com/logo.png">'
             f'<img src="{urls[1]}"><img src="{urls[2]}"><div style="background: url({urls[3]})"></div>'
             f'<img src="{templated}"><img src="{smuggled}"><img src="{lookalike}">'
-            f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}">'
+            f'<a href="{guide}">Guide</a><img src="{urls[2]}"><img src="{stalled}"></div>'
         )
         requested = [call.args[0] for call in mock_get.call_args_list]
         assert "evil.example.com" not in " ".join(requested)
