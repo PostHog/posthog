@@ -1105,6 +1105,9 @@ A `wrong_assignee` dismissal from an older client or an agent also takes the cal
 A bulk dismissal processes only the reports that name the caller, and it skips the per-report correction notes, because the dismissal already sends each scout one note for the batch.
 
 **Wrong-repo dismissals.** The `wrong_repo` reason code carries an optional `corrected_repository` (`owner/repo`, refused with any other reason).
+The next matching signal starts a fresh report linked back by `recurrence_of`, while the original stays dismissed.
+Further matching signals follow that link to the same successor, which uses the normal weight threshold for research promotion.
+Repository selection runs afresh with the project's correction feedback; the successor does not reuse the dismissed report's selection or treat its findings as evidence of a previous fix.
 The dismissal artefact denormalizes `selected_repository` (the report's latest `repo_selection` at dismissal time) next to the correction, so a selection mistake is one self-contained record.
 When the corrected repository is currently connected to the team, the state action also appends it as a user-attributed `repo_selection` artefact, latest-wins.
 Restoring the report does not itself re-research; the appended selection means the report's next research run, once new signals re-promote it, targets the corrected repository instead of repeating the rejected pick.

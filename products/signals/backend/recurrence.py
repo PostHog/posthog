@@ -1,27 +1,21 @@
-"""Recurrence of an issue a report already claimed was fixed.
+"""Route new evidence after a fixed verdict or a rejected repository choice.
 
 A resolved report and a report dismissed as fixed make the same factual claim: the issue is gone.
-A later matching signal is direct evidence that the claim was wrong, so both must surface the
-recurrence instead of absorbing it. The grouping stage reads this module to tell the two kinds of
-dismissal apart.
+A wrong-repo dismissal leaves the issue unresolved. Both need a fresh report for later matching
+signals, but only fixed verdicts supply prior-fix context to research.
 """
 
 from datetime import datetime
 
 from pydantic import ValidationError
 
-from products.signals.backend.artefact_schemas import FIXED_DISMISSAL_REASONS, Dismissal
+from products.signals.backend.artefact_schemas import DISMISSAL_REASON_WRONG_REPO, FIXED_DISMISSAL_REASONS, Dismissal
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.typed_report_links import incoming_links
 
 
-def fixed_dismissal_at(report: SignalReport) -> datetime | None:
-    """When the report was dismissed with a claim that the issue is fixed, or None.
-
-    Only the latest dismissal counts: dismissals stack, so an earlier "already fixed" that a
-    reviewer has since overruled with a `wontfix_*` must not keep forking reports.
-    """
+def _dismissal_at(report: SignalReport, reasons: frozenset[str]) -> datetime | None:
     latest = (
         SignalReportArtefact.objects.filter(
             report_id=report.id,
@@ -39,7 +33,20 @@ def fixed_dismissal_at(report: SignalReport) -> datetime | None:
         reason = Dismissal.model_validate_json(content).reason
     except ValidationError:
         return None
-    return created_at if reason in FIXED_DISMISSAL_REASONS else None
+    return created_at if reason in reasons else None
+
+
+def fixed_dismissal_at(report: SignalReport) -> datetime | None:
+    """When the report was dismissed with a claim that the issue is fixed, or None.
+
+    Only the latest dismissal counts: dismissals stack, so an earlier "already fixed" that a
+    reviewer has since overruled with a `wontfix_*` must not keep forking reports.
+    """
+    return _dismissal_at(report, FIXED_DISMISSAL_REASONS)
+
+
+def recurrence_dismissal_at(report: SignalReport) -> datetime | None:
+    return _dismissal_at(report, FIXED_DISMISSAL_REASONS | {DISMISSAL_REASON_WRONG_REPO})
 
 
 def _next_recurrence_report(report: SignalReport, *, lock: bool) -> SignalReport | None:

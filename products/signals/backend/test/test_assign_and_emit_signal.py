@@ -541,6 +541,7 @@ async def _suppressed_report(team, reason: str) -> SignalReport:
         ("already_fixed", True),
         ("fixed_outside_posthog", True),
         ("pr_merged", True),
+        ("wrong_repo", True),
         ("wontfix_intentional", False),
         ("wontfix_irrelevant", False),
         ("analysis_wrong", False),
@@ -549,10 +550,7 @@ async def _suppressed_report(team, reason: str) -> SignalReport:
     ],
 )
 @pytest.mark.parametrize("unsafe_parent", [False, True])
-async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason, forks, unsafe_parent):
-    # A dismissal that claims the issue is fixed is contradicted by a new signal, so the signal
-    # starts a fresh report, exactly as a resolved report does. Every other reason states a
-    # preference about the report, so a sink stays the right answer.
+async def test_suppressed_report_forks_for_fixed_or_wrong_repo_dismissals(ateam, reason, forks, unsafe_parent):
     parent = await _suppressed_report(ateam, reason)
     if unsafe_parent:
         await database_sync_to_async(SignalReportArtefact.objects.create)(
@@ -590,10 +588,9 @@ async def test_suppressed_report_forks_only_for_a_fixed_dismissal(ateam, reason,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam):
-    # Dismissals stack, so an "already fixed" a reviewer has since overruled with a won't-fix must
-    # stop forking reports.
-    parent = await _suppressed_report(ateam, "already_fixed")
+@pytest.mark.parametrize("reason", ["already_fixed", "wrong_repo"])
+async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam, reason):
+    parent = await _suppressed_report(ateam, reason)
     await _dismiss(parent, "wontfix_intentional")
 
     result = await assign_and_emit_signal_activity(
@@ -606,18 +603,19 @@ async def test_latest_dismissal_decides_whether_a_suppressed_report_forks(ateam)
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("reason", ["already_fixed", "wrong_repo"])
 @pytest.mark.parametrize("repeat_feedback", [False, True])
 @pytest.mark.parametrize("restore_parent", [False, True])
-async def test_second_recurrence_signal_joins_the_open_fork(ateam, repeat_feedback, restore_parent):
+async def test_second_recurrence_signal_joins_the_open_fork(ateam, reason, repeat_feedback, restore_parent):
     # A parent that absorbed hundreds of signals must produce one live recurrence report, not one
     # per signal: the second signal accumulates on the first signal's fork.
-    parent = await _suppressed_report(ateam, "already_fixed")
+    parent = await _suppressed_report(ateam, reason)
 
     first = await assign_and_emit_signal_activity(
         _build_input(ateam.id, _existing_match(str(parent.id)), weight=WEIGHT_THRESHOLD * 0.5)
     )
     if repeat_feedback:
-        await _dismiss(parent, "already_fixed")
+        await _dismiss(parent, reason)
     if restore_parent:
         parent.status = SignalReport.Status.READY
         await database_sync_to_async(parent.save)(update_fields=["status"])

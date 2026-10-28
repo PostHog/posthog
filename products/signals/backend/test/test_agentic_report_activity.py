@@ -300,6 +300,7 @@ def _build_signals() -> list[SignalData]:
     [
         (SignalReport.Status.RESOLVED, None, True),
         (SignalReport.Status.SUPPRESSED, "already_fixed", True),
+        (SignalReport.Status.SUPPRESSED, "wrong_repo", False),
         # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
         # to reason about, so the research agent is told nothing.
         (SignalReport.Status.SUPPRESSED, "wontfix_intentional", False),

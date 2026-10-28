@@ -475,9 +475,13 @@ The gates apply to automatic implementation only.
 Pressing Implement in the inbox starts a run whatever the links say.
 Nothing re-evaluates a held-back report when its dependency's pull request opens, so it starts on the report's next pipeline evaluation or by hand.
 
-## Recurrence after a fixed verdict
+## Recurrence after a fixed verdict or wrong repository
 
 A report dismissed as `already_fixed`, `fixed_outside_posthog`, or `pr_merged` can create a new report when the issue returns.
+A report dismissed as `wrong_repo` also creates a fresh report when a new matching signal arrives, even without a corrected repository.
+The original stays dismissed, and the new report uses the normal research promotion threshold.
+Its repository selection runs afresh with the project's saved correction feedback, without reusing the rejected selection.
+Research does not treat a wrong-repository dismissal as evidence of a previous fix.
 The pipeline records the new report's parent with a typed `recurrence_of` report link.
 A report created because a follow-up check failed on a resolved report also gets a typed `follow_up_of` link to that report, carrying the verdict as the link's reason.
 Generic `related_to` links do not control signal assignment.
