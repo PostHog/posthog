@@ -3816,42 +3816,6 @@ snapshots:
         hash: v1.k794b7964.c86259cd31b7314e2501ce1f5d2d9df90c71d89973451bc4fc7dc75f804f2ab0.0rNsoV08CBVe1fMHn0PdC9SQFdUUuvcWjZxuegKJDi0
     filters-taxonomic-filter--three-groups-default-layout--light:
         hash: v1.k794b7964.3a912cff1eae56feebdbc21446fdc3e61ac0d509204d8ad721b3aceb70720772.W1NBO4lj4EJOyXLHzqNk2WNFsya5ck4u27neOIPYc5M
-    filters-taxonomic-filter-menu-rebuild--cohorts-with-realtime-states--dark:
-        hash: v1.k794b7964.932df90594833f5d2039f583a662cc2aa42e72c7ad7f13f3075bd06a0119d077.O-c_P7j4v0FdBkmPUMcU5gjN-BPns7MvdvhkXEGQxcE
-    filters-taxonomic-filter-menu-rebuild--cohorts-with-realtime-states--light:
-        hash: v1.k794b7964.fe2e8e9e5341a9f15b78620d2fed44cd829a0dfb29249d4c72809fd91295f87a.K0E_-NAOF_HgRwpV5XJvo2HvQhUqCKwQTIwbWJfw2KQ
-    filters-taxonomic-filter-menu-rebuild--data-warehouse-config--dark:
-        hash: v1.k794b7964.4131254839bb13aed4af1f6cb7197cf9c23539c405c11ac33e2729bcaa30b505.osrHyuzzbrQgnurVXZQMRBdxj1_TxCyCvK-4eXXJYkE
-    filters-taxonomic-filter-menu-rebuild--data-warehouse-config--light:
-        hash: v1.k794b7964.dcd5a2635c692f7ba3d17bf648711d6abb00531869fa3c40b24b22f97a545bad.1BN3K_I1jp0O5lErsnd-6MsG1qjvxJoR4ene2gme1IA
-    filters-taxonomic-filter-menu-rebuild--events-and-actions--dark:
-        hash: v1.k794b7964.ef43eb3da4a924d2cabdd57184ff5e7ac3ddb2203e48109472244ea9a3294817.n_h4z87XQA0cCMJTN9qR-4cDmuE_lIqPkjbdNwgnfxo
-    filters-taxonomic-filter-menu-rebuild--events-and-actions--light:
-        hash: v1.k794b7964.5b682fa1b0befa226a706d2b8969abd58b176b4fc8a401892aade490b18a5942.XxX5GA9ck4oTCHHluStLXKIapfDGLSOx7GTjtkKxEtQ
-    filters-taxonomic-filter-menu-rebuild--hog-ql-only--dark:
-        hash: v1.k794b7964.69e5e2b843786e066cda98b2716f6bd5c929fcaf64c64be7ccb31a2417deada5.Z06YMmdo99SFz5_zOXppe1gIpxRTWBygg8zzbRcEHt0
-    filters-taxonomic-filter-menu-rebuild--hog-ql-only--light:
-        hash: v1.k794b7964.cbdda899fb6d823e98d1e8220fe862d2899537a4b9af0d2bcfda4acf1ceeffb7.uQv7dakLBmSnoYZaPIVaprG2zWYLnLjHAl95xWYmBLA
-    filters-taxonomic-filter-menu-rebuild--pre-selected-event--dark:
-        hash: v1.k794b7964.26ab46293c0477f4697ce98769db9eea0d31cfe33f0065f60d5d4534eb4dc1bf.3opeTVGtSuWSSBIBGVAY_epFt16T8XUyXxs8_PywsvU
-    filters-taxonomic-filter-menu-rebuild--pre-selected-event--light:
-        hash: v1.k794b7964.c1dcc778f84c7c4f4d4eeff1b3d9e8b4c52b02ac83dfc53500a8d6e4c4bb6862.Dt4PRKWrKTGAnqzvGkYYuSVn1122qoEBd8TPllGsa9E
-    filters-taxonomic-filter-menu-rebuild--pre-selected-hog-ql--dark:
-        hash: v1.k794b7964.d65e6e0e3eccc8c7a5039396da5731353407d74636686994a20801bc4fc7d0cd.9MRXkY2Go8Yym7ckr76J-9SwrWOhnTeHSCXDgXHi8IA
-    filters-taxonomic-filter-menu-rebuild--pre-selected-hog-ql--light:
-        hash: v1.k794b7964.6cb0dd8110519cf60b5da75bdb564c8e7f9f3403abc88f44ce6c46ae58e7c17e.a1Uk5lblEQQ6dxO6caFG0AsNisJKIOnFq_ewGmFNMpM
-    filters-taxonomic-filter-menu-rebuild--properties--dark:
-        hash: v1.k794b7964.2869fb83b6f6a3989b5d8cedc670cd9cb001f72c5be89338876badd78de22377.NBG0AcwD53xEg1qoiy9zTw4LTC-yA9ftbbluudmoTm8
-    filters-taxonomic-filter-menu-rebuild--properties--light:
-        hash: v1.k794b7964.60454016b8dffe18e0d8498c16a6cc7cd64fecdc9c16a61daad4b8ab20f626be.lJvLHUQIWH3PM3LEgkodi9xmJc5IB5n6BWm6pFgyjGs
-    filters-taxonomic-filter-menu-rebuild--recents-bare-key-expansion--dark:
-        hash: v1.k794b7964.35f57331fb0a726f3f1ecd224276be443302eb3f34a7df370222931502cc82d2.WthryKSq2B5c3eVPZ15eanxkkCNwsnsz-OCNRvyydik
-    filters-taxonomic-filter-menu-rebuild--recents-bare-key-expansion--light:
-        hash: v1.k794b7964.2f192bfcd2410a4955c3881c9510fe9a0789f4eda306d025d9d9325a96877098.eY9iXd5t-3AoGLo4CiAZFOF01cqKcqxg-diZIfyl6eA
-    filters-taxonomic-filter-menu-rebuild--series-plus-data-warehouse--dark:
-        hash: v1.k794b7964.e575a6fe0650de8136525ca833e523aee2834ab250e698ca5a291582058f1225.CzFI0b5Zsxpc2aqMQ81c2UBIlP9f3wD99-Y_vf9nNUY
-    filters-taxonomic-filter-menu-rebuild--series-plus-data-warehouse--light:
-        hash: v1.k794b7964.55ca200a0ae83e772ec48d184e693dd4d839c90e0cfc4a0abe7ad756515bf2b6.6QQUHueNRsfm1BE7DWUPkBeN4TnMk5VvMeHO1VklBZI
     filters-taxonomicpopover--multiple-categories--dark:
         hash: v1.k794b7964.03b4b270a02f86dfb9bafd37252eb9bdda9019f17d1f891a1892d93de57972ba.PtANH0fO47BsG8cHofR47rd39UNILQKtU-mC2Vxwuvk
     filters-taxonomicpopover--multiple-categories--light:
