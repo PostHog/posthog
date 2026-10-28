@@ -463,8 +463,6 @@ class TestMaterializationRequiresUnderlyingAccess(WarehouseAccessControlTestMixi
         response = self.client.patch(f"{self._base()}/", {"sync_frequency": "24hour"}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.view.refresh_from_db()
-        self.assertIsNone(self.view.sync_frequency_interval)
 
     def test_running_the_dag_node_is_denied_when_the_query_reads_a_denied_table(self):
         # The run workflow sets is_materialized itself, so running a node publishes the same rows

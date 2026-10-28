@@ -190,26 +190,24 @@ class TestBuildFrequencyGraph(BaseTest):
 
 @pytest.mark.django_db
 class TestSeedTargets(BaseTest):
-    def _view_node_in_dag_with(self, *, saved_query_interval, dag_interval) -> tuple[DAG, Node]:
+    def _view_node_in_dag_with(self, *, dag_interval) -> tuple[DAG, Node]:
         dag = DAG.objects.create(team=self.team, name="seed-demo", sync_frequency_interval=dag_interval)
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="v",
             team=self.team,
             query={"query": "SELECT 1", "kind": "HogQLQuery"},
-            sync_frequency_interval=saved_query_interval,
         )
         node = Node.objects.create(team=self.team, dag=dag, saved_query=saved_query, type=NodeType.VIEW)
         return dag, node
 
     @parameterized.expand(
         [
-            ("saved_query_interval_wins", H1, DAY, H1),
-            ("falls_back_to_dag_interval", None, DAY, DAY),
-            ("no_signal_leaves_node_unseeded", None, None, None),
+            ("inherits_dag_interval", DAY, DAY),
+            ("no_signal_leaves_node_unseeded", None, None),
         ]
     )
-    def test_seed(self, _name, saved_query_interval, dag_interval, expected):
-        dag, node = self._view_node_in_dag_with(saved_query_interval=saved_query_interval, dag_interval=dag_interval)
+    def test_seed(self, _name, dag_interval, expected):
+        dag, node = self._view_node_in_dag_with(dag_interval=dag_interval)
         seeds = seed_targets(dag)
         self.assertEqual(seeds, {} if expected is None else {str(node.id): expected})
 

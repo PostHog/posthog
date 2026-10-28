@@ -306,9 +306,6 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             target = next((target for node in nodes if (target := get_declared_target(node)) is not None), None)
         if target is not None:
             return int(target.total_seconds())
-        # Legacy schedules keep their interval on the saved query until they move to node targets.
-        if self.saved_query.sync_frequency_interval is not None:
-            return int(self.saved_query.sync_frequency_interval.total_seconds())
         return self.cache_ttl_seconds
 
     def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:

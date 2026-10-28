@@ -246,25 +246,16 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
 
 
 def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> str | None:
-    """Cadence string for a view, preferring its DAG node's declared freshness target.
-
-    On tiered v2 teams the node target is the only store of cadence — reconcile deliberately NULLs
-    `sync_frequency_interval` so a stale v1 schedule can't be revived from it — so reading the
-    column alone reports "never" for every scheduled view. The column still covers v1 and
-    single-schedule v2 teams, which have no node target.
-    """
+    """Cadence string for a view, read from its DAG node's declared freshness target."""
     state = rendered_node_states.rendered_node_states(root, view).get(str(view.pk))
-    if state is not None and state.declared_target is not None:
-        return sync_frequency_interval_to_sync_frequency(state.declared_target)
-    return sync_frequency_interval_to_sync_frequency(view.sync_frequency_interval)
+    return sync_frequency_interval_to_sync_frequency(state.declared_target if state is not None else None)
 
 
 class SyncFrequencyField(serializers.ChoiceField):
     """Writable sync-cadence field for saved queries.
 
-    Reads resolve the cadence via `resolve_sync_frequency` (node target first, then the model's
-    `sync_frequency_interval`); writes are validated against the choices and consumed by the
-    serializer's `create()` and `update()`. Declaring it as a real (non read-only) field is what lets the
+    Reads resolve the cadence from the node target via `resolve_sync_frequency`; writes are
+    validated against the choices and consumed by the serializer's `create()` and `update()`. Declaring it as a real (non read-only) field is what lets the
     cadence flow into the generated PATCH body and MCP tool schema.
     """
 
