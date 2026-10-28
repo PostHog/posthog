@@ -15,6 +15,7 @@ Two fetch paths:
   Backfills associations per page via v4 batch-read.
 """
 
+import re
 import dataclasses
 import urllib.parse
 from collections.abc import Iterator, Sequence
@@ -205,6 +206,24 @@ def _build_initial_url(path: str, associations: list[str], properties: str, limi
     return f"{BASE_URL.rstrip('/')}{path}?{'&'.join(parts)}"
 
 
+_PROPERTIES_PARAM_RE = re.compile(r"(?<=[?&])properties=[^&]*")
+
+
+def _rebuild_resume_url_with_current_properties(next_url: str, props_str: str) -> str:
+    """Replace a saved resume URL's `properties` value with the one built under today's cap.
+
+    A URL saved by an older sync can carry a `properties` value sized against a since-lowered
+    `PROPERTY_LENGTH_LIMIT`; HubSpot's 431 doesn't care when the URL was built, only how large it
+    is now. Everything else in `next_url` — including HubSpot's opaque pagination cursor — is
+    preserved untouched.
+    """
+    replacement = f"properties={props_str}"
+    if _PROPERTIES_PARAM_RE.search(next_url):
+        return _PROPERTIES_PARAM_RE.sub(replacement, next_url, count=1)
+    separator = "&" if "?" in next_url else "?"
+    return f"{next_url}{separator}{replacement}"
+
+
 def _backfill_missing_properties(row: dict[str, Any], expected_properties: list[str]) -> None:
     """HubSpot omits properties with null values; PyArrow drops absent columns during schema inference."""
     for prop in expected_properties:
@@ -338,7 +357,7 @@ def get_rows(
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     if resume_config is not None and resume_config.next_url is not None:
-        url = resume_config.next_url
+        url = _rebuild_resume_url_with_current_properties(resume_config.next_url, props_str)
         logger.debug(f"Hubspot: resuming from URL: {url}")
     else:
         url = _build_initial_url(
