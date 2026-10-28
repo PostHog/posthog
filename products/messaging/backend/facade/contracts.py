@@ -92,6 +92,10 @@ class RecipientSuppressed(TransactionalEmailError):
     code = "recipient_suppressed"
 
 
+class RecipientUnreachable(TransactionalEmailError):
+    code = "recipient_unreachable"
+
+
 class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 

@@ -1,7 +1,7 @@
 # Report completion and late PR attachments
 
 A report completes after all linked implementation PRs are closed or merged.
-At least one merged PR resolves the report; otherwise all closed PRs suppress it.
+At least one merged PR completes implementation: applicable follow-up checks enter Monitoring when enabled; otherwise the report resolves directly. All closed PRs without a merge suppress it.
 
 PR-driven resolutions emit `signal_report_status_changed` with `resolution_reason=pr_merged`, including when attaching an already-merged PR completes a report. `dismissal_reason` remains reserved for feedback supplied with the transition. Outcome queries should prefer `resolution_reason` and fall back to `dismissal_reason`; a missing reason alone does not imply that no PR merged.
 
@@ -10,11 +10,11 @@ PR-driven dismissals emit `dismissal_cause=pr_closed_without_merge` when all lin
 A person can resolve a report by recording a manual implementation or a useful finding that needs no action. Feedback from the state API, Slack, PR closures, report merges, refunds, and plan rollups saves its verdict so the activity log distinguishes resolutions from dismissals even after later state changes. Feedback predating recorded verdicts uses a neutral activity label.
 The `no_action_needed` reason requires a resolved state. It leaves the report resolved, cancels its open follow-up checks, and is excluded from fixed outcomes in inbox ranking. Manual resolution closes an open implementation PR; the resulting GitHub close event preserves the resolved report status.
 
-Monitoring means implementation is complete and outcome verification is pending. Resolved means the report is finished and runs no follow-up checks. This includes stored Monitoring reports whose effective status becomes Resolved when the flag is disabled or unavailable. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled.
+Monitoring means implementation is complete and outcome verification is pending. Resolved means the report is finished and runs no follow-up checks. This includes stored Monitoring reports whose effective status becomes Resolved when the flag is disabled or unavailable. The organization-level `signals-report-monitoring` gate requires explicit enablement, including in local development, and treats missing definitions or evaluation failures as disabled. With Monitoring disabled, PR merges retain legacy resolution transitions, including archived reports.
 
-A Monitoring period begins with an explicit, timezone-aware implementation-complete timestamp supplied by the server. Merge-driven entry can use the linked PR's recorded `merged_at`, even when its webhook arrives later. The lifecycle never substitutes receipt time for a missing implementation timestamp. Repeated entry preserves the original period; archive and restore preserve it too. Reopening implementation clears the start so a later implementation creates a new period. Resolving after verification keeps the implementation timestamp for history.
+A Monitoring period begins with an explicit, timezone-aware implementation-complete timestamp supplied by the server. Merge-driven entry uses the latest recorded `merged_at` among the merged implementation PRs, even when a webhook arrives later. Every merged PR must have a recorded merge time before a new Monitoring period can start; missing timestamps leave implementation open until reconciliation supplies them. For completed stacks waiting on timestamps, merged PRs from task history are persisted and queued for GitHub verification; timestamp repairs retry completion after commit. The lifecycle never substitutes receipt time for a missing implementation timestamp. Repeated entry preserves the original period; archive and restore preserve it too. Reopening implementation clears the start so a later implementation creates a new period. Resolving after verification keeps the implementation timestamp for history.
 
-The backend `complete_implementation` service records a durable attempt and freezes this report's pending or active, unexpired check IDs and authored-definition versions in the same transaction as Monitoring entry. Kind, approval, missing configuration, and missing or zero soak do not remove a check from this selection. Stale checks receive expiry records before selection. No applicable checks, or a disabled Monitoring flag, resolve directly without a verification attempt. Carried-over checks lose their earlier evidence and dispatch claims while keeping their remaining runs. Duplicate completion and archive/restore retain the snapshot; reopening creates a new attempt when implementation completes again. The single and bulk state APIs share this service. PR-merge handlers still resolve directly.
+The backend `complete_implementation` service records a durable attempt and freezes this report's pending or active, unexpired check IDs and authored-definition versions in the same transaction as Monitoring entry. Kind, approval, missing configuration, and missing or zero soak do not remove a check from this selection. Stale checks receive expiry records before selection. No applicable checks, or a disabled Monitoring flag, resolve directly without a verification attempt. Carried-over checks lose their earlier evidence and dispatch claims while keeping their remaining runs. Duplicate completion and archive/restore retain the snapshot; reopening creates a new attempt when implementation completes again. The single and bulk state APIs, merged-PR webhooks, and reconciliation after attaching an already-merged PR share this service. Background participant sync retries completion after the repaired merge timestamp commits, including old PRs outside the inbox summary window and failed participant lookups. Monitoring entry leaves tracker completion pending; direct PR-driven resolution retains its completion notification and attribution.
 
 `save_monitoring_result(MonitoringEvaluation(...))` stores final evaluation submissions separately from interim observations and activity artefacts. Each submission identifies the environment, report, attempt, check, definition version, fixed evidence window, evaluation time, qualification status and reason, expectation match, explanation, and opaque evidence references. Evaluators supply qualification using their own evidence policy; metric evaluators can use `qualify_metric_evidence`. Only sufficient evidence can produce a pass or failure. Insufficient or unsupported evidence produces an inconclusive outcome; execution errors remain errors.
 
@@ -179,10 +179,24 @@ New metric checks validate numeric goals and baselines against their metric kind
 
 ## Repository selection
 
-The shared repository selection prompt asks the agent to check the sources in the supplied context before choosing a repository.
+For reports built from GitHub issues, the issue repository is a default when it is an eligible candidate.
+With multiple permitted candidates, selection can choose another repository based on code ownership, applicable routing rules, or past wrong-repository corrections.
+Matching paths can be vendored, generated, or mirrored copies; ownership evidence takes precedence over the source default.
+If the evidence otherwise leaves candidates equally plausible, selection prefers the issue repository.
+Selection sandboxes use read-only GitHub credentials and read-only PostHog scopes to inspect repositories and query the cache.
+
+The selector checks cached source visibility before the single-candidate shortcut or the agent runs, including when the source is not eligible.
+If the source is not confirmed public, the permitted destinations are the eligible source itself and eligible repositories confirmed private.
+Missing or non-boolean visibility metadata is unconfirmed.
+If no permitted destination remains, selection returns no repository.
+A confirmed public source does not restrict destination visibility, so an unavailable public source can still route to another eligible repository.
+The restricted candidate list governs both the prompt and validation of the agent's result.
+A single permitted repository is selected without running the agent, and re-research reuses a stored non-null repository selection.
+
+The shared repository selection prompt also asks the agent to check other sources in the supplied context before choosing a repository.
 For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
-This is prompt guidance, not an enforced access control, and it does not validate repositories selected outside the agent.
+These broader context checks remain prompt guidance; the source-repository restriction does not validate selections made outside the shared selector.
 
 ## Reviewer notifications
 

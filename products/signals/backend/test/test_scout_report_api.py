@@ -259,6 +259,7 @@ class TestScoutReportAPI(APIBaseTest):
         judge.assert_awaited_once()
         # The report already surfaced, so its draft PR must not be started a second time.
         autostart.assert_awaited_once()
+        assert autostart.call_args.kwargs["implementation_spend_kind"] == "scout_triggered_implementation"
         event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         assert event.kwargs["properties"]["outcome"] == "idempotent_replay"
 
@@ -550,7 +551,8 @@ class TestScoutReportAPI(APIBaseTest):
         resolved = SignalReport.objects.create(team=self.team, status=SignalReport.Status.RESOLVED, title="fixed")
         gate_at_autostart: list[AutostartSkip | None] = []
 
-        async def _read_gates(*, team_id: int, report_id: str) -> None:
+        async def _read_gates(*, team_id: int, report_id: str, implementation_spend_kind: str) -> None:
+            assert implementation_spend_kind == "scout_triggered_implementation"
             gate_at_autostart.append(await sync_to_async(_evaluate_link_gates)(team_id, report_id))
 
         payload = self._payload(

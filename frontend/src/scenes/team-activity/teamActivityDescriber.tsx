@@ -16,7 +16,7 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { Link } from 'lib/lemon-ui/Link'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
 import { isObject } from 'lib/utils/guards'
-import { pluralize } from 'lib/utils/strings'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
@@ -868,6 +868,33 @@ function describeWorkflowEmailSuspension(logItem: ActivityLogItem): HumanizedCha
     }
 }
 
+function describeWorkflowEmailTierChange(logItem: ActivityLogItem): HumanizedChange {
+    const changes = logItem.detail?.changes || []
+    const tierChange = changes.find((change) => change.field === 'email_sending_tier')
+    const pinChange = changes.find((change) => change.field === 'email_sending_tier_pinned')
+    const contextReason = logItem.detail?.context?.reason as string | undefined
+    // A staff-set tier has no decision behind it, so the row says "set" and shows no reason.
+    const setByStaff = contextReason === 'staff_set'
+    const reason = setByStaff ? undefined : contextReason
+    const target = shortIdActivityLink(logItem, urls.notebook)
+    const pinVerb = pinChange ? (pinChange.after ? 'pinned' : 'unpinned') : null
+    const verb = tierChange ? (setByStaff ? 'set' : 'moved') : (pinVerb ?? 'changed')
+    const tierMove = tierChange ? ` from ${String(tierChange.before)} to ${String(tierChange.after)}` : ''
+    const pinSuffix = tierChange && pinVerb ? ` and ${pinVerb === 'pinned' ? 'pinned it there' : 'unpinned it'}` : ''
+    const action = `${verb} the workflow email sending tier`
+    return {
+        summary: activityLogSummary(logItem, `${capitalizeFirstLetter(action)}${tierMove}${pinSuffix}`, target, reason),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {action} on {target}
+                {tierMove}
+                {pinSuffix}
+                {reason ? <> (reason: {reason})</> : null}
+            </>
+        ),
+    }
+}
+
 export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
     if (logItem.scope !== ActivityScope.TEAM) {
         console.error('team describer received a non-Team activity')
@@ -876,6 +903,10 @@ export function teamActivityDescriber(logItem: ActivityLogItem, asNotification?:
 
     if (logItem.activity === 'email_sending_suspended' || logItem.activity === 'email_sending_unsuspended') {
         return describeWorkflowEmailSuspension(logItem)
+    }
+
+    if (logItem.activity === 'email_sending_tier_changed') {
+        return describeWorkflowEmailTierChange(logItem)
     }
 
     if (logItem.activity == 'changed' || logItem.activity == 'updated') {
