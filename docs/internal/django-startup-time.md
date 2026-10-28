@@ -140,6 +140,29 @@ When the floor has crept, the lever is the same as it ever was — find the heav
 
 ## Measuring
 
+### Diagnose a stalled management command
+
+Set `POSTHOG_COMMAND_DIAGNOSTICS=1` for the process that needs investigation.
+`manage.py` starts a traceback watchdog before it imports Django and sends JSON phase events and thread dumps through a bounded, nonblocking pipe.
+`POSTHOG_COMMAND_DIAGNOSTICS_INTERVAL_SECONDS` controls the interval between thread dumps and defaults to 60 seconds.
+An invalid interval disables diagnostics and attempts to emit a warning without changing the command result.
+
+The events include a PID, elapsed time from a monotonic clock, and optional job, namespace and pod identity.
+Use the last event and the thread stacks to distinguish Django import, Django setup, command execution and process shutdown.
+The explicit setup events are absent when `--settings` or `--pythonpath` delegates setup to Django's command dispatcher.
+`command_finished` means command execution returned or raised an exception; process shutdown can still be waiting for background threads or exit handlers.
+The watchdog remains active through shutdown, so compare that event and subsequent stacks with the container's completion time.
+
+A daemon relay forwards the pipe to stderr using raw writes, without changing stderr's blocking flags.
+The command never waits for the relay, including at shutdown.
+Delivery is best effort: a full buffer drops output, and a fast process exit can lose final events.
+The bounded buffer keeps a slow or blocked logging destination from delaying the command or the watchdog's shutdown.
+
+Diagnostics preserve the command's exit status and do not impose a timeout or apply migrations.
+They write stack frames without local variable values or command arguments.
+Enable them for a scoped diagnostic run and retain stderr before replacing the process.
+The existing `migrate --profile-operations` profiler provides migration-operation timings after setup; these bootstrap diagnostics cover earlier waits and process shutdown.
+
 - Wall-clock: `time.perf_counter()` around `django.setup()` _inside_ the process.
   Do not time the shell wrapper — env activation is not part of the number.
 - Set `TEST=1 DEBUG=1` so `ready()` skips redis/runtime I/O; you want import cost, which is identical in test mode, not environment-dependent network round-trips.
