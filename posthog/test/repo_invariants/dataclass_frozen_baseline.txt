@@ -840,8 +840,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/papersign/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pardot/pardot.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pardot/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/partnerize/partnerize.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/partnerize/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/partnerstack/partnerstack.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/partnerstack/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/payfit/payfit.py
