@@ -447,6 +447,32 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
             operator: 'Right AI Choice',
         },
     },
+    {
+        pattern: 'FlashBrain',
+        definition: { name: 'FlashBrain', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'Flash Teams' },
+    },
+    {
+        pattern: 'NagetBot',
+        definition: { name: 'NagetBot', category: 'ai_crawler', trafficType: 'AI Agent', operator: 'Naget' },
+    },
+    {
+        pattern: 'ContextRocketBot',
+        definition: {
+            name: 'ContextRocket',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'ContextRocket',
+        },
+    },
+    {
+        pattern: 'AgentNativeSearchBot',
+        definition: {
+            name: 'Agent Native Search',
+            category: 'ai_crawler',
+            trafficType: 'AI Agent',
+            operator: 'agent-native-search',
+        },
+    },
     // Search / index crawlers
     {
         pattern: 'redCactiBot',
@@ -719,6 +745,22 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
         pattern: 'AtlasSearchBot',
         definition: { name: 'AtlasSearch', category: 'search_crawler', trafficType: 'Bot', operator: 'AtlasSearch' },
     },
+    {
+        pattern: 'KakaoBot',
+        definition: { name: 'KakaoBot', category: 'search_crawler', trafficType: 'Bot', operator: 'Kakao' },
+    },
+    {
+        pattern: 'ibou-search',
+        definition: { name: 'Ibou Search', category: 'search_crawler', trafficType: 'Bot', operator: 'Ibou' },
+    },
+    {
+        pattern: 'matnx.com/bot',
+        definition: { name: 'AtlasBot', category: 'search_crawler', trafficType: 'Bot', operator: 'matnx' },
+    },
+    {
+        pattern: 'DittaBot',
+        definition: { name: 'DittaBot', category: 'search_crawler', trafficType: 'Bot', operator: 'DittaBot' },
+    },
     // SEO / marketing crawlers
     {
         pattern: 'LaunchReadyCodeBot',
@@ -859,6 +901,10 @@ export const BOT_DEFINITIONS: { pattern: string; definition: BotDefinition }[] =
     {
         pattern: 'NimbusBlocklistSync',
         definition: { name: 'Nimbus Blocklist Sync', category: 'monitoring', trafficType: 'Bot', operator: 'Nimbus' },
+    },
+    {
+        pattern: 'latency.app/bot',
+        definition: { name: 'Latency', category: 'monitoring', trafficType: 'Bot', operator: 'Latency' },
     },
     // HTTP clients
     {

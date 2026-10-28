@@ -67,6 +67,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "LlmsTxtBot/1.0 (+https://github.com/tristansinclair/llms-txt-tristan-sinclair)",
         "every-api/0.1 (+https://github.com/MEMEO-PRO/every-api; docs corpus for AI coding agents)",
         "Mozilla/5.0 (compatible; RightAIChoiceBot/1.0; +https://rightaichoice.com)",
+        "FlashBrain/1.0 (+https://flashteams.ai; support@flashteams.ai)",
+        "Mozilla/5.0 (compatible; NagetBot/1.0; +https://naget.ai/bot)",
+        "Mozilla/5.0 (compatible; ContextRocketBot/1.0; +https://contextrocket.com/llms.txt)",
+        "AgentNativeSearchBot/0.1 (+https://github.com/agent-native-search)",
     ],
     "ai_search": [
         "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot",
@@ -200,6 +204,10 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "UnboundCompute-PublicSnapshot/1.0 (+https://unboundcompute.com/)",
         "swissAItalentBot/1.0 (+https://swissaitalent.ch/bot)",
         "AtlasSearchBot/1.0 (+https://github.com/atlassearch/bot)",
+        "Mozilla/5.0 (compatible; KakaoBot/1.0; +https://cs.kakao.com/helps_html/1073213012)",
+        "Mozilla/5.0 (compatible; ibou-search/2.0; +https://ibou.com/crawlers.html)",
+        "AtlasBot/0.1 (+https://matnx.com/bot)",
+        "DittaBot/0.1 (+https://example.com/bot)",
     ],
     "seo_crawler": [
         "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.5359.128 Mobile Safari/537.36 (compatible; AhrefsSiteAudit/6.1; +http://ahrefs.com/robot/site-audit)",
@@ -335,6 +343,7 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "CurbCutScanner/0.2-spike (+https://github.com/devinxu0916/CurbCut) accessibility-audit-research",
         "VantageBot/0.1 (+https://github.com/morsela/webapp-monitor)",
         "NimbusBlocklistSync/1.0 (+https://nimbus.com)",
+        "Latency/1.0 (+https://latency.app/bot)",
     ],
     "http_client": [
         "Chrome Privacy Preserving Prefetch Proxy",
@@ -415,6 +424,8 @@ BOT_USER_AGENTS: dict[str, list[str]] = {
         "Mozilla/5.0 (Linux; arm_64; Android 13; SM-A536B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.6723.2214 YaApp_Android/25.10.1 YaSearchBrowser/25.10.1 BroPP/1.0 Mobile Safari/537.36",
         "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.6167.8812 Mobile Safari/537.36 OPR/62.1.3134.58322",
         "Mozilla/5.0 (Windows; U; Windows NT 6.1; en-US) AppleWebKit/532.5 (KHTML, like Gecko) Chrome/4.1.249.1025 Safari/532.5",
+        # KakaoTalk in-app browser. The KakaoBot pattern must not match it.
+        "Mozilla/5.0 (Linux; Android 14; SM-S918N Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.0.0 Mobile Safari/537.36 KAKAOTALK/10.4.5 (INAPP)",
     ],
 }
 
