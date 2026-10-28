@@ -127,6 +127,10 @@ env:
     # keeps the env lock, and the step's retry blocks on it. Ending uv before the step
     # timeout frees the lock. Keep this under the 5-minute timeout-minutes of every step that uses it.
     PY_DEPS_SYNC_TIMEOUT: 270s
+    # Git has no transfer speed floor, so a stalled fetch never fails on its own.
+    # Abort below 1000 bytes/s for 60s so actions/checkout or the step's retry runs.
+    GIT_HTTP_LOW_SPEED_LIMIT: 1000
+    GIT_HTTP_LOW_SPEED_TIME: 60
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     COMPOSE_PROJECT_NAME: posthog
     WAIT_FOR_DOCKER_REGISTRY_MIRROR: ${{ vars.DEPOT_PULL_THROUGH_REGISTRY }} mirror.gcr.io
@@ -680,7 +684,10 @@ jobs:
                   git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
                   git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
                   echo "History depth: $(git rev-list --count HEAD)"
-              retry: 2
+              retry:
+                  retries: 3
+                  backoff: exponential
+                  delay-seconds: 10
             - name: Verify PR merge for test selection
               id: verify-merge
               if: github.event_name == 'pull_request'
@@ -697,9 +704,12 @@ jobs:
             - name: Fetch PR base for schema cache
               if: github.event_name == 'pull_request'
               env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-              retry: 2
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+              run: git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null || git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_SHA"
+              retry:
+                  retries: 3
+                  backoff: exponential
+                  delay-seconds: 10
             - name: Compute schema cache key from PR base
               id: schema-key
               if: github.event_name == 'pull_request'
@@ -1559,7 +1569,10 @@ jobs:
               run: |
                   git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
                   git fetch --no-tags --depth=2 origin "$GITHUB_SHA"
-              retry: 2
+              retry:
+                  retries: 3
+                  backoff: exponential
+                  delay-seconds: 10
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
@@ -3190,7 +3203,10 @@ jobs:
                       fi
                   fi
                   echo "rust_changed=$rust_changed" >> $GITHUB_OUTPUT
-              retry: 2
+              retry:
+                  retries: 3
+                  backoff: exponential
+                  delay-seconds: 10
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
             # this appears to fix it
