@@ -265,8 +265,6 @@ class TestShadowSampleRate(SimpleTestCase):
         ]
     )
     def test_configured_shadow_sample_rate(self, _name: str, env_value: str | None, expected: float) -> None:
-        with patch.dict(os.environ):
-            os.environ.pop("HOGQL_PARSER_SHADOW_SAMPLE_RATE", None)
-            if env_value is not None:
-                os.environ["HOGQL_PARSER_SHADOW_SAMPLE_RATE"] = env_value
+        env = {} if env_value is None else {"HOGQL_PARSER_SHADOW_SAMPLE_RATE": env_value}
+        with patch.dict(os.environ, env, clear=True):
             self.assertEqual(_configured_shadow_sample_rate(), expected)
