@@ -56,7 +56,7 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, UserType } from '~/types'
 
-import { handleLoginRedirect } from './authentication/login/loginLogic'
+import { handleLoginRedirect } from './authentication/auth/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'

@@ -179,7 +179,6 @@ export function HomeTabStatTile({ stat, compare, selected, onSelect }: HomeTabSt
             labels={trend?.days}
             theme={theme}
             sparklineHeight={50}
-            sparklineClassName="mt-3"
             sparklineDashedFromIndex={incompleteTail ? (trend?.data.length ?? 0) - 1 : undefined}
             formatLabel={(bucket) => formatBucketLabel(bucket, interval)}
             goodDirection="up"

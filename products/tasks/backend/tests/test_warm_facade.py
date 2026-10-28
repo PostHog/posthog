@@ -835,19 +835,22 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("credential_does_not_match_the_gate", "discussion", True, False),
-            ("implementation_never_takes_a_discussion_warm", "implementation", False, False),
+            ("credential_does_not_match_the_gate", "discussion", True, False, False),
+            ("implementation_never_takes_a_discussion_warm", "implementation", False, False, False),
+            ("old_warm_has_signals_credentials", "discussion", False, False, True),
         ]
     )
     def test_report_create_cold_starts_when_the_warm_does_not_fit(
-        self, _name, relationship, warm_has_credential, code_access_allowed
+        self, _name, relationship, warm_has_credential, code_access_allowed, legacy_billing
     ):
         from products.signals.backend.models import SignalReport
 
         report = SignalReport.objects.create(team=self.team)
-        warm_task, _run = self._report_warm_run(
+        warm_task, run = self._report_warm_run(
             report, github_integration=self.integration if warm_has_credential else None
         )
+        if legacy_billing:
+            TaskRun.update_state_atomic(run.id, remove_keys=["billing_product"])
 
         with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
             dto = self._create_report_task(report, relationship=relationship, code_access_allowed=code_access_allowed)
@@ -1919,6 +1922,33 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert "await_user_message" not in run.state
         assert run.state.get("auto_publish") is True
+
+    @parameterized.expand([("run_task",), ("user_message",)])
+    def test_first_message_to_a_warm_run_logs_a_live_sibling_once(self, activation: str) -> None:
+        task, run = self._warm_run()
+        live = TaskRun.objects.create(
+            task=task, team=self.team, environment=TaskRun.Environment.CLOUD, status=TaskRun.Status.IN_PROGRESS
+        )
+        TaskRun.objects.filter(id=live.id).update(created_at=run.created_at - timedelta(minutes=1))
+
+        with (
+            patch("products.tasks.backend.models.log_run_started_beside_live_run") as log_started,
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True),
+        ):
+            if activation == "run_task":
+                facade.run_task(
+                    task.id,
+                    self.team.id,
+                    self.user.id,
+                    validated_data={"mode": "interactive", "branch": "main", "pending_user_message": "go"},
+                )
+            facade.activate_warm_task_run(run.id)
+            facade.activate_warm_task_run(run.id)
+
+        assert task.runs.count() == 2
+        log_started.assert_called_once_with(run, [live.id])
+        run.refresh_from_db()
+        assert "await_user_message" not in run.state
 
     def test_falls_back_to_description_when_no_pending_message(self):
         task, run = self._warm_run()

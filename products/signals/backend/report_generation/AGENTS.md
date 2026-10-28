@@ -7,15 +7,16 @@ It is exercised locally via management commands, and it is also used by the prod
 
 - `select_repo.py`
   Selects the most relevant GitHub repository for a set of signals.
-  - If the team has 0 repos: returns `None` (report goes to `pending_input`).
-  - If the team has 1 repo: returns it directly (no sandbox needed).
-  - If the team has N repos: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
+  - If no eligible repo passes the source-visibility check: returns `None` (report goes to `pending_input`).
+  - If 1 eligible repo passes the source-visibility check: returns it directly (no sandbox needed).
+  - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact instead of re-running selection.
-  - A repository the signals name themselves is pinned before the agent runs. See `source_repository.py`.
+  - A source repository is the agent's default when eligible. Code ownership, applicable routing rules, and past corrections can override it; matching paths alone do not establish ownership. Equally plausible candidates favor the source. See `source_repository.py`.
+  - Before the shortcut or agent runs, a source not confirmed public restricts destinations to itself when eligible or to confirmed-private candidates. Missing or non-boolean visibility is unconfirmed. The restricted candidates also govern result validation.
 - `source_repository.py`
-  The repository a report's signals were filed against. A GitHub issue names its own repository in its URL, so `select_repo.py` pins it: the selector returns it when the team can reach it, and `repository=None` carrying the mismatch when it cannot, so a PR never lands in a repository the report never pointed at. Only one unambiguous repository counts; issues from two repositories name neither.
+  The repository a report's signals were filed against. A single unambiguous GitHub issue repository supplies a selection default; issues from two repositories supply none. An unavailable source can still route to an eligible confirmed-private repository, or to any eligible repository when the source is confirmed public.
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   The agent researches each signal, then produces:
@@ -129,6 +130,13 @@ A figure with no event or action query behind it, such as a database statistic, 
 **`unit` is one word.** A non-currency unit is one lowercase word, such as `users`, `sessions`, `failure`, `ms`, or `s`. A `%` unit is redundant. Revenue uses an uppercase ISO currency code such as `USD`.
 
 The caller activity passes `has_business_knowledge=True` when the team's business knowledge product is both feature-flagged on and has at least one READY source (via `products.business_knowledge.backend.logic.is_available_for_team`). When true, the research prompt includes a `## Business knowledge` block that instructs the agent to search the team's curated knowledge base via MCP tools.
+
+### Tags
+
+The presentation step can also return `tags`, the report's whole slug tag set. The prompt shows the report's current tags and the team's most-used report tags (`report_tags.team_tag_vocabulary`, a query that reads only the team's newest 500 reports), so a run reuses a tag before it invents a near duplicate.
+
+- **A bad tag never fails the run.** `ReportPresentationOutput` coerces `tags` through `report_tags.coerce_report_tags`: it drops each tag that does not normalize and keeps the first `SignalReport.MAX_TAGS`, with a warning. A value that is not a list reads as omitted.
+- **Each pass replaces the whole set, atomically with the prose.** The ready and pending-input transitions write `tags` with the title and summary. `None` (an omitted field, the no-repo branch, or an older workflow history) keeps the stored set.
 
 ### Fleet steering
 

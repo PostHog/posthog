@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.facade.models import (
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -45,14 +46,14 @@ type RedshiftSourceLocation = tuple[str | None, str, str]  # (catalog, schema, t
 
 
 def get_default_redshift_schema(source: ExternalDataSource) -> str | None:
-    job_inputs = source.job_inputs or {}
+    job_inputs = SourceInputsStore.load_settings(source)
     if "schema" in job_inputs:
         return normalize_namespace(job_inputs.get("schema"))
     return None
 
 
 def get_default_redshift_catalog(source: ExternalDataSource) -> str | None:
-    database = (source.job_inputs or {}).get("database")
+    database = SourceInputsStore.load(source).get("database")
     return database if isinstance(database, str) and database.strip() else None
 
 
