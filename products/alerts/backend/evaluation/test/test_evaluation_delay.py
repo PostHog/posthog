@@ -72,8 +72,9 @@ class TestEvaluationDelay(SimpleTestCase):
         self.assertEqual(result.value, expected)
         assert result.breaches is not None
         self.assertEqual(bool(result.breaches), fires)
+        assert result.triggered_metadata is not None
         self.assertEqual(
-            result.triggered_metadata,
+            {k: v for k, v in result.triggered_metadata.items() if k != "breach_details"},
             {
                 "evaluation_delay_intervals": 2,
                 "evaluated_interval_start": dates[1],
