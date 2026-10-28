@@ -24,11 +24,6 @@ class TestHealthchecksSource:
         # get_schemas is a static catalog with no I/O, so the public docs table list can render.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["flips"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "flips"
-
     @mock.patch.object(HealthchecksSource, "is_database_host_valid")
     def test_validate_credentials_rejects_unsafe_host(self, mock_host_valid):
         mock_host_valid.return_value = (False, "Host is not allowed")

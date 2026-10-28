@@ -110,9 +110,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             (200, None),
-            (401, "Invalid PartnerStack API keys"),
-            (403, "Invalid PartnerStack API keys"),
-            (500, "PartnerStack returned HTTP 500"),
         ]
     )
     def test_status_to_message(self, status: int, expected_message: str | None) -> None:

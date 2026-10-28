@@ -41,6 +41,7 @@ import { joinsLogic } from 'products/data_warehouse/frontend/shared/logics/joins
  * `TaxonomicFilterProps` — only the fields that affect group definitions.
  */
 export interface UseTaxonomicGroupsContextInput {
+    allowNonCapturedEvents?: boolean
     eventNames?: string[]
     /** Requested group types — read by group definitions that adapt to which tabs are present. */
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
@@ -52,6 +53,7 @@ export interface UseTaxonomicGroupsContextInput {
     /** Keep offering events whose data is moving out of the `events` table. See `TaxonomicFilterProps`. */
     includeHiddenEvents?: boolean
     propertyAllowList?: AllowedProperties
+    showNumericalPropsOnly?: boolean
     selectedProperties?: SelectedProperties
     maxContextOptions?: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts?: boolean
@@ -116,6 +118,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             propertyAllowList: input.propertyAllowList as
                 | Record<TaxonomicFilterGroupType, (string | number | null)[]>
                 | undefined,
+            showNumericalPropsOnly: input.showNumericalPropsOnly,
         }
         const hogQLExpressionComponentProps = {
             globals: input.hogQLGlobals,
@@ -159,6 +162,7 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
             // taxonomic-groups builder accepts.
             featureFlags: featureFlags as unknown as BuildTaxonomicGroupsContext['featureFlags'],
             includeHiddenEvents: input.includeHiddenEvents,
+            allowNonCapturedEvents: input.allowNonCapturedEvents ?? false,
         }
     }, [
         currentTeam,
@@ -182,7 +186,9 @@ export function useTaxonomicGroupsContext(input: UseTaxonomicGroupsContextInput)
         input.suggestedFiltersLabel,
         input.excludedProperties,
         input.includeHiddenEvents,
+        input.allowNonCapturedEvents,
         input.propertyAllowList,
+        input.showNumericalPropsOnly,
         input.maxContextOptions,
         input.hideBehavioralCohorts,
         input.showCohortFlagTargeting,

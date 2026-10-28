@@ -861,9 +861,7 @@ export interface HogQLQueryModifiersApi {
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean | null
     useMaterializedViews?: boolean | null
-    /** Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported. */
-    useNewEventsCluster?: boolean | null
-    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it. */
+    /** Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it. */
     useNewEventsSchema?: boolean | null
     usePreaggregatedIntermediateResults?: boolean | null
     /** Try to automatically convert HogQL queries to use preaggregated tables at the AST level * */
@@ -872,6 +870,17 @@ export interface HogQLQueryModifiersApi {
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean | null
 }
+
+/**
+ * * `APPEND` - Append
+ * * `MERGE` - Merge
+ */
+export type IncrementalModeEnumApi = (typeof IncrementalModeEnumApi)[keyof typeof IncrementalModeEnumApi]
+
+export const IncrementalModeEnumApi = {
+    Append: 'APPEND',
+    Merge: 'MERGE',
+} as const
 
 /**
  * Serializer for a BatchExport model.
@@ -929,6 +938,21 @@ export interface BatchExportApi {
     hogql_query?: string | null
     /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
     hogql_modifiers?: HogQLQueryModifiersApi | null
+    /**
+     * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'.
+     * @nullable
+     */
+    primary_key?: string[] | null
+    /**
+     * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+     * @nullable
+     */
+    version_key?: string[] | null
+    /** How this batch export handles incremental updates.
+     *
+     * * `APPEND` - Append
+     * * `MERGE` - Merge */
+    incremental_mode?: IncrementalModeEnumApi
     /** A schema of custom fields to select when exporting data. */
     readonly schema: unknown
     filters?: unknown
@@ -1738,6 +1762,21 @@ export interface BatchExportRequestApi {
     hogql_query?: string | null
     /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
     hogql_modifiers?: HogQLQueryModifiersApi | null
+    /**
+     * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'
+     * @nullable
+     */
+    primary_key?: string[] | null
+    /**
+     * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+     * @nullable
+     */
+    version_key?: string[] | null
+    /** How this batch export handles incremental updates.
+     *
+     * * `APPEND` - Append
+     * * `MERGE` - Merge */
+    incremental_mode?: IncrementalModeEnumApi
     /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**
@@ -1904,6 +1943,21 @@ export interface PatchedBatchExportRequestApi {
     hogql_query?: string | null
     /** HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {"convertToProjectTimezone": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all. */
     hogql_modifiers?: HogQLQueryModifiersApi | null
+    /**
+     * The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'
+     * @nullable
+     */
+    primary_key?: string[] | null
+    /**
+     * The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.
+     * @nullable
+     */
+    version_key?: string[] | null
+    /** How this batch export handles incremental updates.
+     *
+     * * `APPEND` - Append
+     * * `MERGE` - Merge */
+    incremental_mode?: IncrementalModeEnumApi
     /** Optional list of property filters to restrict which events are exported. Each filter is a serialized HogQL property filter object with a 'type' of one of: 'event', 'hogql', 'person' (e.g. {"key": "$browser", "operator": "exact", "type": "event", "value": ["Firefox"]}). */
     filters?: unknown
     /**

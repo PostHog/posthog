@@ -14,7 +14,7 @@ from posthog.event_usage import EventSource
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryData
-from products.experiments.backend.max_tools import CreateExperimentTool, ExperimentSummaryTool
+from products.experiments.backend.max_tools import CreateExperimentTool, CreateExperimentToolArgs, ExperimentSummaryTool
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -94,22 +94,25 @@ class TestCreateExperimentTool(APIBaseTest):
         experiment = await Experiment.objects.aget(name="Checkout Experiment", team=self.team)
         assert experiment.description == "Testing new checkout flow to improve conversion rates"
 
-    async def test_create_experiment_web_type(self):
+    async def test_create_experiment_cannot_create_web_type(self):
+        # No-code web experiments carry DOM transforms this tool cannot author, so the
+        # tool must not expose `type` and must always create product experiments.
         await self._create_multivariate_flag(key="homepage-redesign", name="Homepage Redesign Flag")
         tool = self._create_tool()
+
+        assert "type" not in CreateExperimentToolArgs.model_fields
 
         result, artifact = await tool._arun_impl(
             name="Homepage Redesign",
             feature_flag_key="homepage-redesign",
-            type="web",
         )
 
         assert "Successfully created" in result
         assert artifact is not None
-        assert artifact["type"] == "web"
+        assert artifact["type"] == "product"
 
         experiment = await Experiment.objects.aget(name="Homepage Redesign", team=self.team)
-        assert experiment.type == "web"
+        assert experiment.type == "product"
 
     async def test_create_experiment_duplicate_name(self):
         flag = await self._create_multivariate_flag(key="existing-flag")
@@ -178,6 +181,7 @@ class TestCreateExperimentTool(APIBaseTest):
             "variant_count": 2,
             "created_at": ANY,
             "creation_mode": "new",
+            "is_imported": False,
             "source": EventSource.POSTHOG_AI,
         }
         assert mock_report_user_action.call_args.kwargs["team"] == self.team

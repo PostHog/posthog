@@ -36,5 +36,8 @@ rules:
       owners: conversations
     - match: '/warehouse/'
       owners: team-data-stack
+    - match: '*llm_gateway*'
+      owners: team-agent-infrastructure
+      sensitive: true
     - match: '*llm_prompt*.py'
       owners: team-experiments

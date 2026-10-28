@@ -394,14 +394,12 @@ class TestAssistantContextManager(BaseTest):
 
     @parameterized.expand(
         [
-            ("sql_v2 and widgets", True, True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
-            ("sql_v2 only", True, False, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
-            ("widgets only", False, True, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
-            ("neither enabled", False, False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
+            ("sql_v2", True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
+            ("legacy_sql", False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
         ]
     )
     async def test_markdown_notebook_context_offers_only_runnable_cell_tags(
-        self, _name: str, sql_v2_enabled: bool, widgets_enabled: bool, expected: str, unexpected: str
+        self, _name: str, sql_v2_enabled: bool, expected: str, unexpected: str
     ) -> None:
         ui_context = MaxUIContext(
             notebooks=[
@@ -416,9 +414,7 @@ class TestAssistantContextManager(BaseTest):
         )
 
         with (
-            patch("products.notebooks.backend.widgets.settings", DEBUG=False, TEST=False),
             patch("products.notebooks.backend.facade.api.is_sql_v2_enabled", return_value=sql_v2_enabled),
-            patch("products.notebooks.backend.widgets.posthoganalytics.feature_enabled", return_value=widgets_enabled),
             patch(
                 "ee.hogai.context.context.reusable_widget_catalog_context", return_value="Saved widget catalog"
             ) as catalog,
@@ -428,11 +424,10 @@ class TestAssistantContextManager(BaseTest):
         assert result is not None
         self.assertIn(expected, result)
         self.assertNotIn(unexpected, result)
-        self.assertEqual('<Widget title="' in result, widgets_enabled)
-        self.assertEqual("Saved widget catalog" in result, widgets_enabled)
-        self.assertEqual(catalog.call_count, int(widgets_enabled))
-        if widgets_enabled:
-            self.assertIn("click Generate widget", result)
+        self.assertIn('<Widget title="', result)
+        self.assertIn("Saved widget catalog", result)
+        catalog.assert_called_once()
+        self.assertIn("click Generate widget", result)
 
     @patch("ee.hogai.context.notebook.context.NotebookContext.from_short_id")
     async def test_format_ui_context_markdown_notebook_escapes_user_controlled_fields(self, mock_from_short_id):
@@ -601,29 +596,6 @@ class TestAssistantContextManager(BaseTest):
         # Should return None since the insight failed to run
         self.assertIsNone(result)
         mock_capture_exception.assert_called()
-
-    def test_voice_mode_prompt_on_emits_speech_formatting_rules(self):
-        prompt = self.context_manager._get_voice_mode_prompt(MaxUIContext(voice_mode=True))
-        assert prompt is not None
-        assert "<voice_mode>" in prompt
-        assert "spelled out" in prompt.lower() or "spell out" in prompt.lower()
-
-    def test_voice_mode_prompt_off_emits_explicit_override(self):
-        # Explicit False must emit a counter-instruction so a typed turn after a spoken
-        # turn isn't still steered by the earlier <voice_mode> prompt sitting in history.
-        prompt = self.context_manager._get_voice_mode_prompt(MaxUIContext(voice_mode=False))
-        assert prompt is not None
-        assert "<voice_mode>" in prompt
-        assert "no longer" in prompt.lower() or "ignore" in prompt.lower()
-
-    @parameterized.expand(
-        [
-            ("voice_mode field absent", MaxUIContext(insights=None)),
-            ("ui_context absent", None),
-        ]
-    )
-    def test_voice_mode_prompt_absent_when_field_not_set(self, _name: str, ui_context: MaxUIContext | None):
-        assert self.context_manager._get_voice_mode_prompt(ui_context) is None
 
     def test_deduplicate_context_messages(self):
         """Test that context messages are deduplicated based on existing context message content"""

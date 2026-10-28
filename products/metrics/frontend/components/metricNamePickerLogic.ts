@@ -34,6 +34,12 @@ export function filterMetricNames(items: MetricNameItem[], search: string): Metr
         .map(({ item }) => item)
 }
 
+/** The typed name to offer when no listed metric has it, for a metric with no data in the picker's 24 hours. */
+export function customMetricName(items: MetricNameItem[], search: string): string | null {
+    const name = search.trim()
+    return name && !items.some((item) => item.name === name) ? name : null
+}
+
 function mergeMetricNames(items: MetricNameItem[], incoming: MetricNameItem[]): MetricNameItem[] {
     const known = new Set(items.map((item) => item.name))
     const added = incoming.filter((item) => !known.has(item.name))

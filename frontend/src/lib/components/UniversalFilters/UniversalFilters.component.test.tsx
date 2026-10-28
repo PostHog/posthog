@@ -13,7 +13,7 @@ import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitio
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { recentTaxonomicFiltersLogic } from '../TaxonomicFilter/recentTaxonomicFiltersLogic'
-import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+import { SEARCH_ONLY_GROUP_TYPES, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import UniversalFilters from './UniversalFilters'
 
 jest.mock('lib/components/AutoSizer', () => ({
@@ -99,7 +99,10 @@ describe('UniversalFilters recent selections', () => {
         itemTestId: string
     ): Promise<void> {
         await openAddFilter()
-        await switchToCategory(groupType)
+        // Search-only groups have no category. Their list still renders its rows, which is all the commit path needs.
+        if (!SEARCH_ONLY_GROUP_TYPES.has(groupType)) {
+            await switchToCategory(groupType)
+        }
         await searchFor(searchQuery)
         await waitFor(() => {
             expect(screen.getByTestId(itemTestId)).toBeInTheDocument()

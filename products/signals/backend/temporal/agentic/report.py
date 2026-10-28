@@ -11,6 +11,7 @@ import structlog
 import temporalio
 import posthoganalytics
 from pydantic import BaseModel, ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
@@ -30,15 +31,10 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
     SuggestedReviewers,
 )
+from products.signals.backend.assignment_flags import assignment_writer_enabled
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.enums import ReportLinkKind, SuggestedSourceProduct
-from products.signals.backend.models import (
-    ArtefactAttribution,
-    SignalActorKind,
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportCheck,
-)
+from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
@@ -74,6 +70,8 @@ from products.signals.backend.report_generation.select_repo import RepoSelection
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
+from products.signals.backend.report_tags import team_tag_vocabulary
+from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
@@ -88,7 +86,7 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed, turn_failure_error_type
 
 logger = structlog.get_logger(__name__)
 
@@ -104,6 +102,7 @@ class RunAgenticReportInput:
     # correcting or clearing it) so the run does not bury that newer row. Defaults to None so an
     # older workflow history that predates this field replays cleanly (guard off).
     repo_selection_as_of: datetime | None = None
+    signal_id: str | None = None
 
 
 @frozen
@@ -148,6 +147,10 @@ class RunAgenticReportOutput:
     # that chose not to chart apart from one that was never allowed to, which would otherwise read
     # as the agent's charting rate moving on every rollout step. `None` predates the field.
     charts_enabled: bool | None = None
+    # The report's whole tag set, already normalized. The transition activity writes it with the
+    # matching title and summary. `None` keeps the stored set, which is also what an older workflow
+    # history replays as.
+    tags: list[str] | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -242,6 +245,17 @@ async def _load_previous_research(team_id: int, report_id: str) -> ReportResearc
         # reuses these writes nothing; only what it changes lands in new_artefacts.
         old_artefacts=[*findings, actionability, *([priority] if priority else [])],
     )
+
+
+@frozen
+class _TagContext:
+    current_tags: list[str]
+    team_tags: list[str]
+
+
+def _load_tag_context(team_id: int, report_id: str) -> _TagContext:
+    current = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("tags", flat=True).first()
+    return _TagContext(current_tags=list(current or []), team_tags=team_tag_vocabulary(team_id))
 
 
 def _parse_stored_charts(raw: object, report_id: str) -> list[ReportChart]:
@@ -592,7 +606,7 @@ def _report_has_live_suggested_reviewers(report_id: str) -> bool:
         SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
         )
-        .order_by("-created_at")
+        .order_by("-created_at", "-id")
         .first()
     )
     if artefact is None:
@@ -673,6 +687,7 @@ def _append_agentic_report_artefacts(
     report_id: str,
     artefacts: list[ArtefactDraft],
     priority_judgment_id: UUID | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
 ) -> bool:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -688,38 +703,34 @@ def _append_agentic_report_artefacts(
     # the title/summary they illustrate, which a later activity writes (`mark_report_ready` /
     # `mark_report_pending_input`). The research activity only resolves the payload; see
     # `_resolve_report_charts_payload` and `RunAgenticReportOutput.charts`.
+    service = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     with transaction.atomic():
         # Priority edits take the same lock, so a correction cannot arrive between this check and append.
         SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
         priority_adjusted_mid_run = any(isinstance(draft.content, PriorityAssessment) for draft in artefacts) and (
             _priority_adjusted_since(team_id, report_id, priority_judgment_id)
         )
-        if any(isinstance(draft.content, SuggestedReviewers) for draft in artefacts):
-            human_selected_reviewers = SignalReportArtefact.objects.filter(
-                team_id=team_id,
-                report_id=report_id,
-                type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
-                actor_kind=SignalActorKind.USER,
-            ).exists()
-        else:
-            human_selected_reviewers = False
         wrote_reviewers = False
         for draft in artefacts:
             if priority_adjusted_mid_run and isinstance(draft.content, PriorityAssessment):
                 continue
-            if human_selected_reviewers and isinstance(draft.content, SuggestedReviewers):
-                continue
             if isinstance(draft.content, SuggestedReviewers):
-                previous = SignalReportArtefact.latest_content(
-                    team_id=team_id, report_id=report_id, model=SuggestedReviewers
-                )
-                comparison_exclusions = {
-                    "__all__": {"reason": True, "github_name": True, "relevant_commits": {"__all__": {"reason"}}}
-                }
-                if previous is not None and previous.model_dump(
-                    exclude=comparison_exclusions
-                ) == draft.content.model_dump(exclude=comparison_exclusions):
-                    continue
+                previous = service.read().state.reviewers_id
+                try:
+                    artefact = SignalReportArtefact.append_status(
+                        team_id=team_id,
+                        report_id=report_id,
+                        content=draft.content,
+                        attribution=draft.attribution,
+                        reviewer_proposal=reviewer_proposal
+                        or ReviewerProposal(expected_state=service.read().state, source="research"),
+                        reevaluate_autostart=False,
+                    )
+                except StaleReviewerProposal:
+                    logger.info("signals.assignment.research_proposal_stale", team_id=team_id, report_id=report_id)
+                else:
+                    wrote_reviewers |= artefact.id != previous
+                continue
             SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
@@ -788,6 +799,8 @@ async def _persist_agentic_report_artefacts(
     repo_selection: RepoSelectionResult,
     repo_selection_as_of: datetime | None = None,
     priority_judgment_id: UUID | None = None,
+    reviewer_proposal: ReviewerProposal | None = None,
+    reviewer_selection_enabled: bool = False,
 ) -> None:
     reviewer_resolution = None
     reviewers_content: list[ReviewerContent] = []
@@ -810,7 +823,9 @@ async def _persist_agentic_report_artefacts(
                 research_outcome = "research_selected"
             else:
                 research_outcome = "research_candidates_rejected"
-    if decision is None or research_outcome == "research_candidates_rejected":
+    elif reviewer_selection_enabled:
+        research_outcome = "research_decision_missing"
+    if not reviewer_selection_enabled and (decision is None or research_outcome == "research_candidates_rejected"):
         try:
             reviewer_resolution = await database_sync_to_async(_build_reviewers_content, thread_sensitive=False)(
                 team_id=team_id,
@@ -818,11 +833,30 @@ async def _persist_agentic_report_artefacts(
                 findings=result.effective_findings(),
             )
         except Exception as error:
+            research_outcome = "research_lookup_failed"
             logger.warning(
                 "Legacy reviewer lookup failed", team_id=team_id, report_id=report_id, error_type=type(error).__name__
             )
         else:
             reviewers_content = reviewer_resolution.reviewers
+            diagnostics = reviewer_resolution.diagnostics
+            if not reviewers_content and (
+                diagnostics.outcome in {"no_github_integration", "github_rate_limited"} or diagnostics.lookups_missing
+            ):
+                research_outcome = "research_lookup_failed"
+
+    failure_reason = {
+        "research_decision_missing": "Research did not return a valid reviewer decision",
+        "research_candidates_rejected": "No selected reviewer is an eligible project member",
+        "research_lookup_failed": "Reviewer lookup unavailable",
+    }.get(research_outcome or "")
+    if failure_reason:
+        logger.warning(
+            "signals.assignment.research_selection_failed",
+            team_id=team_id,
+            report_id=report_id,
+            outcome=research_outcome,
+        )
 
     # Persist only what's new this run; values the agent confirmed unchanged keep their latest
     # persisted row. An explicit reviewer decision can change even when the findings do not.
@@ -893,11 +927,35 @@ async def _persist_agentic_report_artefacts(
             )
         )
 
+    if reviewer_proposal is not None and await database_sync_to_async(
+        assignment_writer_enabled, thread_sensitive=False
+    )(team_id):
+        outcome = (
+            "lookup_failed"
+            if failure_reason and not reviewers_content
+            else "selected"
+            if reviewers_content
+            else "no_suitable_owner"
+        )
+        reviewer_proposal = reviewer_proposal.model_copy(
+            update={
+                "outcome": outcome,
+                "retry_reason": failure_reason if outcome == "lookup_failed" else None,
+            }
+        )
+        if not any(isinstance(draft.content, SuggestedReviewers) for draft in artefacts):
+            artefacts.append(
+                ArtefactDraft(
+                    content=SuggestedReviewers.model_validate(list(reviewers_content)), attribution=research_attribution
+                )
+            )
+
     wrote_reviewers = await database_sync_to_async(_append_agentic_report_artefacts, thread_sensitive=False)(
         team_id=team_id,
         report_id=report_id,
         artefacts=artefacts,
         priority_judgment_id=priority_judgment_id,
+        reviewer_proposal=reviewer_proposal,
     )
 
     # Telemetry mirrors persistence: fires when a suggested_reviewers artefact was appended
@@ -905,6 +963,10 @@ async def _persist_agentic_report_artefacts(
     # (a retry of this activity re-captures an identical payload), so consumers read report
     # state as the latest event per report_id rather than counting raw events.
     if wrote_reviewers:
+        applied_reviewers = await SignalReportArtefact.alatest_content(
+            team_id=team_id, report_id=report_id, model=SuggestedReviewers
+        )
+        reviewers_content = applied_reviewers.model_dump(mode="json") if applied_reviewers else []
         await database_sync_to_async(capture_suggested_reviewers_resolved, thread_sensitive=False)(
             team_id=team_id,
             report_id=report_id,
@@ -1053,6 +1115,9 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
         logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
 
 
+RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE = "ResearchSandboxUnavailable"
+
+
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1062,6 +1127,18 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         # The workflow only calls this activity when repo_selection.repository is not None.
         assert input.repo_selection.repository is not None, "run_agentic_report_activity called without a repository"
         repository = input.repo_selection.repository
+
+        assignment = await database_sync_to_async(ReviewerRules, thread_sensitive=False)(
+            team=await Team.objects.aget(id=input.team_id),
+            report_id=input.report_id,
+        )
+        reviewer_snapshot = await database_sync_to_async(assignment.read, thread_sensitive=False)()
+        reviewer_proposal = None
+        if assignment.enabled or reviewer_snapshot.state.corrections_id:
+            reviewer_proposal = ReviewerProposal(
+                expected_state=reviewer_snapshot.state,
+                source="research",
+            )
 
         async with Heartbeater():
             # 1. Get context for the sandbox
@@ -1086,6 +1163,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 runtime_adapter=agent_runtime.runtime_adapter,
                 reasoning_effort=agent_runtime.reasoning_effort,
                 service_tier=agent_runtime.service_tier,
+                disable_repo_hooks=True,
             )
             has_bk = await database_sync_to_async(_team_has_business_knowledge, thread_sensitive=False)(input.team_id)
             metrics_enabled = await database_sync_to_async(team_report_metrics_enabled, thread_sensitive=False)(
@@ -1138,6 +1216,9 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             await database_sync_to_async(_capture_research_steering_attached, thread_sensitive=False)(
                 team_id=input.team_id, report_id=input.report_id, steering=steering
             )
+            tag_context = await database_sync_to_async(_load_tag_context, thread_sensitive=False)(
+                input.team_id, input.report_id
+            )
             # 3. Run the agentic research in the sandbox
             # The report's current PR, when it has one. It keeps the in-flight check from reading
             # the report's own draft as somebody else's work, and it is what the supersede turn asks
@@ -1153,6 +1234,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 previous_checks=previous_checks,
                 implementation_context=implementation_context,
                 signal_report_id=input.report_id,
+                spend_signal_id=input.signal_id,
                 has_business_knowledge=has_bk,
                 resolved_report_title=resolved_report_title,
                 resolved_report_summary=resolved_report_summary,
@@ -1163,6 +1245,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
                 suggestable_products=suggestable_products,
+                current_tags=tag_context.current_tags,
+                team_tags=tag_context.team_tags,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
@@ -1172,6 +1256,8 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 input.repo_selection,
                 repo_selection_as_of=input.repo_selection_as_of,
                 priority_judgment_id=priority_judgment_id,
+                reviewer_proposal=reviewer_proposal,
+                reviewer_selection_enabled=reviewer_selection_enabled,
             )
         actionability = result.effective_actionability()
         priority = result.effective_priority()
@@ -1212,7 +1298,21 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             layers=[layer.model_dump(mode="json") for layer in result.layers],
             research_task_id=result.research_task_id,
             charts_enabled=True,
+            tags=result.tags,
         )
+    except SandboxRunFailed as error:
+        logger.exception(
+            "signals agentic report failed",
+            report_id=input.report_id,
+            team_id=input.team_id,
+            error=str(error),
+            sandbox_error_type=error.error_type,
+        )
+        if error.transient:
+            raise temporalio.exceptions.ApplicationError(
+                str(error), type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+            ) from error
+        raise
     except Exception as error:
         logger.exception(
             "signals agentic report failed",
@@ -1220,4 +1320,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             team_id=input.team_id,
             error=str(error),
         )
+        error_type = turn_failure_error_type(error)
+        if error_type is not None:
+            raise ApplicationError(str(error), type=error_type) from error
         raise

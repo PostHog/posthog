@@ -105,7 +105,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         dispatcher = WebhookDispatcher(ConsumerRegistry(providers=SPECS, consumers=WEBHOOK_CONSUMERS))
         self.enterContext(patch("posthog.ingress.views.get_dispatcher", return_value=dispatcher))
         self.secret = self.enterContext(
-            patch("posthog.ingress.github.provider.get_instance_setting", return_value=_SECRET)
+            patch("posthog.credentials_service.instance_settings.get_instance_setting", return_value=_SECRET)
         )
 
     def _cache_summary(
@@ -221,7 +221,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
     @parameterized.expand(
         [
             ("person_adds_the_label", "posthog-review", "OctoCat", "User", True),
-            ("person_adds_the_legacy_label", "reviewhog", "OctoCat", "User", True),
+            ("person_adds_the_retired_label", "reviewhog", "OctoCat", "User", False),
             ("label_name_ignores_case", "PostHog-Review", "OctoCat", "User", True),
             # The task explains the refusal on the pull request and removes the label.
             ("bot_adds_the_label", "posthog-review", "renovate[bot]", "Bot", True),
@@ -529,7 +529,6 @@ class TestLabelReviewTask(BaseTest):
     @parameterized.expand(
         [
             ("another_bot", "posthog-review", "renovate[bot]", False),
-            ("another_bot_legacy_label", "reviewhog", "renovate[bot]", False),
             ("stamphog_hands_off", "posthog-review", "stamphog[bot]", True),
         ]
     )
@@ -543,7 +542,6 @@ class TestLabelReviewTask(BaseTest):
         else:
             assert calls == [
                 ("DELETE", "/repos/PostHog/posthog/issues/42/labels/posthog-review"),
-                ("DELETE", "/repos/PostHog/posthog/issues/42/labels/reviewhog"),
                 ("POST", "/repos/PostHog/posthog/issues/42/comments"),
             ]
 
@@ -554,9 +552,7 @@ class TestLabelReviewTask(BaseTest):
         self.github.side_effect = [
             GitHubAPIError("boom", status=502),
             gone,
-            gone,
             GitHubAPIError("boom", status=502),
-            gone,
             gone,
         ]
         posted = {"body": BOT_LABEL_COMMENT, "user": {"login": "posthog[bot]", "type": "Bot"}}
@@ -568,7 +564,7 @@ class TestLabelReviewTask(BaseTest):
         process_label_event.run(**queued)
 
         calls = [call.args[0] for call in self.github.call_args_list]
-        assert calls == ["DELETE", "DELETE", "DELETE", "POST", "DELETE", "DELETE"]
+        assert calls == ["DELETE", "DELETE", "POST", "DELETE"]
         self.start.assert_not_called()
 
     @parameterized.expand(

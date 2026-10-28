@@ -119,14 +119,20 @@ export function TrendsLineChart({
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
+    const buildMeta = useCallback(
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
+        [querySource]
+    )
+
     const seriesIdentification = useMemo(
-        () => getSeriesIdentification((indexedResults ?? []).map(buildTrendsSeriesMeta)),
-        [indexedResults]
+        () => getSeriesIdentification((indexedResults ?? []).map(buildMeta)),
+        [indexedResults, buildMeta]
     )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
+                querySource,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -134,6 +140,7 @@ export function TrendsLineChart({
                 seriesIdentification,
             }),
         [
+            querySource,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
@@ -226,6 +233,17 @@ export function TrendsLineChart({
         [canHandleClick, canNavigateToInsight, clickDeps, navigateToInsight]
     )
 
+    // Set even when only navigation is possible, so the dashboard menu does not replay the right
+    // click as a left click, which would open the insight.
+    const onPointContextMenu = useCallback(
+        (clickData: PointClickData) => {
+            if (canHandleClick) {
+                handleTrendsChartClick(clickData.series.key, clickData.dataIndex, clickDeps)
+            }
+        },
+        [canHandleClick, clickDeps]
+    )
+
     const onDateRangeZoom = useDateRangeZoom(currentPeriodResult?.days, context?.onDateRangeZoom)
 
     const renderTooltip = useCallback(
@@ -290,7 +308,7 @@ export function TrendsLineChart({
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
-                buildMeta: buildTrendsSeriesMeta,
+                buildMeta,
             }),
         [
             indexedResults,
@@ -300,6 +318,7 @@ export function TrendsLineChart({
             isStickiness,
             getTrendsColor,
             getLabel,
+            buildMeta,
         ]
     )
 
@@ -391,6 +410,9 @@ export function TrendsLineChart({
             config={config}
             tooltip={renderTooltip}
             onPointClick={canHandlePointInteraction ? onPointClick : undefined}
+            onPointContextMenu={
+                context?.dashboardResultMenu && canHandlePointInteraction ? onPointContextMenu : undefined
+            }
             onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"

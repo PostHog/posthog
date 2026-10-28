@@ -6,6 +6,7 @@ import type { DashboardLayoutSize, DashboardTile, DashboardWidgetModel, TileLayo
 
 import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from './dashboardTileGroups'
+import type { DashboardTileGroupApi } from './generated/api.schemas'
 
 const tile = (id: number, group_key: string | null): DashboardTile =>
     ({ id, group_key, layouts: {}, color: null }) as DashboardTile
@@ -27,7 +28,7 @@ interface GroupTitlesCase {
     tiles: DashboardTile[]
     layout: Layout | undefined
     breakpoint?: DashboardLayoutSize
-    groupTitles: Record<string, string> | undefined
+    groups: Record<string, DashboardTileGroupApi> | undefined
     widgetTilesShown: boolean
     expected: Record<number, string>
 }
@@ -43,7 +44,7 @@ describe('dashboardTileGroups', () => {
                 { i: '3', x: 0, y: 2, w: 4, h: 2 },
                 { i: '4', x: 0, y: 4, w: 4, h: 2 },
             ],
-            groupTitles: { plans: 'Pricing plans', regions: 'Regions' },
+            groups: { plans: { title: 'Pricing plans' }, regions: { title: 'Regions' } },
             widgetTilesShown: true,
             expected: { 2: 'Pricing plans', 3: 'Regions' },
         },
@@ -51,7 +52,7 @@ describe('dashboardTileGroups', () => {
             name: 'skips groups without a title',
             tiles: [tile(1, 'plans'), tile(2, 'untitled')],
             layout: undefined,
-            groupTitles: { plans: 'Pricing plans' } as Record<string, string>,
+            groups: { plans: { title: 'Pricing plans' }, untitled: {} },
             widgetTilesShown: true,
             expected: { 1: 'Pricing plans' },
         },
@@ -59,7 +60,7 @@ describe('dashboardTileGroups', () => {
             name: 'draws nothing when the dashboard has no group titles',
             tiles: [tile(1, 'plans')],
             layout: undefined,
-            groupTitles: undefined,
+            groups: undefined,
             widgetTilesShown: true,
             expected: {},
         },
@@ -67,7 +68,7 @@ describe('dashboardTileGroups', () => {
             name: `ignores the inherited object key ${groupKey}`,
             tiles: [tile(1, groupKey)],
             layout: undefined,
-            groupTitles: { plans: 'Pricing plans' } as Record<string, string>,
+            groups: { plans: { title: 'Pricing plans' } },
             widgetTilesShown: true,
             expected: {},
         })),
@@ -81,7 +82,7 @@ describe('dashboardTileGroups', () => {
                 { i: '1', x: 0, y: 0, w: 6, h: 2 },
                 { i: '2', x: 6, y: 0, w: 6, h: 2 },
             ],
-            groupTitles: { plans: 'Pricing plans' },
+            groups: { plans: { title: 'Pricing plans' } },
             widgetTilesShown,
             expected,
         })),
@@ -95,26 +96,23 @@ describe('dashboardTileGroups', () => {
                 tiles,
                 layout: calculateLayouts(tiles)[breakpoint],
                 breakpoint,
-                groupTitles: { plans: 'Pricing plans' },
+                groups: { plans: { title: 'Pricing plans' } },
                 widgetTilesShown: true,
                 expected,
             }
         }),
-    ] as GroupTitlesCase[])(
-        '$name',
-        ({ tiles, layout, breakpoint = 'sm', groupTitles, widgetTilesShown, expected }) => {
-            expect(
-                getGroupTitlesByTileId({
-                    tiles,
-                    layout,
-                    activeBreakpoint: breakpoint,
-                    groupTitles,
-                    compactor: getDashboardGridCompactor(DashboardGridCompaction.Vertical),
-                    widgetTilesShown,
-                })
-            ).toEqual(expected)
-        }
-    )
+    ] as GroupTitlesCase[])('$name', ({ tiles, layout, breakpoint = 'sm', groups, widgetTilesShown, expected }) => {
+        expect(
+            getGroupTitlesByTileId({
+                tiles,
+                layout,
+                activeBreakpoint: breakpoint,
+                groups,
+                compactor: getDashboardGridCompactor(DashboardGridCompaction.Vertical),
+                widgetTilesShown,
+            })
+        ).toEqual(expected)
+    })
 
     it.each([
         {

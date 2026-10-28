@@ -67,7 +67,7 @@ class TMDbSource(ResumableSource[TMDbSourceConfig, TMDbResumeConfig]):
 Create a free API key (v3 auth) in your [TMDB account settings](https://www.themoviedb.org/settings/api). Commercial use requires a separate license from TMDB.""",
             iconPath="/static/services/tmdb.png",
             docsUrl="https://posthog.com/docs/cdp/sources/tmdb",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

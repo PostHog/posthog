@@ -5,6 +5,8 @@ from uuid import UUID
 from django.conf import settings
 from django.db.models import Count, Q, QuerySet
 
+from posthog.models.event_filter_config import EventFilterPipelineOverride
+from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.utils import UUIDT
 
 from products.error_tracking.backend.models import (
@@ -95,8 +97,9 @@ def issue_exists_by_id(team_id: int, issue_id: UUID | str) -> bool:
 
 def get_issue_basics(team_id: int, issue_id: UUID | str) -> ErrorTrackingIssue | None:
     return (
-        ErrorTrackingIssue.objects.filter(team_id=team_id, id=issue_id)
-        .only("id", "name", "description", "status")
+        ErrorTrackingIssue.objects.with_first_seen()
+        .filter(team_id=team_id, id=issue_id)
+        .only("id", "name", "description", "status", "severity", "created_at")
         .first()
     )
 
@@ -226,7 +229,7 @@ def get_or_create_settings(team_id: int) -> ErrorTrackingSettings:
     return settings
 
 
-def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackingSettings:
+def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> ErrorTrackingSettings:
     settings = get_or_create_settings(team_id)
     updates = {key: value for key, value in fields.items() if key in SETTINGS_FIELDS}
     for key, value in updates.items():
@@ -234,6 +237,24 @@ def update_settings(team_id: int, fields: dict[str, int | None]) -> ErrorTrackin
     if updates:
         settings.save(update_fields=list(updates))
     return settings
+
+
+def is_exception_ingestion_enabled(team_id: int) -> bool:
+    drop_all_events = (
+        EventFilterPipelineOverride.objects.for_team(team_id)
+        .filter(pipeline=IngestionPipeline.ERRORTRACKING)
+        .values_list("drop_all_events", flat=True)
+        .first()
+    )
+    return not drop_all_events
+
+
+def set_exception_ingestion_enabled(team_id: int, enabled: bool) -> None:
+    EventFilterPipelineOverride.objects.for_team(team_id).update_or_create(
+        team_id=team_id,
+        pipeline=IngestionPipeline.ERRORTRACKING,
+        defaults={"drop_all_events": not enabled},
+    )
 
 
 def get_or_create_spike_detection_config(team_id: int) -> ErrorTrackingSpikeDetectionConfig:

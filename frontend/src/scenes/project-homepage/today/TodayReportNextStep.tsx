@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconClock, IconPullRequest, IconSparkles } from '@posthog/icons'
-import { Text } from '@posthog/quill'
+import { Button, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { Composer } from 'products/posthog_ai/frontend/api/composer'
+import { captureInboxReportAction } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { inboxTaskKickoffLogic } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import type {
     ImplementationSlotClaim,
@@ -14,7 +15,6 @@ import type {
 } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TodayActionButton } from './TodayActionButton'
 import { TodayImplementMenu } from './TodayImplementMenu'
 import { TodayPrimaryAction, startDisabledReason, todayNextStep } from './todayNextStep'
 import { todayReportLogic } from './todayReportLogic'
@@ -36,22 +36,22 @@ function PrimaryAction({
     const { openReportTask } = useActions(inboxTaskKickoffLogic)
     if (primary.kind === 'review') {
         return (
-            <TodayActionButton
+            <Button
                 variant="primary"
                 className="me-1"
-                nativeButton={false}
                 render={<LinkPrimitive to={primary.url} target="_blank" />}
+                onClick={() => captureInboxReportAction({ report, actionType: 'open_pr', surface: 'today' })}
                 disabledReason={isSample ? SAMPLE_REPORT_REASON : null}
                 data-attr="today-report-review-pr"
             >
                 <IconPullRequest />
                 <span>{primary.label}</span>
-            </TodayActionButton>
+            </Button>
         )
     }
     if (primary.kind === 'open_task') {
         return (
-            <TodayActionButton
+            <Button
                 variant="primary"
                 className="me-1"
                 onClick={() => openReportTask(report, primary.taskId, primary.runId)}
@@ -59,7 +59,7 @@ function PrimaryAction({
             >
                 <IconClock />
                 <span>{primary.label}</span>
-            </TodayActionButton>
+            </Button>
         )
     }
     return (
@@ -124,7 +124,7 @@ export function TodayReportNextStep({
                         })}
                     />
                 )}
-                <TodayActionButton
+                <Button
                     className={primary ? undefined : '-ms-2'}
                     onClick={focusComposer}
                     disabledReason={askDisabledReason}
@@ -132,7 +132,7 @@ export function TodayReportNextStep({
                 >
                     <IconSparkles />
                     Ask about it
-                </TodayActionButton>
+                </Button>
             </div>
             {note && (
                 <Text size="xs" render={<p />} className="flex items-center gap-1.5">

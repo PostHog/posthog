@@ -64,6 +64,8 @@ class GoogleAnalyticsQuotaExceededError(Exception):
     Deliberately NOT matched by `get_non_retryable_errors` so Temporal retries
     the activity later (the resumable source picks up from the last saved
     chunk), which is the right recovery for hourly/daily property token quotas.
+    An incremental run that already read past the watermark does not raise it:
+    the run ends early instead, so the next run continues from the promoted watermark.
     Tagged `(retryable)` so `GoogleAnalyticsSource.get_retryable_errors` can
     keep this self-recovering failure out of error tracking.
     """
@@ -131,10 +133,13 @@ def google_analytics_session(integration_id: int, team_id: int) -> AuthorizedSes
 
 
 def normalize_property_id(property_id: str) -> str:
-    """Accept both a bare numeric ID and the `properties/123` resource name users may paste."""
+    """Accept a bare numeric ID, the `properties/123` resource name, and the `p123` segment of a
+    GA4 web UI URL, which users may paste."""
     cleaned = property_id.strip()
     if cleaned.startswith("properties/"):
         cleaned = cleaned[len("properties/") :]
+    elif len(cleaned) > 1 and cleaned[0] in "pP" and cleaned[1:].isdigit():
+        cleaned = cleaned[1:]
     return cleaned
 
 

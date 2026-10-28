@@ -3,19 +3,28 @@ import { useValues } from 'kea'
 import { Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-export function TransactionalEmailApiExample({ templateId }: { templateId: string }): JSX.Element {
+export function TransactionalEmailApiExample({
+    templateId,
+    variables,
+}: {
+    templateId: string
+    /** The email's `{{ variables.* }}` names. The snippet shows a sample when the email uses none. */
+    variables?: string[]
+}): JSX.Element {
     const { currentTeamIdStrict } = useValues(teamLogic)
-    const snippet = `curl -X POST ${apiHostOrigin()}/api/projects/${currentTeamIdStrict}/messaging_templates/${templateId}/send/ \\
+    const messageData = variables?.length
+        ? `{ ${variables.map((name) => `"${name}": "..."`).join(', ')} }`
+        : '{ "first_name": "Jane", "reset_link": "https://example.com/reset" }'
+    const snippet = `curl -X POST ${window.location.origin}/api/projects/${currentTeamIdStrict}/messaging_templates/${templateId}/send/ \\
   -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
     "to": "jane@example.com",
     "identifiers": { "distinct_id": "jane-distinct-id" },
-    "message_data": { "first_name": "Jane", "reset_link": "https://example.com/reset" }
+    "message_data": ${messageData}
   }'`
 
     return (

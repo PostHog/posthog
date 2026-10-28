@@ -26,7 +26,6 @@ rokt_ads/rokt_ads.py::RoktAdsClient.get
 rokt_ads/rokt_ads.py::RoktAdsClient.post
 salesforce/auth.py::salesforce_refresh_access_token
 shopify/shopify.py::_get_granted_scopes
-shopify/shopify.py::_make_paginated_shopify_request.execute
 shopify/shopify.py::_probe_resource_permission
 shopify/shopify.py::validate_credentials
 stytch/stytch.py::_get_session_rows

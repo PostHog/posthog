@@ -61,3 +61,12 @@ def sha256HmacChain(data: list, encoding: Literal["hex", "base64", "base64url", 
 
 def sha1HmacChain(data: list, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str:
     return _hmac_chain(data, "sha1", encoding)
+
+
+def sha256HmacBase64Key(key: str, data: str, encoding: Literal["hex", "base64", "base64url", "binary"] = "hex") -> str:
+    # Svix-style webhook secrets are random bytes, which a string key would corrupt. The extra
+    # padding makes the decode accept a key with or without padding, as Node does.
+    key_bytes = base64.b64decode(key.strip() + "==")
+    digest = hmac.new(key_bytes, data.encode(), hashlib.sha256).digest()
+
+    return encode_digest(encoding, digest)

@@ -51,6 +51,32 @@ export function localFieldError(definition: BILocalFieldDefinition): string | un
     }
 }
 
+export function inferBICalculatedFieldType(type: string | undefined): BIField['type'] | undefined {
+    const base = type?.replace(/^(?:Nullable|LowCardinality)\((.*)\)$/, '$1')
+    if (!base) {
+        return undefined
+    }
+    if (/^(?:Nullable|LowCardinality)\(/.test(base)) {
+        return inferBICalculatedFieldType(base)
+    }
+    if (/^U?Int\d+$/.test(base)) {
+        return 'integer'
+    }
+    if (/^(?:Float\d+|Decimal(?:\d+)?\()/.test(base)) {
+        return 'float'
+    }
+    if (base.startsWith('DateTime')) {
+        return 'datetime'
+    }
+    if (/^Date(?:32)?$/.test(base)) {
+        return 'date'
+    }
+    if (base === 'Bool' || base === 'Boolean') {
+        return 'boolean'
+    }
+    return /^(?:String|FixedString\(|UUID|Enum)/.test(base) ? 'string' : undefined
+}
+
 export function localFieldExpression(definition: BILocalFieldDefinition): string {
     if (definition.kind === 'expression') {
         return definition.expression.trim()

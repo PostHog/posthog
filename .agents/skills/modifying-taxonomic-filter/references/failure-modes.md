@@ -11,7 +11,8 @@ A user picks a category, then searches for something that lives in another group
   ~11% of opens with a category pick have an empty result after the pick, vs ~3% of opens without one.
   Selection rate drops ~23 points (~62% vs ~85%).
 - **Caveat:** the ~3% is too low.
-  Opens that stay on Suggested send no empty-result event, so their empty states are not counted.
+  In this snapshot, opens that stay on Suggested sent no empty-result event, so their empty states are not counted.
+  New clients record All-tab empties with `scope = 'all'`; compare periods with the same coverage.
   The same gap pushes the ~9x order ratio up, because an empty search on Suggested before a category pick is never counted.
   The selection drop does not use empty-result events, so lean on it first.
 - **Why:** the active category silently narrows search.

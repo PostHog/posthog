@@ -29,7 +29,6 @@ import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
-import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -38,7 +37,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { openNotebook } from '~/models/notebooksModel'
 import {
     AgentMode,
     ApprovalDecisionStatus,
@@ -83,8 +81,6 @@ import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { BillingType } from '../../types'
-import { handsFreeLogic } from './handsFreeLogic'
-import { summariseAssistantThread } from './handsFreeUtils'
 import {
     EnhancedToolCall,
     MESSAGE_TOO_LONG,
@@ -319,6 +315,7 @@ export interface maxThreadLogicActions {
     } // posthogAiContextLogic
     bootstrapSandboxRun: (payload: {
         justCreatedRun?: boolean
+        pagedHistory?: boolean
         retainedMessage?: string
         runId: string
         taskId: string
@@ -326,6 +323,7 @@ export interface maxThreadLogicActions {
         traceId?: string
     }) => {
         justCreatedRun?: boolean | undefined
+        pagedHistory?: boolean | undefined
         retainedMessage?: string | undefined
         runId: string
         taskId: string
@@ -2058,16 +2056,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 })
             }
             const contextualTools = Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context]))
-            // Always send voice_mode as an explicit boolean when handsFreeLogic is mounted,
-            // not just when active. Otherwise a typed turn following a spoken one inherits
-            // the earlier <voice_mode> system instruction from conversation history and
-            // keeps formatting for speech (no markdown, spelled-out numbers).
-            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
-            const voiceMode = handsFree ? { voice_mode: handsFree.values.isActive } : undefined
-            const mergedUiContext =
-                uiContext || voiceMode
-                    ? { ...values.compiledContext, ...uiContext, ...voiceMode }
-                    : values.compiledContext || undefined
+            const mergedUiContext = uiContext
+                ? { ...values.compiledContext, ...uiContext }
+                : values.compiledContext || undefined
             const billingContext =
                 values.billingContext && values.featureFlags[FEATURE_FLAGS.MAX_BILLING_CONTEXT]
                     ? values.billingContext
@@ -2252,11 +2243,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         completeThreadGeneration: () => {
             actions.executePendingClientToolCall()
 
-            const handsFree = handsFreeLogic.findMounted({ panelId: props.panelId })
-            if (handsFree?.values.isActive) {
-                handsFree.actions.speakAssistantResponse(summariseAssistantThread(values.threadRaw))
-            }
-
             // Update the conversation history to include the new conversation
             actions.loadConversationHistory({ doNotUpdateCurrentThread: true })
 
@@ -2344,6 +2330,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
         processNotebookUpdate: async ({ notebookId, notebookContent }) => {
             try {
+                const [{ notebookLogic }, { openNotebook }] = await Promise.all([
+                    import('scenes/notebooks/Notebook/notebookLogic'),
+                    import('~/models/notebooksModel'),
+                ])
                 const currentPath = router.values.location.pathname
                 const notebookPath = urls.notebook(notebookId)
 

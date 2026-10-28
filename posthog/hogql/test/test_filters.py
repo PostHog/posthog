@@ -941,6 +941,11 @@ class TestFilters(BaseTest):
                 "notIn(properties.plan, tuple('hobby', 'scale'))",
             ),
             (
+                "multi_value_not_icontains_multi",
+                EventPropertyFilter(key="plan", operator="not_icontains_multi", value=["hobby", "scale"], type="event"),
+                "not(greater(multiSearchAnyCaseInsensitive(toString(properties.plan), ['hobby', 'scale']), 0))",
+            ),
+            (
                 "person_property_binds_by_key",
                 PersonPropertyFilter(key="plan", operator="icontains", value="hobby", type="person"),
                 "ilike(toString(properties.plan), '%hobby%')",

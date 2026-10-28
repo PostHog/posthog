@@ -113,10 +113,8 @@ describe('buildTrendsBarAggregatedSeries', () => {
 
     it('splits same-label results into separate bands when they come from different series (no breakdown)', () => {
         // Four trends series of the same event surface label="$pageview" each but have
-        // distinct action.order — they should not collapse onto one band.
-        const results = [0, 1, 2, 3].map((order) =>
-            mkResult({ id: `r${order}`, label: '$pageview', action: { order } })
-        )
+        // distinct order — they should not collapse onto one band.
+        const results = [0, 1, 2, 3].map((order) => mkResult({ id: `r${order}`, label: '$pageview', order }))
         const { labels, displayLabels } = buildTrendsBarAggregatedSeries(results, { getColor: () => RED })
         expect(displayLabels).toEqual(['$pageview', '$pageview', '$pageview', '$pageview'])
         expect(new Set(labels).size).toBe(4)

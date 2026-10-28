@@ -81,9 +81,6 @@ pub struct DurabilityConfig {
 
     /// Average read rate one upload may take from the store's disk.
     pub upload_max_bytes_per_sec: u64,
-
-    /// Budget for the final checkpoint on a graceful stop, from the drain to the end of its upload.
-    pub final_upload_timeout: Duration,
 }
 
 impl Default for DurabilityConfig {
@@ -100,7 +97,7 @@ impl Default for DurabilityConfig {
             checkpoint_import_window_hours: 20,
             s3_operation_timeout: Duration::from_secs(120),
             s3_attempt_timeout: Duration::from_secs(20),
-            s3_max_retries: 3,
+            s3_max_retries: 10,
             checkpoint_import_attempt_depth: 10,
             max_concurrent_checkpoint_file_downloads: 40,
             max_concurrent_checkpoint_file_uploads: 40,
@@ -111,7 +108,6 @@ impl Default for DurabilityConfig {
             ),
             full_upload_interval: Duration::from_secs(86_400),
             upload_max_bytes_per_sec: 64 * 1024 * 1024,
-            final_upload_timeout: Duration::from_secs(45),
         }
     }
 }

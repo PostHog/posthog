@@ -25,9 +25,11 @@ MAX_FRIENDLY_MESSAGE_LENGTH = 500
 class CDCErrorCategory(enum.StrEnum):
     AUTH_FAILED = "auth_failed"
     SSL_REQUIRED = "ssl_required"
+    CERTIFICATE_REJECTED = "certificate_rejected"
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
     QUOTA_EXCEEDED = "quota_exceeded"
+    POOLER_TENANT_NOT_FOUND = "pooler_tenant_not_found"
     SSH_TUNNEL_FAILED = "ssh_tunnel_failed"
     SLOT_MISSING = "slot_missing"
     SLOT_NOT_CONFIGURED = "slot_not_configured"
@@ -96,6 +98,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "that the database accepts SSL connections, then re-enable change data capture.",
         False,
     ),
+    CDCErrorCategory.CERTIFICATE_REJECTED: (
+        "The TLS certificate check failed. Either the source database's certificate did not pass "
+        "verification, or the database rejected the client certificate. Check the TLS settings of the "
+        "source, then re-enable change data capture.",
+        False,
+    ),
     CDCErrorCategory.CONNECTION_FAILED: (
         "Could not connect to the source database. PostHog will keep retrying — if this persists, "
         "check that the database is reachable and accepting connections.",
@@ -113,6 +121,11 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         "Your database provider blocked the connection because your account or project exceeded a "
         "usage quota. Upgrade your provider's plan or wait for the quota to reset, then re-enable "
         "change data capture.",
+        False,
+    ),
+    CDCErrorCategory.POOLER_TENANT_NOT_FOUND: (
+        "Your connection pooler couldn't find your database project or user. Check that the project "
+        "is active and the pooler username is correct, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.SSH_TUNNEL_FAILED: (
@@ -138,7 +151,8 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
         False,
     ),
     CDCErrorCategory.SLOT_IN_USE: (
-        "The replication slot is currently in use by another connection. PostHog will retry shortly.",
+        "Another connection held your replication slot, so this run couldn't read changes. If this keeps "
+        "happening, check that no other tool or PostHog source reads from that slot.",
         True,
     ),
     CDCErrorCategory.PERMISSION_DENIED: (

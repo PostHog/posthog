@@ -53,8 +53,9 @@ class TestCallMCPServerTool(BaseTest):
         url="https://mcp.example.com/mcp",
         auth_type="api_key",
         sensitive_configuration=None,
+        tool_names: tuple[str, ...] = (),
     ):
-        return MCPServerInstallation.objects.create(
+        installation = MCPServerInstallation.objects.create(
             team=self.team,
             user=self.user,
             display_name=name,
@@ -62,6 +63,15 @@ class TestCallMCPServerTool(BaseTest):
             auth_type=auth_type,
             sensitive_configuration=sensitive_configuration or {},
         )
+        MCPServerInstallationTool.objects.bulk_create(
+            [
+                MCPServerInstallationTool(
+                    installation=installation, tool_name=name, approval_state="approved", last_seen_at=timezone.now()
+                )
+                for name in tool_names
+            ]
+        )
+        return installation
 
     def _create_tool(self, installations: list[dict] | None = None, conversation_id: str | None = None):
         if installations is None:
@@ -178,7 +188,14 @@ class TestAuthHeaders(TestCallMCPServerTool):
 
             MockClient.assert_called_once()
             _, kwargs = MockClient.call_args
-            self.assertEqual(kwargs["headers"], {"Authorization": "Bearer my-oauth-token"})
+            self.assertEqual(
+                kwargs["headers"],
+                {
+                    "Authorization": "Bearer my-oauth-token",
+                    "x-posthog-mcp-mode": "tools",
+                    "x-posthog-mcp-store": "true",
+                },
+            )
 
     async def test_api_key_sent_as_bearer_header(self):
         inst = {
@@ -197,9 +214,12 @@ class TestAuthHeaders(TestCallMCPServerTool):
             await tool._arun_impl(server_url="https://mcp.example.com", tool_name="__list_tools__")
 
             _, kwargs = MockClient.call_args
-            self.assertEqual(kwargs["headers"], {"Authorization": "Bearer my-api-key"})
+            self.assertEqual(
+                kwargs["headers"],
+                {"Authorization": "Bearer my-api-key", "x-posthog-mcp-mode": "tools", "x-posthog-mcp-store": "true"},
+            )
 
-    async def test_no_auth_sends_no_headers(self):
+    async def test_no_auth_sends_only_store_headers(self):
         inst = {
             "id": str(uuid.uuid4()),
             "display_name": "Server",
@@ -216,7 +236,7 @@ class TestAuthHeaders(TestCallMCPServerTool):
             await tool._arun_impl(server_url="https://mcp.example.com", tool_name="__list_tools__")
 
             _, kwargs = MockClient.call_args
-            self.assertIsNone(kwargs["headers"])
+            self.assertEqual(kwargs["headers"], {"x-posthog-mcp-mode": "tools", "x-posthog-mcp-store": "true"})
 
 
 class TestSSRFPrevention(TestCallMCPServerTool):
@@ -276,7 +296,12 @@ class TestListTools(TestCallMCPServerTool):
 
 class TestCallTool(TestCallMCPServerTool):
     async def test_call_tool_returns_result(self):
-        tool = self._create_tool(installations=[{"display_name": "Linear", "url": "https://mcp.linear.app"}])
+        installation = await sync_to_async(self._install_server)(
+            url="https://mcp.linear.app", tool_names=("create_issue",)
+        )
+        tool = self._create_tool(
+            installations=[{"id": str(installation.id), "display_name": "Linear", "url": installation.url}]
+        )
         with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
             mock_instance = self._make_mock_client()
             mock_instance.call_tool = AsyncMock(return_value="Issue LIN-123 created successfully")
@@ -644,6 +669,8 @@ class TestAuthRefresh(TestCallMCPServerTool):
 
     async def test_error_on_authed_server_triggers_refresh_and_retry(self):
         inst = _make_oauth_installation(server_url=self.SERVER_URL)
+        installation = await sync_to_async(self._install_server)(url=self.SERVER_URL, tool_names=("some_tool",))
+        inst["id"] = str(installation.id)
         tool = self._create_tool(installations=[inst])
         tool._refresh_token_for_server = AsyncMock()
 
@@ -977,6 +1004,26 @@ class TestToolApprovalEnforcement(TestCallMCPServerTool):
 
         self.assertIn("disabled by the user", str(ctx.exception))
 
+    @parameterized.expand([("personal", False), ("gateway", True)])
+    @patch("products.mcp_store.backend.facade.api.resync_installation_tools", return_value=False)
+    async def test_unlisted_call_is_refused(self, _name: str, gateway: bool, _resync) -> None:
+        installation = await sync_to_async(self._seed_installation_and_tools)({"create_issue": "approved"})
+        inst = self._make_inst_dict(installation)
+        if gateway:
+            server = await sync_to_async(
+                lambda: MCPGatewayServer.objects.for_team(self.team.id).create(
+                    team=self.team, name="Example", url=self.SERVER_URL
+                )
+            )()
+            inst["gateway_server_id"] = server.id
+        tool = self._create_tool(installations=[inst])
+        with patch("ee.hogai.tools.call_mcp_server.tool.MCPClient") as MockClient:
+            client = self._make_mock_client()
+            MockClient.return_value = client
+            with self.assertRaises(MaxToolFatalError):
+                await tool._arun_impl(server_url=self.SERVER_URL, tool_name="create_alias", arguments={})
+        client.call_tool.assert_not_called()
+
     async def test_call_tool_with_approved_state_passes_through(self):
         installation = await sync_to_async(self._seed_installation_and_tools)({"create_issue": "approved"})
         tool = self._create_tool(installations=[self._make_inst_dict(installation)])
@@ -1058,10 +1105,11 @@ class TestIsDangerousOperation(TestCallMCPServerTool):
         tool = self._create_tool(installations=[self._inst_dict(installation)])
         self.assertFalse(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="create_issue"))
 
-    async def test_unknown_tool_defaults_to_needs_approval(self):
+    @patch("products.mcp_store.backend.facade.api.resync_installation_tools", return_value=False)
+    async def test_unknown_tool_does_not_offer_member_approval(self, _resync):
         installation = await sync_to_async(self._seed)({})
         tool = self._create_tool(installations=[self._inst_dict(installation)])
-        self.assertTrue(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="new_tool"))
+        self.assertFalse(await tool.is_dangerous_operation(server_url=self.SERVER_URL, tool_name="new_tool"))
 
     @parameterized.expand([("listed_tool", True), ("unlisted_tool", False)])
     @patch("products.mcp_store.backend.facade.api.resync_installation_tools", return_value=False)

@@ -29,10 +29,10 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     TaskRunArtefact,
 )
-from products.signals.backend.billing import first_billable_pr_run_at, mark_report_billing_exempt
+from products.signals.backend.billing import mark_report_billing_exempt, report_has_implementation_pr
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_assignments import ReportClaimConflict, claim_report_for_task, release_claim
-from products.signals.backend.report_claims import get_active_claim
+from products.signals.backend.report_claims import get_active_claim, is_user_claim_of, is_user_claim_of_task_creator
 
 # The task-run vocabulary lives in `artefact_schemas` (a leaf module the model layer can import
 # without a cycle); re-exported here so existing `from task_run_artefacts import …` callers keep
@@ -60,7 +60,7 @@ __all__ = [
 # implementation. Inference on these tasks is unbilled (per-PR pricing), so without a cap a
 # single report is an unlimited font of free agent runs; the number only needs to cover honest
 # "ask a follow-up in a fresh task" use, since conversation *within* a task is unlimited.
-MAX_DISCUSSION_TASKS_PER_REPORT = 3
+MAX_DISCUSSION_TASKS_PER_REPORT = 10
 
 # `scout` excluded too: it labels the scout run that authored the report, is server-written, and
 # is rejected as a client-asserted relationship by the tasks write serializer.
@@ -218,7 +218,14 @@ def _implementation_slot_claim(
     return None
 
 
-def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str | None) -> None:
+def enforce_report_task_cap(
+    *,
+    team_id: int,
+    report_id: str,
+    relationship: str | None,
+    description: str | None = None,
+    created_by_id: int | None = None,
+) -> None:
     """Cap the tasks a single report can spawn; raises `ReportTaskCapExceeded` at the limit.
 
     Inference on report-started tasks is unbilled (the customer pays per PR), so the report is
@@ -229,6 +236,9 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
     Must be called inside an open transaction: it locks the report row — the same lock
     auto-start's `_create_implementation_task_if_absent` takes — so concurrent creates
     serialize instead of both passing the count check.
+
+    A discussion whose `description` pushes to the report's pull request ("Get it merged", "Make it
+    green") is also refused while another such run works, so two agents never push to one branch.
     """
     if not transaction.get_connection().in_atomic_block:
         raise RuntimeError("enforce_report_task_cap must run inside a transaction; it locks the report row")
@@ -241,6 +251,9 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
         if claim is not None:
             raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_IMPLEMENTATION, detail=claim.detail)
         assignment = get_active_claim(team_id=team_id, report_id=report_id)
+        if assignment and is_user_claim_of(assignment, created_by_id):
+            # The person who claimed the report starts the task, and the task works under their claim.
+            return
         if assignment and assignment.actor_kind:
             if assignment.actor_kind != "task":
                 raise ReportTaskCapExceeded(
@@ -249,6 +262,15 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
                 )
             release_claim(assignment, ArtefactAttribution.system())
         return
+    if description is not None:
+        from products.signals.backend.report_task_actions import (  # noqa: PLC0415 — report_task_actions imports this module
+            PULL_REQUEST_RUN_ACTIVE_DETAIL,
+            active_pull_request_run,
+            is_pull_request_run_request,
+        )
+
+        if is_pull_request_run_request(description) and active_pull_request_run(team_id=team_id, report_id=report_id):
+            raise ReportTaskCapExceeded(kind=TASK_RUN_TYPE_DISCUSSION, detail=PULL_REQUEST_RUN_ACTIVE_DETAIL)
     # Any non-implementation label is a discussion for cap purposes; server-only pipeline labels
     # can't reach here (the write serializer rejects them) and are excluded from the count.
     # Counting is status-independent: a discussion that ended still consumed inference.
@@ -305,7 +327,12 @@ def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, tas
     if report is None:
         return
     assignment = get_active_claim(team_id=team_id, report_id=report_id)
-    if assignment and assignment.actor_kind and str(assignment.actor_task_id) != task_id:
+    if (
+        assignment
+        and assignment.actor_kind
+        and str(assignment.actor_task_id) != task_id
+        and not is_user_claim_of_task_creator(assignment, task_id)
+    ):
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_IMPLEMENTATION, detail="This report is claimed by another actor."
         )
@@ -389,22 +416,10 @@ def record_report_task(
 
 
 def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> list[str]:
-    """Remove a quota-cancelled implementation's auto-start records so its report can be
-    implemented again by a later cycle.
+    """Remove implementation gates so a quota-cancelled report can run again.
 
-    A run the quota gate cancels mid-flight never shipped its PR, but its `SignalReportTask` gate
-    row and implementation `task_run` artefact would keep `associated_task_runs` reporting a
-    started implementation and permanently block re-implementation. Deleting both restores the
-    report to "never implemented"; a system `note` artefact records for the report timeline why
-    the run stopped. Locks each report row (the same lock auto-start creation takes) so the
-    removal serializes with a concurrent auto-start evaluation. Returns the affected report ids
-    (empty when the task has no implementation link).
-
-    Reports that already shipped a billable PR are skipped entirely: the cancel decision is
-    run-scoped but this delete is task-scoped, and a sibling run of the same task may have
-    shipped the PR that billed the report. Its `SignalReportTask` row is billing's evidence —
-    the `billed_earlier` dedup and refund eligibility both resolve through it — so deleting it
-    would re-bill the report on its next implementation and strand the paid charge unrefundable.
+    Preserve shipped PRs, including those from sibling runs. Lock reports to serialize
+    cleanup with auto-start, and return the affected report IDs.
     """
     report_ids = list(
         SignalReportTask.objects.filter(
@@ -417,10 +432,7 @@ def release_quota_cancelled_implementation(*, team_id: int, task_id: str) -> lis
             report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
             if report is None:
                 continue
-            if first_billable_pr_run_at(report_id) is not None:
-                # A sibling run already shipped this report's billable PR. These records are
-                # billing's evidence for that charge — deleting them would double-bill the next
-                # implementation — and the report needs no release: it *is* implemented.
+            if report_has_implementation_pr(report_id, team_id=team_id):
                 continue
             assignment = get_active_claim(team_id=team_id, report_id=report_id)
             if assignment is not None and assignment.actor_kind == "task" and str(assignment.actor_task_id) == task_id:

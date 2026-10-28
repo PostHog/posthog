@@ -1,4 +1,4 @@
-import type { AnyResponseType, TrendsQuery } from '~/queries/schema/schema-general'
+import type { AnyResponseType, MathType, TrendsQuery } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, CompareLabelType } from '~/types'
 import type { TrendResult } from '~/types'
@@ -70,7 +70,10 @@ describe('deriveChartPreview', () => {
         expect(
             deriveChartPreview(
                 ChartDisplayType.BoldNumber,
-                query(ChartDisplayType.ActionsLineGraph, queryOverrides),
+                query(ChartDisplayType.ActionsLineGraph, {
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: math as MathType }],
+                    ...queryOverrides,
+                }),
                 response([series({ math })])
             )
         ).toBeNull()

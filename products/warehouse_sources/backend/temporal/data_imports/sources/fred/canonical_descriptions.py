@@ -86,6 +86,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             **_RELEASE_COLUMNS,
         },
     },
+    "series_vintage_dates": {
+        "description": "Dates on which each series in the source's series IDs was revised or had new values released. One row per series and vintage date.",
+        "docs_url": f"{DOCS_BASE_URL}/series_vintagedates.html",
+        "columns": {
+            "series_id": "FRED series ID the vintage date applies to.",
+            "vintage_date": "Date a new version of the series' data was published. Release dates on which the data did not change are excluded.",
+        },
+    },
     "releases": {
         "description": "Every release of economic data published on FRED, such as the Employment Situation or the Consumer Price Index.",
         "docs_url": f"{DOCS_BASE_URL}/releases.html",
@@ -98,6 +106,42 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "release_id": "Identifier of the release the date belongs to.",
             "release_name": "Name of the release.",
             "date": "Date the release was or will be published.",
+        },
+    },
+    "release_sources": {
+        "description": "The sources that publish each FRED release. One row per release and source.",
+        "docs_url": f"{DOCS_BASE_URL}/release_sources.html",
+        "columns": {
+            "release_id": "Identifier of the release.",
+            "id": "Identifier of the source that publishes the release.",
+            "name": "Name of the publishing organization.",
+            "link": "URL of the organization's site.",
+            "notes": "Description of the source.",
+            **_REALTIME_COLUMNS,
+        },
+    },
+    "release_tables": {
+        "description": "The table tree of each FRED release, such as the line items of the national accounts tables. One row per release table element.",
+        "docs_url": f"{DOCS_BASE_URL}/release_tables.html",
+        "columns": {
+            "release_id": "Identifier of the release the element belongs to.",
+            "element_id": "Identifier of the release table element.",
+            "parent_id": "Identifier of the parent element in the release table tree.",
+            "series_id": "FRED series ID shown on this line, when the element is a series.",
+            "line": "Line number of the element in the release table.",
+            "type": "Element type. 'series' marks a line backed by a FRED series.",
+            "name": "Label of the element in the release table.",
+            "level": "Depth of the element in the release table tree. Top-level elements are level 1.",
+        },
+    },
+    "categories": {
+        "description": "Every category in FRED's category tree, walked from the root. Join on parent_id to rebuild the hierarchy.",
+        "docs_url": f"{DOCS_BASE_URL}/category_children.html",
+        "columns": {
+            "id": "Numeric identifier for the category.",
+            "name": "Name of the category.",
+            "parent_id": "Identifier of the parent category, or 0 for a top-level category.",
+            "notes": "Description of the category.",
         },
     },
     "sources": {

@@ -25,17 +25,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     MeteostatSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.meteostat import (
+    INVALID_LOCATIONS_ERROR,
+    NO_LOCATIONS_ERROR,
     NO_STATIONS_ERROR,
     MeteostatResumeConfig,
     _parse_station_ids,
     meteostat_source,
+    parse_locations,
     start_date_error,
     validate_station,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meteostat.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    MAX_LOCATIONS,
     MAX_STATIONS,
+    POINT_ENDPOINTS,
     UNITS_OPTIONS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -61,6 +66,8 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                 "This RapidAPI key isn't subscribed to the Meteostat API. Subscribe on RapidAPI and reconnect."
             ),
             NO_STATIONS_ERROR: "Add at least one weather station ID in the source settings to sync this table.",
+            NO_LOCATIONS_ERROR: "Add at least one location in the source settings to sync this table.",
+            INVALID_LOCATIONS_ERROR: "Fix the locations in the source settings to sync this table.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -79,7 +86,14 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Point tables fail without coordinates, so only select them by default once locations are set.
+        has_locations = bool(config.locations and config.locations.strip())
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            should_sync_default=dict.fromkeys(POINT_ENDPOINTS, has_locations),
+        )
 
     def validate_credentials(
         self,
@@ -98,6 +112,11 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
         if error is not None:
             return False, error
 
+        try:
+            parse_locations(config.locations)
+        except ValueError as e:
+            return False, str(e)
+
         return validate_station(config.api_key, stations[0])
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[MeteostatResumeConfig]:
@@ -112,6 +131,7 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
         return meteostat_source(
             api_key=config.api_key,
             station_ids=config.station_ids,
+            locations=config.locations,
             units=config.units,
             start_date=config.start_date,
             endpoint_name=inputs.schema_name,
@@ -136,7 +156,8 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                 "[Meteostat API listing](https://rapidapi.com/meteostat/api/meteostat/) on RapidAPI — the free "
                 "plan includes 500 requests per month.\n\n"
                 "Meteostat has no account-scoped list of stations, so list the "
-                "[weather station IDs](https://meteostat.net) you want to sync."
+                "[weather station IDs](https://meteostat.net) you want to sync. To sync the point tables, "
+                "which interpolate weather for any coordinates, also list your locations."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/meteostat",
             iconPath="/static/services/meteostat.png",
@@ -153,6 +174,7 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="station_ids",
+                        sync_setting=True,
                         label="Weather station IDs",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -160,8 +182,23 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                         secret=False,
                         caption=f"Comma-separated list of Meteostat station IDs. Up to {MAX_STATIONS} stations.",
                     ),
+                    SourceFieldInputConfig(
+                        name="locations",
+                        sync_setting=True,
+                        label="Locations",
+                        type=SourceFieldInputConfigType.TEXTAREA,
+                        required=False,
+                        placeholder="43.6667,-79.4,113; 59.9127,10.7461",
+                        secret=False,
+                        caption=(
+                            "Optional. Locations for the point tables, separated by semicolons or new lines. "
+                            "Write each one as latitude,longitude with an optional elevation in meters, "
+                            f"for example 43.6667,-79.4,113. Up to {MAX_LOCATIONS} locations."
+                        ),
+                    ),
                     SourceFieldSelectConfig(
                         name="units",
+                        sync_setting=True,
                         label="Unit system",
                         required=True,
                         defaultValue="metric",
@@ -171,6 +208,7 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -183,5 +221,5 @@ class MeteostatSource(ResumableSource[MeteostatSourceConfig, MeteostatResumeConf
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

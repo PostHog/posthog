@@ -109,10 +109,75 @@ class EmailDraftOrigin(LabeledStrEnum):
 
 
 class EmailDraftFallbackReason(LabeledStrEnum):
-    FLAG_OFF = "flag_off", "AI drafts are not enabled for this project"
     AI_NOT_APPROVED = "ai_not_approved", "The organization has not approved AI data processing"
     GATEWAY_UNCONFIGURED = "gateway_unconfigured", "The AI gateway is not configured"
     RATE_LIMITED = "rate_limited", "The project used its hourly AI drafts"
     TIMEOUT = "timeout", "The model took too long"
     MODEL_ERROR = "model_error", "The model call failed"
     INVALID_OUTPUT = "invalid_output", "The model returned an unusable draft"
+
+
+# pinned: step keys in the setup status API - renaming breaks agents that read them
+class SetupStepKey(LabeledStrEnum):
+    CHANNEL = "channel", "Channel"
+    DOMAIN = "domain", "Domain"
+    OPT_OUTS = "opt-outs", "Opt-outs"
+    SENDING_RULES = "sending-rules", "Sending rules"
+    EMAIL_TEMPLATE = "email-template", "Email template"
+    FIRST_WORKFLOW = "first-workflow", "First workflow"
+
+
+class RealtimeAudienceCohortState(LabeledStrEnum):
+    """How far a realtime cohort audience's membership has come, as the audience size response reports it."""
+
+    READY = "ready", "Ready"
+    BUILDING = "building", "Building"
+    REBUILDING = "rebuilding", "Rebuilding"
+    NEEDS_ATTENTION = "needs_attention", "Needs attention"
+
+
+class EmailDomainSetupMethod(LabeledStrEnum):
+    AUTO = "auto", "Domain Connect"
+    MANUAL = "manual", "Manual DNS records"
+
+
+class EmailDomainSetupStatus(LabeledStrEnum):
+    NOT_STARTED = "not_started", "Not started"
+    PENDING = "pending", "Waiting for DNS records"
+    RECORDS_FOUND = "records_found", "Records found, waiting for verification"
+    VERIFIED = "verified", "Verified"
+    TEMPORARY_FAILURE = "temporary_failure", "Temporary failure"
+    FAILED = "failed", "Failed"
+
+
+class EmailDomainSetupRecordKind(LabeledStrEnum):
+    VERIFICATION = "verification", "Domain ownership"
+    DKIM = "dkim", "DKIM signing"
+    SPF = "spf", "SPF"
+    MAIL_FROM_MX = "mail_from_mx", "MAIL FROM MX"
+    MAIL_FROM_SPF = "mail_from_spf", "MAIL FROM SPF"
+    DMARC = "dmarc", "DMARC"
+
+
+class EmailDomainSetupRecordType(LabeledStrEnum):
+    TXT = "TXT", "TXT"
+    CNAME = "CNAME", "CNAME"
+    MX = "MX", "MX"
+
+
+class EmailDomainSetupRecordStatus(LabeledStrEnum):
+    PENDING = "pending", "Not found yet"
+    FOUND = "found", "Found in DNS"
+    VERIFIED = "verified", "Verified"
+
+
+class EmailDomainSetupStepKey(LabeledStrEnum):
+    DOMAIN_ADDED = "domain_added", "Domain added"
+    RECORDS_FOUND = "records_found", "DNS records found"
+    VERIFIED = "verified", "Verified"
+
+
+class EmailDomainSetupStepState(LabeledStrEnum):
+    DONE = "done", "Done"
+    PENDING = "pending", "Pending"
+    FAILED = "failed", "Failed"

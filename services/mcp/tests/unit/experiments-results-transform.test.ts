@@ -11,7 +11,7 @@
  *  - inline and shared metrics are merged into one ordered result stream,
  *    with `source` tagged so callers can tell them apart
  *  - row order follows `*_metrics_ordered_uuids` (the canonical UI ordering)
- *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, `insight`, and
+ *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, and
  *    `step_sessions` — including the copies inside each `breakdown_results`
  *    entry) are stripped from each row's `data`, while statistical fields
  *    (including per-breakdown stats) are preserved
@@ -90,6 +90,7 @@ describe('transformExperimentResults', () => {
 
     it('reads variants from the linked flag', () => {
         const experiment = makeExperiment({
+            parameters: { variant_screenshot_media_ids: { control: 'legacy-media' } },
             feature_flag: {
                 id: 9,
                 key: 'k',
@@ -394,33 +395,6 @@ describe('transformExperimentResults', () => {
         const variants = data.variant_results as Array<Record<string, unknown>>
         expect(variants[0]?.step_sessions).toBeUndefined()
         expect(variants[0]?.sum).toBe(95)
-    })
-
-    it('strips the legacy `insight` visualization payload from each row', () => {
-        // `insight` is a rendered visualization payload (list[dict[str, Any]]) used by
-        // legacy trends/funnels charts
-        const experiment = makeExperiment({
-            metrics: [{ uuid: 'p-1', name: 'Primary', metric_type: 'mean' }],
-            primary_metrics_ordered_uuids: ['p-1'],
-        })
-
-        const result = transformExperimentResults({
-            experiment,
-            exposures: baseExposures,
-            primaryMetricEntries: buildMetricEntries(experiment, 'primary'),
-            secondaryMetricEntries: [],
-            primaryMetricsResults: [
-                {
-                    baseline: { key: 'control', sum: 100, sum_squares: 100 },
-                    insight: [{ breakdown_value: 'control', data: [1, 2, 3] }],
-                },
-            ],
-            secondaryMetricsResults: [],
-        })
-
-        const data = result.metrics.primary.results[0]?.data as Record<string, unknown>
-        expect(data.insight).toBeUndefined()
-        expect((data.baseline as Record<string, unknown>).sum).toBe(100)
     })
 
     it('strips step_sessions from inside breakdown_results entries while preserving per-breakdown stats', () => {

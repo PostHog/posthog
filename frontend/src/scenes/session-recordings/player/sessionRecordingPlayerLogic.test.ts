@@ -1618,6 +1618,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 expect(mockCapture).toHaveBeenCalledWith(
                     'recording viewed summary',
                     expect.objectContaining({
+                        recording_id: '2',
                         viewed_time_ms: expect.any(Number),
                         play_time_ms: expect.any(Number),
                         buffer_time_ms: expect.any(Number),

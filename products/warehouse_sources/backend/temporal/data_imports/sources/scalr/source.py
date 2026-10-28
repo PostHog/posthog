@@ -114,7 +114,7 @@ class ScalrSource(ResumableSource[ScalrSourceConfig, ScalrResumeConfig]):
             caption="Create a service account token in Scalr under account scope > IAM > Service accounts. "
             "Give the account read access to environments, workspaces, and runs.",
             iconPath="/static/services/scalr.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

@@ -380,6 +380,104 @@ class TestEtsyTransport:
         assert len(result.rows) == PAGE_SIZE * 2
         assert _walk_requests(result)[1].param("offset") == str(PAGE_SIZE)
 
+    @time_machine.travel("2005-01-15", tick=False)
+    def test_payments_resolve_each_ledger_page_and_drop_payments_already_seen(self) -> None:
+        # A sale and its later refund are separate ledger entries for one payment, and a full
+        # refresh does not merge on the primary key, so a repeat would land as a duplicate row.
+        # A resumed attempt would start with no record of the payments already written, so the
+        # walk restarts instead and saves no cursor.
+        stale = EtsyResumeConfig(offset=PAGE_SIZE, window_start=ETSY_HISTORY_START, window_end=ETSY_HISTORY_START + 1)
+        result = _driver().run(
+            "payments",
+            route(
+                {
+                    "/oauth/token": [_scripted_token()],
+                    "/shops/1": [ScriptedResponse(json={"shop_id": 1, "created_timestamp": ETSY_HISTORY_START})],
+                    "/payment-account/ledger-entries": [
+                        _scripted_page(_rows(PAGE_SIZE, key="entry_id"), PAGE_SIZE + 2),
+                        _scripted_page(_rows(2, start=PAGE_SIZE, key="entry_id"), PAGE_SIZE + 2),
+                    ],
+                    "/ledger-entries/payments": [
+                        _scripted_page(_rows(2, start=1, key="payment_id"), 2),
+                        _scripted_page(_rows(2, start=2, key="payment_id"), 2),
+                    ],
+                }
+            ),
+            resume_state=stale,
+        )
+
+        assert result.raised is None
+        assert [row["payment_id"] for row in result.rows] == [1, 2, 3]
+        assert result.saved_states == []
+        ledger = [request for request in _walk_requests(result) if request.path.endswith("/ledger-entries")]
+        assert (ledger[0].param("min_created"), ledger[0].param("offset")) == (str(ETSY_HISTORY_START), "0")
+        lookups = [request for request in _get_requests(result) if request.path.endswith("/payments")]
+        assert [request.param("ledger_entry_ids") for request in lookups] == [
+            ",".join(str(i) for i in range(PAGE_SIZE)),
+            f"{PAGE_SIZE},{PAGE_SIZE + 1}",
+        ]
+
+    def test_listing_inventory_yields_a_row_per_product_and_splits_a_batch_etsy_rejects(self) -> None:
+        # Etsy 404s the whole batch when one listing is gone, which would otherwise fail every sync
+        # of a shop that deleted a listing mid-walk.
+        listing = {
+            "listing_id": 11,
+            "inventory": {
+                "products": [{"product_id": 1, "sku": "A"}, {"product_id": 2, "sku": "B"}],
+                "price_on_property": [200],
+            },
+        }
+        result = _driver().run(
+            "listing_inventory",
+            route(
+                {
+                    "/oauth/token": [_scripted_token()],
+                    "/shops/1/listings": [
+                        _scripted_page(_rows(2, start=10, key="listing_id"), 2),
+                        *[_scripted_page([], 0) for _ in range(len(LISTING_STATES) - 1)],
+                    ],
+                    "/listings/batch/inventory": [
+                        ScriptedResponse(status=404, json={"error": "Listing not found"}),
+                        ScriptedResponse(status=404, json={"error": "Listing not found"}),
+                        _scripted_page([listing], 1),
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"product_id": 1, "sku": "A", "price_on_property": [200], "listing_id": 11},
+            {"product_id": 2, "sku": "B", "price_on_property": [200], "listing_id": 11},
+        ]
+        assert [
+            request.param("listing_ids")
+            for request in _get_requests(result)
+            if request.path.endswith("/listings/batch/inventory")
+        ] == ["10,11", "10", "11"]
+
+    def test_seller_taxonomy_flattens_the_tree_without_looking_up_a_shop(self) -> None:
+        tree: list[dict[str, Any]] = [
+            {
+                "id": 1,
+                "level": 0,
+                "parent_id": None,
+                "children": [{"id": 2, "level": 1, "parent_id": 1, "children": []}],
+            },
+            {"id": 3, "level": 0, "parent_id": None, "children": []},
+        ]
+        result = _driver(shop_id=None).run(
+            "seller_taxonomy_nodes",
+            route({"/oauth/token": [_scripted_token()], "/seller-taxonomy/nodes": [_scripted_page(tree, 2)]}),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 1, "level": 0, "parent_id": None},
+            {"id": 2, "level": 1, "parent_id": 1},
+            {"id": 3, "level": 0, "parent_id": None},
+        ]
+
     @parameterized.expand(
         [
             ("updated_timestamp", "min_last_modified"),

@@ -2,11 +2,15 @@ import { SearchItem, filterNewItems } from 'lib/components/Search/searchItems'
 import { SETTINGS_THEME_ITEM_ID, filterSearchItems } from 'lib/components/Search/utils'
 
 import { CursorContext, FilterDefinition, FilterOptions, ValueOption, matchValueOptions } from './commandKQuery'
+import { buildRankedResults } from './commandKRankedResults'
+import { FILTER_TOKEN, freeWords, strictLocalMatches } from './commandKRanking'
 import { REMOTE_SOURCES, RESULTS_LIMIT, RemoteSource, SECONDARY_LIMIT } from './commandKSources'
 
 export const RECENTS_LIMIT = 5
 export const SUGGESTIONS_LIMIT = 8
 export const DEFAULT_SKELETON_ROWS = 3
+
+const TRAILING_SOURCES: RemoteSource[] = ['persons', 'groups']
 
 /** Lists that filter in memory on every keystroke, in the order they render in Search mode. */
 const LOCAL_SOURCES = ['products', 'data-management', 'people', 'health', 'misc', 'settings', 'create'] as const
@@ -22,19 +26,38 @@ export type CommandKSectionKey =
     | LocalSource
     | RemoteSource
     | 'ask-ai'
+    | 'notice'
+    | 'loading-more'
+    | 'best-matches'
+    | `group-${string}`
 
 export type CommandKRow =
     | { kind: 'filter-key'; key: string; filter: FilterDefinition; negated: boolean }
     | { kind: 'filter-value'; key: string; filter: FilterDefinition; option: ValueOption; negated: boolean }
     | { kind: 'message'; key: string; text: string }
     | { kind: 'skeleton'; key: string }
-    | { kind: 'item'; key: string; item: SearchItem; section: CommandKSectionKey }
+    | {
+          kind: 'item'
+          key: string
+          item: SearchItem
+          section: CommandKSectionKey
+          duplicates?: number
+          highlightWords?: string[]
+          ranked?: boolean
+          showCreator?: boolean
+          showType?: boolean
+      }
     | { kind: 'ask-ai'; key: string; question: string }
+    | { kind: 'scope'; key: string; type: string; label: string }
+    | { kind: 'notice'; key: string; reason: 'partial' | 'typos'; missing: string[]; shown: string[] }
+    | { kind: 'loading-more'; key: string }
 
 export interface CommandKSection {
     key: CommandKSectionKey
     label: string
     rows: CommandKRow[]
+    count?: number
+    countIsLowerBound?: boolean
     /** `stale` keeps the previous query's rows on screen until the new ones land. */
     state: 'ready' | 'loading' | 'stale'
 }
@@ -47,15 +70,15 @@ export interface ViewAll {
 /** What a remote section can render. Which request is in flight lives elsewhere, so starting one never re-renders. */
 export interface RemoteSlot {
     cache: Record<string, SearchItem[]>
-    displayedKey: string | null
+    failed?: Record<string, true>
 }
 
 export type RemoteSlots = Record<RemoteSource, RemoteSlot>
 
 export const emptyRemoteSlots = (): RemoteSlots =>
-    Object.fromEntries(REMOTE_SOURCES.map((source) => [source, { cache: {}, displayedKey: null }])) as RemoteSlots
+    Object.fromEntries(REMOTE_SOURCES.map((source) => [source, { cache: {} }])) as RemoteSlots
 
-const SECTION_LABELS: Record<CommandKSectionKey, string> = {
+const SECTION_LABELS: Record<Exclude<CommandKSectionKey, `group-${string}`>, string> = {
     filters: 'Filters',
     suggestions: 'Suggestions',
     recents: 'Recents',
@@ -76,9 +99,13 @@ const SECTION_LABELS: Record<CommandKSectionKey, string> = {
     persons: 'Persons',
     groups: 'Groups',
     'ask-ai': 'PostHog AI',
+    'best-matches': 'Best matches',
+    notice: '',
+    'loading-more': '',
 }
 
-export const isSelectable = (row: CommandKRow): boolean => row.kind !== 'message' && row.kind !== 'skeleton'
+export const isSelectable = (row: CommandKRow): boolean =>
+    row.kind !== 'message' && row.kind !== 'skeleton' && row.kind !== 'notice' && row.kind !== 'loading-more'
 
 const itemIdentity = (item: SearchItem): string => {
     const type = item.record?.type
@@ -107,40 +134,30 @@ const itemRows = (section: CommandKSectionKey, items: SearchItem[], limit = Infi
     return rows
 }
 
-const readySection = (key: CommandKSectionKey, rows: CommandKRow[]): CommandKSection => ({
+const readySection = (key: Exclude<CommandKSectionKey, `group-${string}`>, rows: CommandKRow[]): CommandKSection => ({
     key,
     label: SECTION_LABELS[key],
     rows,
     state: 'ready',
 })
 
-const skeletonRows = (key: CommandKSectionKey): CommandKRow[] =>
+const skeletonRows = (key: Exclude<CommandKSectionKey, `group-${string}`>): CommandKRow[] =>
     Array.from({ length: DEFAULT_SKELETON_ROWS }, (_, index) => ({ kind: 'skeleton', key: `${key}/skeleton-${index}` }))
 
-const loadingSection = (key: CommandKSectionKey): CommandKSection => ({
+const loadingSection = (key: Exclude<CommandKSectionKey, `group-${string}`>): CommandKSection => ({
     ...readySection(key, skeletonRows(key)),
     state: 'loading',
 })
 
-/**
- * A remote section shows the rows for the current query when they are cached, and the previous
- * query's rows while the new ones load. On its very first load, Results reserves skeleton rows. The
- * other sources usually come back empty, so they reserve nothing rather than flash skeletons that
- * then collapse.
- */
-function remoteSection(source: RemoteSource, slot: RemoteSlot, query: string): CommandKSection | null {
+const isSettled = (slot: RemoteSlot, query: string | undefined): boolean => !query || query in slot.cache
+
+function remoteSection(
+    source: RemoteSource,
+    items: SearchItem[],
+    state: CommandKSection['state']
+): CommandKSection | null {
     const limit = source === 'results' ? RESULTS_LIMIT : SECONDARY_LIMIT
-    const current = slot.cache[query]
-    if (current) {
-        return current.length > 0 ? readySection(source, itemRows(source, current, limit)) : null
-    }
-    const displayed = slot.displayedKey !== null ? slot.cache[slot.displayedKey] : undefined
-    if (displayed) {
-        return displayed.length > 0
-            ? { ...readySection(source, itemRows(source, displayed, limit)), state: 'stale' }
-            : null
-    }
-    return source === 'results' ? loadingSection(source) : null
+    return items.length > 0 ? { ...readySection(source, itemRows(source, items, limit)), state } : null
 }
 
 export interface SuggestionsLoading {
@@ -188,12 +205,7 @@ export function buildSuggestions(
 
 export type LocalLists = Record<LocalSource | 'recents' | 'starred', SearchItem[]>
 
-export interface SectionsInput {
-    mode: CommandKMode
-    context: CursorContext
-    suggestions: CommandKSection | null
-    local: LocalLists
-    remote: RemoteSlots
+export interface SectionsQuery {
     /** The query each remote source searches for this input. Sources missing here do not apply. */
     remoteQueries: Partial<Record<RemoteSource, string>>
     /** The free text the in-memory lists filter on. Empty while a filter limits the palette to objects. */
@@ -204,8 +216,63 @@ export interface SectionsInput {
     viewAll: ViewAll | null
 }
 
-const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
-    source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
+export interface SectionsInput extends SectionsQuery {
+    mode: CommandKMode
+    context: CursorContext
+    suggestions: CommandKSection | null
+    local: LocalLists
+    remote: RemoteSlots
+    stale: boolean
+    personsFirst: boolean
+    settingsInResults: boolean
+}
+
+const isRanked = (query: SectionsQuery): boolean =>
+    !!query.remoteQueries.results && freeWords(query.remoteQueries.results).length > 0
+
+export function pickDisplayedQuery(
+    current: SectionsQuery,
+    shown: SectionsQuery | null,
+    remote: RemoteSlots
+): { query: SectionsQuery; stale: boolean } {
+    if (!shown?.remoteQueries.results || isSettled(remote.results, current.remoteQueries.results)) {
+        return { query: current, stale: false }
+    }
+    if (isRanked(current) && !isRanked(shown)) {
+        return { query: current, stale: false }
+    }
+    return { query: shown, stale: true }
+}
+
+const exactSettingsMatches = (settings: SearchItem[], localQuery: string): SearchItem[] =>
+    localQuery ? matchLocal('settings', settings, localQuery, true) : []
+
+export const resultsSettled = (query: SectionsQuery, remote: RemoteSlots): boolean =>
+    isSettled(remote.results, query.remoteQueries.results)
+
+const LOCAL_MATCH_CACHE_SIZE = 50
+const localMatchCache = new WeakMap<SearchItem[], Map<string, SearchItem[]>>()
+
+function matchLocal(source: LocalSource, items: SearchItem[], query: string, ranked: boolean): SearchItem[] {
+    const strict = ranked && source !== 'create'
+    const key = `${strict ? 'strict' : 'fuzzy'}:${query}`
+    let byQuery = localMatchCache.get(items)
+    if (!byQuery) {
+        byQuery = new Map()
+        localMatchCache.set(items, byQuery)
+    }
+    const cached = byQuery.get(key)
+    if (cached) {
+        return cached
+    }
+    const fuzzy = source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
+    const matches = strict ? strictLocalMatches(fuzzy, query) : fuzzy
+    if (byQuery.size >= LOCAL_MATCH_CACHE_SIZE) {
+        byQuery.delete(byQuery.keys().next().value!)
+    }
+    byQuery.set(key, matches)
+    return matches
+}
 
 function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): CommandKSection | null {
     if (!viewAll) {
@@ -217,6 +284,95 @@ function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): 
         ...(results ?? readySection('results', [])),
         rows: viewAll.placement === 'lead' ? [row, ...rows] : [...rows, row],
     }
+}
+
+const plainName = (item: SearchItem): string =>
+    String(item.displayName || item.name)
+        .toLowerCase()
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim()
+
+export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
+    const productNames = new Set(local.products.map(plainName))
+    return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
+}
+
+function rankedResultsSections(
+    results: SearchItem[],
+    query: string,
+    local: LocalLists,
+    localQuery: string,
+    state: CommandKSection['state'],
+    persons: SearchItem[],
+    settingsInResults: boolean
+): CommandKSection[] {
+    const words = freeWords(query)
+    return buildRankedResults({
+        persons,
+        settings: settingsInResults ? rankableSettings(local, localQuery) : [],
+        query: words.join(' '),
+        highlightWords: words,
+        results,
+        products: localQuery ? local.products : [],
+        state,
+        scoped: (query.match(FILTER_TOKEN) ?? []).some((token) => token.trim().startsWith('type:')),
+    })
+}
+
+function lowerSections(
+    input: SectionsInput,
+    ranked: boolean,
+    state: CommandKSection['state'],
+    shown: Set<string>
+): CommandKSection[] {
+    const { local, remote, remoteQueries, localQuery } = input
+    const sections: (CommandKSection | null)[] = []
+    const loaded = (): CommandKSection[] => sections.filter((section): section is CommandKSection => section !== null)
+    const loadingMore = (): CommandKSection[] =>
+        state === 'stale'
+            ? loaded()
+            : [...loaded(), readySection('loading-more', [{ kind: 'loading-more', key: 'loading-more/row' }])]
+    const appendInOrder = (sources: RemoteSource[]): boolean => {
+        for (const source of sources) {
+            const query = remoteQueries[source]
+            if (!isSettled(remote[source], query)) {
+                return false
+            }
+            sections.push(
+                query
+                    ? remoteSection(
+                          source,
+                          remote[source].cache[query].filter((item) => !shown.has(item.id)),
+                          state
+                      )
+                    : null
+            )
+        }
+        return true
+    }
+    if (localQuery) {
+        for (const source of LOCAL_SOURCES) {
+            if (ranked && source === 'products') {
+                continue
+            }
+            const filtered = matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
+            const themeItem = source === 'settings' ? input.themeItem : null
+            const rows = themeItem
+                ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
+                : itemRows(source, filtered, SECONDARY_LIMIT)
+            sections.push(rows.length > 0 ? { ...readySection(source, rows), state } : null)
+        }
+    }
+    if (!appendInOrder(REMOTE_SOURCES.filter((source) => source !== 'results' && !TRAILING_SOURCES.includes(source)))) {
+        return loadingMore()
+    }
+    if (input.askAiQuestion) {
+        sections.push({
+            ...readySection('ask-ai', [{ kind: 'ask-ai', key: 'ask-ai/ask', question: input.askAiQuestion }]),
+            state,
+        })
+    }
+    return appendInOrder(TRAILING_SOURCES) ? loaded() : loadingMore()
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
@@ -236,10 +392,7 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
         ].filter((section) => section.rows.length > 0)
     }
 
-    const remoteSectionFor = (source: RemoteSource): CommandKSection | null => {
-        const query = remoteQueries[source]
-        return query ? remoteSection(source, remote[source], query) : null
-    }
+    const state: CommandKSection['state'] = input.stale ? 'stale' : 'ready'
     const sections: (CommandKSection | null)[] = []
     if (context.kind === 'key') {
         sections.push(
@@ -254,24 +407,46 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
             )
         )
     }
-    sections.push(input.suggestions, withViewAll(remoteSectionFor('results'), input.viewAll))
-    if (mode !== 'value' && localQuery) {
-        for (const source of LOCAL_SOURCES) {
-            const filtered = filterLocal(source, local[source], localQuery)
-            const themeItem = source === 'settings' ? input.themeItem : null
-            const rows = themeItem
-                ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
-                : itemRows(source, filtered, SECONDARY_LIMIT)
-            sections.push(rows.length > 0 ? readySection(source, rows) : null)
-        }
+    sections.push(input.suggestions)
+    const resultsQuery = remoteQueries.results
+    const results = resultsQuery ? remote.results.cache[resultsQuery] : undefined
+    const ranked = isRanked(input)
+    const personsQuery = input.personsFirst && mode !== 'value' ? remoteQueries.persons : undefined
+    if ((resultsQuery && !results) || (personsQuery && !isSettled(remote.persons, personsQuery))) {
+        sections.push(withViewAll(loadingSection('results'), input.viewAll))
+        return sections.filter((section): section is CommandKSection => section !== null)
+    }
+    const leadingPersons = personsQuery ? remote.persons.cache[personsQuery] : []
+    if (!ranked && leadingPersons.length) {
+        sections.push(remoteSection('persons', leadingPersons, state))
+    }
+    if (ranked && results && resultsQuery) {
+        const rankedSections = rankedResultsSections(
+            results,
+            resultsQuery,
+            local,
+            localQuery,
+            state,
+            leadingPersons,
+            input.settingsInResults
+        )
+        sections.push(
+            ...(rankedSections.some((section) => section.key === 'results')
+                ? rankedSections.map((section) =>
+                      section.key === 'results' ? withViewAll(section, input.viewAll) : section
+                  )
+                : [...rankedSections, withViewAll(null, input.viewAll)])
+        )
+    } else {
+        sections.push(withViewAll(results ? remoteSection('results', results, state) : null, input.viewAll))
     }
     if (mode !== 'value') {
-        sections.push(...REMOTE_SOURCES.filter((source) => source !== 'results').map(remoteSectionFor))
-        if (input.askAiQuestion) {
-            sections.push(
-                readySection('ask-ai', [{ kind: 'ask-ai', key: 'ask-ai/ask', question: input.askAiQuestion }])
+        const shown = new Set(
+            sections.flatMap(
+                (section) => section?.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : [])) ?? []
             )
-        }
+        )
+        sections.push(...lowerSections(input, ranked, state, shown))
     }
     return sections.filter((section): section is CommandKSection => section !== null)
 }

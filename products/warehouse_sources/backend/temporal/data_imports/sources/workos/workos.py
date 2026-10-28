@@ -20,8 +20,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import BasePaginator
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
 )
@@ -29,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.workos.settings import (
+    WAITLISTS_PARENT,
     WEBHOOK_SCHEMA_NAMES,
     WORKOS_ENDPOINTS,
 )
@@ -47,7 +53,7 @@ DELETED_COLUMN = "workos_deleted"
 DELETED_AT_COLUMN = "workos_deleted_at"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class WorkOSResumeConfig:
     """Resume state for WorkOS endpoints.
 
@@ -56,9 +62,14 @@ class WorkOSResumeConfig:
     cursor. On resume we start fetching from the saved cursor (at-least-once
     semantics): the page whose cursor did not persist before a crash is
     re-yielded and deduped by the ``id`` primary key.
+
+    Fan-out endpoints (``waitlist_entries``) save ``fanout_state`` instead: the
+    shape ``build_dependent_resource`` checkpoints, which records the finished
+    parents and the cursor of the one in progress.
     """
 
-    after: str
+    after: Optional[str] = None
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class WorkOSPaginator(BasePaginator):
@@ -348,18 +359,33 @@ def workos_source(
 ) -> SourceResponse:
     endpoint_config = WORKOS_ENDPOINTS[endpoint]
 
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": BASE_URL,
-            "auth": {
-                "type": "bearer",
-                "token": api_key,
-            },
-            "headers": {
-                "Content-Type": "application/json",
-            },
-            "paginator": WorkOSPaginator(),
+    client_config: ClientConfig = {
+        "base_url": BASE_URL,
+        "auth": {
+            "type": "bearer",
+            "token": api_key,
         },
+        "headers": {
+            "Content-Type": "application/json",
+        },
+        "paginator": WorkOSPaginator(),
+    }
+
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    if endpoint_config.fanout is not None:
+        return _fanout_source_response(
+            endpoint=endpoint,
+            fanout=endpoint_config.fanout,
+            client_config=client_config,
+            team_id=team_id,
+            job_id=job_id,
+            resumable_source_manager=resumable_source_manager,
+            resume_config=resume_config,
+        )
+
+    config: RESTAPIConfig = {
+        "client": client_config,
         "resource_defaults": {
             "write_disposition": "replace",
         },
@@ -368,10 +394,8 @@ def workos_source(
 
     # Seed the paginator from the saved checkpoint when resuming.
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None and resume_config.after:
-            initial_paginator_state = {"after": resume_config.after}
+    if resume_config is not None and resume_config.after:
+        initial_paginator_state = {"after": resume_config.after}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # rest_client passes None once the paginator is exhausted; nothing to persist then.
@@ -404,4 +428,46 @@ def workos_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[endpoint_config.partition_key],
+    )
+
+
+def _fanout_source_response(
+    endpoint: str,
+    fanout: DependentEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[WorkOSResumeConfig],
+    resume_config: Optional[WorkOSResumeConfig],
+) -> SourceResponse:
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state:
+            resumable_source_manager.save_state(WorkOSResumeConfig(fanout_state=state))
+
+    resource = build_dependent_resource(
+        endpoint_configs={**WORKOS_ENDPOINTS, WAITLISTS_PARENT.name: WAITLISTS_PARENT},
+        child_endpoint=endpoint,
+        fanout=fanout,
+        client_config=client_config,
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra={"data_selector": "data"},
+        child_endpoint_extra={"data_selector": "data"},
+        # The parent takes no page-size param, so the child's `limit` rides in `child_params`.
+        page_size_param=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state=resume_config.fanout_state if resume_config else None,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=["id"],
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime",
+        partition_format="week",
+        partition_keys=[WORKOS_ENDPOINTS[endpoint].partition_key],
     )

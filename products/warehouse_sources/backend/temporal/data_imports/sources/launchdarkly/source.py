@@ -229,8 +229,8 @@ class LaunchDarklySource(ResumableSource[LaunchDarklySourceConfig, LaunchDarklyR
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             keywords=["feature flags"],
             label="LaunchDarkly",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="""Enter your LaunchDarkly access token to pull your projects, environments, feature flags, flag statuses, segments, experiments, holdouts, metrics, members, and audit log into the PostHog Data warehouse.
+            releaseStatus=ReleaseStatus.GA,
+            caption="""Enter your LaunchDarkly access token to pull your projects, environments, feature flags, flag statuses, segments, experiments, holdouts, metrics, metric groups, members, teams, code references, and audit log into the PostHog Data warehouse.
 
 You can create a personal or service access token in your [LaunchDarkly account settings](https://app.launchdarkly.com/settings/authorization). A token with the **Reader** role grants read access to every resource this source syncs.""",
             iconPath="/static/services/launchdarkly.png",
@@ -295,15 +295,18 @@ You can create a personal or service access token in your [LaunchDarkly account 
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        # Fan-out endpoints can't be probed without a project key, so confirm scope against
-        # /projects (their prerequisite); top-level endpoints probe their own path.
+        # Fan-out endpoints can't be probed without a parent key, so confirm scope against their
+        # parent list (/projects or /teams); top-level endpoints probe their own path.
         probe_path = "/caller-identity"
         if schema_name is not None:
             endpoint = LAUNCHDARKLY_ENDPOINTS.get(schema_name)
             if endpoint is not None:
-                probe_path = (
-                    "/projects" if endpoint.requires_project or endpoint.requires_environment else endpoint.path
-                )
+                if endpoint.requires_team:
+                    probe_path = "/teams"
+                elif endpoint.requires_project or endpoint.requires_environment:
+                    probe_path = "/projects"
+                else:
+                    probe_path = endpoint.path
 
         status = validate_launchdarkly_credentials(config.access_token, probe_path)
 

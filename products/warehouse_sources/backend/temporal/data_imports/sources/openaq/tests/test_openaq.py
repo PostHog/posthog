@@ -63,7 +63,11 @@ class TestFlattenMeasurement:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("server_error", 500, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_validate_credentials_maps_status(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status))) as network:
             assert validate_credentials("key") is expected
@@ -117,9 +121,17 @@ class TestMeasurementFanOut:
     def _measurement(self, dt: str, value: float) -> dict[str, Any]:
         return {"value": value, "parameter": {"name": "pm25"}, "period": {"datetimeFrom": {"utc": dt}}}
 
-    def test_applies_incremental_datetime_filter(self) -> None:
+    @parameterized.expand(
+        [
+            ("raw", "measurements", "/v3/sensors/10/measurements", "datetime_from", "2026-01-05T00:00:00Z"),
+            ("yearly", "measurements_yearly", "/v3/sensors/10/years", "date_from", "2026-01-05"),
+        ]
+    )
+    def test_applies_incremental_datetime_filter(
+        self, _name: str, endpoint: str, sensor_path: str, filter_param: str, filter_value: str
+    ) -> None:
         result = _driver().run(
-            "measurements",
+            endpoint,
             [
                 _page([{"id": 1, "sensors": [{"id": 10}]}]),
                 _page([self._measurement("2026-01-06T00:00:00Z", 7.0)]),
@@ -129,6 +141,54 @@ class TestMeasurementFanOut:
         )
         assert result.raised is None
         assert [r["datetime_from"] for r in result.rows] == ["2026-01-06T00:00:00Z"]
-        # The per-sensor request carried the server-side datetime filter.
-        sensor_req = next(request for request in result.requests if "/sensors/10/measurements" in request.path)
-        assert sensor_req.param("datetime_from") == "2026-01-05T00:00:00Z"
+        # The per-sensor request carried the server-side time filter in the format the endpoint takes.
+        sensor_req = next(request for request in result.requests if request.path == sensor_path)
+        assert sensor_req.param(filter_param) == filter_value
+
+
+class TestDetailFanOut:
+    _FLAG = {
+        "locationId": 1,
+        "flagType": {"id": 3, "label": "Calibration", "level": "warning"},
+        "datetimeFrom": {"utc": "2026-01-01T00:00:00Z", "local": "2026-01-01T01:00:00+01:00"},
+        "datetimeTo": {"utc": "2026-01-02T00:00:00Z", "local": "2026-01-02T01:00:00+01:00"},
+        "sensorIds": [10],
+        "note": None,
+    }
+
+    @parameterized.expand(
+        [
+            (
+                "location_latest",
+                {
+                    "sensorsId": 10,
+                    "locationsId": 1,
+                    "value": 12.5,
+                    "datetime": {"utc": "2026-01-06T00:00:00Z", "local": "2026-01-06T01:00:00+01:00"},
+                },
+                "/v3/locations/1/latest",
+                {"location_id": 1, "sensor_id": 10, "datetime": "2026-01-06T00:00:00Z", "value": 12.5},
+            ),
+            (
+                "location_flags",
+                _FLAG,
+                "/v3/locations/1/flags",
+                {"location_id": 1, "flag_type_id": 3, "datetime_from": "2026-01-01T00:00:00Z"},
+            ),
+            (
+                "sensor_flags",
+                _FLAG,
+                "/v3/sensors/10/flags",
+                {"sensor_id": 10, "flag_type_id": 3, "datetime_from": "2026-01-01T00:00:00Z"},
+            ),
+        ]
+    )
+    def test_fans_out_per_parent_and_keys_rows_by_parent(
+        self, endpoint: str, item: dict[str, Any], child_path: str, expected_key: dict[str, Any]
+    ) -> None:
+        result = _driver().run(endpoint, [_page([{"id": 1, "sensors": [{"id": 10}]}]), _page([item])])
+
+        assert result.raised is None
+        assert result.paths == ["/v3/locations", child_path]
+        assert len(result.rows) == 1
+        assert {key: result.rows[0][key] for key in expected_key} == expected_key

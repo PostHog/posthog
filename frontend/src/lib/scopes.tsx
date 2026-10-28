@@ -215,6 +215,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    { key: 'inbox', objectName: 'Inbox', objectPlural: 'inbox reports' },
     {
         key: 'ingestion_warning',
         objectName: 'Ingestion warning',
@@ -609,6 +610,7 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'data_catalog_approval',
             'mcp_registry',
             'task',
+            'inbox',
             'today',
             'loop',
             'signal_scout',

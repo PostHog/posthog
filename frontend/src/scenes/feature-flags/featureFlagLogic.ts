@@ -24,7 +24,7 @@ import { CombinedLocation } from 'kea-router/lib/utils'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
 
-import api, { PaginatedResponse } from 'lib/api'
+import api, { PaginatedResponse, isAbortError } from 'lib/api'
 import { isAccessDeniedError, isApprovalRequiredError } from 'lib/api-error'
 import { handleApprovalRequired } from 'lib/approvals/utils'
 import { ACTIVITY_SEARCH_PARAM } from 'lib/components/ActivityLog/activityLogLogic'
@@ -34,7 +34,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { describeCron } from 'lib/cron'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { ToastButton, lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -62,6 +62,7 @@ import {
     ActivityScope,
     AvailableFeature,
     Breadcrumb,
+    CohortPropertyFilter,
     CohortType,
     EarlyAccessFeatureType,
     FeatureFlagBucketingIdentifier,
@@ -89,20 +90,25 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { cohortsList, cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
+import { cohortsActivityRetrieve } from 'products/cohorts/frontend/generated/api'
+import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+import { deletedCohortFilters, withCohortAnnotationsFrom } from 'products/feature_flags/frontend/deletedCohortFilters'
 import {
     FeatureFlagConfigFormat,
-    STALE_ROW_VERSION_RELOADED_MESSAGE,
     featureFlagConfigFormat,
+    featureFlagDeleteOptions,
     isRulesV2EditableConfig,
-    isStaleRowVersionError,
     isV1FeatureFlagConfig,
+    reloadIfStaleRowVersion,
     rowVersionToken,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import {
     featureFlagsCopyFlagsCreate,
     featureFlagsCopyFlagsDependencyRequirementsCreate,
+    featureFlagsCreateStaticCohortForFlagCreate,
     featureFlagsList,
     featureFlagsRetrieve,
     featureFlagsStatusRetrieve,
@@ -111,6 +117,12 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     FeatureFlagStatusResponseApi,
 } from 'products/feature_flags/frontend/generated/api.schemas'
+import {
+    captureMessageAudienceClicked,
+    cohortAudienceProperties,
+    messageAudienceAccessDisabledReason,
+    messageAudienceUrl,
+} from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import type { CopyFlagsResponseApi } from '../../../../products/feature_flags/frontend/generated/api.schemas'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
@@ -157,6 +169,161 @@ import {
 } from './scheduleOccurrences'
 import { flagToggleKey, updateFlagActiveInProject } from './updateFlagActiveInProject'
 
+const BROADCAST_COHORT_POLL_MS = 2000
+const BROADCAST_COHORT_WAIT_MS = 60_000
+const BROADCAST_COHORT_PAGE_SIZE = 20
+// A flag cohort is a snapshot, so reuse it only while it still reflects who has the flag now.
+const REUSABLE_FLAG_COHORT_MAX_AGE_MS = 60 * 60 * 1000
+// insert_cohort_from_feature_flag stops at a 4-hour soft limit, so a cohort still calculating after that is stuck.
+const FLAG_COHORT_MAX_FILL_MS = 4 * 60 * 60 * 1000
+// pinned: sent as the broadcast's entry_source and the click event's source, so renaming it splits the history
+const FLAG_BROADCAST_SOURCE = 'feature_flag'
+// pinned: the toast offered when a save turns a flag on for everyone
+const FLAG_LIVE_BROADCAST_SOURCE = 'feature_flag_live'
+export const FINDING_FLAG_PEOPLE_MESSAGE = 'Finding the people who have this flag…'
+
+function flagCohortNamePrefix(flagKey: string): string {
+    // Matches the name that create_static_cohort_for_flag gives its cohort. Renaming it there stops reuse here.
+    return `Users with feature flag ${flagKey} enabled at`
+}
+
+function reusableFlagCohorts(
+    cohorts: CohortApi[],
+    flag: Pick<FeatureFlagType, 'key' | 'updated_at'>,
+    userUuid: string,
+    now: number
+): CohortApi[] {
+    // A cohort made before the flag's last save can hold people the current conditions no longer match.
+    if (!flag.updated_at) {
+        return []
+    }
+    const flagUpdatedAt = new Date(flag.updated_at).getTime()
+    const prefix = `${flagCohortNamePrefix(flag.key)} `
+    const reusable = cohorts.filter(
+        (cohort) =>
+            !!cohort.name?.startsWith(prefix) &&
+            // Any project member can create a cohort with this name, so only the current user's own snapshot is trusted.
+            cohort.created_by?.uuid === userUuid &&
+            cohort.is_static === true &&
+            !cohort.deleted &&
+            cohort.errors_calculating === 0 &&
+            !!cohort.created_at &&
+            new Date(cohort.created_at).getTime() >= flagUpdatedAt &&
+            // A cohort still filling shares its running scan, so a later click doesn't start a second one.
+            now - new Date(cohort.created_at).getTime() <
+                (cohort.is_calculating ? FLAG_COHORT_MAX_FILL_MS : REUSABLE_FLAG_COHORT_MAX_AGE_MS)
+    )
+    reusable.sort((a, b) => new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime())
+    return reusable
+}
+
+async function flagCohortWasEdited(projectId: string, cohortId: number): Promise<boolean> {
+    // Creating and filling the snapshot logs no activity, so any entry means someone edited its people by hand.
+    // When the history can't be read, a fresh snapshot is the safe choice.
+    try {
+        const { results } = await cohortsActivityRetrieve(projectId, cohortId, { limit: 1 })
+        return results.length > 0
+    } catch {
+        return true
+    }
+}
+
+/** Why a broadcast to this flag's audience would reach no one, if it would. */
+export function broadcastNoOneReason(
+    flag: Pick<FeatureFlagType, 'deleted' | 'archived' | 'active' | 'filters'> | null | undefined
+): string | undefined {
+    if (flag?.deleted) {
+        return 'This flag is deleted'
+    }
+    if (flag?.archived) {
+        return 'This flag is archived, so no one has it. Unarchive and enable it first.'
+    }
+    if (!flag?.active) {
+        return 'This flag is disabled, so no one has it. Enable it first.'
+    }
+    // The cohort task skips group-targeted flags, so their cohort stays empty.
+    if (flag.filters?.aggregation_group_type_index != null) {
+        return 'This flag targets groups, not people, so there is no one to email.'
+    }
+    return undefined
+}
+
+function isOnForEveryone(flag: Pick<FeatureFlagType, 'active' | 'filters'> | null | undefined): boolean {
+    if (!flag?.active || !isV1FeatureFlagConfig(flag.filters) || flag.filters.multivariate) {
+        return false
+    }
+    // The matcher checks enrollment before release conditions, so a person who opted out never reaches them.
+    if (flag.filters.feature_enrollment || flag.filters.super_groups?.length) {
+        return false
+    }
+    const flagAggregation = flag.filters.aggregation_group_type_index ?? null
+    // A set that aggregates by group matches only requests that carry that group, so it can't cover everyone.
+    const reachesEveryPerson = (group: FeatureFlagGroupType): boolean =>
+        !group.properties?.length &&
+        (group.aggregation_group_type_index === undefined ? flagAggregation : group.aggregation_group_type_index) ===
+            null
+    const groups = flag.filters.groups ?? []
+    if (!flag.filters.early_exit) {
+        return groups.some((group) => reachesEveryPerson(group) && (group.rollout_percentage ?? 100) === 100)
+    }
+    // With early exit, a person who matches a set's properties but falls outside its rollout stops there
+    // with no match, so a partial set ahead of the untargeted one leaves some people without the flag.
+    for (const group of groups) {
+        if ((group.rollout_percentage ?? 100) !== 100) {
+            return false
+        }
+        if (reachesEveryPerson(group)) {
+            return true
+        }
+    }
+    return false
+}
+
+/** True when this save is the one that turned the flag on for everyone, so the launch is worth announcing. */
+export function flagWentLive(
+    before: Pick<FeatureFlagType, 'id' | 'active' | 'filters'> | null | undefined,
+    after: Pick<FeatureFlagType, 'deleted' | 'archived' | 'active' | 'filters'>
+): boolean {
+    // A never-saved baseline holds the form's starting config, which no one has received yet.
+    const savedBefore = before?.id != null ? before : null
+    return isOnForEveryone(after) && !broadcastNoOneReason(after) && !isOnForEveryone(savedBefore)
+}
+
+function liveFlagToastOptions(
+    before: FeatureFlagType | null,
+    after: FeatureFlagType,
+    cohortCreationEnabled: boolean
+): { button: ToastButton; toastId: string } | undefined {
+    const flagId = after.id
+    if (
+        flagId === null ||
+        !cohortCreationEnabled ||
+        messageAudienceAccessDisabledReason() ||
+        !flagWentLive(before, after)
+    ) {
+        return undefined
+    }
+    const button: ToastButton = {
+        label: "Tell people it's live",
+        dataAttr: 'feature-flag-live-broadcast',
+        action: () => {
+            // The toast outlives the logic that showed it: a create redirects from the 'new' key to the saved ID,
+            // and leaving the page unmounts the logic. Bind to the saved ID and hold it mounted for the whole search.
+            const logic = featureFlagLogic({ id: flagId })
+            const unmount = logic.mount()
+            // A search started from the flag's menu is still running. A second one could pass the same reuse
+            // check and fill a second cohort.
+            if (logic.values.broadcastCohortLoading) {
+                unmount()
+                return
+            }
+            void logic.asyncActions.findOrCreateBroadcastCohort(FLAG_LIVE_BROADCAST_SOURCE).finally(unmount)
+        },
+    }
+    // Toasts with the same message share an id and a visible one swallows the next, which would drop this button.
+    return { button, toastId: `feature-flag-live-${flagId}` }
+}
+
 function reportFailedToCreateFeatureFlagWithCohort(code: string, detail: string): void {
     posthog.capture('failed to create feature flag with cohort', { detail, code })
 }
@@ -167,6 +334,25 @@ function reportFeatureFlagCopyFailure(error: string): void {
 
 function reportFeatureFlagScheduleSuccess(): void {
     posthog.capture('feature flag scheduled')
+}
+
+// A flag opened from the list arrives through refreshFeatureFlag, not loadFeatureFlag.
+// Clicking Edit loads the flag again. The cache entry limits the event to one capture per mount.
+function reportFlagWithDeletedCohortLoaded(featureFlag: FeatureFlagType | null, cache: Record<string, any>): void {
+    if (!featureFlag?.id || cache.hasCapturedDeletedCohortLoad) {
+        return
+    }
+    const filters = deletedCohortFilters(featureFlag.filters)
+    if (filters.length === 0) {
+        return
+    }
+    cache.hasCapturedDeletedCohortLoad = true
+    posthog.capture('feature flag with deleted cohort loaded', {
+        active: featureFlag.active,
+        archived: featureFlag.archived,
+        deleted: featureFlag.deleted,
+        deleted_cohort_count: filters.length,
+    })
 }
 
 // A collapsed condition-set panel renders none of its children, so an inline release-condition
@@ -587,8 +773,87 @@ export interface FeatureFlagLogicProps {
     id: number | 'new' | 'link'
 }
 
+function dismissBroadcastProgress(cache: Record<string, any>): void {
+    if (cache.broadcastToastId) {
+        lemonToast.dismiss(cache.broadcastToastId)
+        cache.broadcastToastId = null
+    }
+}
+
 function isOnFeatureFlagPage(id: FeatureFlagLogicProps['id']): boolean {
     return removeProjectIdIfPresent(router.values.location.pathname) === urls.featureFlag(id)
+}
+
+// Leaving the flag page unmounts its logic, so the wait and its outcome avoid breakpoints and the logic's values.
+async function waitForFlagCohort(projectId: string, cohortId: number): Promise<CohortApi> {
+    const deadline = Date.now() + BROADCAST_COHORT_WAIT_MS
+    // Each request gets what is left of the wait, so a stalled one cannot hold the toast past the deadline.
+    const retrieve = async (): Promise<CohortApi> => {
+        // A plain abort, because the API client passes AbortError through but wraps a TimeoutError.
+        const controller = new AbortController()
+        const timer = window.setTimeout(
+            () => controller.abort(),
+            Math.max(deadline - Date.now(), BROADCAST_COHORT_POLL_MS)
+        )
+        try {
+            return await cohortsRetrieve(projectId, cohortId, { signal: controller.signal })
+        } finally {
+            window.clearTimeout(timer)
+        }
+    }
+    let status = await retrieve()
+    while (status.is_calculating && Date.now() < deadline) {
+        await new Promise((resolve) => window.setTimeout(resolve, BROADCAST_COHORT_POLL_MS))
+        try {
+            status = await retrieve()
+        } catch (error) {
+            if (isAbortError(error)) {
+                return status
+            }
+            throw error
+        }
+    }
+    return status
+}
+
+function showFlagCohortOutcome(
+    cohort: CohortApi,
+    flagId: FeatureFlagLogicProps['id'],
+    flagKey: string,
+    source: string
+): void {
+    if (cohort.errors_calculating > 0) {
+        lemonToast.error("Couldn't find the people who have this flag. Try again in a few minutes.")
+        return
+    }
+    if (cohort.is_calculating) {
+        lemonToast.info(
+            'Still finding the people who have this flag. Send the broadcast from the cohort once it is ready.',
+            {
+                button: {
+                    label: 'View cohort',
+                    action: () => router.actions.push(urls.cohort(cohort.id)),
+                },
+            }
+        )
+        return
+    }
+    const broadcastUrl = messageAudienceUrl(
+        {
+            source,
+            properties: cohortAudienceProperties(cohort),
+            broadcastName: `${flagKey} announcement`,
+        },
+        'broadcast'
+    )
+    if (isOnFeatureFlagPage(flagId)) {
+        router.actions.push(broadcastUrl)
+        return
+    }
+    // The wait can outlast the visit, so don't pull someone off the page they moved to.
+    lemonToast.success('The people who have this flag are ready for your broadcast.', {
+        button: { label: 'Open broadcast', action: () => router.actions.push(broadcastUrl) },
+    })
 }
 
 /**
@@ -875,16 +1140,6 @@ export const getRecordingFilterForFlagVariant = (
     }
 }
 
-// The conflicting write may have replaced the whole document, so a stale row version reloads the flag.
-function reloadIfStaleRowVersion(token: { version?: number }, error: any, reload: () => void): boolean {
-    if (!isStaleRowVersionError(token, error)) {
-        return false
-    }
-    lemonToast.error(error?.detail || STALE_ROW_VERSION_RELOADED_MESSAGE)
-    reload()
-    return true
-}
-
 // A v2 write must carry the row version the previous write returned, so inline saves go out one at a time.
 function queueInlineSave<T>(cache: Record<string, any>, send: () => Promise<T>): Promise<T> {
     const request = (cache.inlineSaveQueue ?? Promise.resolve()).catch(() => null).then(send)
@@ -969,6 +1224,8 @@ export interface featureFlagLogicValues {
     alsoCreateInProjects: number[]
     availableTabs: FeatureFlagsTab[]
     breadcrumbs: Breadcrumb[]
+    broadcastCohort: CohortApi | null
+    broadcastCohortLoading: boolean
     canCreateEarlyAccessFeature: boolean
     canCreatePairedSchedule: boolean
     completedSchedules: ScheduledChangeType[]
@@ -985,6 +1242,7 @@ export interface featureFlagLogicValues {
     customPairDisableCronPreview: string | null
     customPairEnableCron: string
     customPairEnableCronPreview: string | null
+    deletedCohortFilters: CohortPropertyFilter[]
     dependentFlags: DependentFlag[]
     dependentFlagsLoading: boolean
     disableCopiedFlag: boolean
@@ -1360,6 +1618,21 @@ export interface featureFlagLogicActions {
     ) => {
         editing: boolean
         expandAdvanced: boolean
+    }
+    findOrCreateBroadcastCohort: (source?: string) => string
+    findOrCreateBroadcastCohortFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    findOrCreateBroadcastCohortSuccess: (
+        broadcastCohort: CohortApi | null,
+        payload?: string
+    ) => {
+        broadcastCohort: CohortApi | null
+        payload?: string
     }
     loadCopyDependencyRequirements: () => {
         value: true
@@ -2265,6 +2538,7 @@ export interface featureFlagLogicMeta {
         hasEncryptedPayloadBeenSaved: (featureFlag: FeatureFlagType, props: any) => boolean | undefined
         hasExperiment: (featureFlag: FeatureFlagType) => boolean | null
         showStaleFlagBanner: (featureFlag: FeatureFlagType, flagStatus: FeatureFlagStatusResponseApi | null) => boolean
+        deletedCohortFilters: (featureFlag: FeatureFlagType) => CohortPropertyFilter[]
         isDraftExperiment: (experiment: any) => boolean
         properties: (featureFlag: FeatureFlagType) => AnyPropertyFilter[]
         savedVariantKeys: (originalFeatureFlag: FeatureFlagType | null) => string[]
@@ -3161,7 +3435,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
     })),
-    loaders(({ values, props, actions }) => ({
+    loaders(({ values, props, actions, cache }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
                 const sourceId = router.values.searchParams.sourceId
@@ -3507,7 +3781,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         // nosemgrep: prefer-codegen-api -- The generated partial update request type has no `deleted` field.
                         const restoredFlag = await api.update(
                             `api/projects/${values.currentProjectId}/feature_flags/${featureFlag.id}`,
-                            { deleted: false }
+                            { deleted: false, ...rowVersionToken(featureFlag) }
                         )
                         // Restore gives the flag a new tree entry. A delete from another tab or the API leaves the old entry in this tab's tree.
                         deleteFromTree('feature_flag', String(featureFlag.id))
@@ -3653,6 +3927,62 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         return (await api.featureFlags.createStaticCohort(props.id)).cohort
                     }
                     return null
+                },
+            },
+        ],
+        broadcastCohort: [
+            null as CohortApi | null,
+            {
+                findOrCreateBroadcastCohort: async (source: string = FLAG_BROADCAST_SOURCE, breakpoint) => {
+                    if (!props.id || props.id === 'new' || props.id === 'link' || !values.currentProjectId) {
+                        return null
+                    }
+                    const projectId = String(values.currentProjectId)
+                    // The tab's copy of the flag can be older than a teammate's edit or a scheduled change.
+                    const flag = (await featureFlagsRetrieve(projectId, props.id)) as unknown as FeatureFlagType
+                    breakpoint()
+                    const noOneReason = broadcastNoOneReason(flag)
+                    if (noOneReason) {
+                        lemonToast.error(noOneReason)
+                        return null
+                    }
+                    const user = values.user
+                    let cohortId: number | null = null
+                    if (user) {
+                        const now = Date.now()
+                        // Newest first, so paging stops once a page reaches cohorts too old to reuse.
+                        for (let offset = 0; cohortId === null; offset += BROADCAST_COHORT_PAGE_SIZE) {
+                            const { results, next } = await cohortsList(projectId, {
+                                type: 'static',
+                                created_by_id: user.id,
+                                limit: BROADCAST_COHORT_PAGE_SIZE,
+                                offset,
+                            })
+                            breakpoint()
+                            for (const candidate of reusableFlagCohorts(results, flag, user.uuid, now)) {
+                                const edited = await flagCohortWasEdited(projectId, candidate.id)
+                                breakpoint()
+                                if (!edited) {
+                                    cohortId = candidate.id
+                                    break
+                                }
+                            }
+                            const oldest = results[results.length - 1]?.created_at
+                            if (!next || !oldest || now - new Date(oldest).getTime() >= FLAG_COHORT_MAX_FILL_MS) {
+                                break
+                            }
+                        }
+                    }
+                    if (cohortId === null) {
+                        const { cohort } = await featureFlagsCreateStaticCohortForFlagCreate(projectId, props.id)
+                        breakpoint()
+                        cohortId = cohort.id
+                    }
+                    // The cohort fills in the background. Opening the broadcast earlier would let it send to no one.
+                    const status = await waitForFlagCohort(projectId, cohortId)
+                    dismissBroadcastProgress(cache)
+                    showFlagCohortOutcome(status, props.id, flag.key, source)
+                    return status
                 },
             },
         ],
@@ -4134,7 +4464,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
-            lemonToast.success('Feature flag saved')
+            lemonToast.success(
+                'Feature flag saved',
+                liveFlagToastOptions(
+                    values.originalFeatureFlag,
+                    featureFlag,
+                    !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
+                )
+            )
             dismissAgentNotices(props.id, cache)
             actions.setFeatureFlag(featureFlag)
             // Whole flag just persisted — the baseline is now the saved state, so the form reads clean.
@@ -4274,7 +4611,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         updateFeatureFlagActiveSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {
-                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`)
+                lemonToast.success(
+                    `Feature flag ${featureFlagActiveUpdate.active ? 'enabled' : 'disabled'}`,
+                    liveFlagToastOptions(
+                        values.originalFeatureFlag,
+                        featureFlagActiveUpdate,
+                        !!values.enabledFeatures[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION]
+                    )
+                )
                 // Only active/version were persisted, so fold just those onto the working copy and
                 // the baseline. Taking the whole server flag would drop any in-progress edit and
                 // re-baseline over it, leaving the guard clean.
@@ -4338,6 +4682,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (!featureFlagRefresh) {
                 return
             }
+            reportFlagWithDeletedCohortLoaded(featureFlagRefresh, cache)
             const afterAgentChange = !!payload?.afterAgentChange
             if (afterAgentChange && cache.agentRefreshFailedToastId) {
                 // This response carries what the failed one missed, so its notice is now wrong.
@@ -4369,8 +4714,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     ...(isEditedLocally('archived') ? {} : { archived: featureFlagRefresh.archived }),
                     ...(afterAgentChange ? {} : { version: featureFlagRefresh.version }),
                 }
-                actions.setFeatureFlag({ ...values.featureFlag, ...persisted })
-                actions.setOriginalFeatureFlag({ ...baseline, ...persisted })
+                // A list-cached flag can carry cohort markers from before a cohort was deleted or restored.
+                actions.setFeatureFlag(
+                    withCohortAnnotationsFrom({ ...values.featureFlag, ...persisted }, featureFlagRefresh)
+                )
+                actions.setOriginalFeatureFlag(
+                    withCohortAnnotationsFrom({ ...baseline, ...persisted }, featureFlagRefresh)
+                )
                 if (afterAgentChange) {
                     lemonToast.info(
                         'PostHog AI changed this flag. The page kept your unsaved edits, so it does not show the saved version.',
@@ -4466,6 +4816,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { id: featureFlag.id },
                 label: featureFlag.key,
+                // Read the row version now: an inline save may have moved it on since the dialog opened.
+                ...featureFlagDeleteOptions(values.featureFlag, actions.refreshFeatureFlag),
                 callback: (undo) => {
                     if (undo) {
                         refreshTreeItem('feature_flag', String(featureFlag.id))
@@ -4546,6 +4898,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
             actions.loadRelatedInsights()
             actions.loadDependentFlags()
+            reportFlagWithDeletedCohortLoaded(featureFlag, cache)
             // Experiment is now loaded inline during loadFeatureFlag, not here
 
             // Auto-apply template from URL param on first load
@@ -4662,6 +5015,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         copyFlagFailure: () => {
             if (values.copyDependencies && values.copyDestinationProject) {
                 actions.loadCopyDependencyRequirements()
+            }
+        },
+        findOrCreateBroadcastCohort: (source = FLAG_BROADCAST_SOURCE) => {
+            captureMessageAudienceClicked(source, 'broadcast')
+            dismissBroadcastProgress(cache)
+            cache.broadcastToastId = lemonToast.loading(FINDING_FLAG_PEOPLE_MESSAGE, {
+                // A fresh id per click: a dismissed id stays cancelled, which would hide the next click's toast.
+                toastId: `flag-broadcast-${props.id}-${Date.now()}`,
+                autoClose: false,
+            })
+        },
+        findOrCreateBroadcastCohortFailure: ({ errorObject }) => {
+            dismissBroadcastProgress(cache)
+            // The shared loader error toast needs an HTTP status, which a dropped connection never has.
+            if (errorObject?.status === undefined) {
+                lemonToast.error("Couldn't reach PostHog to find the people who have this flag. Try again.")
             }
         },
         createStaticCohortSuccess: ({ newCohort }) => {
@@ -5264,6 +5633,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 )
             },
         ],
+        deletedCohortFilters: [
+            (s) => [s.featureFlag],
+            (featureFlag: FeatureFlagType): CohortPropertyFilter[] => deletedCohortFilters(featureFlag.filters),
+        ],
         isDraftExperiment: [
             (s) => [s.experiment],
             (experiment) => {
@@ -5684,5 +6057,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     beforeUnmount(({ props, cache }) => {
         // A notice that survives navigation has a button that reloads an unmounted logic.
         dismissAgentNotices(props.id, cache)
+        dismissBroadcastProgress(cache)
     }),
 ])

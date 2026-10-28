@@ -18,7 +18,12 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
 
-from products.batch_exports.backend.service import BatchExportField, BatchExportInsertInputs, WorkflowsBatchExportInputs
+from products.batch_exports.backend.service import (
+    BatchExportField,
+    BatchExportInsertInputs,
+    WorkflowsBatchExportInputs,
+    migrate_batch_export_model,
+)
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     get_data_interval,
@@ -410,6 +415,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
     )
 
     async with Heartbeater():
+        model = migrate_batch_export_model(inputs.batch_export.batch_export_model)
         queue = RecordBatchQueue(max_size_bytes=settings.BATCH_EXPORT_WORKFLOWS_RECORD_BATCH_QUEUE_MAX_SIZE_BYTES)
         producer = Producer()
         assert inputs.batch_export.batch_export_id is not None
@@ -458,9 +464,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 team_id=inputs.batch_export.team_id,
                 session=session,
                 request_task_group=tg,
-                model=inputs.batch_export.batch_export_model.name
-                if inputs.batch_export.batch_export_model
-                else "events",
+                model=model.name,
                 max_concurrent_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_CONCURRENT_REQUESTS,
                 max_pending_requests=settings.BATCH_EXPORT_WORKFLOWS_MAX_PENDING_REQUESTS,
             )

@@ -9,6 +9,7 @@ import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPulse } from './TodayPulse'
+import { TodayPulseEditor } from './TodayPulseEditor'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
 
@@ -46,10 +47,37 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, isNewProject, recentObjects, returnFocusReportId } = useValues(todayLogic)
+    const { greeting, isNewProject, recentObjects, returnFocusReportId, useSampleData } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
-    const { highlights, highlightsPending } = useValues(todayHighlightsLogic)
+    const {
+        currentProjectId,
+        highlights,
+        highlightsLoading,
+        highlightsFailed,
+        highlightsPending,
+        pulseTiles,
+        pulsePinsLoaded,
+    } = useValues(todayHighlightsLogic)
+    const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+
+    useLayoutEffect(() => {
+        pulseViewMounted(useSampleData)
+        return () => pulseViewUnmounted()
+    }, [currentProjectId, useSampleData, pulseViewMounted, pulseViewUnmounted])
+
+    useLayoutEffect(() => {
+        pulseViewUpdated()
+    }, [
+        highlights,
+        highlightsLoading,
+        highlightsFailed,
+        highlightsPending,
+        pulseTiles,
+        pulseViewUpdated,
+        currentProjectId,
+        useSampleData,
+    ])
 
     useLayoutEffect(() => {
         const scroller = rootRef.current?.closest('main')
@@ -84,13 +112,16 @@ export function TodayHomePage(): JSX.Element {
                         {greeting}
                     </Text>
                 </div>
-                <TodayMetaLine />
+                <div className="TodayHome__metaRow">
+                    <TodayMetaLine />
+                    {!highlightsPending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
+                </div>
             </section>
             <div className="TodayHome__body">
                 {highlightsPending ? (
                     <TodayPulseSkeleton />
-                ) : highlights && highlights.pulse.length > 0 ? (
-                    <TodayPulse metrics={highlights.pulse} />
+                ) : highlights && pulseTiles.length > 0 ? (
+                    <TodayPulse metrics={pulseTiles} />
                 ) : null}
                 {isNewProject && recentObjects.length === 0 ? <TodayExplore /> : <TodayRecents />}
                 <TodayForYou />

@@ -1,4 +1,4 @@
-from dataclasses import field
+from dataclasses import field, replace
 
 from posthog.dataclasses import frozen
 
@@ -34,6 +34,16 @@ CAMPAIGN_FANOUT = DependentEndpointConfig(
     child_response_actions=[{"status_code": 404, "action": "ignore"}],
 )
 
+# VWO answers 400 for a campaign type that has no sections (e.g. a standard A/B test);
+# 404 for a campaign deleted after the parent listing.
+CAMPAIGN_SECTIONS_FANOUT = replace(
+    CAMPAIGN_FANOUT,
+    child_response_actions=[
+        {"status_code": 400, "action": "ignore"},
+        {"status_code": 404, "action": "ignore"},
+    ],
+)
+
 # VWO documents no timestamp filter. Offset ordering and envelopes need verification with a live account.
 ENDPOINTS: dict[str, VWOEndpoint] = {
     "accounts": VWOEndpoint(name="accounts", path="accounts/{account_id}", singleton=True, partition_field="createdOn"),
@@ -44,7 +54,7 @@ ENDPOINTS: dict[str, VWOEndpoint] = {
         name="campaign_sections",
         path="accounts/{account_id}/campaigns/{campaign_id}/sections",
         primary_keys=("campaign_id", "id"),
-        fanout=CAMPAIGN_FANOUT,
+        fanout=CAMPAIGN_SECTIONS_FANOUT,
     ),
     "feature_flags": VWOEndpoint(name="feature_flags", path="accounts/{account_id}/features", paginated=True),
     "goals": VWOEndpoint(

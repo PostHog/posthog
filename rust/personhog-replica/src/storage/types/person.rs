@@ -16,6 +16,29 @@ pub struct DistinctIdWithVersion {
     pub id: i64,
 }
 
+/// A mapping row, live or tombstoned, with the state of the person it points at. The person fields
+/// are None for an orphan row whose person no longer exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DistinctIdRow {
+    pub distinct_id: String,
+    pub person_id: i64,
+    pub person_uuid: Option<Uuid>,
+    pub version: i64,
+    pub is_deleted: bool,
+    pub person_is_deleted: Option<bool>,
+}
+
+/// A person row, live or tombstoned, without properties.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PersonListEntry {
+    pub id: i64,
+    pub uuid: Uuid,
+    pub version: i64,
+    pub is_deleted: bool,
+    pub has_live_distinct_ids: bool,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TombstonedDistinctId {
     pub distinct_id: String,

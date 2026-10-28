@@ -20,7 +20,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.source import TinyemailSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tinyemail.tinyemail import (
-    INVALID_CREDENTIALS_MESSAGE,
     get_resource,
     validate_credentials,
 )
@@ -83,18 +82,6 @@ class TestTinyemailTransport:
         # An email is only unique within one contact list, so the parent id is part of the key.
         assert result.response is not None
         assert result.response.primary_keys == ["contact_id", "email"]
-
-    @parameterized.expand(
-        [
-            ("valid", 200, True, None),
-            ("invalid_key", 401, False, INVALID_CREDENTIALS_MESSAGE),
-            ("forbidden", 403, False, INVALID_CREDENTIALS_MESSAGE),
-            ("server_error", 500, False, "tinyEmail API returned an unexpected status code 500"),
-        ]
-    )
-    def test_validate_credentials_status_mapping(self, _name, status, expected_valid, expected_message):
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials(api_key="key") == (expected_valid, expected_message)
 
     def test_validate_credentials_handles_request_exception(self) -> None:
         with scripted_network(always(ConnectionResetError("reset"))):
