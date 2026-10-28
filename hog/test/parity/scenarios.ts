@@ -3,7 +3,7 @@ import { join } from 'node:path'
 
 import type { Scenario } from './fake-server'
 import { GIT_REPO, mappingOfSize, SMALL_MAPPING } from './fixtures'
-import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEETS } from './js-fixtures'
+import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEET_LOOKUP, STYLESHEETS } from './js-fixtures'
 import { decodeFile, type ParityResult } from './run'
 
 type Files = Record<string, string | Uint8Array>
@@ -131,6 +131,9 @@ SCENARIOS.push(
     js('process-post-only', 'process', bundles, { args: jsRelease, server: 'post-only' }),
     js('process-delete-after', 'process', () => ({ ...STYLESHEETS, ...bundles() }), {
         args: [...jsRelease, '--delete-after'],
+    }),
+    js('process-delete-after-css-lookup', 'process', () => STYLESHEET_LOOKUP, {
+        args: [...jsRelease, '--delete-after', '--public-path-prefix', 'https://cdn.example.com/assets'],
     }),
     js('upload-native-debug-ids', 'upload', bundles),
     js('upload-after-inject', 'upload', bundles, { before: [['inject', jsRelease]] }),

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, relative, resolve } from 'node:path'
+import { dirname, relative } from 'node:path'
 
 import { contentHash } from './container'
 import { decodeUtf8 } from './json'
@@ -122,7 +122,12 @@ function cssRemovalRange(content: string): [number, number] | undefined {
 
 // CSS bundles with maps under the given roots. Their maps are cleaned up too, but only when they
 // resolve inside a root, so a stylesheet can't make hog delete a file elsewhere.
-export function cssTargets(files: string[], roots: string[], warnings: string[]): CleanupTarget[] {
+export function cssTargets(
+    files: string[],
+    roots: string[],
+    publicPathPrefix: string | undefined,
+    warnings: string[]
+): CleanupTarget[] {
     const canonicalRoots = roots.map((root) => {
         const absolute = realpathSync(root)
         return statSync(absolute).isFile() ? dirname(absolute) : absolute
@@ -135,12 +140,8 @@ export function cssTargets(files: string[], roots: string[], warnings: string[])
         } catch {
             continue
         }
-        const reference = cssReference(source)
-        const mapPath =
-            reference === undefined
-                ? findSourceMap(realpathSync(file), '', undefined)
-                : resolve(dirname(realpathSync(file)), reference)
-        if (mapPath === undefined || !existsSync(mapPath)) {
+        const mapPath = findSourceMap(realpathSync(file), cssReference(source), publicPathPrefix)
+        if (mapPath === undefined) {
             continue
         }
         let map

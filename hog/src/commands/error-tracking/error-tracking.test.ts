@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -84,6 +84,49 @@ describe('hog error-tracking upload', () => {
         })
         expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
         expect(readFileSync(join(folder, 'dist/a.js.map'), 'utf8')).toBe(map)
+    })
+
+    const MAP = JSON.stringify({ version: 3, sources: ['a.ts'], names: [], mappings: 'AAAA' })
+    test.each([
+        [
+            'a reference to a JSON file that is not a sourcemap',
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=../settings.json\n', 'settings.json': '{"theme":"dark"}' },
+            [],
+            'settings.json',
+            "isn't a sourcemap",
+        ],
+        [
+            'a sourcemap that matches an ignore pattern',
+            { 'dist/a.js': 'a();\n//# sourceMappingURL=a.js.map\n', 'dist/a.js.map': MAP },
+            ['a.js.map'],
+            'dist/a.js.map',
+            'ignore pattern',
+        ],
+    ])('inject skips %s and leaves it alone', async (_name, files, ignore, untouched, reason) => {
+        const folder = project({
+            'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'dist', ignore }] } }),
+            'dist/b.js': 'b();\n//# sourceMappingURL=b.js.map\n',
+            'dist/b.js.map': MAP,
+            ...files,
+        })
+        const before = readFileSync(join(folder, untouched), 'utf8')
+        const result = await runHog(['et', 'inject'], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json().skipped).toEqual([
+            { path: expect.stringMatching(/dist\/a\.js$/), reason: expect.stringContaining(reason) },
+        ])
+        expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
+    })
+
+    test.skipIf(process.getuid?.() === 0)('inject changes no bundle when a map cannot be written', async () => {
+        const bundle = 'a();\n//# sourceMappingURL=a.js.map\n'
+        const folder = project({ 'dist/a.js': bundle, 'dist/a.js.map': MAP })
+        chmodSync(join(folder, 'dist/a.js.map'), 0o444)
+        const result = await runHog(['et', 'inject', 'dist'], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
+
+        expect(result.exitCode).toBe(1)
+        expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
     })
 
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {

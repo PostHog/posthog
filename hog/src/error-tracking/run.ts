@@ -7,7 +7,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 
 import { cleanUp, cssTargets, jsTarget, type CleanupTarget } from './cleanup'
 import { contentHash } from './container'
-import { discover, listFiles, type Artifact, type Root } from './discover'
+import { discover, isIgnored, listFiles, type Artifact, type Root } from './discover'
 import { GitError, gitInfo, type GitInfo } from './git'
 import {
     injectEventMode,
@@ -130,15 +130,26 @@ export class Session {
 }
 
 function readPairs(
-    artifacts: Artifact[],
+    selection: Selection,
     options: ErrorTrackingOptions,
     skipped: Skip[]
 ): { pairs: SourcePair[]; artifacts: Map<SourcePair, Artifact> } {
     const seen = new Set<string>()
     const pairs: SourcePair[] = []
     const owners = new Map<SourcePair, Artifact>()
-    for (const artifact of artifacts.filter((candidate) => candidate.kind === 'js')) {
+    for (const artifact of selection.artifacts.filter((candidate) => candidate.kind === 'js')) {
         const pair = readPair(artifact.path, options.publicPathPrefix, skipped)
+        if (
+            pair &&
+            isIgnored(
+                artifact.root,
+                realpathSync(resolve(selection.cwd, artifact.root.path)),
+                realpathSync(pair.mapPath)
+            )
+        ) {
+            skipped.push({ path: artifact.display, reason: `its sourcemap matches an ignore pattern in posthog.json` })
+            continue
+        }
         if (pair && !seen.has(pair.sourcePath)) {
             seen.add(pair.sourcePath)
             pairs.push(pair)
@@ -166,7 +177,7 @@ export async function inject(
 ): Promise<InjectReport> {
     const skipped: Skip[] = []
     const warnings: string[] = []
-    const { pairs, artifacts: owners } = readPairs(selection.artifacts, options, skipped)
+    const { pairs, artifacts: owners } = readPairs(selection, options, skipped)
     if (pairs.length === 0) {
         throw new HogError(
             'no_bundles',
@@ -306,8 +317,9 @@ export async function upload(
 
     const read = injected
         ? { pairs: injected.pairs, artifacts: injected.owners }
-        : readPairs(selection.artifacts, options, skipped)
-    let targets: CleanupTarget[] = []
+        : readPairs(selection, options, skipped)
+    let targets: { pair: SourcePair; target: CleanupTarget }[] = []
+    const chunkIds = new Map<SourcePair, string>()
     // posthog-cli stops before any cleanup when no bundle has an id to upload under.
     let jsUploadable = false
     if (read.pairs.length > 0) {
@@ -324,7 +336,7 @@ export async function upload(
             )
         }
         if (options.deleteAfter) {
-            targets = uploadable.map(jsTarget)
+            targets = uploadable.map((pair) => ({ pair, target: jsTarget(pair) }))
         }
         if (
             options.releaseMode === 'symbol-set' &&
@@ -356,6 +368,7 @@ export async function upload(
                 ? { force: true, skipOnConflict: false }
                 : { force: options.force, skipOnConflict: options.skipOnConflict }
         for (const { pair, upload: item } of prepared.uploads) {
+            chunkIds.set(pair, item.chunkId)
             planned.push({ artifact: read.artifacts.get(pair)!, upload: item, policy })
         }
     }
@@ -383,7 +396,12 @@ export async function upload(
     const groups = new Map<string, Planned[]>()
     for (const item of planned) {
         const key = `${item.policy.force}:${item.policy.skipOnConflict}`
-        groups.set(key, [...(groups.get(key) ?? []), item])
+        const group = groups.get(key)
+        if (group) {
+            group.push(item)
+        } else {
+            groups.set(key, [item])
+        }
     }
     for (const group of groups.values()) {
         const client = await session.getClient()
@@ -400,8 +418,11 @@ export async function upload(
     if (options.deleteAfter && jsUploadable) {
         const rootPaths = selection.roots.map((root) => resolve(selection.cwd, root.path))
         const cleanup = cleanUp([
-            ...targets,
-            ...cssTargets(listFiles(selection.roots, selection.cwd), rootPaths, warnings),
+            // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
+            ...targets
+                .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
+                .map(({ target }) => target),
+            ...cssTargets(listFiles(selection.roots, selection.cwd), rootPaths, options.publicPathPrefix, warnings),
         ])
         deletedMaps = cleanup.deletedMaps.map((path) => relative(realpathSync(selection.cwd), path))
         warnings.push(...cleanup.warnings)
