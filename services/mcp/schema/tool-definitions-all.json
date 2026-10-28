@@ -6355,7 +6355,7 @@
         "feature_flag": "experiment-behavior-comparison"
     },
     "explain-chart": {
-        "description": "Show the person a walkthrough of a trends chart: the chart with each moment that stands out highlighted, and a panel that steps through them one chapter at a time, with what happened, the likely cause and the evidence.\n\nCall it at the end of an investigation, after you have looked into the chart yourself (the investigate-metric skill describes how). Pass the saved insight's `insightId`, or the TrendsQuery you ran as `query`, plus a one-sentence `headline` and the chapters in reading order.\n\nThe app works out each chapter's numbers from the chart itself (the value, and how it compares with a typical point), so leave the chart's numbers out of your text. Numbers from your own follow-up queries belong in `evidence`, with the `query` that found them so the person can open it. Say how sure you are with `confidence`, and word a cause you could not confirm as a guess. Wrap each name that explains a moment (a referrer, a page, a country, a release) in **double asterisks** to highlight it, in the headline as well as in the chapters.\n\nTrends only, one series at a time. A chart that shows a total, such as a number, pie, table or map, is drawn as the line behind it. A box plot, 2D heatmap or scatter plot is refused. The response says which chapters' dates matched no point on the chart.\n\nA direct call checks the chapters against the chart and returns a short summary, and may show the person nothing. Show the walkthrough with `render-ui` where that tool is available.",
+        "description": "Show the person a walkthrough of a trends chart: the chart with each moment that stands out highlighted, and a panel that steps through them one chapter at a time, with what happened, the likely cause and the evidence.\n\nCall it at the end of an investigation, after you have looked into the chart yourself (the investigate-metric skill describes how). Pass the saved insight's `insightId`, or the TrendsQuery you ran as `query`, plus a one-sentence `headline` and the chapters in reading order.\n\nThe app works out each chapter's numbers from the chart itself (the value, and how it compares with a typical point), so leave the chart's numbers out of your text. Numbers from your own follow-up queries belong in `evidence`, with the `query` that found them so the person can open it. Say how sure you are with `confidence`, and word a cause you could not confirm as a guess. Wrap each name that explains a moment (a referrer, a page, a country, a release) in **double asterisks** to highlight it, in the headline as well as in the chapters.\n\nTrends only, one series at a time. A chart that shows a total, such as a number, pie, table or map, is drawn as the line behind it. A box plot, 2D heatmap or scatter plot is refused. The response says which chapters' dates matched no point on the chart.\n\nA direct call checks the chapters against the chart. Where the host draws apps from `exec`, as Claude Code does, the call also shows the walkthrough and the response says so. Otherwise it returns only a short summary: show the walkthrough with `render-ui` where that tool exists, and write the findings in the chat where it does not.",
         "category": "Insights & analytics",
         "feature": "insights",
         "summary": "Walk the person through a trends chart, one highlighted moment at a time.",
@@ -8061,7 +8061,7 @@
         }
     },
     "inbox-report-reviewers-update": {
-        "description": "Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the current list. For add or remove, pass the changed people in `targets` and the full list in `content` for compatibility with older servers. For replace or confirm, first read the report and pass `reviewer_assignment.state` as `expected_reviewers`.",
+        "description": "Add or remove specific people from a report's suggested reviewers, replace the complete list, or confirm the current list. For add or remove, pass the changed people in `targets` and the full list in `content` for compatibility with older servers. For replace or confirm, first read the report and pass `reviewer_assignment.state` as `expected_reviewers`. When you remove people, pass `removal_reason` when the person said why, and `removal_note` for the area or context. Research reads the reason and scouts read the note when they route later reports. Prefer this over dismissing a report as `wrong_assignee`, which closes it for everyone. To remove the authenticated user, use `inbox-reports-leave-reviewers` instead.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update a report's suggested reviewers",
@@ -8121,13 +8121,13 @@
         }
     },
     "inbox-reports-leave-reviewers": {
-        "description": "Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place. Use it when a report was routed to them by mistake, so it stops reaching them without closing it for anyone else. The report's own state does not change: it stays open for whoever is left, and for the project. Succeeds whether or not the user was on the list, so a repeat call is safe. To change who else reviews a report, edit its `suggested_reviewers` artefact instead.",
+        "description": "Take the authenticated user off this report's suggested reviewers, leaving the other reviewers in place. Use it when a report was routed to them by mistake, so it stops reaching them without closing it for anyone else. The report's own state does not change: it stays open for whoever is left, and for the project. Succeeds whether or not the user was on the list, so a repeat call is safe. When the user says why, pass `removal_reason` and put their own words in `removal_note`. For example, \"I'm not on that team any more\" is `wrong_area` with that sentence as the note. Research reads the reason and scouts read the note when they route later reports. To change who else reviews a report, edit its `suggested_reviewers` artefact instead.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Step off a report's suggested reviewers",
         "title": "Step off a report's suggested reviewers",
         "required_scopes": ["task:write"],
-        "api_operations": ["DELETE /api/projects/{project_id}/signals/reports/{id}/reviewers/me/"],
+        "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/reviewers/me/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -17707,6 +17707,22 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-reputation-get": {
+        "description": "The project's workflow email health over the last 30 days and its sending allowance: tier, hourly and daily email caps, largest batch audience, and usage. Call it before planning a batch send or broadcast, and tell the user when the audience or volume would go over a cap. The caps apply only while sending_allowance.enforced is true; while it is false they are measured but not applied. Pass fields=['sending_allowance'] when that is all you need. Tiers rise on their own with a clean sending record. To get more sooner, the user can request a higher allowance in Workflows > Messaging > Reputation; the link shows while the caps are enforced, to accounts that can open a support ticket. Also returns bounce and complaint rates (project-wide and per workflow, worst first), the AWS SES verdict, per-mailbox-provider health, and any suspension. sending_allowance, aws and reputation are null for a user without project-wide workflow access.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Get email reputation and sending allowance",
+        "title": "Get email reputation and sending allowance",
+        "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/hog_flows/reputation/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-sending-tier-requests"
     },
     "workflows-restore-revision": {
         "description": "Roll a workflow back (or forward) by copying a revision's content into its staged draft — the live config is untouched until you publish. Then run the normal cycle: test with workflows-test-run (use_draft=true), preview with workflows-publish, confirm. The preview shows exactly what the rollback does to people in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their positions.",

@@ -23,6 +23,7 @@ from trino.exceptions import TrinoUserError
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
+from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
@@ -2255,6 +2256,40 @@ class TestHogqlTableModifiers:
             expected_sql_new_events_schema if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_sql
         )
         assert captured_sql is not None and expected_sql in captured_sql
+
+    @pytest.mark.parametrize(
+        "kill_switch_level,expected_max_threads",
+        [
+            (KillSwitchLevel.OFF, None),
+            (KillSwitchLevel.LIGHT, 16),
+            (KillSwitchLevel.FULL, 8),
+        ],
+    )
+    async def test_kill_switch_lowers_the_threads_per_query(
+        self, ateam: Team, kill_switch_level: KillSwitchLevel, expected_max_threads: int | None
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.resolve_kill_switch_level",
+                lambda _team_id: kill_switch_level,
+            ),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT 1", ateam, LOGGER.bind())]
+
+        assert client.arrow_query is not None
+        if expected_max_threads is None:
+            assert "max_threads" not in client.arrow_query
+        else:
+            assert f"max_threads={expected_max_threads}" in client.arrow_query
 
     async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
         schema_fields: list[pa.Field[Any]] = [

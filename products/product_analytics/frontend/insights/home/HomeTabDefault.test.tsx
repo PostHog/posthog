@@ -159,12 +159,12 @@ describe('HomeTabDefault query reuse', () => {
             />
         )
         const { container, rerender } = render(tile('-7d'))
-        await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
+        await waitFor(() => expect(container.querySelector('[data-attr="metric-sparkline"]')).not.toBeNull())
         await act(async () => rerender(tile('-30d')))
         await waitFor(() => expect(screen.getByText('20')).toBeInTheDocument())
-        expect(container.querySelector('[data-attr="metric-card-sparkline"]')).toBeNull()
+        expect(container.querySelector('[data-attr="metric-sparkline"]')).toBeNull()
         await act(async () => finishTrend(trendResponse))
-        await waitFor(() => expect(container.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull())
+        await waitFor(() => expect(container.querySelector('[data-attr="metric-sparkline"]')).not.toBeNull())
     })
 
     it('shows the metric details and opens the same total in the insight editor, outside the tile button', async () => {
@@ -216,7 +216,7 @@ describe('HomeTabDefault query reuse', () => {
         )
         for (const tile of container.querySelectorAll('[data-attr^="home-tab-metric-"]')) {
             expect(tile).toHaveAttribute('aria-busy', 'false')
-            expect(tile.querySelector('[data-attr="metric-card-sparkline"]')).not.toBeNull()
+            expect(tile.querySelector('[data-attr="metric-sparkline"]')).not.toBeNull()
         }
         expect(mockedQuery).not.toHaveBeenCalled()
         expect(screen.queryByText('No previous period data')).not.toBeInTheDocument()
