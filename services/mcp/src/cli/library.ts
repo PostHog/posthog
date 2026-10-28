@@ -4,6 +4,7 @@
 import { hasScope } from '@/lib/api'
 import {
     ExecCommandError,
+    MCPToolResultError,
     PostHogApiError,
     PostHogPermissionError,
     PostHogRateLimitError,
@@ -56,6 +57,7 @@ function summarize(tool: Tool<ZodObjectAny>): ApiToolSummary {
         destructive: tool.annotations.destructiveHint,
         idempotent: tool.annotations.idempotentHint,
         openWorld: tool.annotations.openWorldHint,
+        requiresAiConsent: definition.requires_ai_consent === true,
     }
 }
 
@@ -69,7 +71,20 @@ function apiErrorDetail(error: PostHogApiError): string {
     }
 }
 
-export function toApiToolError(error: unknown): ApiToolError {
+const MCP_RESULT_CODES: Record<MCPToolResultError['errorType'], ApiToolError['code']> = {
+    validation: 'validation_error',
+    permission: 'permission_denied',
+    rate_limited: 'rate_limited',
+    api_5xx: 'api_error',
+    timeout: 'tool_error',
+    memory_limit: 'tool_error',
+    internal: 'tool_error',
+}
+
+function typedError(error: unknown): ApiToolError | undefined {
+    if (error instanceof MCPToolResultError) {
+        return { code: MCP_RESULT_CODES[error.errorType], message: error.message }
+    }
     if (error instanceof PostHogPermissionError) {
         return {
             code: 'permission_denied',
@@ -101,18 +116,45 @@ export function toApiToolError(error: unknown): ApiToolError {
         }
         return { code: codes[error.reason] ?? 'invalid_input', message: error.message }
     }
+    return undefined
+}
+
+// Some tool handlers wrap the API failure, so the typed error can sit anywhere in the `cause` chain.
+export function toApiToolError(error: unknown): ApiToolError {
+    const seen = new Set<unknown>()
+    for (
+        let current = error;
+        current instanceof Error && !seen.has(current);
+        current = (current as Error & { cause?: unknown }).cause
+    ) {
+        seen.add(current)
+        const typed = typedError(current)
+        if (typed) {
+            return typed
+        }
+    }
     return { code: 'tool_error', message: error instanceof Error ? error.message : String(error) }
+}
+
+class Failure extends Error {
+    constructor(readonly failure: ApiToolError) {
+        super(failure.message)
+    }
+}
+
+function failure(error: ApiToolError): never {
+    throw new Failure(error)
 }
 
 async function attempt<T>(work: () => Promise<T>): Promise<ApiToolResult<T>> {
     try {
         return { ok: true, value: await work() }
     } catch (error) {
-        return { ok: false, error: toApiToolError(error) }
+        return { ok: false, error: error instanceof Failure ? error.failure : toApiToolError(error) }
     }
 }
 
-function contextFor(connection: ApiConnection): Promise<Context> {
+function buildContext(connection: ApiConnection): Promise<Context> {
     return buildCliContext(
         {
             apiKey: connection.apiKey,
@@ -130,7 +172,8 @@ function contextFor(connection: ApiConnection): Promise<Context> {
 }
 
 export function createApiToolLibrary(): ApiToolLibrary {
-    const tools = getCliTools()
+    // The catalog lists every tool. A call only offers the AI consent tools when the organization allows them.
+    const tools = getCliTools({ aiConsentGiven: true })
     const byName = new Map(tools.map((tool) => [tool.name, tool]))
     const exec = staticExec(tools)
     const find = (name: string): Tool<ZodObjectAny> => {
@@ -139,6 +182,17 @@ export function createApiToolLibrary(): ApiToolLibrary {
             throw new Error(`Unknown tool: "${name}".`)
         }
         return tool
+    }
+    // Each context registers a cache that lives as long as the process.
+    const contexts = new Map<string, Promise<Context>>()
+    const contextFor = (connection: ApiConnection): Promise<Context> => {
+        const key = JSON.stringify(connection)
+        let context = contexts.get(key)
+        if (!context) {
+            context = buildContext(connection)
+            contexts.set(key, context)
+        }
+        return context
     }
 
     return {
@@ -189,8 +243,15 @@ export function createApiToolLibrary(): ApiToolLibrary {
             attempt(async () => {
                 find(name)
                 const context = await contextFor(connection)
+                const aiConsentGiven = await context.stateManager.getAiConsentGiven()
+                if (getToolDefinition(name).requires_ai_consent && !aiConsentGiven) {
+                    failure({
+                        code: 'ai_consent_required',
+                        message: `${name} sends data to an AI provider, and the organization has not allowed that.`,
+                    })
+                }
                 const callExec = createExecTool(
-                    tools,
+                    getCliTools({ aiConsentGiven }),
                     context,
                     'PostHog tools',
                     COMMAND_REFERENCE,

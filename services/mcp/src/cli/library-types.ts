@@ -14,6 +14,8 @@ export interface ApiToolSummary {
     destructive: boolean
     idempotent: boolean
     openWorld: boolean
+    /** The tool sends data to an AI provider, so it runs only where the organization allows that. */
+    requiresAiConsent: boolean
 }
 
 export interface ApiConnection {
@@ -41,6 +43,7 @@ export interface ApiToolError {
         | 'validation_error'
         | 'invalid_input'
         | 'needs_confirmation'
+        | 'ai_consent_required'
         | 'rate_limited'
         | 'unreachable'
         | 'api_error'
