@@ -23,6 +23,7 @@ from posthog.hogql.database.schema.flag_evaluations import ELEMENT_STAND_INS, Fl
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.errors import BaseHogQLError, QueryError
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_function
+from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.utils import is_json_verbatim
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -81,7 +82,12 @@ _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
 
 
 def can_read_flag_evaluations(
-    node: ast.SelectQuery, now: datetime, timezone: ZoneInfo, *, only_in_flag_evaluations: bool = False
+    node: ast.SelectQuery,
+    now: datetime,
+    timezone: ZoneInfo,
+    *,
+    only_in_flag_evaluations: bool = False,
+    flag_key_compares_as_string: bool = True,
 ) -> bool:
     """Whether this query's `events` scan selects only rows that `flag_evaluations` holds.
 
@@ -97,6 +103,9 @@ def can_read_flag_evaluations(
        too, as an action with several steps does. Ingestion writes a call to `flag_evaluations` only when its
        `$feature_flag` is a non-empty JSON string, and leaves every other call in `events` on every
        flag_evaluations mode. A literal such as `'100'` also matches the number 100, which stays in `events`.
+       Without `flag_key_compares_as_string`, nothing pins `$feature_flag`: the team's property definition gives it
+       a type, and a comparison converts the value first. Under a Boolean type, `'TRUE'` matches the key "true" and
+       the JSON value true.
     5. The select list has no `*` or `COLUMNS(...)`, and the scan has no column aliases. `flag_evaluations` has
        other columns, so either one would change what the query reads.
     6. The scan has no `FINAL` and no table arguments.
@@ -108,7 +117,7 @@ def can_read_flag_evaluations(
     `resolve_flag_calls_from_flag_evaluations` checks the rest after resolution: every name in the swapped query
     binds as it did before.
     """
-    scan = _EventsScan.of(node)
+    scan = _EventsScan.of(node, flag_key_compares_as_string)
     return scan is not None and _qualifies(
         scan, node, _filter_conjuncts(node), now, timezone, only_in_flag_evaluations=only_in_flag_evaluations
     )
@@ -144,6 +153,7 @@ def resolve_flag_calls_from_flag_evaluations(
             now=datetime.now(UTC),
             timezone=ZoneInfo(database.get_timezone()),
             only_in_flag_evaluations=only_in_flag_evaluations,
+            flag_key_compares_as_string=_flag_key_compares_as_string(context),
         )
         swapper.visit(rewritten)
     if only_in_flag_evaluations and swapper.refusals:
@@ -164,6 +174,17 @@ def resolve_flag_calls_from_flag_evaluations(
         # events gets no new flag calls, so the original query would return only calls from before the move.
         raise _flag_calls_only_in_flag_evaluations_error(reason)
     return original
+
+
+def _flag_key_compares_as_string(context: HogQLContext) -> bool:
+    """Whether `properties.$feature_flag` compares as a string. The printer converts a property that the team's
+    property definitions type as Boolean, Numeric or DateTime before it compares the value."""
+    if context.team_id is None:
+        return True
+    metadata = load_property_metadata(
+        context, event_property_names={_FLAG_KEY_PROPERTY}, person_property_names=set(), group_property_names={}
+    )
+    return metadata.event_properties.get(_FLAG_KEY_PROPERTY, {}).get("type") in (None, "String")
 
 
 def _flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
@@ -191,14 +212,15 @@ def _qualifies(
 
 
 class _EventsScan:
-    def __init__(self, join: ast.JoinExpr, alias: str, has_other_sources: bool):
+    def __init__(self, join: ast.JoinExpr, alias: str, has_other_sources: bool, flag_key_compares_as_string: bool):
         self.join = join
         self.alias = alias
         self.has_other_sources = has_other_sources
+        self.flag_key_compares_as_string = flag_key_compares_as_string
         self.shadowed: frozenset[str] = frozenset()
 
     @classmethod
-    def of(cls, node: ast.SelectQuery) -> "_EventsScan | None":
+    def of(cls, node: ast.SelectQuery, flag_key_compares_as_string: bool) -> "_EventsScan | None":
         join = node.select_from
         if join is None or not isinstance(join.table, ast.Field) or join.table.chain != ["events"]:
             return None
@@ -207,6 +229,7 @@ class _EventsScan:
             alias=join.alias or "events",
             # A field without a table prefix can bind to a joined table or an ARRAY JOIN alias instead.
             has_other_sources=join.next_join is not None or bool(node.array_join_list),
+            flag_key_compares_as_string=flag_key_compares_as_string,
         )
         collector = _AliasCollector(node)
         collector.visit(node)
@@ -269,6 +292,8 @@ class _EventsScan:
 
     def flag_keys(self, conjuncts: list[ast.Expr]) -> list[str]:
         """The keys a top-level conjunct pins `$feature_flag` to, or an empty list when no top-level conjunct does."""
+        if not self.flag_key_compares_as_string:
+            return []
         for conjunct in conjuncts:
             keys = self._flag_keys_in(conjunct)
             if keys is not None:
@@ -574,18 +599,43 @@ class _FlagCalledConstantFinder(_SyntaxVisitor):
 
 
 class _EventsScanSwapper(_SyntaxVisitor):
-    def __init__(self, now: datetime, timezone: ZoneInfo, only_in_flag_evaluations: bool) -> None:
+    def __init__(
+        self, now: datetime, timezone: ZoneInfo, only_in_flag_evaluations: bool, flag_key_compares_as_string: bool
+    ) -> None:
         super().__init__()
         self.now = now
         self.timezone = timezone
         self.only_in_flag_evaluations = only_in_flag_evaluations
+        self.flag_key_compares_as_string = flag_key_compares_as_string
         self.swapped = False
         self.flag_key_predicates = 0
         # Why each scan that reads only flag calls has a shape that flag_evaluations cannot stand in for.
         self.refusals: list[str] = []
+        # The CTE names in scope, under the resolver's rules. A `FROM events` reads a CTE when one is named `events`.
+        # A name missing here lets the swapper try the scan, and the binding check then rejects the swap.
+        self.ctes: frozenset[str] = frozenset()
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        outer = self.ctes
+        initial = node.initial_select_query
+        self.visit(initial)
+        # The resolver gives every later branch the first branch's WITH.
+        if isinstance(initial, ast.SelectQuery) and initial.ctes:
+            self.ctes = self.ctes.union(initial.ctes)
+        for subsequent in node.subsequent_select_queries:
+            self.visit(subsequent.select_query)
+        self.ctes = outer
+
+    def visit_cte(self, node: ast.CTE) -> None:
+        # visit_select_query visits each CTE body while only the earlier CTE names are in scope.
+        pass
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        scan = _EventsScan.of(node)
+        outer = self.ctes
+        for cte in (node.ctes or {}).values():
+            self.visit(cte.expr)
+            self.ctes = self.ctes.union([cte.name])
+        scan = None if "events" in self.ctes else _EventsScan.of(node, self.flag_key_compares_as_string)
         if scan is not None:
             conjuncts = _filter_conjuncts(node)
             if _qualifies(
@@ -597,6 +647,7 @@ class _EventsScanSwapper(_SyntaxVisitor):
                 if refusal is not None and scan.pins_flag_calls(conjuncts, needs_flag_key=False):
                     self.refusals.append(refusal)
         super().visit_select_query(node)
+        self.ctes = outer
 
     def _swap(self, node: ast.SelectQuery, scan: _EventsScan, conjuncts: list[ast.Expr]) -> None:
         keys = scan.flag_keys(conjuncts)
@@ -628,7 +679,8 @@ def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicate
 
     The swap may change only the table each swapped scan reads. A name that binds elsewhere changes the result
     with no resolution error: a `WITH` name that a `flag_evaluations` column now shadows, a `COLUMNS(...)` that
-    expands to other columns, or a `FROM events` that read a CTE named `events`. The comparison ignores order,
+    expands to other columns, or a `person_id` that read the stored events column and now reads the person overrides
+    join. The persons-on-events mode decides how `events` reads person fields. The comparison ignores order,
     because the swap moves `PREWHERE` into `WHERE`. The swapped query also reads flag_key once for each of the
     `flag_key_predicates` that the swap adds.
     """
@@ -666,11 +718,12 @@ class _BindingCollector(_SyntaxVisitor):
         # after the field. The same field can be a plain column on events, so only the alias name and what the
         # expansion reads count. An element stand-in reads no column. It returns what the events column holds for a
         # flag call, so it counts as a read of the scan.
-        expansion = _bindings(node.expr)
-        reads_scan = all(target == ("scan",) for _, _, target in expansion) and (
-            bool(expansion) or node.alias in ELEMENT_STAND_INS
-        )
-        self.bindings.append(("field", node.alias, ("scan",) if reads_scan else ("expression",)))
+        targets = sorted({target for _, _, target in _bindings(node.expr)})
+        if targets == [("scan",)] or (not targets and node.alias in ELEMENT_STAND_INS):
+            target: tuple[str, ...] = ("scan",)
+        else:
+            target = ("expression", *("/".join(read) for read in targets))
+        self.bindings.append(("field", node.alias, target))
 
     def visit_join_expr(self, node: ast.JoinExpr) -> None:
         self.bindings.append(("table", "", _target(node.type)))
@@ -696,11 +749,16 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
                 ast.ExpressionFieldType,
                 ast.FieldTraverserType,
                 ast.TableAliasType,
-                ast.LazyJoinType,
                 ast.VirtualTableType,
             ),
         ):
             current = current.table_type
+        elif isinstance(current, ast.LazyJoinType):
+            # A join reads another table. The tables can define a join of the same name differently, so the
+            # binding names the join and its table. Under PERSON_ID_OVERRIDE_PROPERTIES_JOINED, events.person joins
+            # persons, while flag_evaluations.person reads the person properties stored with the call.
+            join_table = current.lazy_join.join_table
+            return ("join", current.field, join_table if isinstance(join_table, str) else type(join_table).__name__)
         elif isinstance(current, ast.TableType):
             return (
                 ("scan",)

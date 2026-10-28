@@ -663,6 +663,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [(1,)],
             ),
             (
+                "body_of_a_cte_named_events",
+                f"WITH events AS (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}) SELECT count() FROM events",
+                [(1,)],
+            ),
+            (
                 "subquery_in_an_expression",
                 f"SELECT count() FROM events WHERE {PAGEVIEW_CONJUNCTS} "
                 f"AND distinct_id IN (SELECT distinct_id FROM events WHERE {FLAG_CALL_CONJUNCTS})",
@@ -722,29 +727,73 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 "a name in it would read a different column",
             ),
             (
-                "root_cte_named_events_in_a_union_branch",
-                "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.events) "
-                f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS} "
-                f"UNION ALL SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}",
-                "a name in it would read a different column",
-            ),
-            (
                 "columns_inside_an_expression",
                 f"SELECT tuple(*COLUMNS('^(created|inserted)_at$')) FROM events WHERE {FLAG_CALL_CONJUNCTS}",
                 "a name in it would read a different column",
             ),
+            (
+                "stored_person_id",
+                f"SELECT person_id FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                "a name in it would read a different column",
+                PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+            ),
+            (
+                "person_id_through_distinct_ids",
+                f"SELECT person_id FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                "a name in it would read a different column",
+                PersonsOnEventsMode.DISABLED,
+            ),
+            (
+                "current_person_properties",
+                f"SELECT person.properties.email FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                "a name in it would read a different column",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
         ]
     )
     def test_query_flag_evaluations_cannot_answer_reads_events_until_events_gets_no_flag_calls(
-        self, _name: str, query: str, error: str
+        self,
+        _name: str,
+        query: str,
+        error: str,
+        persons_on_events_mode: PersonsOnEventsMode = PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
     ):
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode)
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         assert (
-            self._query_events(query, mode=mode).clickhouse
-            == self._query_events(query, rewrite=False, mode=mode).clickhouse
+            self._query_events(query, modifiers=modifiers, mode=mode).clickhouse
+            == self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode).clickhouse
         )
         with self.assertRaisesRegex(QueryError, error):
-            self._query_events(query)
+            self._query_events(query, modifiers=modifiers)
+
+    @parameterized.expand(
+        [
+            (
+                "select_star",
+                "WITH events AS (SELECT event, distinct_id FROM posthog.flag_evaluations) "
+                "SELECT * FROM events WHERE event = '$feature_flag_called'",
+            ),
+            (
+                "flag_call_filters",
+                "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.flag_evaluations) "
+                f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+            ),
+            (
+                "root_cte_in_a_union_branch",
+                "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.flag_evaluations) "
+                f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS} "
+                f"UNION ALL SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+            ),
+            (
+                "subquery",
+                "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.flag_evaluations) "
+                f"SELECT count() FROM (SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS})",
+            ),
+        ]
+    )
+    def test_query_on_a_cte_named_events_reads_the_cte_once_events_gets_no_flag_calls(self, _name: str, query: str):
+        assert self._query_events(query).clickhouse == self._query_events(query, rewrite=False).clickhouse
 
     @parameterized.expand(
         [
@@ -840,11 +889,53 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         response = self._query_events(
             f"SELECT count() FROM events PREWHERE person_id IS NOT NULL WHERE {FLAG_CALL_CONJUNCTS}",
             modifiers=HogQLQueryModifiers(
-                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
             ),
         )
 
         assert response.results == [(1,)]
+
+    @parameterized.expand(
+        [
+            # The events-only call has the JSON value true as its key. A typed comparison matches it on events.
+            ("mode_1", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True),
+            ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+        ]
+    )
+    def test_flag_key_typed_as_boolean_selects_the_same_calls_with_and_without_the_rewrite(
+        self, _name: str, mode: FlagEvaluationsMode, with_events_only_call: bool
+    ):
+        PropertyDefinition.objects.create(
+            team=self.team, name="$feature_flag", property_type="Boolean", type=PropertyDefinition.Type.EVENT
+        )
+        row_uuid = uuid.uuid4()
+        self._insert_row(row_uuid, {"$feature_flag": "true"})
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="probe-distinct-id",
+            timestamp=self.occurred_at,
+            properties={"$feature_flag": "true"},
+            event_uuid=str(row_uuid),
+        )
+        if with_events_only_call:
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id="events-distinct-id",
+                timestamp=self.occurred_at,
+                properties={"$feature_flag": True},
+            )
+        flush_persons_and_events()
+        query = (
+            "SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
+            "AND properties.$feature_flag = 'TRUE' AND timestamp >= now() - INTERVAL 7 DAY"
+        )
+
+        from_events = self._query_events(query, rewrite=False, mode=mode).results
+
+        assert len(from_events) == (2 if with_events_only_call else 1)
+        assert sorted(self._query_events(query, mode=mode).results) == sorted(from_events)
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
         self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)
