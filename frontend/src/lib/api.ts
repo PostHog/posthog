@@ -5093,7 +5093,7 @@ const api = {
             }> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('logs')
+                    .withAction('logs/')
                     .withQueryString({
                         ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
                         ...(options.before !== undefined ? { before: options.before } : {}),
