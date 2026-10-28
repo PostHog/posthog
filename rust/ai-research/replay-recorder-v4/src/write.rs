@@ -131,6 +131,7 @@ fn prepare_block(
     let mut images = Vec::new();
     let mut kept = HashSet::new();
     let mut counts = WriterCounts::default();
+    let mut removed_avif = 0u64;
     for message in &block.messages {
         let mut window = Vec::new();
         write_json_string(
@@ -170,15 +171,15 @@ fn prepare_block(
             .map(|i| i.bytes.len() as u64)
             .sum::<u64>();
         counts.inline += sink.left_inline;
-        counter!("ai_research_v4_recorder_removed_images_total", "format" => "avif")
-            .increment(u64::from(sink.removed_avif));
+        removed_avif += u64::from(sink.removed_avif);
         images.extend(
             sink.images
                 .into_iter()
                 .filter(|image| kept.insert(image.reference.clone())),
         );
     }
-    let report = rewrite.finish();
+    let mut report = rewrite.finish();
+    report.counters.removed_avif = removed_avif;
     counts.scrubbed = report.scrubbed;
     Ok((images, counts, report))
 }
@@ -229,6 +230,7 @@ pub fn write_block<W: Write>(
     let mut out = open()?;
     let (images, mut counts, report) = prepare_block(block, team_key, key_month, &first, &mut out)?;
     if report.safe {
+        report.counters.emit();
         counts.fallback = first.reason;
         return Ok((out, images, counts));
     }
@@ -246,6 +248,7 @@ pub fn write_block<W: Write>(
     let mut out = open()?;
     let (images, mut counts, report) =
         prepare_block(block, team_key, key_month, &second, &mut out)?;
+    report.counters.emit();
     counts.fallback = second.reason;
     // Fail closed only when the fallback could not make the block safe either.
     if !report.safe {

@@ -30,6 +30,7 @@ pub enum Scrub {
 pub struct Scrubber {
     all_remote: bool,
     hosts: Option<AhoCorasick>,
+    lower_hosts: Vec<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -234,13 +235,33 @@ fn ends_url(next: Unit, closer: Closer) -> bool {
 
 /// The spans of the remote URL tokens, in order.
 fn url_spans(bytes: &[u8]) -> Vec<(usize, usize)> {
+    scan(bytes).urls
+}
+
+/// The remote URL tokens of the bytes and the insides of their JSON strings, each in order.
+struct Scan {
+    urls: Vec<(usize, usize)>,
+    strings: Vec<(usize, usize)>,
+}
+
+fn scan(bytes: &[u8]) -> Scan {
     let mut spans = Vec::new();
+    let mut strings = Vec::new();
+    let mut string_start: Option<usize> = None;
     let mut prev: Option<Unit> = None;
     let mut at = 0;
     while at < bytes.len() {
         let current = unit(bytes, at);
+        if current.kind == Kind::StringEnd {
+            match string_start.take() {
+                Some(start) => strings.push((start, at)),
+                None => string_start = Some(at + 1),
+            }
+        }
         let first = lower(current.ch);
-        let starts = (is_char(first, b'h') || is_char(first, b'/') || is_char(first, b'\\'))
+        let starts = string_start.is_some()
+            && current.kind != Kind::StringEnd
+            && (is_char(first, b'h') || is_char(first, b'/') || is_char(first, b'\\'))
             && match remote_start(bytes, at) {
                 Some(Start::Scheme) => true,
                 Some(Start::Slashes) => !prev.is_some_and(|p| continues_word(p.ch)),
@@ -264,7 +285,22 @@ fn url_spans(bytes: &[u8]) -> Vec<(usize, usize)> {
         prev = None;
         at = end;
     }
-    spans
+    Scan {
+        urls: spans,
+        strings,
+    }
+}
+
+/// The token's characters after their JSON and CSS escapes, in lower case, so an escaped host still matches.
+fn decoded(bytes: &[u8], (start, end): (usize, usize)) -> String {
+    let mut text = String::new();
+    let mut at = start;
+    while at < end {
+        let next = unit(bytes, at);
+        text.extend(char::from_u32(lower(next.ch)));
+        at += next.len;
+    }
+    text
 }
 
 /// Whether the byte before `at` closes a JSON escape that ends a token, such as `\n`, rather than an escaped backslash.
@@ -316,9 +352,14 @@ impl Scrubber {
                 .ok(),
             _ => None,
         };
+        let lower_hosts = match scrub {
+            Scrub::Hosts(hosts) => hosts.iter().map(|host| host.to_ascii_lowercase()).collect(),
+            _ => Vec::new(),
+        };
         Self {
             all_remote: *scrub == Scrub::AllRemote,
             hosts,
+            lower_hosts,
         }
     }
 
@@ -327,7 +368,7 @@ impl Scrubber {
         let spans = if self.all_remote {
             url_spans(bytes)
         } else if let Some(hosts) = &self.hosts {
-            Self::host_spans(hosts, bytes)
+            self.host_spans(hosts, bytes)
         } else {
             Vec::new()
         };
@@ -353,35 +394,39 @@ impl Scrubber {
     }
 
     /// The URL tokens that hold a host, and a bare span around each host no URL token holds, by start.
-    fn host_spans(hosts: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, usize)> {
-        let found: Vec<(usize, usize)> = hosts
-            .find_iter(bytes)
-            .map(|m| (m.start(), m.end()))
-            .collect();
-        if found.is_empty() {
-            return Vec::new();
-        }
-        let holds = |(start, end): (usize, usize)| {
-            let first = found.partition_point(|&(_, found_end)| found_end <= start);
-            found
-                .get(first)
-                .is_some_and(|&(found_start, _)| found_start < end)
-        };
-        let mut spans: Vec<(usize, usize)> = url_spans(bytes)
+    fn host_spans(&self, hosts: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, usize)> {
+        let Scan { urls, strings } = scan(bytes);
+        let mut spans: Vec<(usize, usize)> = urls
             .into_iter()
-            .filter(|&span| holds(span))
+            .filter(|&span| {
+                let text = decoded(bytes, span);
+                self.lower_hosts
+                    .iter()
+                    .any(|host| text.contains(host.as_str()))
+            })
             .collect();
-        let in_url = |(start, end): (usize, usize)| {
-            let first = spans.partition_point(|&(_, span_end)| span_end <= start);
-            spans
-                .get(first)
-                .is_some_and(|&(span_start, _)| span_start <= start && end <= spans[first].1)
+        let inside = |list: &[(usize, usize)], (start, end): (usize, usize)| {
+            let first = list.partition_point(|&(_, list_end)| list_end < end);
+            list.get(first)
+                .filter(|&&(list_start, list_end)| list_start <= start && end <= list_end)
+                .copied()
         };
-        let bare: Vec<(usize, usize)> = found
-            .iter()
-            .filter(|&&host| !in_url(host))
-            .map(|&(start, end)| bare_span(bytes, start, end))
-            .collect();
+        let mut bare = Vec::new();
+        let mut covered_to = 0;
+        for found in hosts.find_iter(bytes) {
+            let host = (found.start(), found.end());
+            // A host outside a JSON string is part of a literal such as `null`, and an earlier span may already hold it.
+            if host.0 < covered_to || inside(&spans, host).is_some() {
+                continue;
+            }
+            let Some((string_start, string_end)) = inside(&strings, host) else {
+                continue;
+            };
+            let (start, end) = bare_span(bytes, host.0, host.1);
+            let span = (start.max(string_start), end.min(string_end));
+            covered_to = span.1;
+            bare.push(span);
+        }
         spans.extend(bare);
         spans.sort_unstable();
         spans
@@ -425,6 +470,10 @@ mod tests {
                 r#"{"style":"url(https\\3a //cdn.example.com/a.png)"}"#.to_owned(),
                 format!(r#"{{"style":"url({m})"}}"#),
             ),
+            (
+                r#"{"style":"url(\\2f\\2f bucket.example.com/a.png?sig=x)"}"#.to_owned(),
+                format!(r#"{{"style":"url({m})"}}"#),
+            ),
             // A browser reads a backslash as a slash, and the inspector reads any host after two of them as remote.
             (
                 r#"{"src":"\\\\10.0.0.7/a.png"}"#.to_owned(),
@@ -466,5 +515,28 @@ mod tests {
             format!(r#"{{"style":"url({m})","alt":"see {m}\nnow","title":"other.example.com"}}"#)
         );
         assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn matches_a_host_only_as_the_browser_reads_it_inside_a_string() {
+        let m = UNCHECKED_MARKER;
+        for (host, input, expected) in [
+            (
+                "10.0.0.7",
+                r#"{"style":"url(https://10\\2e 0.0.7/a.png)"}"#.to_owned(),
+                format!(r#"{{"style":"url({m})"}}"#),
+            ),
+            (
+                "null",
+                r#"{"src":"https://null/a.png","alt":null}"#.to_owned(),
+                format!(r#"{{"src":"{m}","alt":null}}"#),
+            ),
+        ] {
+            assert_eq!(
+                scrub(Scrub::Hosts(vec![host.to_owned()]), &input).0,
+                expected,
+                "{input}"
+            );
+        }
     }
 }

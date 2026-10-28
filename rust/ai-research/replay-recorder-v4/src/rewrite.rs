@@ -9,7 +9,7 @@
 //! were written again, so the rebuild never depends on a prediction of those bytes.
 
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
@@ -148,6 +148,35 @@ pub struct UrlRewrite {
     scrubbed: u64,
     /// The JSON key whose value held the first declined URL that stayed, for the log. It names the shape without any URL.
     kept_in: Option<String>,
+    counters: PassCounters,
+}
+
+/// The counter increments of one writer pass. The writer emits them only for the pass whose output it keeps, so a block
+/// written twice counts once.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PassCounters {
+    srcset_rewrites: BTreeMap<&'static str, u64>,
+    url_rewrites: BTreeMap<(&'static str, &'static str), u64>,
+    pub removed_avif: u64,
+}
+
+impl PassCounters {
+    pub fn emit(&self) {
+        for (&outcome, &count) in &self.srcset_rewrites {
+            counter!("ai_research_v4_recorder_srcset_rewrites_total", "outcome" => outcome)
+                .increment(count);
+        }
+        for (&(outcome, reason), &count) in &self.url_rewrites {
+            counter!(
+                "ai_research_v4_recorder_image_url_rewrites_total",
+                "outcome" => outcome,
+                "reason" => reason,
+            )
+            .increment(count);
+        }
+        counter!("ai_research_v4_recorder_removed_images_total", "format" => "avif")
+            .increment(self.removed_avif);
+    }
 }
 
 /// How the writer handles what the first pass over a block left unsafe, instead of dropping the block.
@@ -172,6 +201,7 @@ pub struct RewriteReport {
     pub unfound_hosts: Option<Vec<String>>,
     pub scrubbed: u64,
     pub kept_in: Option<String>,
+    pub counters: PassCounters,
 }
 
 impl UrlRewrite {
@@ -273,6 +303,7 @@ impl UrlRewrite {
             scrubber: Scrubber::new(&Scrub::Nothing),
             scrubbed: 0,
             kept_in: None,
+            counters: PassCounters::default(),
         }
     }
 
@@ -313,8 +344,7 @@ impl UrlRewrite {
             for url in covers {
                 self.targets[url].found = true;
             }
-            counter!("ai_research_v4_recorder_srcset_rewrites_total", "outcome" => outcome)
-                .increment(1);
+            *self.counters.srcset_rewrites.entry(outcome).or_default() += 1;
             let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
             out.extend_from_slice(&bytes[copied_to..start]);
             write_json_string(&value, out);
@@ -414,18 +444,17 @@ impl UrlRewrite {
                 }
             }
         }
+        let mut counters = self.counters;
         for target in self.targets {
             let outcome = match (target.found, target.declined) {
                 (false, _) => "unrewritten",
                 (true, None) => "rewritten",
                 (true, Some(_)) => "declined",
             };
-            counter!(
-                "ai_research_v4_recorder_image_url_rewrites_total",
-                "outcome" => outcome,
-                "reason" => target.declined.unwrap_or("none"),
-            )
-            .increment(1);
+            *counters
+                .url_rewrites
+                .entry((outcome, target.declined.unwrap_or("none")))
+                .or_default() += 1;
         }
         RewriteReport {
             safe,
@@ -433,6 +462,7 @@ impl UrlRewrite {
             unfound_hosts,
             scrubbed: self.scrubbed,
             kept_in: self.kept_in,
+            counters,
         }
     }
 }
