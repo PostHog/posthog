@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL
-from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema
+from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema, TablePair
 from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource, PendingSourceCredential
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
@@ -107,7 +107,21 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         migration = self._migration()
         pending = self._item(migration)
         self._item(migration, verdict=WarehouseMigrationItem.Verdict.UNSUPPORTED)
-        applied = self._item(migration, status=WarehouseMigrationItem.Status.APPLIED)
+        applied = self._item(
+            migration,
+            status=WarehouseMigrationItem.Status.APPLIED,
+            proposal=ItemProposal(
+                source_type=ExternalDataSourceType.HUBSPOT,
+                prefix="hubspot",
+                prefill={},
+                schemas=(ProposedSchema(name="contacts", should_sync=True, sync_type=None, vendor_table="contact"),),
+                sync_frequency="6hour",
+                sync_time_of_day=None,
+                destination=None,
+                inferred_tables=(TablePair(vendor_table="contact", posthog_table="contacts"),),
+                unmatched_tables=("email_event",),
+            ).to_json(),
+        )
         applying = self._item(migration, status=WarehouseMigrationItem.Status.APPLYING)
 
         skip = self.client.post(f"{self.url}{migration.id}/items/{pending.id}/skip/")
@@ -119,7 +133,11 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         detail = self.client.get(f"{self.url}{migration.id}/").json()
         assert "credentials" not in detail
         assert detail["item_counts"] == {"as_is": 1, "caveats": 0, "unsupported": 1, "applied": 1, "skipped": 1}
-        assert len(self.client.get(f"{self.url}{migration.id}/items/").json()) == 4
+        items = self.client.get(f"{self.url}{migration.id}/items/").json()
+        assert len(items) == 4
+        (proposal,) = [item["proposal"] for item in items if item["proposal"]]
+        assert proposal["inferred_tables"] == [{"vendor_table": "contact", "posthog_table": "contacts"}]
+        assert proposal["unmatched_tables"] == ["email_event"]
 
     def test_list_pages_newest_first_without_repeating_tied_rows(self) -> None:
         oldest, *tied = (self._migration() for _ in range(3))
@@ -340,6 +358,28 @@ class TestApplyMigrationItem(APIBaseTest):
         assert self._apply(self._credential()).status_code == 400
         self.item.refresh_from_db()
         assert self.item.status == expected_status
+
+    def test_table_overrides_change_the_created_tables(self) -> None:
+        bad = {"table_overrides": [{"vendor_table": "not_a_table", "posthog_table": "Invoice"}]}
+        response = self.client.post(
+            self.url,
+            {"item_id": str(self.item.id), "credential_id": str(self._credential().id), **bad},
+            format="json",
+        )
+        assert response.status_code == 400
+        self.item.refresh_from_db()
+        assert self.item.status == WarehouseMigrationItem.Status.PENDING
+
+        overrides = {"table_overrides": [{"vendor_table": "NotAStripeTable", "posthog_table": "Invoice"}]}
+        response = self.client.post(
+            self.url,
+            {"item_id": str(self.item.id), "credential_id": str(self._credential().id), **overrides},
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        synced = ExternalDataSchema.objects.filter(source_id=response.json()["source_id"], should_sync=True)
+        assert sorted(schema.name for schema in synced) == ["Customer", "Invoice"]
 
     def test_a_source_created_before_a_failure_is_linked_not_created_again(self) -> None:
         # Raises after the source row exists, as revenue view setup or a database error can.

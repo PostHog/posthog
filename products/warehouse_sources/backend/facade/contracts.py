@@ -367,6 +367,18 @@ class WarehouseMigrationItemClaimedError(ValueError):
     """An apply has already claimed or finished this migration item."""
 
 
+class WarehouseMigrationTableOverrideError(ValueError):
+    """The table overrides do not fit the item's plan. The message says why."""
+
+
+@dataclass(frozen=True)
+class MigrationTableOverride:
+    """Map one Fivetran table to a PostHog table at apply, or drop it with `posthog_table=None`."""
+
+    vendor_table: str
+    posthog_table: str | None
+
+
 @dataclass(frozen=True)
 class WarehouseMigrationItemCounts:
     as_is: int

@@ -1,4 +1,6 @@
-from collections.abc import Mapping
+import dataclasses
+from collections import Counter
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -11,6 +13,47 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedRowFilter, ProposedSchema
 
 _MULTI_VALUE_OPERATORS = ("IN", "NOT IN")
+
+
+class TableOverrideError(ValueError):
+    pass
+
+
+@frozen
+class TableOverride:
+    vendor_table: str
+    # None drops the table from the plan.
+    posthog_table: str | None
+
+
+def with_table_overrides(proposal: ItemProposal, overrides: Sequence[TableOverride]) -> ItemProposal:
+    """Apply the mapping the user confirmed: rename a planned table, add an unmatched one, or drop one."""
+    if not overrides:
+        return proposal
+    if proposal.schemas is None:
+        raise TableOverrideError("This plan uses PostHog's default tables, so it takes no table overrides.")
+    schemas: dict[str, ProposedSchema | None] = {
+        schema.vendor_table or schema.name: schema for schema in proposal.schemas
+    }
+    for override in overrides:
+        if override.vendor_table not in schemas and override.vendor_table not in proposal.unmatched_tables:
+            raise TableOverrideError(f"`{override.vendor_table}` is not a Fivetran table of this connection.")
+        planned = schemas.get(override.vendor_table)
+        if override.posthog_table is None:
+            schemas[override.vendor_table] = None
+        elif planned is None:
+            schemas[override.vendor_table] = ProposedSchema(
+                name=override.posthog_table, should_sync=True, sync_type=None, vendor_table=override.vendor_table
+            )
+        else:
+            schemas[override.vendor_table] = dataclasses.replace(
+                planned, name=override.posthog_table, alternative_names=()
+            )
+    kept = tuple(schema for schema in schemas.values() if schema is not None)
+    duplicates = sorted(name for name, count in Counter(schema.name for schema in kept).items() if count > 1)
+    if duplicates:
+        raise TableOverrideError(f"More than one Fivetran table maps to `{duplicates[0]}`.")
+    return dataclasses.replace(proposal, schemas=kept)
 
 
 @frozen

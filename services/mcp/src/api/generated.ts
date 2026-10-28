@@ -13847,6 +13847,16 @@ export namespace Schemas {
       Agents: 'agents',
     } as const;
 
+    export interface MigrationTableOverride {
+      /** A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`. */
+      vendor_table: string;
+      /**
+         * The PostHog table to sync it as. Null leaves the table out.
+         * @nullable
+         */
+      posthog_table: string | null;
+    }
+
     /**
      * * `web` - web
      * * `api` - api
@@ -13870,6 +13880,8 @@ export namespace Schemas {
       prefix?: string;
       /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
       destination_ids?: string[];
+      /** Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out. */
+      table_overrides?: MigrationTableOverride[];
       /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
        *
        * * `web` - web
@@ -65860,6 +65872,11 @@ export namespace Schemas {
       row_filters: ProposedRowFilter[];
       /** Names to try, in order, when the source does not discover a table called `name`. */
       alternative_names: string[];
+      /**
+         * The Fivetran table this plan comes from. Apply's `table_overrides` refer to it.
+         * @nullable
+         */
+      vendor_table?: string | null;
     }
 
     /**
@@ -65872,6 +65889,13 @@ export namespace Schemas {
       type: string;
       /** Non-secret destination settings copied from Fivetran. */
       config: ProposedDestinationConfig;
+    }
+
+    export interface TablePair {
+      /** The Fivetran table. */
+      vendor_table: string;
+      /** The PostHog table it was paired with. */
+      posthog_table: string;
     }
 
     export interface ItemProposal {
@@ -65897,6 +65921,10 @@ export namespace Schemas {
       destination: ProposedDestination | null;
       /** Whether every table starts with syncing off, because the connection is paused in Fivetran. */
       start_paused: boolean;
+      /** Tables that a naming rule paired. Ask the user to confirm each pair before applying. */
+      inferred_tables?: TablePair[];
+      /** Fivetran tables with no PostHog table. Compare them with the source's PostHog tables and propose one, or leave them out. */
+      unmatched_tables?: string[];
     }
 
     export interface ItemReceipt {
