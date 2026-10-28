@@ -369,6 +369,17 @@ class TestCheckEndpointAccess:
             check_endpoint_access("gg_sat_x", BASE_URL, endpoint)
         assert [request.path for request in network.requests_log] == [parent_path]
 
+    def test_team_sources_probes_teams_and_sources(self) -> None:
+        with scripted_network([ScriptedResponse(status=200), ScriptedResponse(status=200)]) as network:
+            reason = check_endpoint_access("gg_sat_x", BASE_URL, "team_sources")
+        assert reason is None
+        assert [request.path for request in network.requests_log] == ["/v1/teams", "/v1/sources"]
+
+    def test_team_sources_without_sources_scope_is_blocked(self) -> None:
+        with scripted_network([ScriptedResponse(status=200), ScriptedResponse(status=403, body=b"no json")]):
+            reason = check_endpoint_access("gg_sat_x", BASE_URL, "team_sources")
+        assert reason is not None and "sources:read" in reason
+
     def test_unpaginated_endpoint_is_probed_without_paging_params(self) -> None:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             check_endpoint_access("gg_sat_x", BASE_URL, "public_developers")

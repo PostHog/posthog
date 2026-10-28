@@ -48,6 +48,8 @@ class GitGuardianEndpointConfig:
     # Column that receives the parent's `id` on each child row, for children whose rows don't
     # carry it themselves. Needed to keep the primary key unique across parents.
     parent_id_field: Optional[str] = None
+    # Other endpoints whose scopes this table also needs; the permission probe checks each one.
+    also_requires: tuple[str, ...] = ()
     statuses: tuple[str, ...] = ()
 
 
@@ -190,12 +192,13 @@ GITGUARDIAN_ENDPOINTS: dict[str, GitGuardianEndpointConfig] = {
     ),
     # Team sources: the source <-> team join table, fanned out per team. Rows are full source
     # objects with no team id, so the team id is stamped on to keep the key unique across teams.
-    # Also needs `sources:read`, which the parent probe can't check.
+    # Also needs `sources:read`, so the probe checks `/v1/sources` too.
     "team_sources": GitGuardianEndpointConfig(
         name="team_sources",
         path="/v1/teams/{parent_id}/sources",
         parent_endpoint="teams",
         parent_id_field="team_id",
+        also_requires=("sources",),
         primary_keys=["team_id", "id"],
         required_scope="teams:read",
         incremental_fields=[],

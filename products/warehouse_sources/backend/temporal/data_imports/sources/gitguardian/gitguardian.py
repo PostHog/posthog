@@ -168,6 +168,18 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
     config = GITGUARDIAN_ENDPOINTS[endpoint]
     # Fan-out children share their parent's scope, and their path needs a real parent id.
     probe = GITGUARDIAN_ENDPOINTS[config.parent_endpoint] if config.parent_endpoint else config
+    probes = [(probe, config.required_scope)]
+    probes += [
+        (GITGUARDIAN_ENDPOINTS[name], GITGUARDIAN_ENDPOINTS[name].required_scope) for name in config.also_requires
+    ]
+    for probe_config, scope in probes:
+        reason = _probe_endpoint(api_key, base_url, probe_config, scope)
+        if reason:
+            return reason
+    return None
+
+
+def _probe_endpoint(api_key: str, base_url: str, probe: GitGuardianEndpointConfig, scope: str) -> str | None:
     url = _build_url(base_url, probe.path, {"per_page": 1} if probe.page_size else {})
     try:
         # capture=False keeps GitGuardian security metadata (repo names, file paths, secret hashes)
@@ -183,7 +195,7 @@ def check_endpoint_access(api_key: str, base_url: str, endpoint: str) -> str | N
     detail = _error_detail(response)
     if detail:
         return detail
-    return f"Your API token is missing the `{config.required_scope}` scope required for this table."
+    return f"Your API token is missing the `{scope}` scope required for this table."
 
 
 def _list_params(config: GitGuardianEndpointConfig) -> dict[str, Any]:
