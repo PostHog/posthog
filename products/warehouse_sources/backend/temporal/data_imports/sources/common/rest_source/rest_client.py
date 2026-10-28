@@ -757,8 +757,7 @@ class RESTClient:
             raise ValueError(
                 self._redact(
                     f"Unexpected redirect ({response.status_code}) to "
-                    f"{_safe_url(response.headers.get('Location') or '')!r} from {_safe_url(prepared.url or '')}; "
-                    "refusing to follow."
+                    f"{_safe_url(response.headers.get('Location') or '')!r} from {prepared.url}; refusing to follow."
                 )
             )
 
