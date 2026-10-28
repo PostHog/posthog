@@ -14,7 +14,7 @@ use std::collections::{HashMap, HashSet};
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string};
-use replay_core_v4::inspect::dom::{srcset_candidates, Srcset};
+use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
 use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
@@ -178,11 +178,11 @@ impl UrlRewrite {
         // A URL that a source of a stored type also names stays, as the inspector merges identical srcset values.
         let mut source_types: HashMap<&str, bool> = HashMap::new();
         for srcset in srcsets {
-            for (url, _) in srcset_candidates(&srcset.text) {
+            for_each_srcset_candidate(&srcset.text, |url, _| {
                 if is_remote(url) {
                     *source_types.entry(url).or_insert(true) &= srcset.unfetched_type;
                 }
-            }
+            });
         }
         let unfetched = source_types
             .into_iter()
@@ -376,42 +376,41 @@ fn rebuilt_srcset(
     key_month: &str,
     url_key: &[u8; 32],
 ) -> Option<(String, &'static str, Vec<usize>)> {
-    let mut kept = Vec::new();
+    // Streams the candidates into the new value, so that a long srcset holds no list of them.
+    let mut value = String::with_capacity(text.len());
     let mut covers = Vec::new();
     let mut removed = false;
-    for (url, descriptors) in srcset_candidates(text) {
+    let mut keep = |url: &str, descriptors: &str| {
+        if !value.is_empty() {
+            value.push_str(", ");
+        }
+        value.push_str(url);
+        if !descriptors.is_empty() {
+            value.push(' ');
+            value.push_str(descriptors);
+        }
+    };
+    for_each_srcset_candidate(text, |url, descriptors| {
         if url == AVIF_MARKER {
             removed = true;
-            continue;
-        }
-        if !is_remote(url) {
-            kept.push((Cow::Borrowed(url), descriptors));
-            continue;
-        }
-        covers.extend(url_targets.get(url));
-        match url_reference(url, team_id, key_month, url_key) {
-            Ok((_, reference)) if !unfetched.contains(url) => {
-                kept.push((Cow::Owned(reference), descriptors))
+        } else if !is_remote(url) {
+            keep(url, descriptors);
+        } else {
+            covers.extend(url_targets.get(url));
+            match url_reference(url, team_id, key_month, url_key) {
+                Ok((_, reference)) if !unfetched.contains(url) => keep(&reference, descriptors),
+                _ => removed = true,
             }
-            _ => removed = true,
         }
-    }
+    });
     if !removed {
         return None;
     }
-    let outcome = if kept.is_empty() {
+    let outcome = if value.is_empty() {
         "emptied"
     } else {
         "trimmed"
     };
-    let value = kept
-        .iter()
-        .map(|(url, descriptors)| match *descriptors {
-            "" => url.to_string(),
-            descriptors => format!("{url} {descriptors}"),
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
     Some((value, outcome, covers))
 }
 

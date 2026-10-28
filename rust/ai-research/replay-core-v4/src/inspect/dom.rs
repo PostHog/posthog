@@ -473,7 +473,7 @@ pub fn srcset_candidates(srcset: &str) -> Vec<(&str, &str)> {
 }
 
 /// Streams the candidates of [`srcset_candidates`], so that a message-sized srcset needs no list of them.
-fn for_each_srcset_candidate<'s>(srcset: &'s str, mut found: impl FnMut(&'s str, &'s str)) {
+pub fn for_each_srcset_candidate<'s>(srcset: &'s str, mut found: impl FnMut(&'s str, &'s str)) {
     let bytes = srcset.as_bytes();
     let mut position = 0;
     loop {
