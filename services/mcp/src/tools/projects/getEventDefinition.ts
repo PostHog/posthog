@@ -55,8 +55,7 @@ export const getEventDefinitionHandler: ToolBase<typeof schema, Result>['handler
     }
 
     const definition = result.data
-    // The API takes the owner's user ID on write and returns the owner as a user object on read.
-    const owner = typeof definition.owner === 'object' ? definition.owner : null
+    const owner = definition.owner
 
     return {
         found: true,

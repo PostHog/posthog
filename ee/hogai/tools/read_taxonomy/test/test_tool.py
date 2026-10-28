@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.event_usage import EventSource
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -221,3 +221,25 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         self.assertNotIn("Owner of", result)
         self.assertIn("Description of `quiz_retaken`: Retook a quiz", result)
+
+    @parameterized.expand([("other_environment_same_project", True), ("other_project", False)])
+    @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
+    def test_event_properties_owner_is_scoped_to_the_project(self, _name, same_project, mock_toolkit_class):
+        mock_toolkit = mock_toolkit_class.return_value
+        mock_toolkit.retrieve_event_or_action_properties.return_value = "- mixer_session_id"
+        owner = User.objects.create_and_join(self.organization, "ada@example.com", None, first_name="Ada")
+        # Without a project, the manager creates a new one for the team.
+        project_kwargs = {"project_id": self.team.project_id} if same_project else {}
+        other_team = Team.objects.create(organization=self.organization, name="other", **project_kwargs)
+        EnterpriseEventDefinition.objects.create(
+            team=other_team, project_id=other_team.project_id, name="quiz_retaken", owner=owner
+        )
+
+        result = execute_taxonomy_query(
+            ReadEventProperties(event_name="quiz_retaken"), mock_toolkit, self.team, self.user
+        )
+
+        if same_project:
+            self.assertIn("Owner of `quiz_retaken`: Ada (ada@example.com)\n", result)
+        else:
+            self.assertNotIn("Owner of", result)

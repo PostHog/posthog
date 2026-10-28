@@ -47,6 +47,8 @@ from posthog.security.llm_prompt_sanitization import sanitize_user_text
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, is_hidden_from_assistant
 
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
 from ee.hogai.utils.anthropic import SUPPORTED_ANTHROPIC_BLOCKS
 from ee.hogai.utils.types.base import (
     ArtifactRefMessage,
@@ -349,8 +351,10 @@ def get_event_owner(team: Team, event_name: str) -> str | None:
         EnterpriseEventDefinition,  # noqa: PLC0415 — EE-only model, keep off the OSS import path
     )
 
+    # Event definitions belong to the project, so an environment sees the owner set from any other one.
     owner = (
-        EnterpriseEventDefinition.objects.filter(team_id=team.pk, name=event_name, owner__isnull=False)
+        EnterpriseEventDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=team.project_id, name=event_name, owner__isnull=False)
         .values_list("owner__first_name", "owner__last_name", "owner__email")
         .first()
     )

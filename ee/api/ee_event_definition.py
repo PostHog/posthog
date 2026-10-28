@@ -1,7 +1,9 @@
+from typing import TYPE_CHECKING
+
 from django.utils import timezone
 
 import posthoganalytics
-from drf_spectacular.utils import extend_schema_field
+from drf_spectacular.extensions import OpenApiSerializerExtension
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -12,27 +14,40 @@ from posthog.models.organization import OrganizationMembership
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
+if TYPE_CHECKING:
+    from drf_spectacular.openapi import AutoSchema
+    from drf_spectacular.utils import Direction
 
-# Request and response bodies share one schema component, so the schema lists both shapes:
-# the owner's user ID on write, and the user object that `to_representation` below returns on read.
-@extend_schema_field(
-    {
-        "oneOf": [
-            {"type": "integer", "writeOnly": True},
-            {"allOf": [{"$ref": "#/components/schemas/UserBasic"}], "readOnly": True},
-        ]
-    }
-)
-class EventDefinitionOwnerField(serializers.PrimaryKeyRelatedField):
-    pass
+
+class EnterpriseEventDefinitionSerializerExtension(OpenApiSerializerExtension):
+    """Documents `owner` as a user ID in request bodies, and as the user object that `to_representation` returns."""
+
+    target_class = "ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer"
+
+    def get_name(self, auto_schema: "AutoSchema", direction: "Direction") -> str | None:
+        # One component cannot describe both `owner` shapes. A PATCH body already gets its own "Patched"
+        # component, so only POST and PUT bodies need a name apart from the response.
+        if direction == "request" and not getattr(self.target, "partial", False):
+            return "EnterpriseEventDefinitionRequest"
+        return None
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema: dict = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        if direction == "response":
+            schema["properties"]["owner"] = {
+                "oneOf": [auto_schema.resolve_serializer(UserBasicSerializer, direction).ref, {"type": "null"}],
+                "readOnly": True,
+                "description": "The user responsible for the event, or null when it has no owner.",
+            }
+        return schema
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
-    owner = EventDefinitionOwnerField(
+    owner = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.all(),
         allow_null=True,
         required=False,
-        help_text="The user responsible for the event. Write the user's ID, or null to clear it. Reads return the user.",
+        help_text="ID of the user responsible for the event. Null removes the owner.",
     )
     updated_by = UserBasicSerializer(read_only=True)
     verified_by = UserBasicSerializer(read_only=True)
