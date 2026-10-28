@@ -123,8 +123,6 @@ export const LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS = ['antigravity'] as cons
 export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor'] as const
 export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor'] as const
 
-const RENDER_UI_CLIENT_FRAGMENTS = ['codex', 'chatgpt', 'openai-mcp'] as const
-
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
 // MCP transports across all its products and reports the live one in this
 // header, so it's the reliable identifier for an Anthropic client (the
@@ -205,6 +203,16 @@ export const INLINE_EXEC_UI_APP_VENDOR_FRAGMENTS = ['claudecode'] as const
 // user-agent fallback.
 export const ANTHROPIC_USER_AGENT_FRAGMENTS = ['claude-user'] as const
 export const ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS = ANTHROPIC_USER_AGENT_FRAGMENTS
+
+// OpenAI clients send no vendor header, so ChatGPT, Codex, and the shared
+// `openai-mcp` client are matched on `clientInfo.name` or the User-Agent. Claude
+// is matched on the User-Agent only, because its pooled `clientInfo.name` is shared
+// with Claude Code.
+export const RENDER_UI_HOST_CLIENT_NAME_FRAGMENTS = ['codex', 'chatgpt', 'openai-mcp'] as const
+export const RENDER_UI_HOST_USER_AGENT_FRAGMENTS = [
+    ...ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS,
+    ...RENDER_UI_HOST_CLIENT_NAME_FRAGMENTS,
+] as const
 
 export type ClientCapabilities = {
     // MCP `initialize` response includes an `instructions` field that most
@@ -299,7 +307,7 @@ export class MCPClientProfile {
         // is the reliable signal of the live product when present. Some surfaces
         // (Claude.ai web/desktop, internal tools) connect without that header, so
         // also accept the `Claude-User` user-agent and the pooled `Anthropic/…`
-        // `clientInfo.name`. Unlike `isClaudeUiHost`, matching the pooled name here
+        // `clientInfo.name`. Unlike `isRenderUiHost`, matching the pooled name here
         // is safe and intended: every Anthropic product belongs in CLI mode, so
         // there is nothing to misclassify.
         return matchesAnyFragment(this.vendorClient, ANTHROPIC_CLIENT_NAME_FRAGMENTS) || this.isAnthropicConnector()
@@ -328,27 +336,22 @@ export class MCPClientProfile {
         if (this.uiSupported !== undefined) {
             return this.uiSupported
         }
-        return (
-            this.isClaudeUiHost() ||
-            matchesAnyFragment(this.clientName, RENDER_UI_CLIENT_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, RENDER_UI_CLIENT_FRAGMENTS)
-        )
-    }
-
-    isClaudeUiHost(): boolean {
         // The per-request vendor client (`x-anthropic-client`) is authoritative: it
         // distinguishes the Claude surfaces that pool the same MCP transport —
         // `ClaudeAI` (web/desktop) and `Cowork`, both `render-ui` hosts, from
         // `ClaudeCode`, which only renders UI apps inline on the `exec` response
         // (see `isInlineExecUiHost`). When it's present, trust it exclusively; only
-        // fall back to the `Claude-User` user-agent when the vendor header is
+        // fall back to the user-agent and client name when the vendor header is
         // absent. Otherwise a non-render-ui surface like Claude Code — which can
         // share the `Claude-User` user-agent with web/desktop — would be
         // misclassified as a UI host.
         if (this.vendorClient) {
             return matchesAnyFragment(this.vendorClient, ANTHROPIC_UI_HOST_VENDOR_FRAGMENTS)
         }
-        return matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS)
+        return (
+            matchesAnyFragment(this.userAgent, RENDER_UI_HOST_USER_AGENT_FRAGMENTS) ||
+            matchesAnyFragment(this.clientName, RENDER_UI_HOST_CLIENT_NAME_FRAGMENTS)
+        )
     }
 
     isInlineExecUiHost(): boolean {
@@ -361,7 +364,7 @@ export class MCPClientProfile {
     }
 
     isClaudeChatHost(): boolean {
-        // Same vendor-authoritative shape as `isClaudeUiHost`, narrowed to the chat
+        // Same vendor-authoritative shape as `isRenderUiHost`, narrowed to the chat
         // surfaces (Claude web/desktop) that ignore the `instructions` payload. The
         // `Claude-User` user-agent fallback is kept for requests without the vendor
         // header — those are predominantly chat sessions, and keeping env-context
@@ -407,11 +410,4 @@ export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean 
 
 export function isToolsModeClient(clientName: string | undefined, userAgent?: string | undefined): boolean {
     return new MCPClientProfile({ clientName, userAgent }).isToolsModeClient()
-}
-
-export function isClaudeUiHostClient(args: {
-    vendorClient?: string | undefined
-    userAgent?: string | undefined
-}): boolean {
-    return new MCPClientProfile(args).isClaudeUiHost()
 }

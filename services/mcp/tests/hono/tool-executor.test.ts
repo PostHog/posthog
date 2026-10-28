@@ -470,7 +470,6 @@ describe('ToolExecutor', () => {
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
-                        isClaudeUiHost: vi.fn(() => isClaudeChatHost),
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                         isAnthropicConnector: vi.fn(() => isClaudeChatHost),
@@ -727,7 +726,6 @@ describe('ToolExecutor', () => {
                         clientProfile: {
                             capabilities: { supportsInstructions },
                             isCliModeEnabled: vi.fn(() => true),
-                            isClaudeUiHost: vi.fn(() => false),
                             isInlineExecUiHost: vi.fn(() => false),
                             isClaudeChatHost: vi.fn(() => isClaudeChatHost),
                             isAnthropicConnector: vi.fn(() => isClaudeChatHost),
@@ -763,7 +761,6 @@ describe('ToolExecutor', () => {
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
-                        isClaudeUiHost: vi.fn(() => false),
                         isInlineExecUiHost: vi.fn(() => false),
                         isClaudeChatHost: vi.fn(() => true),
                         isAnthropicConnector: vi.fn(() => true),
