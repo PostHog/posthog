@@ -1,7 +1,7 @@
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 
 import { BIEditorView, buildBIQuery, parseBIEditorState } from './biEditorTypes'
-import { BI_QUESTION_STARTERS, starterWorksheetUrl } from './biStarters'
+import { BI_QUESTION_STARTERS, starterWorksheetUrl } from './biQuestionStarters'
 
 it('opens each question as editable shelves with a seven-day window, without a SQL snapshot', () => {
     for (const starter of BI_QUESTION_STARTERS) {

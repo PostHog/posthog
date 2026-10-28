@@ -4,7 +4,7 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { captureBIWorksheetAction } from './biEditorAnalytics'
 import { DEFAULT_BI_CONFIG } from './biEditorTypes'
-import { BI_QUESTION_STARTERS, starterWorksheetUrl } from './biStarters'
+import { BI_QUESTION_STARTERS, starterWorksheetUrl } from './biQuestionStarters'
 import { biStartersLogic } from './biStartersLogic'
 
 export function BIStarters(): JSX.Element {
