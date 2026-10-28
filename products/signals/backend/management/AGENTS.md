@@ -211,6 +211,23 @@ uv run manage.py backfill_report_actionability --team-id 1 --batch-size 100 --af
 
 Idempotent. It recomputes each report from its artefacts and writes only the rows that disagree.
 
+## Filling the report columns the inbox filters on
+
+`SignalReport.authoring_scout_config_id` holds the config of the scout run that authored a report.
+`has_implementation_pr` and `has_active_implementation_pr` cache `implementation_pr_report_filter`.
+Write paths keep all three current (`_record_report_emit` and the receivers in `implementation_pr_cache.py`).
+Run `backfill_report_inbox_state` once after the columns ship, and again as a repair after a bulk write that bypassed Django signals.
+
+```bash
+# Both passes, every team
+uv run manage.py backfill_report_inbox_state
+
+# One pass for one team, resuming after the id an earlier run printed
+uv run manage.py backfill_report_inbox_state --team-id 1 --only implementation-pr --after <report-id>
+```
+
+Idempotent. The authorship pass writes only empty columns, and the PR pass writes only rows that disagree with the live filter.
+
 ## Resuming operational scouts the setup flow paused
 
 An older self-driving setup flow switched off every scout the user did not pick, including operational scouts such as inbox validation.
