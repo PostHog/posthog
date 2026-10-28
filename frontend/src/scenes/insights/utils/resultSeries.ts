@@ -33,7 +33,6 @@ export type ActionsById = Partial<Record<number | string, Pick<ActionType, 'name
 const WEEK_OR_LONGER_INTERVALS = new Set<IntervalType>(['week', 'month', 'quarter', 'year'])
 const MONTH_OR_LONGER_INTERVALS = new Set<IntervalType>(['month', 'quarter', 'year'])
 
-/** The row's series or formula index. */
 export function getResultOrder(result: ResultSeriesRow): number {
     return result.order ?? 0
 }

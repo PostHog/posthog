@@ -548,7 +548,6 @@ describe('insightsTableDataLogic', () => {
                 data: number[]
             ): Partial<IndexedTrendResult> =>
                 makeCompareResult({
-                    action: { order, id: '$pageview', name: '$pageview' } as any,
                     order,
                     compare: true,
                     compare_label,
