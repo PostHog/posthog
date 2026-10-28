@@ -544,6 +544,25 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         )
         assert columns[0][0] == "Stripe charge identifier (ch_...)."
 
+    def test_warehouse_column_sensitivity_comes_from_annotations(self):
+        customers = self._create_warehouse_table(name="customers", column="email")
+        with team_scope(self.team.id, canonical=True):
+            WarehouseColumnAnnotation.objects.create(
+                team=self.team, table=customers, column_name="email", description="", sensitivity="email"
+            )
+
+        columns = (
+            execute_hogql_query(
+                """
+            SELECT column_name, description, sensitivity FROM system.information_schema.columns
+            WHERE table_name = 'customers'
+            """,
+                team=self.team,
+            ).results
+            or []
+        )
+        assert [tuple(row) for row in columns] == [("email", None, "email")]
+
     def test_warehouse_source_native_table_description_appears(self):
         table = self._create_warehouse_table()
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)

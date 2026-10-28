@@ -32,14 +32,17 @@ class TableDescriptions:
         view_descriptions: dict[tuple[str, str], str],
         view_by_backing_table: dict[str, str],
         source_table_descriptions: dict[str, str],
+        warehouse_sensitivities: dict[tuple[str, str], str] | None = None,
     ) -> None:
         # Descriptions keyed by ``(uuid, column_name)`` where ``column_name=""`` is the table/view-level
         # row. `view_by_backing_table` maps a materialized view's backing table UUID to its saved-query UUID.
         # `source_table_descriptions` maps a warehouse table UUID to its source-native table description.
+        # `warehouse_sensitivities` uses the same key as the warehouse descriptions.
         self._warehouse = warehouse_descriptions
         self._view = view_descriptions
         self._view_by_backing_table = view_by_backing_table
         self._source_table = source_table_descriptions
+        self._warehouse_sensitivity = warehouse_sensitivities or {}
 
     @classmethod
     def load(cls, team_id: Optional[int]) -> "TableDescriptions":
@@ -49,6 +52,7 @@ class TableDescriptions:
         view: dict[tuple[str, str], str] = {}
         view_by_backing_table: dict[str, str] = {}
         source_table: dict[str, str] = {}
+        sensitivity: dict[tuple[str, str], str] = {}
         if team_id is None:
             return cls(warehouse, view, view_by_backing_table, source_table)
 
@@ -68,10 +72,16 @@ class TableDescriptions:
 
         try:
             with team_scope(team_id):
-                for table_id, column_name, description in WarehouseColumnAnnotation.objects.filter(
-                    WarehouseColumnAnnotation.DESCRIBED
-                ).values_list("table_id", "column_name", "description"):
-                    warehouse[(str(table_id), column_name)] = description
+                for table_id, column_name, description, column_sensitivity in (
+                    WarehouseColumnAnnotation.objects.exclude(description="", sensitivity__isnull=True).values_list(
+                        "table_id", "column_name", "description", "sensitivity"
+                    )
+                ):
+                    # A row with an empty description only carries a sensitivity flag.
+                    if description:
+                        warehouse[(str(table_id), column_name)] = description
+                    if column_sensitivity:
+                        sensitivity[(str(table_id), column_name)] = column_sensitivity
                 for sq_id, column_name, description in DataWarehouseSavedQueryColumnAnnotation.objects.values_list(
                     "saved_query_id", "column_name", "description"
                 ):
@@ -99,7 +109,7 @@ class TableDescriptions:
             logger.exception("table_descriptions: failed to load annotations", team_id=team_id)
             return cls({}, {}, {}, {})
 
-        return cls(warehouse, view, view_by_backing_table, source_table)
+        return cls(warehouse, view, view_by_backing_table, source_table, sensitivity)
 
     def for_table(self, table: Table) -> Optional[str]:
         """Table-level description, dispatching on the table object: the static
@@ -124,6 +134,15 @@ class TableDescriptions:
         if table_id:
             return self._warehouse_or_view(str(table_id), column_name)
         return None
+
+    def sensitivity_for_column(self, table: Table, column_name: str) -> Optional[str]:
+        """The stored sensitivity flag of a synced warehouse column, such as `email`. Views carry none."""
+        if isinstance(table, SavedQuery):
+            return None
+        table_id = getattr(table, "table_id", None)
+        if not table_id or str(table_id) in self._view_by_backing_table:
+            return None
+        return self._warehouse_sensitivity.get((str(table_id), column_name))
 
     def _warehouse_or_view(self, table_id: str, column_name: str) -> Optional[str]:
         # A materialized view's backing table carries view annotations, not warehouse ones — resolve it

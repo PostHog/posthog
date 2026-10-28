@@ -589,6 +589,9 @@ class _Introspection:
     def _column_description(self, table: Table, column_name: str, field: FieldOrTable) -> Optional[str]:
         return self.table_descriptions.for_column(table, column_name, field)
 
+    def _column_sensitivity(self, table: Table, column_name: str) -> Optional[str]:
+        return self.table_descriptions.sensitivity_for_column(table, column_name)
+
     def _column_stats(self, table: Table, table_type: str, column_name: str) -> _ColumnStats:
         """`(null_fraction, min_value, max_value)` for a warehouse column, or all-None otherwise."""
         if table_type == "data_warehouse":
@@ -715,6 +718,7 @@ class _Introspection:
                         null_fraction,
                         min_value,
                         max_value,
+                        self._column_sensitivity(table, qualified),
                     ]
                 )
                 ordinal += 1
@@ -759,6 +763,7 @@ class _Introspection:
                         False,
                         False,
                         "virtual_table",
+                        None,
                         None,
                         None,
                         None,
@@ -845,6 +850,7 @@ _COLUMNS_COLUMNS: list[tuple[str, str]] = [
     ("null_fraction", _NULLABLE_FLOAT),
     ("min_value", _NULLABLE_STRING),
     ("max_value", _NULLABLE_STRING),
+    ("sensitivity", _NULLABLE_STRING),
 ]
 
 _RELATIONSHIPS_COLUMNS: list[tuple[str, str]] = [
@@ -1747,6 +1753,16 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
             description=(
                 "Maximum value observed in this column (from the Delta-log statistics), as a string. "
                 "Use it to bound range and time-window filters. NULL when unprofiled or not applicable."
+            ),
+        ),
+        "sensitivity": _string_field(
+            "sensitivity",
+            nullable=True,
+            description=(
+                "Kind of personal or secret data a data warehouse column likely holds, from its name and type: "
+                "'email', 'phone', 'name', 'address', 'date_of_birth', 'ip_address', 'token', 'secret' or "
+                "'card_number'. Avoid selecting or exposing these columns unless the task needs them. "
+                "NULL when the column is not flagged or is not a synced warehouse column."
             ),
         ),
     }

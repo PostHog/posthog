@@ -657,6 +657,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             if resolved_column:
                 line += f" — {_sanitize_semantic_text(resolved_column)}"
                 rendered_column_description = True
+            sensitivity = descriptions.sensitivity_for_column(raw_table, field.name)
+            if sensitivity:
+                line += f" [sensitive: {sensitivity}]"
             lines.append(line)
 
         foreign_keys = semantics.get("foreign_keys")
