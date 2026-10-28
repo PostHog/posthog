@@ -396,10 +396,15 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             and isinstance(node.chain[0], str)
             and node.chain[0] in self.aliases
             and isinstance(node.type, ast.FieldType)
-            and isinstance(node.type.table_type, ast.TableAliasType)
         ):
             return None
-        qualifier = node.type.table_type.alias
+        table_type = node.type.table_type
+        if isinstance(table_type, (ast.TableAliasType, ast.CTETableAliasType, ast.SelectQueryAliasType)):
+            qualifier = table_type.alias
+        elif isinstance(table_type, ast.CTETableType):
+            qualifier = table_type.name
+        else:
+            return None
         if self.lambda_scopes and self._lambda_reads_qualifier_as_field(qualifier):
             raise TrinoLoweringError(
                 "TRINO_LAMBDA_QUALIFIER_AMBIGUOUS",

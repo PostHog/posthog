@@ -992,7 +992,7 @@ class TrinoPrinter(PostgresPrinter):
                 return super().visit_call(lowered)
         if name in {"toint", "tointorzero", "tointordefault", "_touint64"} and node.args:
             arg = node.args[0]
-            arg_type = arg.type.resolve_constant_type(self.context) if arg.type is not None else None
+            arg_type = self._resolve_type(arg)
             if isinstance(arg_type, ast.DateType):
                 return f"date_diff('day', DATE '1970-01-01', {self.visit(arg)})"
             if isinstance(arg_type, ast.DateTimeType):
@@ -1528,6 +1528,24 @@ class TrinoPrinter(PostgresPrinter):
             return self._tuple_arithmetic_type(node)
         if isinstance(node, ast.Call) and node.name.lower() in {"jsonhas", "multisearchanycaseinsensitive"}:
             return ast.BooleanType()
+        # Division always prints as a DOUBLE division, though the resolver can type divide() of integers as an integer.
+        if (isinstance(node, ast.ArithmeticOperation) and node.op == ast.ArithmeticOperationOp.Div) or (
+            isinstance(node, ast.Call) and node.name.lower() == "divide"
+        ):
+            division_type = node.type.resolve_constant_type(self.context) if node.type is not None else None
+            return ast.FloatType(nullable=division_type.nullable if division_type is not None else True)
+        if (
+            isinstance(node, ast.ArithmeticOperation)
+            and node.op
+            in (ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub, ast.ArithmeticOperationOp.Mult)
+            and any(isinstance(self._resolve_type(side), ast.FloatType) for side in (node.left, node.right))
+        ):
+            return ast.FloatType()
+        # ClickHouse rounding functions return their argument's type, but the function registry declares no signature.
+        if isinstance(node, ast.Call) and node.name.lower() in {"floor", "ceil", "trunc", "round"} and node.args:
+            argument_type = self._resolve_type(node.args[0])
+            if isinstance(argument_type, (ast.IntegerType, ast.FloatType, ast.DecimalType)):
+                return argument_type
         if isinstance(node, ast.Call) and node.name.lower() in {"coalesce", "ifnull", "nullif"}:
             if any(isinstance(self._resolve_type(arg), ast.BooleanType) for arg in node.args) and any(
                 self._is_numeric(arg) for arg in node.args
@@ -2744,17 +2762,33 @@ class TrinoPrinter(PostgresPrinter):
         if len(node.args) == 1:
             start = "0"
             end = self.visit(node.args[0])
-        elif len(node.args) == 2:
+        elif len(node.args) in {2, 3}:
             start = self.visit(node.args[0])
             end = self.visit(node.args[1])
         else:
-            self._invalid_function_arguments(node, "range expects one or two arguments in Trino mode.")
+            self._invalid_function_arguments(node, "range expects one to three arguments in Trino mode.")
+        step = ""
+        if len(node.args) == 3:
+            step_arg = node.args[2]
+            # A constant positive step keeps the Trino sequence ascending, as the exclusive end filter assumes.
+            if (
+                not isinstance(step_arg, ast.Constant)
+                or isinstance(step_arg.value, bool)
+                or not isinstance(step_arg.value, int)
+                or step_arg.value <= 0
+            ):
+                self._unsupported(
+                    "TRINO_RANGE_STEP_UNSUPPORTED",
+                    "range requires a constant positive integer step in Trino mode.",
+                    node,
+                )
+            step = f", {step_arg.value}"
         value = self._print_identifier("__hogql_range_value")
         if all(isinstance(arg, ast.Constant) for arg in node.args):
-            return f"filter(sequence({start}, greatest(({end}) - 1, {start})), {value} -> ({value} < {end}))"
+            return f"filter(sequence({start}, greatest(({end}) - 1, {start}){step}), {value} -> ({value} < {end}))"
         return (
             f"element_at(transform(ARRAY[ROW({start}, {end})], __hogql_range -> "
-            "filter(sequence(__hogql_range[1], greatest(__hogql_range[2] - 1, __hogql_range[1])), "
+            f"filter(sequence(__hogql_range[1], greatest(__hogql_range[2] - 1, __hogql_range[1]){step}), "
             f"{value} -> ({value} < __hogql_range[2]))), 1)"
         )
 

@@ -640,6 +640,7 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("cityHash64(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("toTypeName(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("bitNot(id)", "TRINO_FUNCTION_UNSUPPORTED"),
+        ("range(1, 10, id)", "TRINO_RANGE_STEP_UNSUPPORTED"),
     ],
 )
 def test_rejects_unsupported_printer_function_variants(expression: str, feature_code: str) -> None:
@@ -728,6 +729,23 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "SELECT toUnixTimestamp(created_at) + 1 AS created_at, fromUnixTimestamp(created_at) AS later FROM users",
             'from_unixtime((CAST(to_unixtime("users"."created_at") AS BIGINT) + 1))',
             'CAST("created_at" AS BIGINT)',
+        ),
+        (
+            "WITH t AS (SELECT created_at AS period_start FROM users) "
+            "SELECT toUnixTimestamp(period_start) + 1 AS period_start, fromUnixTimestamp(period_start) AS later FROM t",
+            'from_unixtime((CAST(to_unixtime("t"."period_start") AS BIGINT) + 1))',
+            'CAST("period_start" AS BIGINT)',
+        ),
+        # A NaN or fractional float from a rounding function becomes NULL, not a failed Trino cast.
+        (
+            "SELECT toInt(ceil(divide(a - n, n - a) * n + a)) FROM (SELECT sum(id) AS a, count() AS n FROM users)",
+            "__hogql_accurate_cast_value",
+            "CAST(ceil(",
+        ),
+        (
+            "SELECT range(1, length(user_id) + 1, 3) FROM users",
+            "greatest(__hogql_range[2] - 1, __hogql_range[1]), 3)",
+            "greatest(__hogql_range[2] - 1, __hogql_range[1]))",
         ),
         (
             "SELECT toFloat(tupleElement(kv, 2)) FROM users ARRAY JOIN JSONExtractKeysAndValuesRaw(user_id) AS kv",
