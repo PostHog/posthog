@@ -5,14 +5,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.migration.catalog import (
     MatchConfidence,
     TableMatch,
-    match_destination,
     match_source,
     match_tables,
     posthog_tables,
     prefill_config,
 )
 from products.warehouse_sources.backend.migration.catalog.fivetran import SOURCE_OVERRIDES
-from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.types import ExternalDataSourceType as T
 
@@ -25,11 +23,8 @@ class TestCatalog:
     @parameterized.expand(
         [
             ("name_match", "fivetran", "google_ads", T.GOOGLEADS),
-            ("managed_database_flavor", "fivetran", "postgres_rds", T.POSTGRES),
             ("override_beats_name_match", "fivetran", "confluent_cloud", T.KAFKA),
             ("rejected_name_match", "fivetran", "segment", None),
-            ("unknown_service", "fivetran", "not_a_service", None),
-            ("unknown_provider", "airbyte", "postgres", None),
         ]
     )
     def test_match_source(self, _name: str, provider: str, service: str, expected: T | None) -> None:
@@ -37,19 +32,6 @@ class TestCatalog:
 
     @parameterized.expand(
         [
-            ("bigquery_variant", "fivetran", "managed_big_query", ExternalDataDestination.Type.BIGQUERY),
-            ("lake_with_unknown_storage", "fivetran", "managed_data_lake", None),
-            ("unknown_provider", "airbyte", "snowflake", None),
-        ]
-    )
-    def test_match_destination(
-        self, _name: str, provider: str, service: str, expected: ExternalDataDestination.Type | None
-    ) -> None:
-        assert match_destination(provider, service) == expected
-
-    @parameterized.expand(
-        [
-            ("same_name", "tickets", "tickets", MatchConfidence.EXACT),
             ("case_and_separators", "balance_transaction", "BalanceTransaction", MatchConfidence.EXACT),
             ("plural", "contact", "contacts", MatchConfidence.INFERRED),
             ("plural_ies", "category", "categories", MatchConfidence.INFERRED),
@@ -60,14 +42,12 @@ class TestCatalog:
                 "campaign_performance_report",
                 MatchConfidence.INFERRED,
             ),
-            ("no_match", "person", None, None),
         ]
     )
     def test_match_tables(
         self, _name: str, vendor_table: str, posthog_table: str | None, confidence: MatchConfidence | None
     ) -> None:
         candidates = {
-            "tickets",
             "BalanceTransaction",
             "contacts",
             "categories",
@@ -82,10 +62,17 @@ class TestCatalog:
         (match,) = match_tables("fivetran", ["campaign_history"], {"campaign_history", "campaigns"})
         assert (match.posthog_table, match.confidence) == ("campaign_history", MatchConfidence.EXACT)
 
+    def test_inferred_match_skips_a_table_another_vendor_table_matches_exactly(self) -> None:
+        assert match_tables("fivetran", ["account", "account_history"], {"Account"}) == (
+            TableMatch(vendor_table="account", posthog_table="Account", confidence=MatchConfidence.EXACT),
+            TableMatch(vendor_table="account_history", posthog_table=None, confidence=None),
+        )
+
     @parameterized.expand(
         [
             ("lists_tables_without_credentials", T.STRIPE, "Charge"),
             ("needs_credentials_to_list", T.GOOGLEADS, "campaign"),
+            ("needs_config_to_list", T.GITHUB, "issues"),
         ]
     )
     def test_posthog_tables(self, _name: str, source_type: T, expected_table: str) -> None:

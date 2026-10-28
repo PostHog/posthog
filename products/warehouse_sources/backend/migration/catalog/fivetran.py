@@ -140,8 +140,10 @@ REJECTED_SOURCES: frozenset[str] = frozenset(
 )
 
 
-# Fivetran table name endings and what to try in their place. `campaign_history` holds the same
-# records as `campaigns`, and `campaign_performance_daily_report` as `campaign_performance_report`.
+# Fivetran table name endings and what to try in their place. A history-mode table such as Google Ads
+# `campaign_history` holds the same records as `campaigns`, and `campaign_performance_daily_report`
+# as `campaign_performance_report`. The match is only inferred, because some `_history` tables are
+# audit logs instead.
 # A plain `_report` ending stays, because `campaign_report` holds metrics, not the records in `campaigns`.
 TABLE_SUFFIX_REWRITES: tuple[tuple[str, str], ...] = (
     ("_history", ""),

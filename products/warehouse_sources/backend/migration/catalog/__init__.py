@@ -70,6 +70,7 @@ def _source_types_by_letters() -> Mapping[str, ExternalDataSourceType]:
 
 
 def match_source(provider: str, vendor_service: str) -> ExternalDataSourceType | None:
+    # Unreleased sources match too, so the caller can tell a planned source from a missing one.
     rules = _PROVIDERS.get(provider)
     if rules is None or vendor_service in rules.rejected_sources:
         source_type = None
@@ -91,8 +92,10 @@ def posthog_tables(source_type: ExternalDataSourceType) -> frozenset[str] | None
     """Table names the source can sync, or None when the user defines them, as in a database."""
     source = SourceRegistry.get_source(source_type)
     if source.lists_tables_without_credentials:
-        return frozenset(table["name"] for table in source.get_documented_tables())
-    # A source that needs credentials to list its tables still describes each one.
+        documented = frozenset(table["name"] for table in source.get_documented_tables())
+        if documented:
+            return documented
+    # A source that cannot list its tables without credentials or config still describes each one.
     return frozenset(source.get_canonical_descriptions()) or None
 
 
@@ -120,10 +123,21 @@ def match_tables(
     for name in sorted(posthog_table_names):
         by_letters.setdefault(_letters(name), name)
 
+    vendor_tables = list(vendor_tables)
+    exact_targets = {by_letters[_letters(t)] for t in vendor_tables if _letters(t) in by_letters}
     matches: list[TableMatch] = []
     for vendor_table in vendor_tables:
         exact = by_letters.get(_letters(vendor_table))
-        inferred = next((by_letters[k] for k in _inferred_keys(vendor_table, rewrites) if k in by_letters), None)
+        # A table another vendor table matches exactly is taken. Salesforce `account_history` is a
+        # field audit log, not the `Account` records that `account` already holds.
+        inferred = next(
+            (
+                by_letters[k]
+                for k in _inferred_keys(vendor_table, rewrites)
+                if k in by_letters and by_letters[k] not in exact_targets
+            ),
+            None,
+        )
         if exact is not None:
             matches.append(TableMatch(vendor_table=vendor_table, posthog_table=exact, confidence=MatchConfidence.EXACT))
         elif inferred is not None:
