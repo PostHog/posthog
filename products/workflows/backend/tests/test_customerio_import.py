@@ -260,7 +260,7 @@ class TestCustomerioCampaignTranslation(BaseTest):
             segment_cohorts={},
             layouts={
                 "5": "<html><body><!-- header --><!--[if mso]><table><![endif]-->{{ content }}"
-                "<p>{{ customer.city }}</p></body></html>"
+                "<p>{{ customer.city }}</p><!--[if !mso]><!--><i>web</i><!--<![endif]--></body></html>"
             },
             sender_addresses={"77": "Team <team@example.com>"},
             senders={"team@example.com": ImportSender(integration_id=12, email="team@example.com", name="PostHog")},
@@ -278,7 +278,9 @@ class TestCustomerioCampaignTranslation(BaseTest):
         assert email["html"].startswith(
             "<html><body><!--[if mso]><table><![endif]--><p>Hi {{ person.properties.first_name"
         )
-        assert email["html"].endswith("<p>{{ person.properties.city }}</p></body></html>")
+        assert email["html"].endswith(
+            "<p>{{ person.properties.city }}</p><!--[if !mso]><!--><i>web</i><!--<![endif]--></body></html>"
+        )
         assert email["from"] == {"integrationId": 12, "email": "team@example.com", "name": "Team"}
         assert email["replyTo"] == "help@example.com"
         assert (welcome["message_category_id"], welcome["message_category_type"]) == ("cat-1", "marketing")
