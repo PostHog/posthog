@@ -6442,6 +6442,8 @@ snapshots:
         hash: v1.k794b7964.8d0d4e81255c25acbe114b45d698a66d4b3ff5be122c97eea1f5cc2066711a72.jx6b5OO_YEIBQZHEUccM0lJ6vaRZBUUWxs3dJgxxwKw
     mcp-apps-explain-chart--summary--light:
         hash: v1.k794b7964.8e544f3f6c9e2e43bf03efd6bf30e402e2f24a41ec060922b5e3068643ce4c86.BQcCbMIGeBusavfXWYInYZD6jMZfnN4zr-HV9oOAFHg
+    mcp-apps-explain-chart-evidence-chart--line--light:
+        hash: v1.k794b7964.d18367c8e6c0db146a8a61c780cca48fd38f21268db89318114be3fb65130bf8.vtgJK_jbQZbEXfmqXJhYI7BnuwvNkc68bAjvqAAlh_E
     mcp-apps-feature-flags--boolean-flag--light:
         hash: v1.k794b7964.f3ee0e724e30f350166b5a87d46cd36ba9f982735aa9d7e322aeaf28bc4c9b1c.KzlRVALZdoWS2mlKcnTJRTOo4SmFvIZzKhj6SodWt3I
     mcp-apps-feature-flags--flag-list--light:
@@ -11231,9 +11233,9 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.4ddea1c7537af9d50c57b4b9a76d4bcba39f743a23b4715683c0ce59d4c24f57.0ueR8XMLqRby_u6I0EyNIiUwXkbjmWMH3vBdoFNYmII
     scenes-app-experiments--experiment-health-debug-tab--dark:
-        hash: v1.k794b7964.5edf9e51dc2fcaf83180f5ebad252d4f2e4db0759ac475691c7a06e7bcd47b77.aOSdT75x7w_nAKP96aVhXKbpOYrzivbbdmfc_PUUpgo
+        hash: v1.k794b7964.87bfeebb075566d42d1fc0dc9c82a152fb4d9c90fdaa6c94234eae55240d5eeb.jb3eznlVBtPsqVv0VJkgM6Qx7cnQxoVLo0u8tPvZ2PA
     scenes-app-experiments--experiment-health-debug-tab--light:
-        hash: v1.k794b7964.031fb28af0f7086c3c0e869b3e4368d01ba2edc8d2c3184ec7061fb2b0223ae6.OY6eoJZtfSlG9w6CbbP9HlvA16I7_J8VY31UkdS6JcY
+        hash: v1.k794b7964.7990ff112e1fb79448cbb6fe0791813e4cb4196db7a9892927acfb2276cffb22.9m5Oh5rh43QLj42kZh4a20jt7ydQyTlgj3J0E8Q0pCQ
     scenes-app-experiments--experiment-recordings-dropped-metric--dark:
         hash: v1.k794b7964.e0e7181f2c9e61a8324eff9aa7a9230fef25b3cf37e0b24ef875780186ed25dc.9VEvZ4iVieVJwmDol0gwtAsr3wgZYW5gj2KXAGZJfiw
     scenes-app-experiments--experiment-recordings-dropped-metric--light:
