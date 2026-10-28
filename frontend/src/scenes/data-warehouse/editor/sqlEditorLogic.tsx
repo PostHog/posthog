@@ -4356,8 +4356,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         if (!outputTabFromUrl) {
                             actions.setActiveTab(OutputTab.Visualization)
                         }
-                        // Prefill only, don't auto-run: open_query is fully URL-controlled, so running here
-                        // would let a crafted link execute arbitrary HogQL in the user's project on load
                     } else {
                         // kea-router also decodes numeric/JSON-shaped values; a non-node object is a
                         // malformed URL, so fall back to an empty query rather than "[object Object]"
@@ -4369,6 +4367,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             undefined,
                             biEditorStateFromUrl ?? undefined
                         )
+                    }
+                    if (String(searchParams.run_query) === 'true' && values.queryInput?.trim()) {
+                        actions.runQuery()
                     }
                     tabAdded = true
                 } else if (

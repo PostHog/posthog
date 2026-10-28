@@ -1647,6 +1647,7 @@ describe('sqlEditorLogic', () => {
                             kind: NodeKind.DataTableNode,
                             source: { kind: NodeKind.ActorsQuery, source: { kind }, select: ['sleep(10)'] },
                         },
+                        run_query: true,
                     })
                     await expectLogic(logic).toDispatchActions(['createTab']).toNotHaveDispatchedActions(['runQuery'])
                     expect(performQuery.mock.calls.some(([query]) => query.kind === NodeKind.ActorsQuery)).toBe(false)
@@ -1667,7 +1668,7 @@ describe('sqlEditorLogic', () => {
             chartSettings: { seriesBreakdownColumn: 'event' },
         }
 
-        it('adopts visualization settings without auto-running when opening a serialized DataVisualizationNode', async () => {
+        it.each([false, true])('preserves visualization settings with runQuery=%s', async (runQuery) => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -1675,12 +1676,10 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            router.actions.push(urls.insightNew({ query: STACKED_BAR_NODE }))
+            router.actions.push(urls.sqlEditor({ query: STACKED_BAR_NODE, runQuery }))
 
-            // open_query is URL-controlled, so the node is prefilled but never auto-run
             await expectLogic(logic)
                 .toDispatchActions(['createTab', 'setSourceQuery'])
-                .toNotHaveDispatchedActions(['runQuery'])
                 .toMatchValues({
                     queryInput: STACKED_BAR_NODE.source.query,
                     sourceQuery: partial({
@@ -1688,9 +1687,12 @@ describe('sqlEditorLogic', () => {
                         chartSettings: partial({ seriesBreakdownColumn: 'event' }),
                     }),
                 })
+            expect(logic.values.lastRunQuery?.source.query).toEqual(
+                runQuery ? STACKED_BAR_NODE.source.query : undefined
+            )
         })
 
-        it('keeps the default visualization and does not auto-run for a plain SQL string', async () => {
+        it.each([undefined, 'true', 'false', '1'])('opens plain SQL with run_query=%s', async (runQuery) => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
@@ -1698,15 +1700,15 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            router.actions.push(urls.sqlEditor({ query: 'SELECT 1' }))
+            router.actions.push(urls.sqlEditor({ query: 'SELECT 1' }), { run_query: runQuery })
 
             await expectLogic(logic)
                 .toDispatchActions(['createTab', 'setQueryInput'])
-                .toNotHaveDispatchedActions(['runQuery'])
                 .toMatchValues({
                     queryInput: 'SELECT 1',
                     sourceQuery: partial({ display: ChartDisplayType.Auto }),
                 })
+            expect(logic.values.lastRunQuery?.source.query).toEqual(runQuery === 'true' ? 'SELECT 1' : undefined)
         })
 
         it('does not crash and falls back to an empty query for a malformed node with no source', async () => {
@@ -1717,7 +1719,10 @@ describe('sqlEditorLogic', () => {
             })
             logic.mount()
 
-            router.actions.push(urls.sqlEditor(), { open_query: { kind: NodeKind.DataVisualizationNode } })
+            router.actions.push(urls.sqlEditor(), {
+                open_query: { kind: NodeKind.DataVisualizationNode },
+                run_query: true,
+            })
 
             await expectLogic(logic)
                 .toDispatchActions(['createTab'])

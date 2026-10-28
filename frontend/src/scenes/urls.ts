@@ -97,6 +97,7 @@ export const urls = {
         filters,
         metricName,
         metricPrefill,
+        runQuery,
     }: {
         /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
         query?: string | VisualizationNode | DataTableNode
@@ -116,11 +117,15 @@ export const urls = {
         metricName?: string
         /** Seeds the editor's "Save as metric" dialog with values already typed in the new metric modal */
         metricPrefill?: MetricFormPrefill
+        runQuery?: boolean
     } = {}): string => {
         const params = new URLSearchParams()
 
         if (query) {
             params.set('open_query', typeof query === 'string' ? query : JSON.stringify(query))
+            if (runQuery) {
+                params.set('run_query', 'true')
+            }
             // With a view, the query opens as unsaved edits on top of that view
             if (view_id) {
                 params.set('open_view', view_id)
