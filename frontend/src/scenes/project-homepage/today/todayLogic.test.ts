@@ -91,6 +91,7 @@ describe('todayLogic', () => {
 
     afterEach(() => {
         jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
     it.each(['toggle', 'url'])('reloads frequent items when sample mode is disabled by %s', async (source) => {
@@ -371,6 +372,7 @@ describe('todayLogic', () => {
     })
 
     it('asks for the top reports for the person and counts the rest', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
         const reports = [makeReport({ id: 'a' }), makeReport({ id: 'b' })]
         listResponse = [200, { results: reports, count: 9 }]
         const logic = todayLogic()
@@ -379,12 +381,14 @@ describe('todayLogic', () => {
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
             view: 'for_you',
-            sort: 'priority',
+            ordering: '-ranking_open,status,-updated_at',
+            created_after: '2026-10-21T12:00:00.000Z',
             limit: String(TOP_REPORT_COUNT),
         })
     })
 
     it('pages through the reports past the list without the ones it shows, and starts over when the list shows other reports', async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-10-28T12:00:00.000Z').getTime())
         const page = (prefix: string, length: number): ReturnType<typeof makeReport>[] =>
             Array.from({ length }, (_, index) => makeReport({ id: `${prefix}${index}` }))
         listResponse = [200, { results: [makeReport({ id: 'a' })], count: 5 }]
@@ -401,7 +405,8 @@ describe('todayLogic', () => {
             .toMatchValues({ loadedMoreReports: first, canLoadMoreReports: true, moreReportsInInbox: 0 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
             view: 'for_you',
-            sort: 'priority',
+            ordering: '-ranking_open,status,-updated_at',
+            created_after: '2026-10-21T12:00:00.000Z',
             limit: String(MORE_REPORTS_PAGE_SIZE),
             offset: '0',
             exclude: 'a',

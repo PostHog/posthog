@@ -23,6 +23,7 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType, UserType } from '~/types'
 
 import { signalsReportsList, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
+import { createdAfterForWindow } from 'products/signals/frontend/inbox/filterOptions'
 import {
     TodayReportList,
     TodayReportSnapshot,
@@ -30,6 +31,7 @@ import {
     captureTodayReportsImpressed,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { buildSignalReportListSortParams } from 'products/signals/frontend/inbox/logics/inboxFiltersLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
@@ -53,10 +55,17 @@ import { todayVerdictLogic } from './todayVerdictLogic'
 
 export const TOP_REPORT_COUNT = 5
 export const MORE_REPORTS_PAGE_SIZE = 20
-export const TODAY_REPORT_LIST_PARAMS = { view: 'for_you', sort: 'priority' } as const
 export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
+
+function todayReportListParams(): Record<string, string | undefined> {
+    return {
+        view: 'for_you',
+        ...buildSignalReportListSortParams('ranking_open', 'desc'),
+        created_after: createdAfterForWindow('7d'),
+    }
+}
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'list' | 'more'
@@ -522,7 +531,7 @@ export const todayLogic = kea<todayLogicType>([
                     let response
                     try {
                         response = await signalsReportsList(String(values.currentProjectId), {
-                            ...TODAY_REPORT_LIST_PARAMS,
+                            ...todayReportListParams(),
                             limit: TOP_REPORT_COUNT,
                         })
                     } catch (error) {
@@ -548,7 +557,7 @@ export const todayLogic = kea<todayLogicType>([
                     const exclude = values.shownReportIds
                     const loaded = values.loadedMoreReports
                     const response = await signalsReportsList(String(values.currentProjectId), {
-                        ...TODAY_REPORT_LIST_PARAMS,
+                        ...todayReportListParams(),
                         limit: MORE_REPORTS_PAGE_SIZE,
                         offset: loaded.length,
                         exclude: exclude.length > 0 ? exclude : undefined,
