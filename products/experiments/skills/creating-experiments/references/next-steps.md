@@ -11,6 +11,7 @@ Offer an option only when its condition holds.
 
 - **Launch the experiment.** Drafts only. Picking it is the user asking for a launch. Follow the launch steps in `managing-experiment-lifecycle`, including the pre-launch checklist.
 - **Set a reminder to check the results on <date>.** Launched experiments only. A draft has no start date to count from, so `managing-experiment-lifecycle` offers the reminder once the experiment launches. See [Set the reminder](#set-the-reminder).
+- **Watch what people do in each variant with Replay Vision.** Only when you can see `vision-scanners-create`, which is hidden until the organization approves AI data processing, and the flag doesn't aggregate by group (no `aggregation_group_type_index` in its filters). At launch, leave it out if `vision-scanners-list` with the experiment's `experiment_id` already returns a scanner. Say it costs credits for each session it watches. Follow `scanning-experiments-with-replay-vision`, which gives the price and, on a draft, sets the scanner to start when the experiment launches.
 - **End <name>.** Only when you found a running A/A test or other experiment that should end, and the user hasn't said to keep it. Call `experiment-end`. It freezes that experiment's results and leaves its feature flag as it is.
 
 ## Set the reminder
