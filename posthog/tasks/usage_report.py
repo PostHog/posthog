@@ -95,7 +95,7 @@ from products.warehouse_sources.backend.facade.billing import (
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
-from products.workflows.backend.facade.transactional_emails import EMAIL_ACTION_ID as TRANSACTIONAL_EMAIL_ACTION_ID
+from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
@@ -2510,7 +2510,7 @@ def get_teams_with_workflow_emails_sent_in_period(
 def get_teams_with_workflow_transactional_emails_sent_in_period(
     begin: datetime,
     end: datetime,
-) -> list[tuple[int, int]]:
+) -> TeamUsageRows:
     # Every transactional workflow bills its email under the same step id, which outlives a deleted workflow.
     with tags_context(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT):
         return sync_execute(

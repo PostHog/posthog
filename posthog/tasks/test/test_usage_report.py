@@ -107,7 +107,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.workflows.backend.facade.transactional_emails import EMAIL_ACTION_ID as TRANSACTIONAL_EMAIL_ACTION_ID
+from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID
 
 from ee.api.test.base import LicensedTestMixin
 from ee.clickhouse.materialized_columns.columns import materialize
