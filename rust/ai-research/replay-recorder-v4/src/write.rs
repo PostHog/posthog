@@ -233,6 +233,13 @@ pub fn write_block<W: Write>(
         return Ok((out, images, counts));
     }
     let second = second_fallback(&first, &report);
+    if let Some(key) = &report.kept_in {
+        tracing::info!(
+            team_id = block.session.team_id,
+            key,
+            "a declined URL stayed inside a longer token"
+        );
+    }
     let mut out = open()?;
     let (images, mut counts, report) =
         prepare_block(block, team_key, key_month, &second, &mut out)?;

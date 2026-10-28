@@ -146,6 +146,8 @@ pub struct UrlRewrite {
     fallback: Fallback,
     scrubber: Scrubber,
     scrubbed: u64,
+    /// The JSON key whose value held the first declined URL that stayed, for the log. It names the shape without any URL.
+    kept_in: Option<String>,
 }
 
 /// How the writer handles what the first pass over a block left unsafe, instead of dropping the block.
@@ -169,6 +171,7 @@ pub struct RewriteReport {
     /// one of them has no host to look for.
     pub unfound_hosts: Option<Vec<String>>,
     pub scrubbed: u64,
+    pub kept_in: Option<String>,
 }
 
 impl UrlRewrite {
@@ -269,6 +272,7 @@ impl UrlRewrite {
             fallback: Fallback::default(),
             scrubber: Scrubber::new(&Scrub::Nothing),
             scrubbed: 0,
+            kept_in: None,
         }
     }
 
@@ -379,7 +383,13 @@ impl UrlRewrite {
             None => Cow::Borrowed(bytes),
         };
         if let Some(declined) = &self.declined {
-            self.declined_kept |= declined.is_match(out.as_ref());
+            if let Some(kept) = declined.find(out.as_ref()) {
+                self.declined_kept = true;
+                if self.kept_in.is_none() {
+                    self.kept_in =
+                        Some(enclosing_key(&out, kept.start()).unwrap_or("?").to_owned());
+                }
+            }
         }
         out
     }
@@ -422,8 +432,29 @@ impl UrlRewrite {
             declined_kept: self.declined_kept,
             unfound_hosts,
             scrubbed: self.scrubbed,
+            kept_in: self.kept_in,
         }
     }
+}
+
+/// The key of the JSON object entry whose string value holds `at`, when it is a plain short key.
+fn enclosing_key(bytes: &[u8], at: usize) -> Option<&str> {
+    let mut open = at;
+    while open > 0 {
+        open -= 1;
+        if bytes[open] == b'"' && !(open > 0 && bytes[open - 1] == b'\\') {
+            break;
+        }
+    }
+    let colon = open.checked_sub(1).filter(|&c| bytes[c] == b':')?;
+    let key_end = colon.checked_sub(1).filter(|&e| bytes[e] == b'"')?;
+    let key_start = bytes[..key_end].iter().rposition(|&b| b == b'"')? + 1;
+    let key = std::str::from_utf8(&bytes[key_start..key_end]).ok()?;
+    (key.len() <= 40
+        && key
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'$' || b == b'-'))
+    .then_some(key)
 }
 
 /// The host of a URL the inspector named, in lowercase, protocol-relative and backslash forms included.
@@ -612,6 +643,9 @@ mod tests {
             format!(r#"{{"src":"{url}","alt":"x{url}"}}"#).as_bytes(),
             true,
         );
-        assert!(!rewrite.finish().safe);
+        let report = rewrite.finish();
+        assert!(!report.safe);
+        // The log names where the copy stayed, without the URL.
+        assert_eq!(report.kept_in.as_deref(), Some("alt"));
     }
 }
