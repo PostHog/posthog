@@ -47,7 +47,12 @@ if TYPE_CHECKING:
 # A report in one of these statuses is finished with its pull request. Anything else still holds
 # it open — a status this list doesn't know about keeps the PR, which is the safe direction.
 _FINISHED_REPORT_STATUSES = frozenset(
-    {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
+    {
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.DELETED,
+    }
 )
 
 _PULL_REQUEST_URL_BODY = (

@@ -342,7 +342,7 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
     if not related_ids:
         return None, None
     closed_filter = await database_sync_to_async(report_status_filter)(
-        [SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED], team_id=team_id
+        [SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED, SignalReport.Status.SUPPRESSED], team_id=team_id
     )
     async for candidate in (
         SignalReport.objects.filter(
@@ -355,10 +355,10 @@ async def _load_resolved_report_context(team_id: int, report_id: str) -> tuple[s
     ):
         if await database_sync_to_async(_is_safety_suppressed, thread_sensitive=False)(str(candidate.id), team_id):
             continue
-        if (
-            await database_sync_to_async(lambda report=candidate: report.effective_status)()
-            == SignalReport.Status.RESOLVED
-        ):
+        if await database_sync_to_async(lambda report=candidate: report.effective_status)() in {
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.CLOSED,
+        }:
             return candidate.title, candidate.summary
         # Only an archived candidate costs the dismissal read, and the newest match wins, so the
         # loop stops at the first one rather than reading every link.

@@ -299,6 +299,7 @@ def _build_signals() -> list[SignalData]:
     ("parent_status", "dismissal_reason", "expected"),
     [
         (SignalReport.Status.RESOLVED, None, True),
+        (SignalReport.Status.CLOSED, None, True),
         (SignalReport.Status.SUPPRESSED, "already_fixed", True),
         # Archived because nobody wants to see it, not because it was fixed: there is no prior fix
         # to reason about, so the research agent is told nothing.
@@ -342,7 +343,7 @@ async def test_recurrence_context_comes_from_a_parent_closed_as_fixed(
     context = await _load_resolved_report_context(ateam.id, str(fork.id))
 
     safe = not safety_verdicts or safety_verdicts[-1] is True
-    valid_link = typed_link or parent_status == SignalReport.Status.RESOLVED
+    valid_link = typed_link or parent_status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}
     assert context == (
         ("stale chunk TypeError", "Imports fail after a deploy.") if expected and safe and valid_link else (None, None)
     )

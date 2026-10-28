@@ -541,6 +541,7 @@ class TestSpineInclusion(BaseTest):
         promoted = self._report(SignalReport.Status.POTENTIAL, promoted_at=BEFORE_CUTOFF)
         born_visible = self._report(SignalReport.Status.READY)
         monitoring = self._report(SignalReport.Status.MONITORING)
+        closed = self._report(SignalReport.Status.CLOSED)
         promoted_after_cutoff = self._report(SignalReport.Status.READY, promoted_at=AFTER_SNAPSHOT_END)
         self._report(SignalReport.Status.POTENTIAL)
         self._report(SignalReport.Status.SUPPRESSED)
@@ -551,7 +552,7 @@ class TestSpineInclusion(BaseTest):
             for report_id in SignalReport.objects.filter(spine_report_filter(SNAPSHOT_END)).values_list("id", flat=True)
         }
 
-        assert in_spine == {promoted, born_visible, monitoring}
+        assert in_spine == {promoted, born_visible, monitoring, closed}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
 

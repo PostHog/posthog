@@ -2142,6 +2142,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const interval = setInterval(() => {
                 if (
                     values.report?.status !== SignalReportStatus.RESOLVED &&
+                    values.report?.status !== SignalReportStatus.CLOSED &&
                     values.report?.status !== SignalReportStatus.SUPPRESSED &&
                     values.report?.status !== SignalReportStatus.DELETED &&
                     !values.reportChecksLoading &&

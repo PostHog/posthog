@@ -339,7 +339,12 @@ _PULL_REQUEST_ID_PARAMETER = OpenApiParameter(
 PR_CI_STATUS_MAX_REPORTS = 100
 # Report statuses whose pull request is no longer open, so its CI is not worth a GitHub call.
 _PR_CI_STATUS_TERMINAL_REPORT_STATUSES = frozenset(
-    {SignalReport.Status.FAILED, SignalReport.Status.SUPPRESSED, SignalReport.Status.RESOLVED}
+    {
+        SignalReport.Status.FAILED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
+    }
 )
 
 
@@ -786,6 +791,7 @@ _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
         SignalReport.Status.READY,
         SignalReport.Status.PENDING_INPUT,
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
         SignalReport.Status.FAILED,
     }
 )
@@ -804,7 +810,7 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
             "'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. "
-            "Resolving is allowed from ready, pending_input, failed, or monitoring, "
+            "Resolving is allowed from ready, pending_input, failed, closed, or monitoring, "
             "or from a suppressed report that previously held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
             "Dismissing or resolving closes the report's open implementation PR, if it has one. "
@@ -1276,6 +1282,7 @@ class SignalReportViewSet(
             "needs_decision",
             "monitoring",
             "resolved",
+            "closed",
             "dismissed",
             "held_back",
             "not_actionable",
@@ -1918,6 +1925,8 @@ class SignalReportViewSet(
             return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
         if inbox_view == "resolved":
             return queryset.filter(status__in=self._resolved_read_statuses())
+        if inbox_view == "closed":
+            return queryset.filter(status=SignalReport.Status.CLOSED)
         if inbox_view in {"dismissed", "held_back"}:
             # Every path that suppresses a report on someone's behalf writes a dismissal artefact: a
             # person or agent dismissing it, a merge, a closed pull request. A suppressed report with
@@ -1948,6 +1957,7 @@ class SignalReportViewSet(
                 When(status=SignalReport.Status.FAILED, then=Value(6)),
                 When(status=SignalReport.Status.MONITORING, then=Value(6 if self._report_monitoring_enabled else 7)),
                 When(status__in=self._resolved_read_statuses(), then=Value(7)),
+                When(status=SignalReport.Status.CLOSED, then=Value(7)),
                 When(status=SignalReport.Status.SUPPRESSED, then=Value(8)),
                 When(status=SignalReport.Status.DELETED, then=Value(9)),
                 default=Value(50),

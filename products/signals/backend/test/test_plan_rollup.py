@@ -75,6 +75,12 @@ class TestPlanRollup(BaseTest):
             ("mixed_with_a_resolve", ["resolved", "suppressed"], SignalReport.Status.RESOLVED),
             ("all_suppressed", ["suppressed", "suppressed"], SignalReport.Status.SUPPRESSED),
             (
+                "closed_parent_keeps_failed_attempt",
+                ["resolved"],
+                SignalReport.Status.CLOSED,
+                SignalReport.Status.CLOSED,
+            ),
+            (
                 "monitoring_parent_needs_manual_verification",
                 ["resolved"],
                 SignalReport.Status.MONITORING,
@@ -103,9 +109,10 @@ class TestPlanRollup(BaseTest):
             assert feedback is not None
             assert feedback.state == "suppressed"
 
-    def test_a_plan_stays_open_while_any_step_is(self):
+    @parameterized.expand([("ready",), ("closed",)])
+    def test_a_plan_stays_open_while_a_step_has_not_resolved(self, child_status: str) -> None:
         parent = self._report("plan")
-        done, still_open = self._report("done"), self._report("open")
+        done, still_open = self._report("done"), self._report("unfinished", status=child_status)
         self._part_of(done, parent)
         self._part_of(still_open, parent)
 

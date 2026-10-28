@@ -1446,11 +1446,13 @@ class TestSignalReportListAPI(APIBaseTest):
 
     # --- status filter ---
 
-    def test_filter_by_resolved_status(self):
-        resolved = self._create_report(title="Resolved", status=SignalReport.Status.RESOLVED)
+    @parameterized.expand([("resolved", "status"), ("closed", "status"), ("closed", "view")])
+    def test_filter_by_completed_status(self, report_status: str, parameter: str) -> None:
+        resolved = self._create_report(title="Completed attempt", status=report_status)
         self._create_report(title="Ready", status=SignalReport.Status.READY)
+        self._create_report(title="Other outcome", status="closed" if report_status == "resolved" else "resolved")
 
-        response = self.client.get(self._list_url(status="resolved"))
+        response = self.client.get(self._list_url(**{parameter: report_status}))
         assert response.status_code == status.HTTP_200_OK
         ids = {r["id"] for r in response.json()["results"]}
         assert ids == {str(resolved.id)}
@@ -4268,6 +4270,7 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
             ("ready", SignalReport.Status.READY, SignalReport.Status.READY),
             ("pending_input", SignalReport.Status.PENDING_INPUT, SignalReport.Status.PENDING_INPUT),
             ("resolved", SignalReport.Status.RESOLVED, SignalReport.Status.RESOLVED),
+            ("closed", SignalReport.Status.CLOSED, SignalReport.Status.CLOSED),
             ("failed", SignalReport.Status.FAILED, SignalReport.Status.FAILED),
             # In-flight / pre-research states have no live workflow, so restore re-enters the pipeline.
             ("potential", SignalReport.Status.POTENTIAL, SignalReport.Status.POTENTIAL),
