@@ -2218,7 +2218,7 @@ jobs:
               # migrations, and leaves every master migration with the same code and the
               # same order among master's migrations, replays what the steps above ran.
               id: migration-plan
-              if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.migration_replay == 'true'
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migration_replay == 'true'
               # A failed check leaves the output empty, so the replay runs.
               continue-on-error: true
               run: |
@@ -2241,7 +2241,7 @@ jobs:
               # sees it only while it is current with master. The replay is by far the
               # most expensive part of this job, so paying it once per batch rather than
               # on every push of every migration branch is what keeps it affordable.
-              if: github.event_name == 'pull_request' && startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.migration_replay == 'true' && steps.migration-plan.outputs.replay != 'false'
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migration_replay == 'true' && steps.migration-plan.outputs.replay != 'false'
               env:
                   REPLAY_DB: posthog_migration_replay
               run: |
