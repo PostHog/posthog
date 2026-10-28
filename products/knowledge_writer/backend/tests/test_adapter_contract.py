@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
-from products.knowledge_writer.backend.adapters import REGISTRY
+from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import (
     AdapterVerdict,
     DocsCommandRequest,
