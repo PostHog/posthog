@@ -28,7 +28,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.facade.profiles import TaskProfileError, get_task_profile
+from products.tasks.backend.facade.profiles import Repository, TaskProfileError, TaskRunOptions, get_task_profile
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
@@ -40,6 +40,7 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
+from products.tasks.backend.run_options import run_options_record
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -1794,6 +1795,24 @@ class TestFacadeReadsAndMappers(TestCase):
 
         task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
         self.assertEqual((task.origin_product, task.internal, task.profile), expected)
+
+    @parameterized.expand([("create_and_run_task",), ("create_task_without_run",)])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_facade_applies_and_stores_run_options(self, entry: str, _mock_workflow) -> None:
+        Integration.objects.create(team=self.team, kind="github", config={})
+        options = TaskRunOptions(repositories=(Repository(name="posthog/posthog"),))
+
+        created = getattr(facade, entry)(
+            team=self.team,
+            title="t",
+            description="d",
+            user_id=self.user.id,
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            options=options,
+        )
+
+        task = Task.objects.get(id=created if isinstance(created, UUID) else created.task_id)
+        self.assertEqual((task.repositories, task.options), (["posthog/posthog"], run_options_record(options)))
 
     @parameterized.expand(
         [
