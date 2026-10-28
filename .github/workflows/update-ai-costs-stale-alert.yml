@@ -1,0 +1,117 @@
+name: Update AI Costs Stale Alert
+
+on:
+    workflow_dispatch:
+    schedule:
+        - cron: '5 * * * 1-5'
+
+permissions:
+    pull-requests: read
+
+env:
+    SUPPORT_AGENT_INFRA_CHANNEL: 'C0CB80UM50Q'
+    SUPPORT_HERO_GROUP: 'TODO_AGENT_INFRA_SUPPORT_HERO_GROUP_ID'
+    AI_OBSERVABILITY_GROUP: 'S097J2WH3QX'
+
+jobs:
+    alert-stale-pr:
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+
+        steps:
+            - name: Check the open LLM cost PR
+              id: check
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              with:
+                  script: |
+                      const hourMs = 60 * 60 * 1000
+                      const earlyAlertHours = [2, 8]
+                      const dailyAlertAfterHours = 24
+                      const aiObservabilityAfterHours = 24
+                      const { owner, repo } = context.repo
+
+                      const { data: prs } = await github.rest.pulls.list({
+                          owner,
+                          repo,
+                          head: `${owner}:chore/llma-update-ai-costs`,
+                          state: 'all',
+                          sort: 'created',
+                          direction: 'desc',
+                          per_page: 50,
+                      })
+                      const [current, ...older] = prs
+                      if (!current || current.state !== 'open') {
+                          core.info('No open LLM cost PR')
+                          return
+                      }
+
+                      // Each cost refresh closes the unmerged PR and opens its replacement seconds later.
+                      let waitingSince = Date.parse(current.created_at)
+                      let prCount = 1
+                      for (const pr of older) {
+                          const replacedImmediately = Math.abs(waitingSince - Date.parse(pr.closed_at)) < 30 * 60 * 1000
+                          if (pr.merged_at || !replacedImmediately) {
+                              break
+                          }
+                          waitingSince = Date.parse(pr.created_at)
+                          prCount++
+                      }
+
+                      const { repository } = await github.graphql(
+                          `query ($owner: String!, $repo: String!, $number: Int!) {
+                              repository(owner: $owner, name: $repo) {
+                                  pullRequest(number: $number) {
+                                      reviewDecision
+                                      latestReviews(first: 20) {
+                                          nodes {
+                                              state
+                                              submittedAt
+                                          }
+                                      }
+                                  }
+                              }
+                          }`,
+                          { owner, repo, number: current.number }
+                      )
+                      const { reviewDecision, latestReviews } = repository.pullRequest
+                      const approvals = latestReviews.nodes
+                          .filter((review) => review.state === 'APPROVED')
+                          .map((review) => Date.parse(review.submittedAt))
+                      const approvedAt = reviewDecision === 'APPROVED' && approvals.length > 0 ? Math.min(...approvals) : null
+
+                      const scheduledHour = Math.floor(Date.now() / hourMs) * hourMs
+                      const hoursSince = (time) => Math.floor((scheduledHour - time) / hourMs)
+                      const waitedHours = hoursSince(waitingSince)
+                      const stuckHours = hoursSince(approvedAt ?? waitingSince)
+                      const isAlertHour =
+                          earlyAlertHours.includes(stuckHours) ||
+                          (stuckHours >= dailyAlertAfterHours && stuckHours % dailyAlertAfterHours === 0)
+                      if (!isAlertHour) {
+                          core.info(`#${current.number} is ${reviewDecision}, stuck ${stuckHours}h, waited ${waitedHours}h: no alert this hour`)
+                          return
+                      }
+
+                      const groups = [process.env.SUPPORT_HERO_GROUP]
+                      if (waitedHours >= aiObservabilityAfterHours) {
+                          groups.push(process.env.AI_OBSERVABILITY_GROUP)
+                      }
+                      const mentions = groups.map((group) => `<!subteam^${group}>`).join(' ')
+                      const problem = approvedAt
+                          ? `was approved ${stuckHours}h ago but has not merged. Check if the merge queue kicked it out.`
+                          : 'needs a review.'
+                      const history = prCount > 1 ? ` across ${prCount} PRs` : ''
+                      const text = `${mentions} LLM cost update <${current.html_url}|#${current.number}> ${problem} New prices have waited ${waitedHours}h${history}.`
+                      core.info(text)
+                      core.setOutput(
+                          'payload',
+                          JSON.stringify({ channel: process.env.SUPPORT_AGENT_INFRA_CHANNEL, text, unfurl_links: false })
+                      )
+
+            - name: Post to Slack
+              if: steps.check.outputs.payload != ''
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: ${{ steps.check.outputs.payload }}
