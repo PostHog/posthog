@@ -128,14 +128,18 @@ This spend is already part of "Spend by signal source" under `signals_scout`. Do
 
 ## Yield
 
-Yield is the number of reports resolved.
+Yield is the share of settled reports that were resolved.
 A report is resolved when its status is `resolved`: someone resolved it, or its pull request merged.
 Dismissed reports have the status `suppressed` and do not count.
+A report is settled when it was first shown in the inbox at least 14 days ago, so it had time to resolve.
 
-A report needs time to resolve, so recent reports always look worse than they will.
-`settled_reports` counts the reports first shown in the inbox at least 14 days ago.
-Judge a source or scout on its settled reports.
-When most reports in the period are not settled, say so in the report (see the report template).
+The yield queries read two windows:
+
+- `{date_from}` to `{date_to}`: the spend period, for reports created and spend.
+- `{yield_from}` to `{date_to}`: the last 60 days, for settled reports. This window can start before spend was tracked.
+
+Estimate cost per resolved report as `spend_usd / (reports_created * settled_rate)`.
+Spend and settled reports come from different windows, so this is an estimate. Say so.
 
 HogQL does not allow a function call in a join condition, so each subquery converts the report id to a string first.
 
@@ -145,34 +149,27 @@ HogQL does not allow a function call in a join condition, so each subquery conve
 SELECT
     b.source_product AS source_product,
     b.source_type AS source_type,
-    count() AS reports,
-    countIf(r.status = 'resolved') AS resolved,
-    countIf(r.status = 'suppressed') AS dismissed,
-    countIf(r.settled = 1) AS settled_reports,
-    countIf(r.settled = 1 AND r.status = 'resolved') AS settled_resolved,
-    round(sum(b.spend) / 100, 2) AS spend_usd,
-    round(sum(b.spend) / 100 / greatest(countIf(r.status = 'resolved'), 1), 2) AS usd_per_resolved
+    uniqExactIf(b.report_id, b.ts >= {date_from}) AS reports_created,
+    round(sumIf(b.spend, b.ts >= {date_from}) / 100, 2) AS spend_usd,
+    uniqExactIf(b.report_id, r.settled = 1) AS settled_reports,
+    uniqExactIf(b.report_id, r.settled = 1 AND r.status = 'resolved') AS settled_resolved,
+    round(settled_resolved / greatest(settled_reports, 1), 3) AS settled_rate
 FROM (
-    SELECT source_product, source_type, report_id, sum(spend) AS spend
-    FROM (
-        SELECT
-            document_id,
-            argMax(JSONExtractString(metadata, 'source_product'), inserted_at) AS source_product,
-            argMax(JSONExtractString(metadata, 'source_type'), inserted_at) AS source_type,
-            argMax(JSONExtractString(metadata, 'report_id'), inserted_at) AS report_id,
-            argMax(JSONExtractFloat(metadata, 'total_spend'), inserted_at) AS spend
-        FROM document_embeddings
-        WHERE model_name = 'text-embedding-3-small-1536'
-            AND product = 'signals'
-            AND document_type = 'signal'
-            AND rendering = 'plain'
-            AND timestamp >= {date_from}
-            AND timestamp < {date_to}
-        GROUP BY document_id
-    )
-    WHERE source_product NOT IN ('health_checks', 'engineering_analytics')
-        AND report_id != ''
-    GROUP BY source_product, source_type, report_id
+    SELECT
+        document_id,
+        min(timestamp) AS ts,
+        argMax(JSONExtractString(metadata, 'source_product'), inserted_at) AS source_product,
+        argMax(JSONExtractString(metadata, 'source_type'), inserted_at) AS source_type,
+        argMax(JSONExtractString(metadata, 'report_id'), inserted_at) AS report_id,
+        argMax(JSONExtractFloat(metadata, 'total_spend'), inserted_at) AS spend
+    FROM document_embeddings
+    WHERE model_name = 'text-embedding-3-small-1536'
+        AND product = 'signals'
+        AND document_type = 'signal'
+        AND rendering = 'plain'
+        AND timestamp >= {yield_from}
+        AND timestamp < {date_to}
+    GROUP BY document_id
 ) AS b
 LEFT JOIN (
     SELECT
@@ -181,6 +178,8 @@ LEFT JOIN (
         if(first_visible_at IS NOT NULL AND first_visible_at <= now() - INTERVAL 14 DAY, 1, 0) AS settled
     FROM system.inbox_reports
 ) AS r ON r.rid = b.report_id
+WHERE b.source_product NOT IN ('health_checks', 'engineering_analytics')
+    AND b.report_id != ''
 GROUP BY source_product, source_type
 ORDER BY spend_usd DESC
 ```
@@ -193,17 +192,16 @@ Its spend splits correctly, because each signal carries its own spend.
 ```sql
 SELECT
     e.scout AS scout,
-    count() AS reports_created,
-    countIf(r.status = 'resolved') AS resolved,
-    countIf(r.status = 'suppressed') AS dismissed,
-    countIf(r.settled = 1) AS settled_reports,
-    countIf(r.settled = 1 AND r.status = 'resolved') AS settled_resolved
+    uniqExactIf(e.report_id, e.created_at >= {date_from}) AS reports_created,
+    uniqExactIf(e.report_id, r.settled = 1) AS settled_reports,
+    uniqExactIf(e.report_id, r.settled = 1 AND r.status = 'resolved') AS settled_resolved
 FROM (
-    SELECT DISTINCT
+    SELECT
         skill_name AS scout,
+        created_at,
         arrayJoin(JSONExtract(ifNull(emitted_report_ids, '[]'), 'Array(String)')) AS report_id
     FROM system.scout_runs
-    WHERE created_at >= {date_from}
+    WHERE created_at >= {yield_from}
         AND created_at < {date_to}
 ) AS e
 LEFT JOIN (
@@ -220,3 +218,58 @@ ORDER BY reports_created DESC
 This counts only the reports a scout created.
 A scout that mostly edits existing reports shows little yield here, so check `reports_edited` in "Spend by scout" before you judge it.
 A scout that writes digests or sends findings to Slack may resolve nothing and still be useful. Ask the user before you recommend pausing one.
+
+## Breakdown inside a source
+
+Most recommendations target one part of a source: a replay scanner, an error tracking signal type, an evaluation, an alert, or a support channel.
+Each signal records that part in its metadata.
+
+| Source                                   | Expression for `part`                                                                                                     |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `replay_vision`                          | `JSONExtractString(metadata, 'extra', 'scanner_name')`                                                                    |
+| `error_tracking`                         | `JSONExtractString(metadata, 'source_type')` (`issue_created`, `issue_reopened`, `issue_spiking`)                         |
+| `llm_analytics`                          | `JSONExtractString(metadata, 'extra', 'evaluation_name')`                                                                 |
+| `analytics` with `anomaly_investigation` | `JSONExtractString(metadata, 'extra', 'alert_name')`                                                                      |
+| `conversations`                          | `concat(JSONExtractString(metadata, 'extra', 'channel_source'), ' / ', JSONExtractString(metadata, 'extra', 'priority'))` |
+| `pganalyze`                              | `JSONExtractString(metadata, 'extra', 'severity')`                                                                        |
+| `google_search_console`                  | `JSONExtractString(metadata, 'extra', 'page')`                                                                            |
+
+```sql
+SELECT
+    b.part AS part,
+    uniqExactIf(b.report_id, b.ts >= {date_from}) AS reports_created,
+    round(sumIf(b.spend, b.ts >= {date_from}) / 100, 2) AS spend_usd,
+    uniqExactIf(b.report_id, r.settled = 1) AS settled_reports,
+    uniqExactIf(b.report_id, r.settled = 1 AND r.status = 'resolved') AS settled_resolved,
+    uniqExactIf(b.report_id, r.status = 'suppressed') AS dismissed
+FROM (
+    SELECT
+        document_id,
+        min(timestamp) AS ts,
+        argMax({part_expression}, inserted_at) AS part,
+        argMax(JSONExtractString(metadata, 'report_id'), inserted_at) AS report_id,
+        argMax(JSONExtractFloat(metadata, 'total_spend'), inserted_at) AS spend
+    FROM document_embeddings
+    WHERE model_name = 'text-embedding-3-small-1536'
+        AND product = 'signals'
+        AND document_type = 'signal'
+        AND rendering = 'plain'
+        AND timestamp >= {yield_from}
+        AND timestamp < {date_to}
+        AND JSONExtractString(metadata, 'source_product') = '{source_product}'
+    GROUP BY document_id
+) AS b
+LEFT JOIN (
+    SELECT
+        toString(id) AS rid,
+        status,
+        if(first_visible_at IS NOT NULL AND first_visible_at <= now() - INTERVAL 14 DAY, 1, 0) AS settled
+    FROM system.inbox_reports
+) AS r ON r.rid = b.report_id
+WHERE b.report_id != ''
+GROUP BY part
+ORDER BY spend_usd DESC
+LIMIT 20
+```
+
+A source whose parts are each small (under about $5 a month) has nothing worth narrowing. Say that, and move on.
