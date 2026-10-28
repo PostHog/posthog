@@ -5,7 +5,9 @@ description: 'Connect a Supabase project so its auth emails send through PostHog
 
 # Setting up Supabase auth emails
 
-Supabase calls PostHog's Send Email Hook for each auth email. Only the PostHog side has tools. The user does the Supabase steps by hand, so tell them exactly what to click, and keep the order below.
+Supabase calls PostHog's Send Email Hook for each auth email. The user does the Supabase steps by hand, so tell them exactly what to click, and keep the order below.
+
+If the Supabase MCP server is connected, use it to read the project URL (step 3) and the logs (when a hook call fails). It has no tools for Auth settings. Leave the hook and the rate limit to the user even if you have other Supabase access, because those settings send every sign-up email.
 
 The tools are behind a beta flag. If `supabase-auth-emails-settings-get` isn't available, tell the user the feature isn't enabled for their project yet and stop.
 
@@ -13,7 +15,7 @@ The tools are behind a beta flag. If `supabase-auth-emails-settings-get` isn't a
 
 1. **Read the current state.** Call `supabase-auth-emails-settings-get`. Keep the `hook_url`, the `email_types` list and the current `templates` mapping. If the project is already set up, change only what the user asked for.
 2. **Check the email sender.** The templates need an email channel with a verified sending domain. Follow the setup check in the `building-workflows` skill's onboarding reference.
-3. **Get the project URL.** It is `https://<project-ref>.supabase.co`. The project ref is the id in the user's Supabase dashboard URL, `supabase.com/dashboard/project/<project-ref>`. For a self-hosted project or a custom domain, ask the user for the URL their app uses to reach Supabase Auth.
+3. **Get the project URL.** With the Supabase MCP, call `get_project_url`. Otherwise it is `https://<project-ref>.supabase.co`. The project ref is the id in the user's Supabase dashboard URL, `supabase.com/dashboard/project/<project-ref>`. For a self-hosted project or a custom domain, ask the user for the URL their app uses to reach Supabase Auth.
 4. **Have the user create the hook in Supabase, switched off.** While the hook is on, any hook failure fails the user's sign-up or password reset. Give them the `hook_url` and these steps:
    - Open **Authentication** > **Hooks**, add a **Send Email** hook, and choose **HTTPS**.
    - Paste the hook URL as the endpoint.
@@ -33,7 +35,7 @@ To disconnect, the user turns the hook off in Supabase first, then clicks **Disc
 
 ## When a hook call fails
 
-The user sees these in Supabase, in the app's error or under **Logs** > **Auth**.
+The user sees these in Supabase, in the app's error or under **Logs** > **Auth**. With the Supabase MCP, find the failed call yourself with its `query_logs` tool before you ask the user. That tool reads Supabase's logs. PostHog's `query-logs` tool can't see them.
 
 | What Supabase shows                                        | Cause                                                                                                                                                  | Fix                                                                                               |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
