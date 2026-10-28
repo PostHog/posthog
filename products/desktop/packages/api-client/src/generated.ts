@@ -16360,6 +16360,49 @@ export namespace Schemas {
      */
     export type InstallationStatusEnum = "connected" | "unavailable";
     /**
+     * * `oauth` - OAuth
+     * * `app` - App installation
+     * * `api_key` - API key
+     * * `api_token` - API token
+     * * `access_token` - Access token
+     * * `auth_token` - Auth token
+     * * `token` - Token
+     * * `access_key` - Access key
+     * * `account_key` - Account key
+     * * `hmac_key` - HMAC key
+     * * `key_pair` - Key pair
+     * * `signing_key` - Signing key
+     * * `connection_string` - Connection string
+     * * `password` - Password
+     * * `service_account` - Service account
+     * * `service_principal` - Service principal
+     * * `database_credentials` - Database credentials
+     * * `verified_domain` - Verified domain
+     * * `webhook_secret` - Webhook secret
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum =
+        | "oauth"
+        | "app"
+        | "api_key"
+        | "api_token"
+        | "access_token"
+        | "auth_token"
+        | "token"
+        | "access_key"
+        | "account_key"
+        | "hmac_key"
+        | "key_pair"
+        | "signing_key"
+        | "connection_string"
+        | "password"
+        | "service_account"
+        | "service_principal"
+        | "database_credentials"
+        | "verified_domain"
+        | "webhook_secret"
+        | "credentials";
+    /**
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
@@ -16468,6 +16511,31 @@ export namespace Schemas {
     export type IntegrationConfig = {
         id: number;
         kind: IntegrationKindEnum;
+        /**
+         * How this integration authenticates with the provider, for example an App installation, an OAuth grant or a typed-in API key. A kind can have several auth types.
+         *
+         * * `oauth` - OAuth
+         * * `app` - App installation
+         * * `api_key` - API key
+         * * `api_token` - API token
+         * * `access_token` - Access token
+         * * `auth_token` - Auth token
+         * * `token` - Token
+         * * `access_key` - Access key
+         * * `account_key` - Account key
+         * * `hmac_key` - HMAC key
+         * * `key_pair` - Key pair
+         * * `signing_key` - Signing key
+         * * `connection_string` - Connection string
+         * * `password` - Password
+         * * `service_account` - Service account
+         * * `service_principal` - Service principal
+         * * `database_credentials` - Database credentials
+         * * `verified_domain` - Verified domain
+         * * `webhook_secret` - Webhook secret
+         * * `credentials` - Credentials
+         */
+        auth_type: IntegrationAuthTypeEnum & unknown;
         /**
          * Standard Integration serializer.
          */
