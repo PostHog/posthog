@@ -24,9 +24,12 @@ operations = (
             sharded=True,
             is_alter_on_replicated_table=False,
         ),
+        # The new TTL applies as soon as the statement returns. With the default alter_sync = 1, the statement also
+        # waits for the mutation to finish on this replica, so alter_sync = 0 keeps the deploy from waiting on it.
+        # system.mutations shows when the mutation is done.
         run_sql_with_exceptions(
             f"ALTER TABLE {FLAG_EVALUATIONS_DATA_TABLE} MODIFY TTL toDate(timestamp) + INTERVAL 92 DAY "
-            "SETTINGS materialize_ttl_after_modify = 1",
+            "SETTINGS materialize_ttl_after_modify = 1, alter_sync = 0",
             node_roles=[NodeRole.DATA],
             sharded=True,
             is_alter_on_replicated_table=True,
