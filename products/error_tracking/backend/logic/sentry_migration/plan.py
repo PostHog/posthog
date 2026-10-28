@@ -25,7 +25,8 @@ _CLASS_METACHARACTERS = frozenset("\\[]^-&~")
 
 # A Sentry pattern that starts with a literal exception type, such as "TypeError: Failed to fetch*".
 _TYPE_PREFIX = re.compile(r"^([A-Za-z_$][\w$.]*): (.+)$", re.DOTALL)
-_CONTAINS_GLOB = re.compile(r"^\*([^*?{}\[\]\\]+)\*$")
+# icontains compiles to ILIKE, where % and _ are wildcards, so a literal with either needs the regex form.
+_CONTAINS_GLOB = re.compile(r"^\*([^*?{}\[\]\\%_]+)\*$")
 
 # Readable names for the legacy browser options in Sentry's API. The key names give the versions.
 _LEGACY_BROWSER_LABELS = {
@@ -127,6 +128,11 @@ def _glob_leaf(key: str, glob: str) -> dict:
     return _leaf(key, "regex", glob_to_regex(glob))
 
 
+def _rate_limit_item_id(rate_limit: SentryRateLimit) -> str:
+    # The limit is part of the id, so an import fails when Sentry changed the limit after the preview.
+    return f"rate_limit:{rate_limit.key_id}:{rate_limit.count}:{rate_limit.window_seconds}"
+
+
 def _item_id(prefix: str, value: str) -> str:
     return f"{prefix}:{hashlib.sha256(value.encode()).hexdigest()[:12]}"
 
@@ -206,7 +212,7 @@ class SentryMigrationPlanner:
         sentry_value = f"{rate_limit.count:,} events per {_format_window(rate_limit.window_seconds)}"
         if value > MAX_RATE_LIMIT_VALUE:
             return SentryMigrationItem(
-                id=f"rate_limit:{rate_limit.key_id}",
+                id=_rate_limit_item_id(rate_limit),
                 category=SentryMigrationCategory.RATE_LIMIT,
                 sentry_setting=f'Rate limit on client key "{rate_limit.key_label}"',
                 sentry_value=sentry_value,
@@ -239,7 +245,7 @@ class SentryMigrationPlanner:
             )
 
         return SentryMigrationItem(
-            id=f"rate_limit:{rate_limit.key_id}",
+            id=_rate_limit_item_id(rate_limit),
             category=SentryMigrationCategory.RATE_LIMIT,
             sentry_setting=f'Rate limit on client key "{rate_limit.key_label}"',
             sentry_value=sentry_value,

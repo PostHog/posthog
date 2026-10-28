@@ -2,11 +2,13 @@ import time
 from typing import Any
 from urllib.parse import quote, urlencode, urlparse
 
-import requests
+import httpx
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.security.pinned_requests import SSRFBlockedError, pinned_request
+from posthog.security.pinned_httpx import pinned_client
+from posthog.security.pinned_requests import SSRFBlockedError
+from posthog.security.url_validation import validate_url_and_pin_ips
 
 from products.error_tracking.backend.facade.contracts import SentryConnection, SentryProject, SentryProjectRef
 
@@ -18,6 +20,8 @@ REQUEST_TIMEOUT_SECONDS = 15
 MAX_PAGES = 10
 # Upper bound on all Sentry calls one PostHog request makes, however many organizations the token sees.
 TOTAL_TIMEOUT_SECONDS = 45
+# A page of 100 projects is well under this. A self-hosted URL can point anywhere, so cap what one response may hold.
+MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 
 
 class SentryApiError(Exception):
@@ -51,10 +55,15 @@ class SentryProjectConfig:
 
 def normalize_base_url(base_url: str | None) -> str:
     url = (base_url or SENTRY_CLOUD_URL).strip().rstrip("/")
-    parsed = urlparse(url)
+    invalid_url = SentryApiError("Enter the Sentry URL with https://, for example https://sentry.io.")
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname
+    except ValueError as err:
+        raise invalid_url from err
     # The auth token travels in a header, so a plain http:// URL would expose it on the network.
-    if parsed.scheme != "https" or not parsed.hostname:
-        raise SentryApiError("Enter the Sentry URL with https://, for example https://sentry.io.")
+    if parsed.scheme != "https" or not hostname:
+        raise invalid_url
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
@@ -62,8 +71,8 @@ class SentryApiClient:
     """Reads project configuration through the Sentry web API with a token the user supplies.
 
     The token belongs to the user's own Sentry account and no other PostHog process shares it,
-    so the calls go out directly rather than through posthog/egress. Every call goes through
-    pinned_request, because a self-hosted Sentry URL is user input.
+    so the calls go out directly rather than through posthog/egress. Every call goes through a
+    pinned, bounded client, because a self-hosted Sentry URL is user input.
     """
 
     def __init__(self, connection: SentryConnection) -> None:
@@ -81,7 +90,8 @@ class SentryApiClient:
             api_url = self._api_url(region_url)
             for project in self._get_paginated(api_url, f"/api/0/organizations/{quote(slug)}/projects/"):
                 project_slug = project.get("slug")
-                if not isinstance(project_slug, str):
+                # Sentry lists every project of an organization, including ones the token's user can't read.
+                if not isinstance(project_slug, str) or project.get("hasAccess") is False:
                     continue
                 projects.append(
                     SentryProject(
@@ -119,8 +129,11 @@ class SentryApiClient:
         if not region_url:
             return self._base_url
         base_host = urlparse(self._base_url).hostname or ""
-        parsed = urlparse(region_url)
-        region_host = parsed.hostname or ""
+        try:
+            parsed = urlparse(region_url)
+            region_host = parsed.hostname or ""
+        except ValueError:
+            return self._base_url
         if parsed.scheme == "https" and (region_host == base_host or region_host.endswith(f".{base_host}")):
             return f"https://{parsed.netloc}"
         return self._base_url
@@ -148,22 +161,42 @@ class SentryApiClient:
     def _get(self, api_url: str, path: str) -> Any:
         return self._json(self._request(f"{api_url}{path}"))
 
-    def _request(self, url: str) -> requests.Response:
+    def _request(self, url: str) -> httpx.Response:
         remaining = self._deadline - time.monotonic()
         if remaining <= 0:
             raise SentryApiError(
                 "Sentry took too long to answer. Try again, or use a token whose user belongs to fewer organizations."
             )
+        verdict = validate_url_and_pin_ips(url)
+        if not verdict.allowed:
+            raise SentryApiError("PostHog can't connect to this Sentry URL.")
+        timeout = min(REQUEST_TIMEOUT_SECONDS, remaining)
         try:
-            response = pinned_request(
-                "GET",
+            # total_timeout bounds the whole exchange, so a server that trickles bytes can't outlast the deadline.
+            with pinned_client(
                 url,
-                timeout=min(REQUEST_TIMEOUT_SECONDS, remaining),
-                headers={"Authorization": f"Bearer {self._token}", "Accept": "application/json"},
-            )
-        except SSRFBlockedError as err:
+                verdict.pinned_ips,
+                timeout=timeout,
+                total_timeout=timeout,
+                max_response_bytes=MAX_RESPONSE_BYTES,
+                follow_redirects=False,
+            ) as client:
+                response = client.get(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {self._token}",
+                        "Accept": "application/json",
+                        # The bounded transport refuses compressed bodies, because their size only shows after decoding.
+                        "Accept-Encoding": "identity",
+                    },
+                )
+        except (SSRFBlockedError, httpx.ProxyError) as err:
             raise SentryApiError("PostHog can't connect to this Sentry URL.") from err
-        except requests.RequestException as err:
+        except httpx.TimeoutException as err:
+            raise SentryApiError(
+                "Sentry took too long to answer. Try again, or use a token whose user belongs to fewer organizations."
+            ) from err
+        except httpx.HTTPError as err:
             logger.info("sentry_migration.request_failed", host=urlparse(url).hostname, error=type(err).__name__)
             raise SentryApiError("PostHog couldn't reach Sentry. Check the Sentry URL and try again.") from err
 
@@ -188,7 +221,7 @@ class SentryApiClient:
             )
         return response
 
-    def _json(self, response: requests.Response) -> Any:
+    def _json(self, response: httpx.Response) -> Any:
         try:
             return response.json()
         except ValueError as err:

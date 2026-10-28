@@ -1,5 +1,7 @@
 from django.db import transaction
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from products.error_tracking.backend.facade.contracts import (
     SentryConnection,
     SentryMigrationItem,
@@ -78,13 +80,20 @@ def apply_sentry_migration(
     # The rebuilt plan reflects what this project has now, so a retried request doesn't create duplicates.
     pending = [item for item in selected if not item.already_in_posthog]
     new_rate_limits = [item.rate_limit for item in pending if item.rate_limit is not None]
-    suppression_filters = [
-        item.suppression_rule_filters for item in pending if item.suppression_rule_filters is not None
+    manual_rules = [
+        (item, item.suppression_rule_filters) for item in pending if item.suppression_rule_filters is not None
     ]
     built_in_keys = [item.built_in_filter.key for item in pending if item.built_in_filter is not None]
     with transaction.atomic():
-        for filters in suppression_filters:
-            create_suppression_rule(team_id, filters=filters, sampling_rate=1.0)
+        for item, filters in manual_rules:
+            try:
+                create_suppression_rule(team_id, filters=filters, sampling_rate=1.0)
+            except ExposedHogQLError as err:
+                # Raising inside the transaction rolls back the rules this import already created.
+                raise SentryMigrationSelectionError(
+                    f'PostHog can\'t use the pattern "{item.sentry_value}" from "{item.sentry_setting}": {err} '
+                    "Deselect it and import again."
+                ) from err
         for key in built_in_keys:
             set_built_in_filter_enabled(team_id, key, enabled=True)
         if new_rate_limits:
@@ -97,7 +106,7 @@ def apply_sentry_migration(
             )
 
     return SentryMigrationResult(
-        suppression_rules_created=len(suppression_filters),
+        suppression_rules_created=len(manual_rules),
         built_in_filters_enabled=len(built_in_keys),
         rate_limit_updated=bool(new_rate_limits),
     )
