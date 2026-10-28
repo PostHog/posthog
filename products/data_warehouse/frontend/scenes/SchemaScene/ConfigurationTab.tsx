@@ -767,7 +767,8 @@ function ColumnsAndRowFiltersSection({
                 .update(schema.id, {
                     enabled_columns: draftColumns,
                     row_filters: draftRowFilters,
-                    masked_columns: draftMasked,
+                    // Unchanged masks stay out, so a column that left the source can't block the save.
+                    ...(masksChanged ? { masked_columns: draftMasked } : {}),
                 })
                 .then(() => {
                     updateSchema(next)

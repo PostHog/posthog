@@ -13,6 +13,8 @@ export interface ColumnSelectionTarget {
     enabled_columns?: string[] | null
     masked_columns?: string[] | null
     primary_key_columns?: string[] | null
+    /** The key discovery found, which a sync merges on when no key is stored. */
+    detected_primary_keys?: string[] | null
     incremental_field?: string | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
 }
@@ -46,7 +48,9 @@ interface UseColumnSelectionResult {
     isChecked: (name: string) => boolean
     isMasked: (name: string) => boolean
     isMaskable: (name: string) => boolean
+    isSyncKey: (name: string) => boolean
     toggleMask: (name: string) => void
+    missingMasked: string[]
     persistedSelection: () => string[] | null
     available: { name: string; data_type?: string; is_nullable?: boolean }[]
     primaryKeys: Set<string>
@@ -135,8 +139,25 @@ function useColumnSelection(
 
     const isMasked = (name: string): boolean => masked.has(name)
 
+    // Mirrors the server: without a stored key, a sync merges on the detected key, else on `id`.
+    const syncKeys = useMemo(() => {
+        if (schema?.primary_key_columns?.length) {
+            return new Set(schema.primary_key_columns)
+        }
+        if (schema?.detected_primary_keys?.length) {
+            return new Set(schema.detected_primary_keys)
+        }
+        const idColumn = (schema?.available_columns ?? []).find((column) => column.name.toLowerCase() === 'id')
+        return new Set(idColumn ? [idColumn.name] : [])
+    }, [schema?.primary_key_columns, schema?.detected_primary_keys, schema?.available_columns])
+
+    const isSyncKey = (name: string): boolean => syncKeys.has(name)
+
     // A hashed primary key breaks merges and a hashed incremental field cannot order rows.
-    const isMaskable = (name: string): boolean => isChecked(name) && !isAlwaysRetained(name)
+    const isMaskable = (name: string): boolean => isChecked(name) && !isAlwaysRetained(name) && !isSyncKey(name)
+
+    // A masked column can disappear from the source, and the mask must stay removable.
+    const missingMasked = Array.from(masked).filter((name) => !available.some((column) => column.name === name))
 
     // A column masked before it became a key can still be unmasked, so the rejected save can be fixed.
     const toggleMask = (name: string): void => {
@@ -169,7 +190,9 @@ function useColumnSelection(
         isChecked,
         isMasked,
         isMaskable,
+        isSyncKey,
         toggleMask,
+        missingMasked,
         persistedSelection,
         available,
         primaryKeys,
@@ -196,7 +219,9 @@ export function ColumnSelectionPicker({
         isChecked,
         isMasked,
         isMaskable,
+        isSyncKey,
         toggleMask,
+        missingMasked,
         persistedSelection,
         available,
         primaryKeys,
@@ -264,7 +289,7 @@ export function ColumnSelectionPicker({
                                         disabledReason={
                                             isMaskable(column.name)
                                                 ? undefined
-                                                : retained
+                                                : retained || isSyncKey(column.name)
                                                   ? "Primary key and incremental columns can't be masked"
                                                   : 'Only synced columns can be masked'
                                         }
@@ -279,6 +304,25 @@ export function ColumnSelectionPicker({
                 {filteredColumns.length === 0 && available.length > 0 && (
                     <div className="text-center text-muted-alt py-6 text-sm">No columns match.</div>
                 )}
+                {enableMasking &&
+                    missingMasked.map((name) => (
+                        <div key={name} className="flex items-center justify-between gap-2 px-3 py-1">
+                            <div className="flex items-center gap-2">
+                                <code>{name}</code>
+                                <span className="text-xs text-muted-alt">no longer in the source</span>
+                            </div>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                icon={<IconLock />}
+                                onClick={() => toggleMask(name)}
+                                tooltip="This column is no longer in the source. Click to remove its mask."
+                                data-attr="schema-column-unmask-missing"
+                            >
+                                Masked
+                            </LemonButton>
+                        </div>
+                    ))}
             </div>
             {!hideActions && (
                 <div className="flex items-center justify-between gap-2 mt-2">

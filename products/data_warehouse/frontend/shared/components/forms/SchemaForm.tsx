@@ -666,6 +666,7 @@ export default function SchemaForm(): JSX.Element {
                                           enabled_columns: columnSelectionSchema.enabled_columns,
                                           masked_columns: columnSelectionSchema.masked_columns,
                                           primary_key_columns: columnSelectionSchema.primary_key_columns,
+                                          detected_primary_keys: columnSelectionSchema.detected_primary_keys,
                                           incremental_field: columnSelectionSchema.incremental_field,
                                           available_columns: columnSelectionSchema.available_columns.map((c) => ({
                                               name: c.field,
