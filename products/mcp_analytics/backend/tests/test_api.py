@@ -12,6 +12,8 @@ from parameterized import parameterized
 
 from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PersonPropertyFilter, PropertyOperator
 
+from posthog.hogql.database.database import Database
+
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 from posthog.utils import generate_cache_key
@@ -821,8 +823,10 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             properties={"$session_id": str(uuid7()), "$mcp_tool_name": "query_run"},
         )
 
-        overview = api.get_activity_overview(self.team)
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_database:
+            overview = api.get_activity_overview(self.team)
 
+        assert create_database.call_count == 1
         assert overview.stats == contracts.ActivityStats(
             total_calls=2,
             distinct_tools=2,

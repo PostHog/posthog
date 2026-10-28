@@ -22,7 +22,12 @@ import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureCriteria
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    ExperimentWarehouseNativeExposureConfig,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -770,7 +775,7 @@ class ExperimentService:
         # nullable), so only validate shape when a value is present.
         if exposure_criteria.get("exposure_config") is not None:
             cls._validate_exposure_config_shape(
-                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config"
+                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config", warehouse_native_allowed=True
             )
 
         if exposure_criteria.get("activation_config") is not None:
@@ -795,7 +800,9 @@ class ExperimentService:
         )
 
     @classmethod
-    def _validate_exposure_config_shape(cls, exposure_config: object, field_path: str) -> None:
+    def _validate_exposure_config_shape(
+        cls, exposure_config: object, field_path: str, *, warehouse_native_allowed: bool = False
+    ) -> None:
         if not isinstance(exposure_config, dict):
             raise ValidationError(
                 f"{field_path} must be an object, got {type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
@@ -804,6 +811,12 @@ class ExperimentService:
         # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
         # to mirror the pydantic Literal default on that model.
         kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+        if kind == "ExperimentWarehouseNativeExposureConfig" and warehouse_native_allowed:
+            # The kind exists so the rest of the product can be built against it; nothing can run it yet.
+            cls._validate_exposure_config_model(
+                ExperimentWarehouseNativeExposureConfig, exposure_config, field_path, kind
+            )
+            raise ValidationError(f"{field_path}: warehouse-native exposures are not supported yet.")
         if kind not in cls.EXPOSURE_CONFIG_KINDS:
             raise ValidationError(
                 f"{field_path}.kind must be one of "
@@ -812,6 +825,12 @@ class ExperimentService:
             )
 
         model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
+        cls._validate_exposure_config_model(model_cls, exposure_config, field_path, kind)
+
+    @classmethod
+    def _validate_exposure_config_model(
+        cls, model_cls: type[pydantic.BaseModel], exposure_config: dict, field_path: str, kind: object
+    ) -> None:
         try:
             model_cls.model_validate(exposure_config)
         except pydantic.ValidationError as e:
