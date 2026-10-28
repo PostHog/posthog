@@ -290,8 +290,6 @@ class TestScoutReportPersistence(BaseTest):
 
         run.refresh_from_db()
         assert run.emitted_report_ids == [result.report_id]
-        report.refresh_from_db()
-        assert report.authoring_scout_config_id == run.scout_config_id
 
     @parameterized.expand(
         [

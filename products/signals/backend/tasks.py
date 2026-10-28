@@ -40,6 +40,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.implementation_pr_cache import refresh_implementation_pr_cache
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
@@ -91,6 +92,13 @@ from products.signals.backend.tracker_issues import close_tracker_issue_for_repo
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def refresh_report_implementation_pr_cache(team_id: int, report_ids: list[str]) -> None:
+    """Retry a cached PR flag refresh that failed after its link write committed."""
+    refresh_implementation_pr_cache(team_id=team_id, report_ids=report_ids)
 
 
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)

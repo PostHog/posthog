@@ -3,19 +3,24 @@
 `implementation_pr_report_filter` is the source of truth. It reads five link sources, so the inbox
 cannot afford to evaluate it for every report on each list and count. These helpers store its
 answer on the report row instead. Receivers call `schedule_implementation_pr_cache_refresh` after a
-link write, and the repair loop corrects rows that a write path outside the receivers left stale.
+link write, and the daily reconcile corrects rows that a write path outside the receivers left stale.
 """
 
 from collections import defaultdict
-from collections.abc import Iterable, Iterator
-from functools import partial
+from collections.abc import Iterable, Iterator, Sequence
 from typing import Any
 
 from django.db import transaction
 from django.db.models import BooleanField, ExpressionWrapper, QuerySet
 from django.db.models.signals import post_delete, post_save, pre_delete
 
-from products.signals.backend.implementation_pr import implementation_pr_report_filter
+import structlog
+
+from posthog.dataclasses import frozen
+from posthog.models.organization import Organization
+from posthog.models.project import Project
+from posthog.models.team import Team
+
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -23,20 +28,37 @@ from products.signals.backend.models import (
     SignalReportPullRequest,
     SignalReportTask,
 )
-from products.signals.backend.report_actionability_repair import RepairedBatch
+from products.signals.backend.report_actionability_repair import RepairedBatch, report_id_batches
 from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
+
+logger = structlog.get_logger(__name__)
 
 _LINK_ARTEFACT_TYPES = frozenset(
     {SignalReportArtefact.ArtefactType.PULL_REQUEST, SignalReportArtefact.ArtefactType.TASK_RUN}
 )
+# A delete that starts at one of these removes the linked reports too, so their links need no refresh.
+_REPORT_REMOVING_ORIGINS = (SignalReport, Team, Project, Organization)
 
 
-def live_implementation_pr_flags(team_id: int) -> tuple[ExpressionWrapper, ExpressionWrapper]:
+@frozen
+class LiveImplementationPrFlags:
+    has_pr: ExpressionWrapper
+    has_active_pr: ExpressionWrapper
+
+
+def live_implementation_pr_flags(team_id: int, report_ids: Sequence[Any] | None = None) -> LiveImplementationPrFlags:
     """The source-of-truth filter as two per-report annotations: any PR, and an active PR."""
-    return (
-        ExpressionWrapper(implementation_pr_report_filter(team_id=team_id), output_field=BooleanField()),
-        ExpressionWrapper(
-            implementation_pr_report_filter(team_id=team_id, active_only=True), output_field=BooleanField()
+    from products.signals.backend.implementation_pr import (  # noqa: PLC0415 — keeps the tasks facade off the Django setup path, which imports this module for its receivers
+        implementation_pr_report_filter,
+    )
+
+    return LiveImplementationPrFlags(
+        has_pr=ExpressionWrapper(
+            implementation_pr_report_filter(team_id=team_id, report_ids=report_ids), output_field=BooleanField()
+        ),
+        has_active_pr=ExpressionWrapper(
+            implementation_pr_report_filter(team_id=team_id, active_only=True, report_ids=report_ids),
+            output_field=BooleanField(),
         ),
     )
 
@@ -61,10 +83,10 @@ def refresh_implementation_pr_cache(*, team_id: int, report_ids: Iterable[Any]) 
         )
         if not locked:
             return 0
-        live_has, live_active = live_implementation_pr_flags(team_id)
+        live = live_implementation_pr_flags(team_id, report_ids=locked)
         rows = (
-            SignalReport.objects.filter(id__in=locked)
-            .annotate(live_has_implementation_pr=live_has, live_has_active_implementation_pr=live_active)
+            SignalReport.objects.filter(team_id=team_id, id__in=locked)
+            .annotate(live_has_implementation_pr=live.has_pr, live_has_active_implementation_pr=live.has_active_pr)
             .values_list(
                 "id",
                 "has_implementation_pr",
@@ -80,7 +102,7 @@ def refresh_implementation_pr_cache(*, team_id: int, report_ids: Iterable[Any]) 
         for (has_pr, has_active_pr), changed_ids in changed.items():
             # `update()`, not `save()`: a cache refresh must not bump `updated_at`, which the inbox
             # sorts on, or fire the report's save receivers.
-            SignalReport.objects.filter(id__in=changed_ids).update(
+            SignalReport.objects.filter(team_id=team_id, id__in=changed_ids).update(
                 has_implementation_pr=has_pr, has_active_implementation_pr=has_active_pr
             )
         return sum(len(changed_ids) for changed_ids in changed.values())
@@ -88,9 +110,25 @@ def refresh_implementation_pr_cache(*, team_id: int, report_ids: Iterable[Any]) 
 
 def schedule_implementation_pr_cache_refresh(*, team_id: int, report_ids: Iterable[Any]) -> None:
     """Refresh after the current transaction commits, so the refresh reads the committed links."""
-    ids = [report_id for report_id in report_ids if report_id is not None]
-    if ids:
-        transaction.on_commit(partial(refresh_implementation_pr_cache, team_id=team_id, report_ids=ids), robust=True)
+    ids = sorted({str(report_id) for report_id in report_ids if report_id is not None})
+    if not ids:
+        return
+
+    def refresh_after_commit() -> None:
+        try:
+            refresh_implementation_pr_cache(team_id=team_id, report_ids=ids)
+        except Exception:
+            # The link write has committed, so its caller must not fail. The task retries the refresh.
+            logger.warning(
+                "signals.implementation_pr_cache.refresh_failed", team_id=team_id, report_count=len(ids), exc_info=True
+            )
+            from products.signals.backend.tasks import (  # noqa: PLC0415 — tasks imports this module
+                refresh_report_implementation_pr_cache,
+            )
+
+            refresh_report_implementation_pr_cache.delay(team_id, ids)
+
+    transaction.on_commit(refresh_after_commit, robust=True)
 
 
 def connect_implementation_pr_cache_receivers() -> None:
@@ -107,29 +145,29 @@ def connect_implementation_pr_cache_receivers() -> None:
     connect_task_run_post_save(_refresh_for_task_run, dispatch_uid="signals_pr_cache_task_run")
 
 
-def _cascaded(origin: Any, sender: type) -> bool:
-    # A delete that cascades from a report or a team leaves no report to refresh, so it skips the
-    # query. Django passes the instance or queryset that `delete()` was called on as `origin`.
+def _removes_the_report(origin: Any) -> bool:
+    # Django passes the instance or queryset that `delete()` was called on as `origin`. A task
+    # delete cascades into report links but leaves the reports, so only these origins skip the refresh.
     if origin is None:
         return False
     model = origin.model if isinstance(origin, QuerySet) else type(origin)
-    return model is not sender
+    return issubclass(model, _REPORT_REMOVING_ORIGINS)
 
 
 def _refresh_for_report_link(sender: type, instance: Any, **kwargs: Any) -> None:
-    if _cascaded(kwargs.get("origin"), sender):
+    if _removes_the_report(kwargs.get("origin")):
         return
     schedule_implementation_pr_cache_refresh(team_id=instance.team_id, report_ids=[instance.report_id])
 
 
 def _refresh_for_artefact(sender: type, instance: SignalReportArtefact, **kwargs: Any) -> None:
-    if instance.type not in _LINK_ARTEFACT_TYPES or _cascaded(kwargs.get("origin"), sender):
+    if instance.type not in _LINK_ARTEFACT_TYPES or _removes_the_report(kwargs.get("origin")):
         return
     schedule_implementation_pr_cache_refresh(team_id=instance.team_id, report_ids=[instance.report_id])
 
 
 def _refresh_for_pull_request(sender: type, instance: SignalReportPullRequest, **kwargs: Any) -> None:
-    if _cascaded(kwargs.get("origin"), sender):
+    if _removes_the_report(kwargs.get("origin")):
         return
     report_ids = SignalReportArtefact.objects.filter(
         team_id=instance.team_id, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, pull_request_id=instance.id
@@ -138,15 +176,16 @@ def _refresh_for_pull_request(sender: type, instance: SignalReportPullRequest, *
 
 
 def _refresh_for_task_run(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
-    # TaskRun is a hot model, so the in-memory checks run before the first query. Only a run whose
-    # output carries a PR can make the filter's task branches match.
-    if created:
-        return
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and not {"output", "state", "status"}.intersection(update_fields):
-        return
+    # TaskRun is a hot model, so the in-memory checks run before the first query. The filter reads
+    # the run's output and its `state.ai_stage`. An output write can also remove a PR, so it always
+    # refreshes; a full save is checked only when the run carries a PR, and the reconcile covers the rest.
     output = instance.output if isinstance(instance.output, dict) else {}
-    if not output.get("pr_url") and not output.get("pr_urls"):
+    carries_pr = bool(output.get("pr_url") or output.get("pr_urls"))
+    update_fields = kwargs.get("update_fields")
+    if created or update_fields is None:
+        if not carries_pr:
+            return
+    elif "output" not in update_fields and not ("state" in update_fields and carries_pr):
         return
     team_id, task_id = instance.team_id, instance.task_id
     report_ids = {
@@ -165,20 +204,11 @@ def repair_implementation_pr_cache(
     *, team_id: int | None, batch_size: int, after: str | None = None
 ) -> Iterator[RepairedBatch]:
     """Recompute the cached flags of every report, one batch at a time, starting after report id `after`."""
-    reports = SignalReport.objects.all()
-    if team_id is not None:
-        reports = reports.filter(team_id=team_id)
-    reports = reports.order_by("id")
-    while True:
-        page = reports.filter(id__gt=after) if after else reports
-        rows = list(page.values_list("id", "team_id")[:batch_size])
-        if not rows:
-            return
-        after = str(rows[-1][0])
+    for batch in report_id_batches(team_id=team_id, batch_size=batch_size, after=after):
         by_team: dict[int, list[Any]] = defaultdict(list)
-        for report_id, row_team_id in rows:
+        for report_id, row_team_id in batch.rows:
             by_team[row_team_id].append(report_id)
         corrected = sum(
             refresh_implementation_pr_cache(team_id=row_team_id, report_ids=ids) for row_team_id, ids in by_team.items()
         )
-        yield RepairedBatch(scanned=len(rows), corrected=corrected, cursor=after)
+        yield RepairedBatch(scanned=len(batch.rows), corrected=corrected, cursor=batch.cursor)

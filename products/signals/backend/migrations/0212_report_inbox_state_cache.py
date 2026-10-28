@@ -5,15 +5,10 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("signals", "0208_reset_signal_spend"),
+        ("signals", "0211_agent_startup_failure"),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name="signalreport",
-            name="authoring_scout_config_id",
-            field=models.UUIDField(blank=True, null=True),
-        ),
         migrations.AddField(
             model_name="signalreport",
             name="has_active_implementation_pr",

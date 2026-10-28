@@ -1536,8 +1536,6 @@ def _record_report_emit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> N
     run = SignalScoutRun.objects.for_team(team_id).select_for_update().get(pk=run_id)
     run.emitted_report_ids = [*(run.emitted_report_ids or []), report_id]
     run.save(update_fields=["emitted_report_ids"])
-    if run.scout_config_id is not None:
-        SignalReport.objects.filter(team_id=team_id, id=report_id).update(authoring_scout_config_id=run.scout_config_id)
 
 
 def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:

@@ -4,6 +4,8 @@ from collections.abc import Callable
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
 from parameterized import parameterized
 
 from products.signals.backend.implementation_pr_cache import live_implementation_pr_flags
@@ -27,10 +29,10 @@ class TestImplementationPrCache(BaseTest):
         )
 
     def _cached_and_live(self) -> tuple[tuple[bool, bool], tuple[bool, bool]]:
-        live_has, live_active = live_implementation_pr_flags(self.team.id)
+        live = live_implementation_pr_flags(self.team.id)
         row = (
             SignalReport.objects.filter(id=self.report.id)
-            .annotate(live_has_implementation_pr=live_has, live_has_active_implementation_pr=live_active)
+            .annotate(live_has_implementation_pr=live.has_pr, live_has_active_implementation_pr=live.has_active_pr)
             .values(
                 "has_implementation_pr",
                 "has_active_implementation_pr",
@@ -124,3 +126,36 @@ class TestImplementationPrCache(BaseTest):
         cached, live = self._cached_and_live()
         assert live == (True, False)
         assert cached == live
+
+    @parameterized.expand([("output_cleared", "clear_output"), ("task_deleted", "delete_task")])
+    def test_removing_the_only_task_pr_clears_the_cached_flags(self, _name: str, removal: str) -> None:
+        task, run = self._task(with_pr=True)
+        SignalReportTask.objects.create(team=self.team, report=self.report, task=task, relationship="implementation")
+        self._task_run_artefact(task, run)
+        SignalReport.objects.filter(id=self.report.id).update(
+            has_implementation_pr=True, has_active_implementation_pr=True
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            if removal == "clear_output":
+                run.output = None
+                run.save(update_fields=["output"])
+            else:
+                Task.objects.filter(id=task.id).delete()
+
+        cached, live = self._cached_and_live()
+        assert live == (False, False)
+        assert cached == live
+
+    def test_a_failed_refresh_is_retried_by_a_task(self) -> None:
+        with (
+            patch(
+                "products.signals.backend.implementation_pr_cache.refresh_implementation_pr_cache",
+                side_effect=OperationalError("connection reset"),
+            ),
+            patch("products.signals.backend.tasks.refresh_report_implementation_pr_cache.delay") as retry,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self._link_assignment()
+
+        retry.assert_called_once_with(self.team.id, [str(self.report.id)])

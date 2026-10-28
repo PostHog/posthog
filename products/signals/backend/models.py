@@ -489,12 +489,6 @@ class SignalReport(UUIDModel):
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
 
-    # The config of the scout run that authored this report, copied from the run when it records
-    # the emit. The inbox hides a report whose config has its inbox destination off by comparing
-    # this column with the team's few opted-out configs, instead of searching every run's
-    # `emitted_report_ids` once for each report. No foreign key: a deleted config stops hiding its
-    # reports, the same as the run's SET_NULL did.
-    authoring_scout_config_id = models.UUIDField(null=True, blank=True)
     # Cached from `implementation_pr_report_filter`, with and without `active_only`, so the inbox
     # filters on a column instead of evaluating five link subqueries for every report.
     # implementation_pr_cache.py keeps them current.
