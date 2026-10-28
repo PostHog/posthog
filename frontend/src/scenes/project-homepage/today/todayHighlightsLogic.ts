@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
+import posthog, { type CaptureOptions } from 'posthog-js'
 import { v4 as uuidv4 } from 'uuid'
 
 import { toast } from '@posthog/quill'
@@ -64,8 +64,13 @@ function pulseLoadOutcome(
     return status === 'ready' ? (numberCount > 0 ? 'ready' : 'empty') : null
 }
 
-function capturePulseLoad(event: string, load: PulseLoad, properties: Record<string, unknown> = {}): void {
-    posthog.capture(event, {
+function capturePulseLoad(
+    event: string,
+    load: PulseLoad,
+    properties: Record<string, unknown> = {},
+    options?: CaptureOptions
+): void {
+    const payload = {
         load_id: load.id,
         duration_ms: Math.round(performance.now() - load.startedAt),
         first_number_duration_ms: load.firstNumberAt === null ? null : Math.round(load.firstNumberAt - load.startedAt),
@@ -78,7 +83,12 @@ function capturePulseLoad(event: string, load: PulseLoad, properties: Record<str
         was_hidden: load.wasHidden,
         visible: document.visibilityState === 'visible',
         ...properties,
-    })
+    }
+    if (options) {
+        posthog.capture(event, payload, options)
+    } else {
+        posthog.capture(event, payload)
+    }
 }
 
 export interface PulsePlaceholderTile extends PulsePinApi {
@@ -235,8 +245,8 @@ export interface todayHighlightsLogicActions {
     pulseViewMounted: (sample: boolean) => {
         sample: boolean
     }
-    pulseViewUnmounted: () => {
-        value: true
+    pulseViewUnmounted: (documentDeparture?: boolean) => {
+        documentDeparture: boolean
     }
     pulseViewUpdated: () => {
         value: true
@@ -330,7 +340,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
         pulsePinsLoadGaveUp: true,
         pulseViewMounted: (sample: boolean) => ({ sample }),
         pulseViewUpdated: true,
-        pulseViewUnmounted: true,
+        pulseViewUnmounted: (documentDeparture: boolean = false) => ({ documentDeparture }),
     }),
     loaders(({ values, cache }) => ({
         pulseInsightResults: [
@@ -531,6 +541,25 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
             capturePulseLoad('today pulse load started', load)
             cache.disposables.add(
                 () => {
+                    const onPageHide = (): void => actions.pulseViewUnmounted(true)
+                    const onPageShow = (event: PageTransitionEvent): void => {
+                        if (event.persisted) {
+                            actions.pulseViewMounted(sample)
+                            actions.pulseViewUpdated()
+                        }
+                    }
+                    window.addEventListener('pagehide', onPageHide)
+                    window.addEventListener('pageshow', onPageShow)
+                    return () => {
+                        window.removeEventListener('pagehide', onPageHide)
+                        window.removeEventListener('pageshow', onPageShow)
+                    }
+                },
+                'pulseLoadPageLifecycle',
+                { pauseOnPageHidden: false }
+            )
+            cache.disposables.add(
+                () => {
                     const onVisibilityChange = (): void => {
                         load.wasHidden ||= document.visibilityState !== 'visible'
                     }
@@ -578,14 +607,22 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 capturePulseLoad('today pulse load finished', load, { outcome, number_count: numberCount })
             }
         },
-        pulseViewUnmounted: () => {
+        pulseViewUnmounted: ({ documentDeparture }) => {
             const load = cache.pulseLoad as PulseLoad | undefined
             if (load && !load.finished) {
                 load.finished = true
-                capturePulseLoad('today pulse load finished', load, { outcome: 'abandoned' })
+                capturePulseLoad(
+                    'today pulse load finished',
+                    load,
+                    { outcome: 'abandoned' },
+                    documentDeparture ? { transport: 'sendBeacon', send_instantly: true } : undefined
+                )
             }
             cache.disposables.dispose('pulseLoadSlow')
             cache.disposables.dispose('pulseLoadVisibility')
+            if (!documentDeparture) {
+                cache.disposables.dispose('pulseLoadPageLifecycle')
+            }
             delete cache.pulseLoad
         },
         loadHighlights: () => {

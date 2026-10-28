@@ -76,6 +76,7 @@ export function TodayHomePage(): JSX.Element {
         pulseTiles,
         pulseViewUpdated,
         currentProjectId,
+        useSampleData,
     ])
 
     useLayoutEffect(() => {

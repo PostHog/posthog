@@ -243,6 +243,42 @@ describe('todayHighlightsLogic', () => {
         expect(capture.mock.calls.some(([event]) => event === 'today pulse first number shown')).toBe(false)
     })
 
+    it.each([false, true])('records document departure once and handles cached restoration: %s', async (persisted) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        highlightResponses = [[200, makeHighlights({ status: 'computing', generated_at: null })]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadHighlightsSuccess'])
+        logic.actions.pulseViewMounted(false)
+        const firstLoadId = capture.mock.calls.find(([event]) => event === 'today pulse load started')?.[1]?.load_id
+
+        window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted }))
+
+        expect(capture).toHaveBeenCalledWith(
+            'today pulse load finished',
+            expect.objectContaining({ load_id: firstLoadId, outcome: 'abandoned' }),
+            { transport: 'sendBeacon', send_instantly: true }
+        )
+        if (persisted) {
+            window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+            logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: [makePulseMetric()] }))
+            logic.actions.pulseViewUpdated()
+            const restored = capture.mock.calls.find(
+                ([event, properties]) => event === 'today pulse load finished' && properties?.outcome === 'ready'
+            )
+            expect(restored?.[1]?.load_id).not.toBe(firstLoadId)
+            expect(restored).toBeDefined()
+        }
+        logic.actions.pulseViewUnmounted()
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+        expect(capture.mock.calls.filter(([event]) => event === 'today pulse load started')).toHaveLength(
+            persisted ? 2 : 1
+        )
+        expect(capture.mock.calls.filter(([event]) => event === 'today pulse load finished')).toHaveLength(
+            persisted ? 2 : 1
+        )
+    })
+
     it('marks a load that spends time in a hidden tab', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         highlightResponses = [[200, makeHighlights({ status: 'computing', generated_at: null })]]
