@@ -93,12 +93,10 @@ DATE_RANGE_PLACEHOLDER = "{{date_range}}"
 COMPARE_DATE_RANGE_PLACEHOLDER = "{{compare_date_range}}"
 WINDOW_START_PLACEHOLDER = "{{window_start}}"
 WINDOW_END_PLACEHOLDER = "{{window_end}}"
-WINDOW_PLACEHOLDERS = (
-    DATE_RANGE_PLACEHOLDER,
-    COMPARE_DATE_RANGE_PLACEHOLDER,
-    WINDOW_START_PLACEHOLDER,
-    WINDOW_END_PLACEHOLDER,
-)
+COMPARE_WINDOW_START_PLACEHOLDER = "{{compare_window_start}}"
+WINDOW_FILTER_PLACEHOLDERS = (DATE_RANGE_PLACEHOLDER, COMPARE_DATE_RANGE_PLACEHOLDER)
+WINDOW_BOUND_PLACEHOLDERS = (WINDOW_START_PLACEHOLDER, WINDOW_END_PLACEHOLDER, COMPARE_WINDOW_START_PLACEHOLDER)
+WINDOW_PLACEHOLDERS = (*WINDOW_FILTER_PLACEHOLDERS, *WINDOW_BOUND_PLACEHOLDERS)
 _SILENT_ON_FAILURE_SUFFIXES = ("OrNull", "OrZero")
 _PLACEHOLDER_TOKEN = re.compile(r"\{\{[^{}]*\}\}|[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
@@ -235,6 +233,7 @@ class ReportWindow:
             .replace(COMPARE_DATE_RANGE_PLACEHOLDER, self.compare_filter_sql)
             .replace(WINDOW_START_PLACEHOLDER, f"toDateTime('{self.start_literal}')")
             .replace(WINDOW_END_PLACEHOLDER, f"toDateTime('{self.end_literal}')")
+            .replace(COMPARE_WINDOW_START_PLACEHOLDER, f"toDateTime('{self.compare_start_literal}')")
         )
 
 

@@ -26,6 +26,7 @@ from products.subscriptions.backend.temporal.ai_subscription.report_pipeline imp
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
     QUERY_RETURNED_NO_ROWS,
+    WINDOW_TOKEN_HINT,
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,
@@ -517,65 +518,37 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     [
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-2}} 00:00:00', 'UTC')",
-            (
-                "The query uses `{{D-2}}`, which the report doesn't fill in. Use only `{{date_range}}`, "
-                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
-                "quotes. The report fills in the dates when it runs."
-            ),
+            ("The query uses `{{D-2}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
             id="double_brace_in_date",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime('{D-1} 00:00:00','UTC')",
-            (
-                "The query uses `{D-1}`, which the report doesn't fill in. Use only `{{date_range}}`, "
-                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
-                "quotes. The report fills in the dates when it runs."
-            ),
+            ("The query uses `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
             id="single_brace_in_date",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime('<prior_day_start>', 'UTC')",
-            (
-                "The query uses `<prior_day_start>`, which the report doesn't fill in. Use only `{{date_range}}`, "
-                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
-                "quotes. The report fills in the dates when it runs."
-            ),
+            ("The query uses `<prior_day_start>`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
             id="angle_brackets_in_date",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime\n    ('{D-1} 00:00:00', 'UTC')",
-            (
-                "The query uses `{D-1}`, which the report doesn't fill in. Use only `{{date_range}}`, "
-                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
-                "quotes. The report fills in the dates when it runs."
-            ),
+            ("The query uses `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
             id="whitespace_before_parenthesis",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE day = toDate('{{utc_report_yesterday}}') AND {{date_range}}",
-            (
-                "The query uses `{{utc_report_yesterday}}`, which the report doesn't fill in. Use only `{{date_range}}`, "
-                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
-                "quotes. The report fills in the dates when it runs."
-            ),
+            ("The query uses `{{utc_report_yesterday}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
             id="unknown_next_to_known",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-1}}') AND timestamp < toDate('{D-1}')",
-            (
-                "The query uses `{{D-1}}`, `{D-1}`, which the report doesn't fill in. Use only `{{date_range}}`, "
-                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
-                "quotes. The report fills in the dates when it runs."
-            ),
+            ("The query uses `{{D-1}}`, `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
             id="double_and_single_brace_with_one_name",
         ),
         pytest.param(
             "SELECT count() FROM events WHERE timestamp >= {{yesterday_start}}",
-            (
-                "The query uses `{{yesterday_start}}`, which the report doesn't fill in. Use only `{{date_range}}`, "
-                "`{{compare_date_range}}`, `{{window_start}}` or `{{window_end}}` for the report window, outside "
-                "quotes. The report fills in the dates when it runs."
-            ),
+            ("The query uses `{{yesterday_start}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
             id="double_brace_outside_quotes",
         ),
     ],
@@ -642,7 +615,9 @@ async def test_run_steps_marks_a_step_that_returned_no_rows(
     "hogql",
     [
         pytest.param(
-            "SELECT count() FROM events WHERE {{date_range}} AND timestamp < {{window_end}}", id="known_tokens"
+            "SELECT count() FROM events WHERE {{date_range}} AND timestamp < {{window_end}} "
+            "AND timestamp >= {{compare_window_start}}",
+            id="known_tokens",
         ),
         pytest.param(
             "SELECT JSONExtractString('{\"name\": 1}', 'name') FROM events WHERE {{date_range}}", id="json_literal"

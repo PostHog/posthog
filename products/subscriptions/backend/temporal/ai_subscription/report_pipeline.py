@@ -60,6 +60,8 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     AI_QUERY_PLAN_VERSION,
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
+    WINDOW_BOUND_PLACEHOLDERS,
+    WINDOW_FILTER_PLACEHOLDERS,
     WINDOW_PLACEHOLDERS,
     ReportWindow,
     StoredPlanInvalidError,
@@ -123,15 +125,23 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+def _or_list(tokens: Sequence[str]) -> str:
+    quoted = [f"`{token}`" for token in tokens]
+    return f"{', '.join(quoted[:-1])} or {quoted[-1]}"
+
+
+WINDOW_TOKEN_HINT = (
+    f"For the report window, use {_or_list(WINDOW_FILTER_PLACEHOLDERS)} as a whole time filter, or "
+    f"{_or_list(WINDOW_BOUND_PLACEHOLDERS)} as a single timestamp, outside quotes. "
+    "The report fills in the dates when it runs."
+)
+
+
 def _reject_unknown_placeholders(hogql: str) -> None:
     tokens = unknown_placeholder_tokens(hogql)
     if tokens:
         found = ", ".join(f"`{token}`" for token in tokens)
-        allowed = ", ".join(f"`{token}`" for token in WINDOW_PLACEHOLDERS[:-1]) + f" or `{WINDOW_PLACEHOLDERS[-1]}`"
-        raise QueryError(
-            f"The query uses {found}, which the report doesn't fill in. Use only {allowed} for the report window, "
-            "outside quotes. The report fills in the dates when it runs."
-        )
+        raise QueryError(f"The query uses {found}, which the report doesn't fill in. {WINDOW_TOKEN_HINT}")
 
 
 def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:

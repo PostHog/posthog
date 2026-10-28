@@ -23,6 +23,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
+    WINDOW_PLACEHOLDERS,
     ReportWindow,
     StoredPlanInvalidError,
     _event_property_names,
@@ -65,6 +66,47 @@ _NULL_ON_FAILURE_DATE_ALIASES = sorted(
 @pytest.mark.parametrize("alias", _NULL_ON_FAILURE_DATE_ALIASES)
 def test_unknown_placeholder_tokens_covers_every_null_on_failure_date_parser(alias: str) -> None:
     assert unknown_placeholder_tokens(f"SELECT {alias}('{{{{D-1}}}}') FROM events") == ["{{D-1}}"]
+
+
+_RENDER_WINDOW = ReportWindow(start=datetime(2026, 6, 8, tzinfo=UTC), end=datetime(2026, 6, 15, tzinfo=UTC))
+
+
+@pytest.mark.parametrize(
+    "hogql,expected",
+    [
+        pytest.param(
+            "WHERE {{date_range}}",
+            "WHERE timestamp >= toDateTime('2026-06-08 00:00:00') AND timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="date_range",
+        ),
+        pytest.param(
+            "WHERE {{compare_date_range}}",
+            "WHERE timestamp >= toDateTime('2026-06-01 00:00:00') AND timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="compare_date_range",
+        ),
+        pytest.param(
+            "WHERE timestamp >= {{window_start}}",
+            "WHERE timestamp >= toDateTime('2026-06-08 00:00:00')",
+            id="window_start",
+        ),
+        pytest.param(
+            "WHERE timestamp < {{window_end}}",
+            "WHERE timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="window_end",
+        ),
+        pytest.param(
+            "WHERE first_seen >= {{compare_window_start}}",
+            "WHERE first_seen >= toDateTime('2026-06-01 00:00:00')",
+            id="compare_window_start",
+        ),
+    ],
+)
+def test_render_window_filter_fills_in_each_window_token(hogql: str, expected: str) -> None:
+    assert _RENDER_WINDOW.render_window_filter(hogql) == expected
+
+
+def test_render_window_filter_fills_in_every_supported_token() -> None:
+    assert "{{" not in _RENDER_WINDOW.render_window_filter(" AND ".join(WINDOW_PLACEHOLDERS))
 
 
 class TestSanitizePrompt:
