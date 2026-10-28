@@ -113,7 +113,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = timezone.now().replace(second=0, microsecond=0) + timedelta(minutes=5)
-        self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.snuffle = MagicMock()
         self.enterContext(patch("products.metrics.backend.promql.snuffle_request", self.snuffle))
         self.checkpoint = self.enterContext(
