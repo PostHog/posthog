@@ -47,6 +47,7 @@ from products.ai_observability.backend.llm.errors import (
     StructuredOutputParseError,
     UnsupportedModelError,
 )
+from products.ai_observability.backend.llm.types import ImagePart
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -1496,6 +1497,73 @@ class TestRunEvaluationWorkflow:
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
             mock_client.complete.assert_called_once()
+
+    @pytest.mark.parametrize(
+        ("flag_enabled", "evaluation_config", "attaches_image"),
+        [
+            pytest.param(True, {"prompt": "Is the chart described correctly?"}, True, id="flag_on"),
+            pytest.param(False, {"prompt": "Is the chart described correctly?"}, False, id="flag_off"),
+            pytest.param(
+                True, {"prompt": "Is the chart described correctly?", "include_media": False}, False, id="eval_opts_out"
+            ),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_attaches_images_when_enabled(
+        self, flag_enabled, evaluation_config, attaches_image, setup_data, active_key_config
+    ):
+        team = setup_data["team"]
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": evaluation_config,
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        pointer = f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fjpeg&size=63357"
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "image_url", "image_url": {"url": pointer}},
+                            {"type": "text", "text": "What does this chart show?"},
+                        ],
+                    }
+                ],
+                "$ai_output_choices": [{"role": "assistant", "content": "Sales rose in March."}],
+            },
+        )
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch(
+                "posthog.temporal.ai_observability.evaluation_llm_judge.posthoganalytics.feature_enabled",
+                return_value=flag_enabled,
+            ),
+            patch(
+                "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url",
+                return_value="https://signed",
+            ),
+        ):
+            mock_client = mock_client_class.return_value
+            mock_client.complete.return_value = MagicMock(
+                parsed=BooleanEvalResult(verdict=True, reasoning="ok"),
+                usage=MagicMock(input_tokens=1, output_tokens=1, total_tokens=1),
+            )
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        content = mock_client.complete.call_args.args[0].messages[0]["content"]
+        if attaches_image:
+            assert ImagePart(mime_type="image/jpeg", url="https://signed") in content
+            assert "user: [image 1] What does this chart show?" in content[-1]["text"]
+        else:
+            assert isinstance(content, str)
+            assert "user: [image] What does this chart show?" in content
 
     @pytest.mark.parametrize(
         "oversized_input",
@@ -4512,6 +4580,7 @@ class TestJudgePromptAssembly:
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this correct?"},
             "output_type": "boolean",
+            "team_id": 1,
         }
         event_data = create_mock_event_data(
             1,
@@ -4537,6 +4606,7 @@ class TestJudgePromptAssembly:
             "evaluation_type": "llm_judge",
             "evaluation_config": {"prompt": "Is this correct?"},
             "output_type": output_type,
+            "team_id": 1,
             "output_config": {
                 "allows_na": allows_na,
                 **({"options": [{"key": "correct", "label": "Correct"}]} if output_type == "categorical" else {}),

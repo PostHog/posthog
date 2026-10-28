@@ -17,7 +17,7 @@ from products.ai_observability.backend.llm.providers.anthropic import (
     AnthropicConfig,
     error_field_for_validation_message,
 )
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, ImagePart, OutputSchema
 
 
 class TestAnthropicListModels:
@@ -170,6 +170,40 @@ class TestAnthropicStreamOutputSchema:
 
         assert kwargs["output_config"] == {"format": {"type": "json_schema", "schema": schema}}
         assert "output_config" not in self._stream_kwargs(None)
+
+
+class TestAnthropicImageParts:
+    @parameterized.expand(
+        [
+            (
+                "link",
+                ImagePart(mime_type="image/png", url="https://example.com/a.png"),
+                {"type": "url", "url": "https://example.com/a.png"},
+            ),
+            (
+                "inline",
+                ImagePart(mime_type="image/png", base64_data="aGk="),
+                {"type": "base64", "media_type": "image/png", "data": "aGk="},
+            ),
+        ]
+    )
+    def test_image_parts_are_sent_as_image_blocks(self, _name: str, image: ImagePart, expected_source: dict):
+        request = CompletionRequest(
+            model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
+            provider="anthropic",
+        )
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value.content = []
+            mock_client.messages.create.return_value.usage = MagicMock(input_tokens=1, output_tokens=1)
+            AnthropicAdapter().complete(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+
+        assert mock_client.messages.create.call_args.kwargs["messages"][0]["content"] == [
+            {"type": "image", "source": expected_source},
+            {"type": "text", "text": "hi"},
+        ]
 
 
 def _make_bad_request_error(message: str) -> anthropic.BadRequestError:

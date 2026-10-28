@@ -2126,6 +2126,8 @@ export type EvaluationApiEvaluationConfig =
            * @nullable
            */
           judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. The judge sees the event's images by default. */
+          include_media?: boolean
       }
     | {
           /**
@@ -2455,6 +2457,8 @@ export type PatchedEvaluationApiEvaluationConfig =
            * @nullable
            */
           judge_method?: 'llm' | 'decision' | null
+          /** Set to false to judge text only. The judge sees the event's images by default. */
+          include_media?: boolean
       }
     | {
           /**

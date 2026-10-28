@@ -40,6 +40,7 @@ from posthog.temporal.ai_observability.evaluation_types import (
     build_generation_not_found_result,
     build_skipped_evaluation_result,
 )
+from posthog.temporal.ai_observability.judge_images import JudgeImages
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
@@ -97,6 +98,7 @@ from products.ai_observability.backend.text_repr.formatters import (
 logger = structlog.get_logger(__name__)
 
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
+JUDGE_IMAGES_FLAG = "llm-analytics-judge-images"
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -560,8 +562,9 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     io = extract_event_io(event_type, properties)
     tools_raw = extract_event_tools(properties)
 
-    input_data = extract_text_from_messages(io.input_raw)
-    output_data = extract_text_from_messages(io.output_raw)
+    images = JudgeImages(evaluation["team_id"]) if _judge_sees_images(evaluation) else None
+    input_data = extract_text_from_messages(io.input_raw, images)
+    output_data = extract_text_from_messages(io.output_raw, images)
     tools_data = format_tool_definitions(tools_raw)
 
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
@@ -589,7 +592,28 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         user_prompt=user_prompt,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
+        images=images,
     )
+
+
+def _judge_sees_images(evaluation: dict[str, Any]) -> bool:
+    if evaluation["evaluation_config"].get("include_media") is False:
+        return False
+    team_id = str(evaluation["team_id"])
+    # Local evaluation keeps the check off the network. An inconclusive result means off.
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                JUDGE_IMAGES_FLAG,
+                team_id,
+                groups={"project": team_id},
+                group_properties={"project": {"id": team_id}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
 
 
 def _decision_numeric_score(minimum: float, maximum: float, index: float) -> float:
@@ -613,6 +637,7 @@ def call_llm_judge(
     user_prompt: str,
     allows_na: bool,
     backfill: bool = False,
+    images: JudgeImages | None = None,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -825,7 +850,12 @@ def call_llm_judge(
                 CompletionRequest(
                     model=model,
                     system=system_prompt,
-                    messages=[{"role": "user", "content": user_prompt}],
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": images.content(user_prompt, provider, model) if images else user_prompt,
+                        }
+                    ],
                     provider=provider,
                     response_format=response_format,
                 )

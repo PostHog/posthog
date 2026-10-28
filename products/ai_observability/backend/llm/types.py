@@ -24,6 +24,21 @@ class OutputSchema:
     strict: bool = True
 
 
+@frozen
+class ImagePart:
+    """An image in a message's content list. Each adapter converts it to its provider's image block.
+
+    Set `url` for a link the provider downloads, or `base64_data` for inline bytes.
+    """
+
+    mime_type: str
+    url: str | None = None
+    base64_data: str | None = None
+
+    def data_uri(self) -> str:
+        return f"data:{self.mime_type};base64,{self.base64_data}"
+
+
 @dataclass(frozen=False)
 class CompletionRequest:
     """Request for LLM completion"""

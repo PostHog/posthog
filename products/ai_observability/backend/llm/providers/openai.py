@@ -35,10 +35,12 @@ from products.ai_observability.backend.llm.errors import (
     is_output_limit_error_message,
     stream_error_chunk,
 )
+from products.ai_observability.backend.llm.images import convert_image_parts
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
+    ImagePart,
     StreamChunk,
     Usage,
 )
@@ -292,7 +294,7 @@ You must respond with valid JSON that matches this schema:
 Return ONLY the JSON object, no other text or markdown formatting."""
 
         enhanced_messages = [{"role": "system", "content": enhanced_system}]
-        enhanced_messages.extend(request.messages)
+        enhanced_messages.extend(convert_image_parts(request.messages, _openai_image_block))
 
         create_response = client.chat.completions.create(
             model=request.model,
@@ -374,7 +376,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     }
                 return common
 
-            messages = request.messages
+            messages = convert_image_parts(request.messages, _openai_image_block)
             system = request.system or ""
 
             if supports_reasoning:
@@ -501,7 +503,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         messages = []
         if request.system:
             messages.append({"role": "system", "content": request.system})
-        messages.extend(request.messages)
+        messages.extend(convert_image_parts(request.messages, _openai_image_block))
         return messages
 
     def _build_analytics_kwargs(self, analytics: AnalyticsContext, client) -> dict:
@@ -552,3 +554,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
         result = handler.convert_to(ToolFormat.OPENAI)
         assert result is not None, "tools must be non-empty when calling _convert_tools"
         return result
+
+
+def _openai_image_block(part: ImagePart) -> dict[str, Any]:
+    return {"type": "image_url", "image_url": {"url": part.url or part.data_uri()}}

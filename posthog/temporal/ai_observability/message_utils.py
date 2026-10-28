@@ -1,12 +1,16 @@
 """Utilities for extracting and formatting LLM messages from event properties."""
 
 import json
-from typing import Any, Union
+from typing import TYPE_CHECKING, Any, Union
 
+from products.ai_observability.backend.text_repr.formatters.media_blocks import parse_media_block
 from products.ai_observability.backend.text_repr.formatters.otel_parts import flatten_parts_message
 
+if TYPE_CHECKING:
+    from posthog.temporal.ai_observability.judge_images import JudgeImages
 
-def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
+
+def extract_text_from_messages(messages: Union[str, list, dict, None], images: "JudgeImages | None" = None) -> str:
     """
     Extract readable text from LLM message structures.
 
@@ -22,6 +26,8 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
 
     Returns formatted string like:
     "user: Hello\\nassistant: Hi there"
+
+    With `images`, image blocks render as numbered `[image N]` markers that `images` attaches later.
     """
     if not messages:
         return ""
@@ -36,7 +42,7 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
         for msg in messages:
             if isinstance(msg, dict):
                 for flattened in flatten_parts_message(msg):
-                    rendered_msg = _render_message(flattened)
+                    rendered_msg = _render_message(flattened, images)
                     if rendered_msg is not None:
                         formatted_parts.append(rendered_msg)
             elif isinstance(msg, str):
@@ -47,7 +53,7 @@ def extract_text_from_messages(messages: Union[str, list, dict, None]) -> str:
     # Handle single dict message — render it the same way as a one-element
     # list so that role prefixes and tool_call_id correlation are surfaced
     # consistently regardless of the wrapper shape.
-    rendered_messages = [_render_message(flattened) for flattened in flatten_parts_message(messages)]
+    rendered_messages = [_render_message(flattened, images) for flattened in flatten_parts_message(messages)]
     return "\n".join(rendered for rendered in rendered_messages if rendered is not None)
 
 
@@ -75,7 +81,7 @@ def _only_tool_results(msg: dict) -> bool:
     )
 
 
-def _render_message(msg: dict) -> str | None:
+def _render_message(msg: dict, images: "JudgeImages | None") -> str | None:
     """Render a single message dict into a `role: body` line.
 
     Returns None when the message has neither a role nor any body to render
@@ -83,7 +89,7 @@ def _render_message(msg: dict) -> str | None:
     """
     role = msg.get("role", "")
     content = msg.get("content", "")
-    text = _extract_content_text(content)
+    text = _extract_content_text(content, images)
     tool_calls_text = _format_tool_calls(msg.get("tool_calls"))
 
     rendered = " ".join(part for part in (text, tool_calls_text) if part)
@@ -112,13 +118,14 @@ def _render_message(msg: dict) -> str | None:
     return None
 
 
-def _extract_content_text(content: Union[str, list, dict, None]) -> str:
+def _extract_content_text(content: Union[str, list, dict, None], images: "JudgeImages | None" = None) -> str:
     """Extract text from message content, handling nested structures.
 
     Handles multiple provider formats:
     - Anthropic: [{"type": "text", "text": "..."}]
     - OpenAI Responses API: [{"text": "...", "annotations": [...]}]
     - Generic: [{"content": "..."}]
+    - Image, audio and file blocks, as markers such as `[image]`
     - Plain strings
 
     Always falls back to str() rather than returning empty — an LLM judge
@@ -140,12 +147,17 @@ def _extract_content_text(content: Union[str, list, dict, None]) -> str:
                     text_parts.append(str(block["text"]))
                 elif "content" in block:
                     text_parts.append(str(block["content"]))
+                elif (media := parse_media_block(block)) is not None:
+                    text_parts.append(images.marker(media) if images else media.marker())
                 else:
                     # Unknown block shape — stringify rather than silently drop
                     text_parts.append(str(block))
             elif isinstance(block, str):
                 text_parts.append(block)
         return " ".join(text_parts)
+
+    if isinstance(content, dict) and (media := parse_media_block(content)) is not None:
+        return images.marker(media) if images else media.marker()
 
     # Fallback: convert to string
     return str(content)
