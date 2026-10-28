@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.warehouse_sources.backend.migration.fivetran.client import FIVETRAN_API_URL
-from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema
+from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedSchema, TablePair
 from products.warehouse_sources.backend.models import ExternalDataSchema, ExternalDataSource, PendingSourceCredential
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookCreationResult
@@ -107,7 +107,21 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         migration = self._migration()
         pending = self._item(migration)
         self._item(migration, verdict=WarehouseMigrationItem.Verdict.UNSUPPORTED)
-        applied = self._item(migration, status=WarehouseMigrationItem.Status.APPLIED)
+        applied = self._item(
+            migration,
+            status=WarehouseMigrationItem.Status.APPLIED,
+            proposal=ItemProposal(
+                source_type=ExternalDataSourceType.HUBSPOT,
+                prefix="hubspot",
+                prefill={},
+                schemas=(ProposedSchema(name="contacts", should_sync=True, sync_type=None, vendor_table="contact"),),
+                sync_frequency="6hour",
+                sync_time_of_day=None,
+                destination=None,
+                inferred_tables=(TablePair(vendor_table="contact", posthog_table="contacts"),),
+                unmatched_tables=("email_event",),
+            ).to_json(),
+        )
         applying = self._item(migration, status=WarehouseMigrationItem.Status.APPLYING)
 
         skip = self.client.post(f"{self.url}{migration.id}/items/{pending.id}/skip/")
@@ -119,7 +133,11 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         detail = self.client.get(f"{self.url}{migration.id}/").json()
         assert "credentials" not in detail
         assert detail["item_counts"] == {"as_is": 1, "caveats": 0, "unsupported": 1, "applied": 1, "skipped": 1}
-        assert len(self.client.get(f"{self.url}{migration.id}/items/").json()) == 4
+        items = self.client.get(f"{self.url}{migration.id}/items/").json()
+        assert len(items) == 4
+        (proposal,) = [item["proposal"] for item in items if item["proposal"]]
+        assert proposal["inferred_tables"] == [{"vendor_table": "contact", "posthog_table": "contacts"}]
+        assert proposal["unmatched_tables"] == ["email_event"]
 
     def test_list_pages_newest_first_without_repeating_tied_rows(self) -> None:
         oldest, *tied = (self._migration() for _ in range(3))

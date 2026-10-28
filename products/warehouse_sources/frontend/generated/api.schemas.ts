@@ -15015,6 +15015,11 @@ export interface ProposedSchemaApi {
     row_filters: ProposedRowFilterApi[]
     /** Names to try, in order, when the source does not discover a table called `name`. */
     alternative_names: string[]
+    /**
+     * The Fivetran table this plan comes from. Apply's `table_overrides` refer to it.
+     * @nullable
+     */
+    vendor_table?: string | null
 }
 
 /**
@@ -15027,6 +15032,13 @@ export interface ProposedDestinationApi {
     type: string
     /** Non-secret destination settings copied from Fivetran. */
     config: ProposedDestinationApiConfig
+}
+
+export interface TablePairApi {
+    /** The Fivetran table. */
+    vendor_table: string
+    /** The PostHog table it was paired with. */
+    posthog_table: string
 }
 
 /**
@@ -15057,6 +15069,10 @@ export interface ItemProposalApi {
     destination: ProposedDestinationApi | null
     /** Whether every table starts with syncing off, because the connection is paused in Fivetran. */
     start_paused: boolean
+    /** Tables that a naming rule paired. Ask the user to confirm each pair before applying. */
+    inferred_tables?: TablePairApi[]
+    /** Fivetran tables with no PostHog table. Compare them with the source's PostHog tables and propose one, or leave them out. */
+    unmatched_tables?: string[]
 }
 
 /**

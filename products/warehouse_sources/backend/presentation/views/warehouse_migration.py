@@ -46,6 +46,16 @@ class ProposedSchemaSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Names to try, in order, when the source does not discover a table called `name`.",
     )
+    vendor_table = serializers.CharField(
+        allow_null=True,
+        default=None,
+        help_text="The Fivetran table this plan comes from. Apply's `table_overrides` refer to it.",
+    )
+
+
+class TablePairSerializer(serializers.Serializer):
+    vendor_table = serializers.CharField(help_text="The Fivetran table.")
+    posthog_table = serializers.CharField(help_text="The PostHog table it was paired with.")
 
 
 class ProposedDestinationSerializer(serializers.Serializer):
@@ -75,6 +85,17 @@ class ItemProposalSerializer(serializers.Serializer):
     )
     start_paused = serializers.BooleanField(
         help_text="Whether every table starts with syncing off, because the connection is paused in Fivetran."
+    )
+    inferred_tables = TablePairSerializer(
+        many=True,
+        default=list,
+        help_text="Tables that a naming rule paired. Ask the user to confirm each pair before applying.",
+    )
+    unmatched_tables = serializers.ListField(
+        child=serializers.CharField(),
+        default=list,
+        help_text="Fivetran tables with no PostHog table. Compare them with the source's PostHog tables and "
+        "propose one, or leave them out.",
     )
 
 
