@@ -34,7 +34,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord, get_email_hashes
-from posthog.ph_client import ScopedCapture, ph_scoped_capture
 from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -492,9 +491,9 @@ def _send_one_via_customer_io(dest: dict[str, str], template_name: str, properti
     return response.json()
 
 
-def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: str, properties: dict[str, Any]) -> None:
+def _capture_email_event(dest: dict[str, str], event: str, properties: dict[str, Any]) -> None:
     try:
-        capture(
+        posthoganalytics.capture(
             distinct_id=dest.get("distinct_id") or dest["raw_email"],
             event=event,
             properties={"recipient_email": dest["raw_email"], **properties},
@@ -503,9 +502,7 @@ def _capture_email_event(capture: ScopedCapture, dest: dict[str, str], event: st
         logger.warning("email_send_analytics_capture_failed", error=str(analytics_err))
 
 
-def _send_one(
-    capture: ScopedCapture, dest: dict[str, str], campaign_key: str, template_name: str, properties: dict
-) -> tuple[str, dict]:
+def _send_one(dest: dict[str, str], campaign_key: str, template_name: str, properties: dict) -> tuple[str, dict]:
     """Send one email and return the provider that sent it with the provider's response."""
     idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
     # After an attempt Workflows may have queued, a retry skips the flag and never falls back. Otherwise a flag
@@ -525,7 +522,6 @@ def _send_one(
             logger.warning("email_workflows_send_rejected", template_name=template_name, error=str(err))
             EMAIL_WORKFLOWS_FALLBACK_COUNTER.labels(template_name=template_name).inc()
             _capture_email_event(
-                capture,
                 dest,
                 "transactional email workflows rejected",
                 {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
@@ -546,19 +542,6 @@ def _send_via_http(
     if not is_http_email_service_available():
         raise Exception("Missing Customer.io API key")
 
-    # A dedicated client, because the global one may never flush before a Celery worker exits.
-    with ph_scoped_capture(event_region=get_instance_region()) as capture:
-        _send_via_http_batch(capture, to, campaign_key, template_name, properties, will_retry)
-
-
-def _send_via_http_batch(
-    capture: ScopedCapture,
-    to: list[dict[str, str]],
-    campaign_key: str,
-    template_name: str,
-    properties: dict,
-    will_retry: bool = True,
-) -> None:
     sent_count = 0
     already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
     dest: dict[str, str] | None = None
@@ -574,7 +557,7 @@ def _send_via_http_batch(
                     already_sent_count += 1
                     continue
 
-                provider, provider_response = _send_one(capture, dest, campaign_key, template_name, properties)
+                provider, provider_response = _send_one(dest, campaign_key, template_name, properties)
 
                 # Mark delivery before any non-essential step so a delivered email is never
                 # recorded as rejected (raise_if_delivery_rejected keys off sent_at). Analytics
@@ -583,7 +566,6 @@ def _send_via_http_batch(
                 record.save()
 
                 _capture_email_event(
-                    capture,
                     dest,
                     "transactional email triggered",
                     {
@@ -604,7 +586,6 @@ def _send_via_http_batch(
         retrying = retryable and will_retry
         if dest:
             _capture_email_event(
-                capture,
                 dest,
                 "transactional email failed",
                 {
