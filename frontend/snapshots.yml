@@ -9692,6 +9692,18 @@ snapshots:
         hash: v1.k794b7964.909ba48aa0b1f664036a5f22fad341be78fc8c1a058a8117ed2e3c870c18a7c3.foFLxGwVGgGhafMdp8x2w6_GQp8BBEed6O5W5zizT0A
     scenes-app-ai-observability-trace-view-thread-turn--with-error--light:
         hash: v1.k794b7964.d5676030474b4b9abadf20b5788257628abdbb126f3f41a84ccba7d938790c65.qaUZ9puKwLwSRbLEoqGeK5MDWRqju8VXMkfMxfRux1g
+    scenes-app-ai-observability-trace-view-trace-clusters-chip--long-title-narrow--dark:
+        hash: v1.k794b7964.ebf027a92a8f43ec515312da1b4286ddaf4782d52655299c97331f3bd426f3b2.4ua-bph2pPzQVpl9Pd_fvFFKyGqdkqMS_WpBUvGkezw
+    scenes-app-ai-observability-trace-view-trace-clusters-chip--long-title-narrow--light:
+        hash: v1.k794b7964.0c754add4cfc3432dfac28b4a49fc792a95cb19192e9bc48e4a24274a7ad487f.aQhCp0OvSnKdtA7cQiI3yV9HHhzWDprRto6MIQJ-lCU
+    scenes-app-ai-observability-trace-view-trace-clusters-chip--one-cluster--dark:
+        hash: v1.k794b7964.e1df871d8a62ba336783211e4bfa75b52033eaddd20187f2356128e5fd403234.1gxTfHIBNhIphxFbIcsD1RLcpzi-A9XhBqdqHWUj7Zk
+    scenes-app-ai-observability-trace-view-trace-clusters-chip--one-cluster--light:
+        hash: v1.k794b7964.b782747748032acd2e500665044ec1ba9a7d0a8d6b938345c3fa27568d95e81e.bFXms0xCSqAJm9yb_9XcFxUx4g0axpcEKEU4V2za39w
+    scenes-app-ai-observability-trace-view-trace-clusters-chip--outlier-only--dark:
+        hash: v1.k794b7964.05885eb7d3eae322d187a0668c0b522c78980eb4abccbe112e44dbacd1d31881.A8aALTHV5MJNDvAshbl9_nuWkh3KNfoiiztuWKrYLKc
+    scenes-app-ai-observability-trace-view-trace-clusters-chip--outlier-only--light:
+        hash: v1.k794b7964.7fb34c00afcd35d9ee68f4b715bc558966d3a25d95bd0b89370f1b47d61c0fe4.OMnpT-y_Me0S92srt0iYGNFFvnczxucni9d4GiK01rY
     scenes-app-ai-observability-trace-view-trace-header--default--dark:
         hash: v1.k794b7964.89f74988daa805a5decedf40f47256dc0776cf10499f7927bccec49753e659b8.BAtU5Cxiu3j-JRB9Z_iy032Q7TVs-L0M01FCCizn3n0
     scenes-app-ai-observability-trace-view-trace-header--default--light:
@@ -9729,13 +9741,17 @@ snapshots:
     scenes-app-ai-observability-trace-view-trace-summary-bar--long-slug-id--light:
         hash: v1.k794b7964.91510acc263da4572cdd54a1072d89d308d9d12f3a689353abcbef13bdf452ca.pBf3neAQB4BRTb9-4IRDujW7q1F_GF-pTHV3UHv9PnQ
     scenes-app-ai-observability-trace-view-trace-summary-bar--narrow--dark:
-        hash: v1.k794b7964.daebccd14686a4ffa02937c8621dc74845153b053e2c5581ac18055fc85c2011.Jwh3UjTBshXuWKYsYsjgLLcwNkROjdAxPLk5xY7oQys
+        hash: v1.k794b7964.ee5d03658549f32a225e94021f63169560c9c5e360f6deae750a621efadfcedc.zL6G2ExwgKkeQVCD9aAuseAfHRQxOnodZkXVt0huPRw
     scenes-app-ai-observability-trace-view-trace-summary-bar--narrow--light:
-        hash: v1.k794b7964.89c5f822021e4c9c6581b1867d29be28fa87cf638297617fe1dd9f46c87310df.mx9UHOPdDLvPVcF_QQQRTgNGytxi_bTrB_AJBimtWjQ
+        hash: v1.k794b7964.acb3645733c46cf841a3da15259dbee824c6046b7c6db42bf451a4ca992340eb.C6XyBCxowGHCRIqzsNYsziyhPPdXoTh9xlpfEzrq67I
     scenes-app-ai-observability-trace-view-trace-summary-bar--short-id--dark:
         hash: v1.k794b7964.b0dd60321acfc66eff4b4fe61c0123016d6ef51e83d18e1a33989d71056cf4c4.rhGXCqb0ZHRrzjcvMjSYO0_vKIrG0vZRA9yacMU9g4A
     scenes-app-ai-observability-trace-view-trace-summary-bar--short-id--light:
         hash: v1.k794b7964.bbfc40a18f0a11428e95c34e2783676e785e9e7730f88d7efb397ad11b954fad.A7axwdw43M17lj8qq6VSnmn7SyIXVP2oOIQzdvKA9m8
+    scenes-app-ai-observability-trace-view-trace-summary-bar--with-clusters--dark:
+        hash: v1.k794b7964.a3b7a5c14340ec662a1043e5a65d2eb56dd66fd2f2a0187b9c874bdb7ad893bf.3_XP-tXdrX74OsDEVSlZMbC_Wgyc6-iLKL1dKE6O7VM
+    scenes-app-ai-observability-trace-view-trace-summary-bar--with-clusters--light:
+        hash: v1.k794b7964.e9becda69994d79e3a5ee167c52bf1d07a44ea40a7aaffcba57dd0d19ad50e84.e0WXJXsPwMemdJMxRjobOhDw4Mw42DfxlTSUCy_tJ2A
     scenes-app-ai-observability-trace-view-trace-timeline--agent-run--dark:
         hash: v1.k794b7964.96ceaef4cd703d36753e7b6071612547f6854073f804a52b50d9c7c6fd6d5718.i6JAjAgngbls2Ro2Z9eLdkQwjEiXw1Zt2Fnz32p1wVs
     scenes-app-ai-observability-trace-view-trace-timeline--agent-run--light:
