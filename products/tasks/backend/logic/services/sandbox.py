@@ -27,6 +27,7 @@ from types import TracebackType
 from typing import TYPE_CHECKING, Any, Protocol, Self
 
 from django.conf import settings
+from django.utils import timezone
 
 import structlog
 from pydantic import BaseModel, model_validator
@@ -49,6 +50,12 @@ from products.tasks.backend.logic.services.sandbox_config import (
     DEV_STACK_MEMORY_GB,
     SANDBOX_TTL_SECONDS,
     VM_SANDBOX_CPU_CORES,
+)
+from products.tasks.backend.logic.services.sandbox_housekeeping import (
+    HOUSEKEEPING_TIMEOUT_SECONDS,
+    SandboxHousekeeping,
+    build_housekeeping_script,
+    parse_housekeeping_output,
 )
 
 if TYPE_CHECKING:
@@ -750,6 +757,22 @@ class SandboxBase(ABC):
 
     def read_billed_cpu_usage_usec(self) -> int | None:
         return None
+
+    def _cpu_billing_request_cores(self) -> float | None:
+        return None
+
+    def run_post_create_housekeeping(self) -> SandboxHousekeeping:
+        request_cores = self._cpu_billing_request_cores()
+        try:
+            result = self.execute(
+                build_housekeeping_script(request_cores), timeout_seconds=HOUSEKEEPING_TIMEOUT_SECONDS
+            )
+        except Exception as e:
+            if request_cores is not None:
+                raise
+            _logger.warning("sandbox_housekeeping_failed", sandbox_id=self.id, error=str(e))
+            return parse_housekeeping_output("", request_cores, timezone.now())
+        return parse_housekeeping_output(result.stdout, request_cores, timezone.now())
 
     def _read_health_session_init_ms(self, port: int) -> int | None:
         try:
