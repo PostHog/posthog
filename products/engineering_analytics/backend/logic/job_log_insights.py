@@ -16,7 +16,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import consume_github_installation_sync
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import CIEngine, JobLogInsights
@@ -24,6 +24,8 @@ from products.engineering_analytics.backend.logic.job_logs.badges import parse_j
 from products.engineering_analytics.backend.logic.job_logs.fetcher import FetchedJobLog, fetch_bounded_job_log
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_job
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 
 logger = structlog.get_logger(__name__)
@@ -127,8 +129,9 @@ def _log_credential(team: Team, source_id: str) -> _LogCredential | None:
         return _LogCredential(token=credential.personal_access_token, installation_id=None)
     if credential.integration_id is None:
         return None
-    integration = Integration.objects.filter(team_id=team.pk, id=credential.integration_id, kind="github").first()
-    if integration is None:
+    try:
+        integration = IntegrationManager.github.oauth.get(team.pk, credential.integration_id)
+    except IntegrationNotFound:
         return None
     github = GitHubIntegration(integration, source=_EGRESS_SOURCE, priority=Priority.NORMAL)
     if not github.github_installation_id:

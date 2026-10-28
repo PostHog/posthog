@@ -12,7 +12,7 @@ from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import channel_id_from_target
 from posthog.slack.markdown import slack_rich_text
 from posthog.storage import object_storage
@@ -20,6 +20,7 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.slack_app.backend.facade.api import slack_followup_invite, slack_followup_invite_text
 from products.subscriptions.backend.logic.subscription_utils import (
     DEBUG_PLACEHOLDER_IMAGE_URL,
@@ -182,7 +183,7 @@ def _ai_summary_block(change_summary: str) -> dict[str, Any]:
 
 
 def _subscription_footer_blocks(
-    subscription: Subscription, resource_info: SubscriptionResource, integration: Integration | None
+    subscription: Subscription, resource_info: SubscriptionResource, integration: IntegrationRecord | None
 ) -> list[dict[str, Any]]:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     action_elements: list[dict] = [
@@ -216,7 +217,7 @@ def _prepare_slack_gallery(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    integration: Integration | None = None,
+    integration: IntegrationRecord | None = None,
 ) -> SlackGallery:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     resource_info = subscription.resource_info
@@ -391,9 +392,9 @@ def _blocks_for_asset(asset: ExportedAsset, resource_url: str, *, include_insigh
     return blocks
 
 
-def get_slack_integration_for_team(team_id: int) -> Integration | None:
+def get_slack_integration_for_team(team_id: int) -> IntegrationRecord | None:
     """Get Slack integration for a team. Returns None if not found."""
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
+    return IntegrationManager.slack.oauth.find(team_id)
 
 
 def send_slack_subscription_report(
@@ -420,7 +421,7 @@ def _prepare_slack_message(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    integration: Integration | None = None,
+    integration: IntegrationRecord | None = None,
 ) -> SlackMessage:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -497,7 +498,7 @@ def _prepare_slack_message(
 
 
 def send_slack_message_with_integration(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     assets: list[ExportedAsset],
     total_asset_count: int,
@@ -573,7 +574,7 @@ async def _send_slack_message_with_retry(
 
 
 async def deliver_slack_message_data(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     message_data: SlackMessage,
 ) -> SlackDeliveryResult:
@@ -629,7 +630,7 @@ async def deliver_slack_message_data(
 
 
 async def deliver_slack_gallery(
-    integration: Integration, subscription: Subscription, gallery: SlackGallery
+    integration: IntegrationRecord, subscription: Subscription, gallery: SlackGallery
 ) -> SlackDeliveryResult:
     slack_integration = SlackIntegration(integration, source="subscriptions")
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
@@ -677,7 +678,7 @@ async def deliver_slack_gallery(
 
 
 async def send_slack_message_with_integration_async(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     assets: list[ExportedAsset],
     total_asset_count: int,

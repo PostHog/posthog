@@ -27,7 +27,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.redis import get_client
 
 from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS
@@ -49,6 +49,7 @@ from products.error_tracking.backend.temporal.alerts.messages import (
     build_root_message,
 )
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
+from products.integrations.backend.facade.kinds_generated import IntegrationKind
 
 logger = structlog.get_logger(__name__)
 
@@ -621,6 +622,6 @@ def _reconcile_root_status(
 
 def _slack_client(destination: ErrorTrackingAlertDestination) -> WebClient | None:
     integration = destination.integration
-    if integration is None or integration.kind != Integration.IntegrationKind.SLACK:
+    if integration is None or integration.kind != IntegrationKind.SLACK:
         return None
     return SlackIntegration(integration, source="error_tracking_alerts").client

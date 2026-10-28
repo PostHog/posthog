@@ -9,7 +9,7 @@ from typing import Any, Final
 
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import SLACK_INTEGRATION_KINDS, Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import (
     MAX_SECTION_CHARS,
     SlackButton,
@@ -27,6 +27,8 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, MessageDetail
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 PROVIDER: Final = "slack"
 
@@ -175,12 +177,10 @@ class SlackTransport:
         except SlackApiError as error:
             raise DeliveryError(f"Slack refused the edit: {error.response.get('error')}") from error
 
-    def _integration(self, *, team_id: int, workspace_id: int) -> Integration:
+    def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing
         # between the destination and here checks that it still belongs to the sending team.
-        integration = Integration.objects.filter(
-            id=workspace_id, team_id=team_id, kind__in=SLACK_INTEGRATION_KINDS
-        ).first()
-        if integration is None:
-            raise DeliveryError("The Slack workspace for this alert is not connected.")
-        return integration
+        try:
+            return IntegrationManager.slack.oauth.get(team_id, workspace_id)
+        except IntegrationNotFound as error:
+            raise DeliveryError("The Slack workspace for this alert is not connected.") from error

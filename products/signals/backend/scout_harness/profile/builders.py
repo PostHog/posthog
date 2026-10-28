@@ -44,7 +44,6 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -65,6 +64,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 # enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.integrations.backend.facade.api import IntegrationManager
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
@@ -242,7 +242,7 @@ def _integrations(team: Team) -> list[dict[str, Any]]:
     Only the kind + creation timestamp — `Integration.config` and `Integration.sensitive_config`
     can hold tokens or workspace details we don't want to surface to the agent.
     """
-    rows = Integration.objects.filter(team=team).order_by("kind", "id")
+    rows = sorted(IntegrationManager.any.list(team.id), key=lambda row: (row.kind, row.id))
     return [
         {
             "kind": row.kind,

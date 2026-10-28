@@ -19,9 +19,11 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import SlackPostRefused, post_message, post_with_join
 from posthog.slack.formatting import escape_slack_mrkdwn
+
+from products.integrations.backend.facade.api import IntegrationManager
 
 from .digest import as_channel_paragraph
 
@@ -184,7 +186,9 @@ def post_digest_details(team_id: int, destination: Destination, summary: DigestS
     """
     if not thread_ts or not summary.prs:
         return
-    integration = Integration.objects.filter(id=destination.slack_integration_id, team_id=team_id, kind="slack").first()
+    integration = IntegrationManager.slack.oauth.get_many(team_id, [destination.slack_integration_id]).get(
+        destination.slack_integration_id
+    )
     if integration is None:
         return
     try:
@@ -209,7 +213,9 @@ def post_digest_lead(team_id: int, destination: Destination, summary: DigestSumm
     sweeper finalizes. Without that order, a Slack-accepted digest reads as unposted, and the next
     run releases its merges and sends the same lead again.
     """
-    integration = Integration.objects.filter(id=destination.slack_integration_id, team_id=team_id, kind="slack").first()
+    integration = IntegrationManager.slack.oauth.get_many(team_id, [destination.slack_integration_id]).get(
+        destination.slack_integration_id
+    )
     if integration is None:
         raise DigestSlackError(f"No slack integration {destination.slack_integration_id} for team {team_id}")
 

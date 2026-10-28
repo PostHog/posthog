@@ -21,6 +21,8 @@ from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.models import GithubCommentMapping
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket, deleted_ticket_holds_thread
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
@@ -394,7 +396,7 @@ def create_github_issue(
     labels: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """Create a GitHub issue and a linked Ticket."""
-    from posthog.models.integration import GitHubIntegration, Integration
+    from posthog.models.integration import GitHubIntegration
 
     try:
         team = Team.objects.get(id=team_id)
@@ -403,8 +405,8 @@ def create_github_issue(
         return None
 
     try:
-        integration = Integration.objects.get(id=integration_id, team=team, kind="github")
-    except Integration.DoesNotExist:
+        integration = IntegrationManager.github.oauth.get(team.id, integration_id)
+    except IntegrationNotFound:
         logger.warning("github_create_issue_integration_not_found", integration_id=integration_id)
         return None
 

@@ -24,12 +24,13 @@ from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     GitHubIntegration,
     GitLabIntegration,
-    Integration,
     JiraIntegration,
     LinearIntegration,
     external_issue_url,
 )
 
+from products.integrations.backend.facade.api import IntegrationRecord
+from products.integrations.backend.facade.kinds_generated import IntegrationKind
 from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
@@ -40,10 +41,10 @@ logger = structlog.get_logger(__name__)
 # Target fields the team must supply per provider, on top of what the integration itself carries.
 # GitLab needs none: its integration is already bound to one project.
 TRACKER_TARGET_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
-    Integration.IntegrationKind.GITHUB.value: ("repository",),
-    Integration.IntegrationKind.GITLAB.value: (),
-    Integration.IntegrationKind.LINEAR.value: ("team_id",),
-    Integration.IntegrationKind.JIRA.value: ("project_key",),
+    IntegrationKind.GITHUB.value: ("repository",),
+    IntegrationKind.GITLAB.value: (),
+    IntegrationKind.LINEAR.value: ("team_id",),
+    IntegrationKind.JIRA.value: ("project_key",),
 }
 
 # A GitHub repository name is interpolated into the issues path, so anything holding a path or
@@ -66,7 +67,7 @@ ABANDONED_CLAIM_REASON = "Tracker issue creation stopped before it returned a re
 class TrackerIssueTarget:
     """Where a team wants its self-driving tracker issues to land."""
 
-    integration: Integration
+    integration: IntegrationRecord
     config: dict[str, Any]
 
     @property
@@ -111,7 +112,7 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
     kind = target.integration.kind
     label = target.label
 
-    if kind == Integration.IntegrationKind.GITHUB:
+    if kind == IntegrationKind.GITHUB:
         config: dict[str, Any] = {
             "repository": validated_github_repository(target.config["repository"]),
             "title": title,
@@ -125,10 +126,10 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
         context["repository"] = repository if "/" in repository else f"{github.organization()}/{repository}"
         return context
 
-    if kind == Integration.IntegrationKind.GITLAB:
+    if kind == IntegrationKind.GITLAB:
         return GitLabIntegration(target.integration).create_issue({"title": title, "body": body})
 
-    if kind == Integration.IntegrationKind.LINEAR:
+    if kind == IntegrationKind.LINEAR:
         # Linear's client attaches the report link to the new issue itself, so the auditor can
         # walk issue → report without the description.
         return LinearIntegration(target.integration).create_issue(
@@ -136,7 +137,7 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
             {"team_id": target.config["team_id"], "title": title, "description": body},
         )
 
-    if kind == Integration.IntegrationKind.JIRA:
+    if kind == IntegrationKind.JIRA:
         return JiraIntegration(target.integration).create_issue(
             {"project_key": target.config["project_key"], "title": title, "description": body}
         )
@@ -265,7 +266,7 @@ def _pr_body_reference(tracker: SignalReportTrackerIssue, *, pr_repository: str)
     """The line appended to the pull request body so the pull request names its tracker issue."""
     context = tracker.external_context or {}
 
-    if tracker.provider == Integration.IntegrationKind.GITHUB:
+    if tracker.provider == IntegrationKind.GITHUB:
         repository, number = context.get("repository"), context.get("number")
         if not repository or not number:
             return None
@@ -319,7 +320,7 @@ def link_pull_request_to_tracker_issue(*, team_id: int, report_id: str, pr_url: 
         if outcome != BodyEditOutcome.WRITTEN:
             return False
 
-        if tracker.provider == Integration.IntegrationKind.LINEAR and tracker.integration is not None:
+        if tracker.provider == IntegrationKind.LINEAR and tracker.integration is not None:
             # Best-effort: the description reference already links the two, and this attachment
             # needs a Linear scope the team may not have granted.
             try:
@@ -357,7 +358,7 @@ def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str
     not stop the close: an issue left open would grow the backlog this close exists to prevent,
     while a missing comment costs only the attribution.
     """
-    if tracker.provider != Integration.IntegrationKind.GITHUB or tracker.integration is None:
+    if tracker.provider != IntegrationKind.GITHUB or tracker.integration is None:
         return
     context = tracker.external_context or {}
     try:
@@ -378,15 +379,15 @@ def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool)
         raise ValueError("Tracker issue has no integration left to close it through")
     context = tracker.external_context or {}
 
-    if tracker.provider == Integration.IntegrationKind.GITHUB:
+    if tracker.provider == IntegrationKind.GITHUB:
         GitHubIntegration(integration, source="signals_tracker_issues", priority=Priority.CRITICAL).close_issue(
             context["repository"], int(context["number"]), completed=completed
         )
-    elif tracker.provider == Integration.IntegrationKind.GITLAB:
+    elif tracker.provider == IntegrationKind.GITLAB:
         GitLabIntegration(integration).close_issue(int(context["issue_id"]))
-    elif tracker.provider == Integration.IntegrationKind.LINEAR:
+    elif tracker.provider == IntegrationKind.LINEAR:
         LinearIntegration(integration).close_issue(str(context["id"]), completed=completed)
-    elif tracker.provider == Integration.IntegrationKind.JIRA:
+    elif tracker.provider == IntegrationKind.JIRA:
         JiraIntegration(integration).close_issue(str(context["key"]))
     else:
         raise ValueError(f"Unsupported tracker provider {tracker.provider}")

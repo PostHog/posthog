@@ -25,6 +25,9 @@ from posthog.models.user import User
 from posthog.slack.channels import post_message
 from posthog.slack.markdown import slack_markdown_block
 
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
+
 from ...facade.contracts import SlackMention
 from ...logic.admission import claim, rolled_out_team_ids, within_rate_limit
 from ...logic.commands import (
@@ -162,10 +165,9 @@ class SlackThread:
 
 
 def post_in_thread(thread: SlackThread, message: str) -> None:
-    integration = Integration.objects.filter(
-        id=thread.integration_id, team_id=thread.integration_team_id, kind="slack"
-    ).first()
-    if integration is None:
+    try:
+        integration = IntegrationManager.slack.oauth.get(thread.integration_team_id, thread.integration_id)
+    except IntegrationNotFound:
         logger.warning("slack_command_reply_integration_missing", integration_id=thread.integration_id)
         return
     try:

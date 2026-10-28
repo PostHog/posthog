@@ -25,7 +25,6 @@ from temporalio.service import RPCError
 from posthog.dataclasses import frozen
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
-from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
@@ -70,6 +69,7 @@ from products.conversations.backend.support_slack_channels import (
     SupportSlackNotConfigured as SupportSlackNotConfigured,
     list_support_bot_channels as _list_support_bot_channels,
 )
+from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 
@@ -891,13 +891,12 @@ def list_email_threads_for_account_matching(
             continue
         integration_ids.add(int(integration_id))
 
-    integration_owner_ids = dict(
-        Integration.objects.filter(
-            team_id=team_id,
-            id__in=integration_ids,
-            kind=Integration.IntegrationKind.GOOGLE_CALENDAR,
-        ).values_list("id", "created_by_id")
-    )
+    integration_owner_ids = {
+        integration_id: integration.created_by_id
+        for integration_id, integration in IntegrationManager.google_calendar.oauth.get_many(
+            team_id, integration_ids
+        ).items()
+    }
     matching_threads: list[EmailThreadForAccountMatching] = []
     for thread in thread_page:
         normalized_thread_id = str(thread.id)

@@ -22,7 +22,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import acquire_github_installation
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -32,6 +32,7 @@ from products.engineering_analytics.backend.logic.job_logs.emitter import JobLog
 from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_depot_job_log, fetch_job_log
 from products.engineering_analytics.backend.logic.job_logs.thinning import thin_log_lines
 from products.engineering_analytics.backend.logic.sources import depot_source_api_token
+from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 
@@ -93,7 +94,7 @@ def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, s
     """Return ``(github_access_token, installation_id, log_ingest_token)``. ``log_ingest_token`` is
     the owning team's project API token — the OTLP Bearer that routes emitted logs to that team's Logs.
     """
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="github")
+    integration = IntegrationManager.github.oauth.get(team_id, integration_id)
     github = GitHubIntegration(integration, source="job_logs", priority=Priority.BATCH)
     if github.access_token_expired():
         github.refresh_access_token()

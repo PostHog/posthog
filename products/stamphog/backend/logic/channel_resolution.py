@@ -37,9 +37,10 @@ from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import Integration
 from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
 from posthog.slack.channels import SlackChannel, fetch_channel_map, find_channel
+
+from products.integrations.backend.facade.api import IntegrationManager
 
 from ..facade.enums import ChannelResolutionSource
 from ..models import StamphogRepoConfig
@@ -188,7 +189,7 @@ def build_routing_context(team_id: int) -> RoutingContext | None:
 
     Raises ``RoutingUnavailable`` when a registry could not be read.
     """
-    integration = Integration.objects.filter(team_id=team_id, kind="slack").first()
+    integration = IntegrationManager.slack.oauth.find(team_id)
     if integration is None:
         logger.info("stamphog_routing_no_slack_integration", team_id=team_id)
         return None

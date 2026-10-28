@@ -19,7 +19,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -32,6 +32,8 @@ from posthog.utils import human_list
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import (
@@ -469,8 +471,8 @@ class _SubscriptionWrite:
                     {"integration_id": ["A Slack integration is required for Slack subscriptions."]}
                 )
             try:
-                integration = Integration.objects.get(id=integration_id, team_id=self.team_id)
-            except Integration.DoesNotExist:
+                integration = IntegrationManager.any.get(self.team_id, integration_id)
+            except IntegrationNotFound:
                 raise SubscriptionRequestInvalidError(
                     {"integration_id": ["This integration does not exist or does not belong to your team."]}
                 )

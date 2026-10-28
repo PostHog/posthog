@@ -22,7 +22,6 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
-from posthog.models.integration import Integration
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -45,6 +44,7 @@ from products.ai_observability.backend.models.evaluation_reports import (
     EvaluationReportRun,
 )
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
+from products.integrations.backend.facade.api import IntegrationManager
 from products.workflows.backend.facade.api import validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -330,11 +330,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             # Enforce tenant + kind boundary: only integrations that belong to this team AND
             # are Slack integrations are valid. Prevents cross-team reuse of integration ids
             # and rejects non-Slack kinds that happen to share an id.
-            owned = set(
-                Integration.objects.filter(
-                    team_id=team.id, kind=Integration.IntegrationKind.SLACK, id__in=slack_ids_to_verify
-                ).values_list("id", flat=True)
-            )
+            owned = set(IntegrationManager.slack.oauth.get_many(team.id, slack_ids_to_verify))
             missing = slack_ids_to_verify - owned
             if missing:
                 raise serializers.ValidationError(f"Slack integration(s) not found for this team: {sorted(missing)}.")

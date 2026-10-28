@@ -12,7 +12,7 @@ from owners_yaml.resolver import Purpose, team_channel
 from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import (
     SlackChannel,
     SlackPostRefused,
@@ -22,6 +22,8 @@ from posthog.slack.channels import (
     post_message,
     post_with_join,
 )
+
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -57,13 +59,13 @@ class Delivery:
 class Workspace:
     """The project's Slack connection, and its channels by name. Read once and shared across teams."""
 
-    integration: Integration
+    integration: IntegrationRecord
     channels_by_name: Mapping[str, SlackChannel]
 
 
 def open_workspace(team_id: int) -> Workspace | None:
     """The project's Slack workspace, or None when the project has no Slack integration."""
-    integration = Integration.objects.filter(team_id=team_id, kind="slack").first()
+    integration = IntegrationManager.slack.oauth.find(team_id)
     if integration is None:
         logger.info("visual_review.team_post_no_slack_integration", team_id=team_id)
         return None

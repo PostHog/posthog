@@ -52,7 +52,6 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
-from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
@@ -141,6 +140,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
+from products.integrations.backend.facade.api import IntegrationManager
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -1443,7 +1443,7 @@ class AlertCreateDestinationSerializer(serializers.Serializer):
         # The runtime refuses another team's integration anyway, so without this the destination
         # is created and then silently never posts.
         team = self.context["get_team"]()
-        if not Integration.objects.filter(team=team, id=attrs["slack_workspace_id"], kind="slack").exists():
+        if not IntegrationManager.slack.oauth.get_many(team.id, [attrs["slack_workspace_id"]]):
             raise ValidationError({"slack_workspace_id": "Connect this Slack workspace to PostHog first."})
         return attrs
 

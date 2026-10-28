@@ -26,7 +26,9 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
+
+from products.integrations.backend.facade.api import IntegrationRecord
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkillKind
@@ -620,7 +622,7 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
     # Transient (never saved) Integration, left unattached to any team: the write helpers only read
     # the access token + account name and don't trigger a refresh/save, so this avoids polluting the
     # team-scoped Integration table.
-    integration = Integration(
+    integration = IntegrationRecord(
         kind="github",
         integration_id=str(installation_id),
         config={"account": {"name": account["login"], "type": account.get("type")}},

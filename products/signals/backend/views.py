@@ -71,7 +71,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.github_integration_base import GitHubIntegrationBase, PullRequestRef
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
@@ -86,6 +86,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.signals.backend.agent_instructions import STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
@@ -6655,16 +6657,12 @@ class SignalUserAutonomyConfigView(APIView):
                     raise serializers.ValidationError(
                         {"slack_notification_integration_id": "Unknown Slack integration for this user."}
                     )
-                candidate = Integration.objects.filter(
-                    pk=integration_id,
-                    kind="slack",
-                    team_id=current_team_id,
-                ).first()
-                if candidate is None:
+                try:
+                    integration = IntegrationManager.slack.oauth.get(current_team_id, integration_id)
+                except IntegrationNotFound:
                     raise serializers.ValidationError(
                         {"slack_notification_integration_id": "Unknown Slack integration for this user."}
                     )
-                integration = candidate
             defaults["slack_notification_integration"] = integration
         wants_direct_message = bool(validated.get("slack_notification_direct_message"))
         existing_config = SignalUserAutonomyConfig.objects.filter(user=user).first() if integration_in_request else None

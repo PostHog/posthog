@@ -16,13 +16,15 @@ from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
-from posthog.models.integration import Integration, is_supported_external_issue_provider
+from posthog.models.integration import is_supported_external_issue_provider
 
+from products.integrations.backend.facade.api import IntegrationRecord
+from products.integrations.backend.facade.kinds_generated import IntegrationKind
+from products.integrations.backend.presentation.fields import IntegrationReferenceField
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
@@ -397,8 +399,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         max_length=AGENT_STEERING_MAX_LENGTH,
         help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
     )
-    issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+    issue_tracking_integration = IntegrationReferenceField(
         required=False,
         allow_null=True,
         help_text=(
@@ -558,7 +559,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             },
         }
 
-    def validate_issue_tracking_integration(self, value: Integration | None) -> Integration | None:
+    def validate_issue_tracking_integration(self, value: IntegrationRecord | None) -> IntegrationRecord | None:
         if value is None:
             return None
         if not is_supported_external_issue_provider(value.kind):
@@ -594,7 +595,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             )
         # The repository reaches a GitHub path, so a name it cannot hold fails here rather than on
         # every run.
-        if integration.kind == Integration.IntegrationKind.GITHUB:
+        if integration.kind == IntegrationKind.GITHUB:
             try:
                 validated_github_repository(config["repository"])
             except serializers.ValidationError as error:

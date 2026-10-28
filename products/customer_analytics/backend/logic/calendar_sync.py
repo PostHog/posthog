@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from email.utils import parseaddr
 from typing import Any
 
-from django.db import transaction
 from django.db.models import Prefetch, Q
 from django.utils import timezone
 
@@ -12,11 +11,12 @@ import structlog
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.egress.google_workspace import google_workspace_request
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 from posthog.models.team import Team
 
 from products.customer_analytics.backend.logic.email_account_matching import match_accounts_for_emails
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -73,16 +73,9 @@ def get_calendar_sync_interval(config: dict) -> int:
 def update_calendar_sync_config(
     integration_id: int, team_id: int, updates: dict[str, object], removals: tuple[str, ...] = ()
 ) -> None:
-    with transaction.atomic():
-        integration = Integration.objects.select_for_update().get(
-            id=integration_id, team_id=team_id, kind="google-calendar"
-        )
-        config = dict(integration.config or {})
-        config.update(updates)
-        for key in removals:
-            config.pop(key, None)
-        integration.config = config
-        integration.save(update_fields=["config"])
+    IntegrationManager.google_calendar.oauth.update(
+        team_id, integration_id, config_patch=updates, config_remove=removals
+    )
 
 
 def mark_calendar_sync_started(integration_id: int, team_id: int) -> None:
@@ -122,7 +115,7 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     incremental via the stored syncToken. A stale token (HTTP 410) drops the cursor
     and re-lists the whole window in the same run.
     """
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
+    integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
     team = integration.team
     counts = CalendarSyncCounts()
     try:
@@ -131,7 +124,7 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
         internal_domain = _domain_of(connected_email)
 
         mark_calendar_sync_started(integration_id, team_id)
-        integration.refresh_from_db(fields=["config"])
+        integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
 
         sync_token = (integration.config or {}).get(SYNC_TOKEN_CONFIG_KEY)
         try:
@@ -162,7 +155,7 @@ def sync_calendar_integration_backfill_page(
     if start_at >= end_at:
         raise CalendarSyncError("Calendar backfill start must be before its end")
 
-    integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="google-calendar")
+    integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
     access_token = _get_fresh_access_token(integration)
     mark_calendar_sync_started(integration_id, team_id)
     params: dict[str, Any] = {
@@ -457,7 +450,7 @@ def _person_uuids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
     return email_to_uuid
 
 
-def _get_fresh_access_token(integration: Integration) -> str:
+def _get_fresh_access_token(integration: IntegrationRecord) -> str:
     oauth = OauthIntegration(integration)
     if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
         oauth.refresh_access_token()

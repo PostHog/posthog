@@ -9,13 +9,14 @@ from django.db import transaction
 
 import structlog
 
-from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
     reload_hog_flows_on_workers,
     send_transactional_email as run_transactional_workflow,
 )
 
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.messaging.backend.facade.contracts import (
     DeliveryUnavailable,
     IdempotencyKeyInFlight,
@@ -125,12 +126,10 @@ def sender_address_error(team_id: int, sender: dict[str, Any]) -> str | None:
     # Without a sender there is no domain to check against. The sender field rejects that case on its own.
     if integration_id is None:
         return None
-    config = (
-        Integration.objects.filter(team_id=team_id, kind="email", id=integration_id)
-        .values_list("config", flat=True)
-        .first()
-        or {}
-    )
+    try:
+        config = IntegrationManager.email.credentials.get(team_id, integration_id).config or {}
+    except IntegrationNotFound:
+        config = {}
     domain = (config.get("domain") or (config.get("email") or "").partition("@")[2]).lower()
     if domain and address.partition("@")[2].lower() != domain:
         return f"Use an address on {domain}, the domain this sender is verified for."

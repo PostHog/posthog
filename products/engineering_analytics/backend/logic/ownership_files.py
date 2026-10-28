@@ -10,10 +10,12 @@ GitHub integration, and then to the anonymous public reader.
 """
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.ownership.github_files import EGRESS_SOURCE, AuthenticatedRepoFiles, GitHubFilesFetcher, fetcher_for_team
 
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
 
@@ -29,8 +31,9 @@ def _fetcher_for_credential(
         return GitHubFilesFetcher.from_token(credential.personal_access_token, priority=priority)
     if credential.integration_id is None:
         return None
-    integration = Integration.objects.filter(team_id=team_id, id=credential.integration_id, kind="github").first()
-    if integration is None:
+    try:
+        integration = IntegrationManager.github.oauth.get(team_id, credential.integration_id)
+    except IntegrationNotFound:
         return None
     github = GitHubIntegration(integration, source=EGRESS_SOURCE, priority=priority)
     return GitHubFilesFetcher.from_integration(github, priority=priority)

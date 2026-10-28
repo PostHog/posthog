@@ -27,7 +27,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.event_usage import report_user_action
 from posthog.models.github_integration_base import GitHubIntegrationError, _is_safe_github_repo_path
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.integration_repository_cache import (
     GITHUB_REPOSITORY_FULL_CACHE_TTL_SECONDS,
     GitHubRepositoryFullCache,
@@ -35,6 +35,9 @@ from posthog.models.integration_repository_cache import (
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
+
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 from .learning_settings import get_environment_business_knowledge_config
 from .models import TeamBusinessKnowledgeConfig
@@ -251,7 +254,7 @@ def read_repository_file(
     return loaded
 
 
-def _fetch_file(team: Team, integration: Integration, full_name: str, path: str, sha: str) -> RepositoryFile:
+def _fetch_file(team: Team, integration: IntegrationRecord, full_name: str, path: str, sha: str) -> RepositoryFile:
     try:
         payload = GitHubIntegration(
             integration, source="business_knowledge", priority=Priority.NORMAL
@@ -339,7 +342,7 @@ def search_terms(query: str) -> list[str]:
     return terms
 
 
-def _require_allowlist(team: Team) -> tuple[Integration, list[str]]:
+def _require_allowlist(team: Team) -> tuple[IntegrationRecord, list[str]]:
     integration_id, allowed = selected_repositories(team)
     if integration_id is None or not allowed:
         raise GithubReposError("No GitHub repositories are selected for business knowledge.")
@@ -353,7 +356,7 @@ def _require_allowlist(team: Team) -> tuple[Integration, list[str]]:
     return integration, allowed
 
 
-def _installation_repo_names(integration: Integration) -> set[str]:
+def _installation_repo_names(integration: IntegrationRecord) -> set[str]:
     # A pure read of the stored repository list, so a repository removed from the installation
     # stops being searchable as soon as that list refreshes, even while its cache row remains.
     listed = GitHubIntegration(
@@ -596,10 +599,13 @@ def _ilike_pattern(term: str) -> str:
     return f"%{escaped}%"
 
 
-def _integration_for(team_id: int, integration_id: int | None) -> Integration | None:
+def _integration_for(team_id: int, integration_id: int | None) -> IntegrationRecord | None:
     if integration_id is None:
         return None
-    return Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
+    try:
+        return IntegrationManager.github.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        return None
 
 
 def _repo_names(value: object) -> list[str]:

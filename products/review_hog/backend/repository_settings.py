@@ -17,11 +17,12 @@ from django.db import IntegrityError, transaction
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.review_hog.backend.activity_logging import log_repository_taken
 from products.review_hog.backend.automatic_review_rules import (
     AuthorPreferences,
@@ -96,12 +97,10 @@ class ProjectRepositories:
     def _project(self, team_id: int) -> ProjectRef:
         return load_project_ref(team_id, viewer_organization_id=self.team.organization_id)
 
-    def integrations(self) -> list[Integration]:
-        return list(
-            Integration.objects.filter(team_id=self.team_id, kind="github").select_related("created_by").order_by("id")
-        )
+    def integrations(self) -> list[IntegrationRecord]:
+        return IntegrationManager.github.oauth.list(self.team_id)
 
-    def integration_for(self, installation_id: str) -> Integration:
+    def integration_for(self, installation_id: str) -> IntegrationRecord:
         integration = next((row for row in self.integrations() if row.integration_id == installation_id), None)
         if integration is None:
             raise RepositorySettingsError("This project has no GitHub connection for that installation.")

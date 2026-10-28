@@ -7,9 +7,9 @@ from uuid import UUID
 
 from django.db import transaction
 
-from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.workflows.backend.facade.contracts import (
     TRANSACTIONAL_EMAIL_ACTION_ID,
     TransactionalEmailContent,
@@ -110,7 +110,7 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
         .values_list("default_email_integration_id", flat=True)
         .first()
     )
-    sender = Integration.objects.filter(team_id=team_id, kind="email", id=sender_id).first() if sender_id else None
+    sender = IntegrationManager.email.credentials.get_many(team_id, [sender_id]).get(sender_id) if sender_id else None
     if sender is None or not sender.config.get("verified"):
         raise TransactionalEmailSenderUnavailable()
     return sender.id

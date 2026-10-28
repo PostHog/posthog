@@ -7,9 +7,9 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
@@ -151,7 +151,7 @@ async def deliver_email(
     return DeliverSubscriptionResult(recipient_results=recipient_results)
 
 
-def _resolve_slack_integration(subscription: Subscription) -> Integration | None:
+def _resolve_slack_integration(subscription: Subscription) -> IntegrationRecord | None:
     integration = subscription.integration
     if integration is not None and integration.kind != "slack":
         LOGGER.warning(
@@ -169,7 +169,7 @@ def _resolve_slack_integration(subscription: Subscription) -> Integration | None
 async def deliver_slack(
     subscription: Subscription,
     recipient_results: list[RecipientResult],
-    send: Callable[[Integration], Awaitable[SlackDeliveryResult]],
+    send: Callable[[IntegrationRecord], Awaitable[SlackDeliveryResult]],
 ) -> DeliverSubscriptionResult:
     """A missing integration or a permanent Slack config error auto-disables the subscription;
     transient Slack errors raise so Temporal retries."""

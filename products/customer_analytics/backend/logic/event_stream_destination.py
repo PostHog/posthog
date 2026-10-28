@@ -13,12 +13,14 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.customer_analytics.backend.facade.contracts import EventStreamTestMessageError
 from products.customer_analytics.backend.models import EventStream, TeamCustomerAnalyticsConfig
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -180,9 +182,10 @@ def send_test_slack_message(*, team_id: int, stream_id: str, user: "User") -> st
         return None
     if not (stream.slack_integration_id and stream.slack_channel_id):
         raise EventStreamTestMessageError("Save a Slack workspace and channel before sending a test message.")
-    integration = Integration.objects.filter(team_id=team_id, id=stream.slack_integration_id, kind="slack").first()
-    if integration is None:
-        raise EventStreamTestMessageError("The stream's Slack workspace is no longer connected.")
+    try:
+        integration = IntegrationManager.slack.oauth.get(team_id, stream.slack_integration_id)
+    except IntegrationNotFound:
+        raise EventStreamTestMessageError("The stream's Slack workspace is no longer connected.") from None
 
     try:
         SlackIntegration(integration, source="customer_analytics_event_stream").client.chat_postMessage(

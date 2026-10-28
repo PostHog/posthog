@@ -15,7 +15,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_request
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, GitLabIntegration, GitLabIntegrationError, Integration
+from posthog.models.integration import GitHubIntegration, GitLabIntegration, GitLabIntegrationError
+
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -303,7 +305,7 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 return Response({"found": True, "url": outcome.url})
 
         # Try with assigned GitHub integration (private repos).
-        integration = Integration.objects.filter(team_id=self.team.id, kind="github").first()
+        integration = IntegrationManager.github.oauth.find(self.team.id)
 
         if integration:
             github = GitHubIntegration(integration, source="error_tracking", priority=Priority.NORMAL)
@@ -357,12 +359,12 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 return Response({"found": True, "url": url})
 
         # Try with team GitLab integrations (private repos and self-hosted).
-        integrations = Integration.objects.filter(team_id=self.team.id, kind="gitlab")
+        integrations = IntegrationManager.gitlab.token.list(self.team.id)
 
         if not integrations:
             return Response({"found": False})
 
-        def try_integration(integration: Integration) -> str | None:
+        def try_integration(integration: IntegrationRecord) -> str | None:
             try:
                 gitlab = GitLabIntegration(integration)
                 hostname = gitlab.hostname

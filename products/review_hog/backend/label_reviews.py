@@ -19,11 +19,12 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.permissions import posthog_feature_flag_enabled
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver
@@ -140,7 +141,7 @@ class LabelReview:
     def labeler_allowed(self) -> bool:
         return not self.labeled_by_bot or self.labeler_login.lower() == STAMPHOG_BOT_LOGIN
 
-    def _github(self, integration: Integration) -> GitHubIntegration:
+    def _github(self, integration: IntegrationRecord) -> GitHubIntegration:
         return GitHubIntegration(integration, source="review_hog", priority=Priority.NORMAL)
 
     def _bot_label_comment_posted(self, token: str) -> bool:
@@ -154,7 +155,7 @@ class LabelReview:
             )
         )
 
-    def _refuse_bot_label(self, integration: Integration) -> None:
+    def _refuse_bot_label(self, integration: IntegrationRecord) -> None:
         # The label goes first: a failed call retries the task, and the comment must post only once.
         token = self._github(integration).get_access_token()
         try:
@@ -197,11 +198,7 @@ class LabelReview:
             _observe("repository_not_added")
             return
         team_id = owner.team_id
-        integration = (
-            Integration.objects.filter(team_id=team_id, kind="github", integration_id=self.installation_id)
-            .order_by("id")
-            .first()
-        )
+        integration = IntegrationManager.github.oauth.find(team_id, external_id=self.installation_id)
         if integration is None:
             _observe("installation_mismatch")
             return

@@ -14,10 +14,11 @@ from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.event_usage import groups
 from posthog.models.github_integration_base import GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.replay_vision.backend.facade.api import has_signal_emitting_scanner
 from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
 from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
@@ -92,7 +93,7 @@ class InboxOnboardingReconciler:
     def has_repository(self) -> bool:
         failure: Exception | None = None
         retry_after = 0
-        for integration in Integration.objects.filter(team_id=self.team_id, kind="github").order_by("id"):
+        for integration in sorted(IntegrationManager.github.oauth.list(self.team_id), key=lambda row: row.id):
             github = GitHubIntegration(integration, source="signals_onboarding", priority=self.priority)
             try:
                 repositories, _ = github.list_repositories(per_page=1)

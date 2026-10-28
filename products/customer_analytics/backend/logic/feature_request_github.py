@@ -15,7 +15,6 @@ from structlog.contextvars import bound_contextvars, get_contextvars
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models import Integration
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration.github import GitHubIntegration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -36,6 +35,8 @@ from products.customer_analytics.backend.models import (
     FeatureRequestHistorySource,
     FeatureRequestStatus,
 )
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -82,7 +83,7 @@ def _log_manual_action_after_commit(
 
 
 def _log_issue_fetch_failure(
-    integration: Integration, *, stage: str, error_type: str, status_code: int | None = None
+    integration: IntegrationRecord, *, stage: str, error_type: str, status_code: int | None = None
 ) -> None:
     logger.warning(
         "feature_request_github_issue_fetch_failed",
@@ -179,10 +180,13 @@ def _integration(
     integration_id: int | None,
     installation_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
-) -> Integration:
+) -> IntegrationRecord:
     if integration_id is None:
         raise FeatureRequestValidationError("integration_id", "Reconnect the GitHub integration before resuming sync.")
-    integration = Integration.objects.filter(id=integration_id, team_id=team_id, kind="github").first()
+    try:
+        integration: IntegrationRecord | None = IntegrationManager.github.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        integration = None
     if (
         integration is None
         or not integration.integration_id
@@ -202,7 +206,7 @@ def _integration(
 
 
 def _fetch_issue(
-    integration: Integration, repository: str, issue_number: int, *, priority: Priority = Priority.NORMAL
+    integration: IntegrationRecord, repository: str, issue_number: int, *, priority: Priority = Priority.NORMAL
 ) -> GitHubIssueState:
     try:
         response = GitHubIntegration(integration, source="customer_analytics", priority=priority).api_request(
@@ -475,7 +479,7 @@ def unlink_feature_request_github(
     )
 
 
-def _eligible_integration(link: FeatureRequestGitHubLink) -> tuple[Integration | None, str | None]:
+def _eligible_integration(link: FeatureRequestGitHubLink) -> tuple[IntegrationRecord | None, str | None]:
     if not link.sync_enabled:
         return None, "paused"
     if link.feature_request.archived_at is not None:

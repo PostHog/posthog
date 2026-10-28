@@ -4,8 +4,9 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration import GitHubIntegration
 
+from products.integrations.backend.facade.api import IntegrationManager
 from products.tasks.backend.facade.sandbox import SandboxBase, sandbox_repo_path
 from products.wizard.backend.logic.workers.commands import bound_command_output
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest, SignedRepositoryCommit
@@ -217,7 +218,7 @@ def _commit_staged_changes(
 
 
 def _github_integration(team_id: int, integration_id: int, source: str) -> GitHubIntegration:
-    integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
+    integration = IntegrationManager.github.oauth.get_many(team_id, [integration_id]).get(integration_id)
     if integration is None:
         raise RepositoryPublishingError("GitHub integration is unavailable.")
     return GitHubIntegration(integration, source=source, priority=Priority.CRITICAL)
@@ -302,7 +303,7 @@ def create_pull_request(
     base_branch: str | None = None,
 ) -> RepositoryPullRequest:
     repository_name = _repository_parts(repository)
-    integration = Integration.objects.filter(team_id=team_id, id=integration_id, kind="github").first()
+    integration = IntegrationManager.github.oauth.get_many(team_id, [integration_id]).get(integration_id)
     if integration is None:
         raise RepositoryPublishingError("GitHub integration is unavailable.")
 

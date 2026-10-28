@@ -30,12 +30,13 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups, report_user_action
 from posthog.models import User
-from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.messaging.backend.facade.api import (
     UnlayerNotConfiguredError,
     UnlayerRenderError,
@@ -141,8 +142,12 @@ class EmailTemplateSenderSerializer(serializers.Serializer):
         integration_id = data.get("integrationId")
         if integration_id is None:
             raise serializers.ValidationError({"integrationId": "Choose an email sender."})
-        if not Integration.objects.filter(team_id=self.context["team_id"], kind="email", id=integration_id).exists():
-            raise serializers.ValidationError({"integrationId": "No email sender with this ID in this project."})
+        try:
+            IntegrationManager.email.credentials.get(self.context["team_id"], integration_id)
+        except IntegrationNotFound:
+            raise serializers.ValidationError(
+                {"integrationId": "No email sender with this ID in this project."}
+            ) from None
         return data
 
 

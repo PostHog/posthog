@@ -27,7 +27,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.models import User
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.ph_client import ph_scoped_capture
 from posthog.slack.formatting import (
     channel_id_from_target as _channel_id_from_target,
@@ -36,6 +36,7 @@ from posthog.slack.formatting import (
 )
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS
 from products.signals.backend.models import (
@@ -256,9 +257,9 @@ def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, S
     return {config.user_id: config for config in configs}
 
 
-def _get_team_slack_integration(team_id: int) -> Integration | None:
+def _get_team_slack_integration(team_id: int) -> IntegrationRecord | None:
     # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
+    return IntegrationManager.slack.oauth.find(team_id)
 
 
 def _team_notification_channel(team_id: int) -> str | None:
@@ -554,7 +555,7 @@ class _ChannelRoute:
     The destination is a channel, or a member whose id Slack turns into a direct message.
     """
 
-    def __init__(self, integration: Integration, channel: str, *, is_team_channel: bool) -> None:
+    def __init__(self, integration: IntegrationRecord, channel: str, *, is_team_channel: bool) -> None:
         self.integration = integration
         self.channel = channel
         self.is_team_channel = is_team_channel
@@ -564,7 +565,7 @@ class _ChannelRoute:
 
 @frozen
 class _Destination:
-    integration: Integration
+    integration: IntegrationRecord
     channel: str
     is_team_channel: bool
 
@@ -600,7 +601,7 @@ def _reviewer_destination(
     *,
     own_config: SignalUserAutonomyConfig | None,
     priority: str | None,
-    team_integration: Integration | None,
+    team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> _Destination | None:
     """Where one suggested reviewer is notified: their own target if set, else the team default.
@@ -627,7 +628,7 @@ def _build_reviewer_routes(
     report: SignalReport,
     *,
     priority: str | None,
-    team_integration: Integration | None,
+    team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> list[_ChannelRoute]:
     """Route resolvable suggested reviewers to a destination, mentioning them there.
