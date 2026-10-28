@@ -211,6 +211,13 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["end_run_when_done"] is True
         assert "Your final response will be posted to the Slack thread" not in run.state["initial_prompt_override"]
 
+    def test_a_run_with_output_fields_does_not_get_finish(self) -> None:
+        response = self._post({"output_fields": {"verdict": "string"}})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert "end_run_when_done" not in run.state
+
     def test_a_thread_bound_run_stays_open_so_its_reply_can_relay(self) -> None:
         integration = self._slack_integration()
 

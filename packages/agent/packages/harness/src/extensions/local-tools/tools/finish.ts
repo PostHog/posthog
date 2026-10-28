@@ -95,8 +95,8 @@ export const finishTool = defineLocalTool({
   // which makes the backend drop the relay (relay_task_run_message skips
   // terminal runs), so the reply is lost every time. Without the key those
   // runs end via their inactivity timeout instead. The backend writes the key
-  // for every workflow run with no Slack thread binding, so only thread-bound
-  // runs pay the timeout. An unknown origin also hides the tool: the origin
+  // for every workflow run with no Slack thread binding and no output schema,
+  // so only those runs pay the timeout. An unknown origin also hides the tool: the origin
   // fetch fails soft, and exposing `finish` on a blip would silently eat a
   // workflow run's reply, while hiding it only costs a bounded idle window.
   // ReviewHog and suggestions callers own completion. An agent-side finish can
