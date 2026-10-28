@@ -13,14 +13,13 @@ const ZSTD_LEVEL = 9
 const zstdCompressAsync = promisify(zstdCompress)
 const zstdDecompressAsync = promisify(zstdDecompress)
 
-// parquetjs ships no zstd codec, but its codec table is open and its Thrift enum has ZSTD, so the file records the right codec.
+// parquetjs ships no zstd codec and takes compression per field, not per writer. Its codec table is open and its Thrift enum has ZSTD, so the file records the right codec.
 PARQUET_COMPRESSION_METHODS.ZSTD = {
     deflate: (value: Buffer) =>
         zstdCompressAsync(value, { params: { [constants.ZSTD_c_compressionLevel]: ZSTD_LEVEL } }),
     inflate: (value: Buffer) => zstdDecompressAsync(value),
 }
 
-// Zstd on every column: compression is a per-field option in parquetjs, not a writer option.
 function schemaDef(columns: readonly V4Column[]): SchemaDef {
     const def: Record<string, unknown> = {}
     for (const column of columns) {
