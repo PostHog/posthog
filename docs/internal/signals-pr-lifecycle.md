@@ -227,6 +227,10 @@ A saved repository is reused before checking GitHub availability. A data-only fa
 
 The report remains readable and supports discussion, assignment, resolution, and eligible monitoring. Pull request creation requires usable repository access. The access check probes GitHub directly, preserving temporary failures for retry instead of treating a stale repository list as a permission decision. Any installation that confirms access enables the action without waiting for other installations. Connecting or repairing GitHub does not enable automatic implementation; the user must opt in separately. Previous blocked reports are not automatically rerun.
 
+Report access checks share pending and recent results by project, installation, and repository for up to 30 seconds. Explicit retries invalidate the project cache. A pending request is canceled when its last report reader leaves or after 30 seconds, allowing stalled checks to be retried; temporary failures are not cached. The backend still checks live access before creating an implementation task.
+
+Client-side access controls apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+
 Disable the flag to remove pilot activation and restore legacy behavior on subsequent research passes. Running passes finish with their recorded decision. Reports and saved source/scout settings remain intact; fleet dispatch still applies its ordinary enrollment and exclusion gates.
 
 Without a repository, legacy ownership lookup is skipped. Existing human assignments remain intact.
