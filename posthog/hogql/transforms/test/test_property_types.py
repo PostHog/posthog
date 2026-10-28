@@ -140,6 +140,42 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
     @parameterized.expand(
         [
+            (f"{name}_{scope}", property_type, scope)
+            for name, property_type in (("numeric", "Numeric"), ("boolean", "Boolean"), ("datetime", "DateTime"))
+            for scope in ("properties", "poe.properties")
+        ]
+    )
+    def test_property_existence_does_not_apply_metadata_cast(self, _name: str, property_type: str, scope: str) -> None:
+        context = self._context(event_properties={"value": {"type": property_type}})
+        context.property_swapper.person_properties["value"] = {"type": property_type}
+        assert context.property_metadata is not None
+        context.property_metadata.person_properties["value"] = {"type": property_type}
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select(
+                    f"SELECT {scope}.value IS NULL, {scope}.value IS NOT NULL, "
+                    f"NULL = {scope}.value, NULL != {scope}.value, "
+                    f"isNull({scope}.value), isNotNull({scope}.value) FROM events"
+                ),
+                context,
+                "clickhouse",
+            )
+        assert "accurateCastOrNull" not in printed
+        assert "parseDateTime" not in printed
+        assert "transform(" not in printed
+        column = "person_properties" if scope == "poe.properties" else "properties"
+        assert f"events.{column}.value" in printed
+
+    def test_property_existence_keeps_explicit_cast(self) -> None:
+        context = self._context(event_properties={"value": {"type": "Numeric"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select("SELECT toFloat(properties.value) IS NOT NULL FROM events"), context, "clickhouse"
+            )
+        assert "isNotNull(accurateCastOrNull(" in printed
+
+    @parameterized.expand(
+        [
             ("dynamic", "properties.value = '5'", "CAST(events.properties.value, 'Nullable(String)')"),
             ("declared", "properties.$browser IN ('Chrome', 'Firefox')", "in(events.properties.`$browser`, tuple("),
             (
@@ -467,6 +503,22 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand([("numeric", "Numeric"), ("boolean", "Boolean"), ("datetime", "DateTime")])
+    def test_property_existence_counts_values_with_conflicting_metadata(self, _name: str, property_type: str) -> None:
+        context = self._context(event_properties={"value": {"type": property_type}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select("SELECT properties.value IS NOT NULL, properties.value IS NULL FROM events"),
+                context,
+                "clickhouse",
+            )
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {**context.values, "documents": ['{"value":"untyped-value"}', "{}", '{"value":null}']},
+        )
+        assert rows == [(1, 0), (0, 1), (0, 1)]
+
     @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
     def test_string_paths_read_empty_as_null(self, _name: str, json_type: str) -> None:
         context = self._context()

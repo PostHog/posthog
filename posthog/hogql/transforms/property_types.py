@@ -238,7 +238,26 @@ class PropertySwapper(CloningVisitor):
             view_name=node.view_name,
         )
 
+    def _is_native_event_property(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if not self.context.uses_new_events_schema() or not isinstance(node, ast.Field):
+            return False
+        if not isinstance(node.type, ast.PropertyType):
+            return False
+        table_type = node.type.field_type.table_type
+        return isinstance(table_type, ast.BaseTableType) and isinstance(
+            table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES
+        )
+
     def visit_call(self, node: ast.Call):
+        if (
+            node.name in ("isNull", "isNotNull")
+            and len(node.args) == 1
+            and self._is_native_event_property(node.args[0])
+        ):
+            return CloningVisitor(clear_types=False).visit(node)
+
         rewritten = self._try_rewrite_json_extract_to_mat_column(node)
         if rewritten is not None:
             return rewritten
@@ -528,6 +547,11 @@ class PropertySwapper(CloningVisitor):
         return requested_type.family != "unknown" and requested_type == materialized_type
 
     def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            for operand, other in ((node.left, node.right), (node.right, node.left)):
+                if isinstance(other, ast.Constant) and other.value is None and self._is_native_event_property(operand):
+                    return CloningVisitor(clear_types=False).visit(node)
+
         result = super().visit_compare_operation(node)
 
         if (
