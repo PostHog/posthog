@@ -122,7 +122,7 @@ class NorthflankSource(ResumableSource[NorthflankSourceConfig, NorthflankResumeC
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Northflank",
             releaseStatus=ReleaseStatus.GA,
-            caption="""Enter your Northflank API token to pull your Northflank projects, services, jobs, addons, volumes, builds, job runs, plans, and billing usage into the PostHog Data warehouse.
+            caption="""Enter your Northflank API token to pull your Northflank projects, services, jobs, addons, volumes, pipelines, builds, job runs, workflow runs, release flow runs, plans, and billing usage into the PostHog Data warehouse.
 
 You can create a personal or team API token in your [Northflank account settings](https://app.northflank.com/). Grant it read access to the resources you want to sync. The usage table also needs billing read access.""",
             iconPath="/static/services/northflank.svg",

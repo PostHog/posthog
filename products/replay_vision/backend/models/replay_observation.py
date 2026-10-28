@@ -1,7 +1,7 @@
 from django.db import models
 from django.db.models import Case, CharField, Exists, Expression, F, FloatField, Func, OuterRef, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Cast
+from django.db.models.functions import Cast, Coalesce
 
 from posthog.models.utils import UUIDModel
 
@@ -42,11 +42,25 @@ class ObservationTrigger(models.TextChoices):
     BACKFILL = "backfill", "Backfill"
 
 
+def watch_rank_contrast() -> Cast:
+    """A ranked row's score; `rlo_ranked_contrast_idx` orders by it."""
+    return Cast(KeyTextTransform("contrast", "watch_rank"), FloatField())
+
+
+def watch_group_root() -> Coalesce:
+    """A ranked row's feed group, or the row itself when it has none. `rlo_ranked_feed_group_idx` indexes it."""
+    return Coalesce(KeyTextTransform("group", "watch_rank"), Cast("id", CharField()), output_field=CharField())
+
+
 class ReplayObservation(UUIDModel):
     """One application of a `ReplayScanner` to a session recording (see README)."""
 
-    scanner = models.ForeignKey("replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_index=False: rlo_scanner_status_idx leads with scanner_id and serves every scanner filter.
+    scanner = models.ForeignKey(
+        "replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations", db_index=False
+    )
+    # db_index=False: rlo_team_created_idx leads with team_id and serves every team filter.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_index=False)
     session_id = models.CharField(max_length=200, help_text="Session recording id this scanner was applied to.")
     distinct_id = models.CharField(
         max_length=400,
@@ -163,11 +177,6 @@ class ReplayObservation(UUIDModel):
             ),
             # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
             models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
-            models.Index(
-                fields=["workflow_id"],
-                name="rlo_workflow_id_idx",
-                condition=~models.Q(workflow_id=""),
-            ),
             # Serves the per-team in-flight concurrency count (sweep headroom + on-demand 429). Partial on the
             # in-flight statuses only, since terminal rows dominate and are never counted.
             models.Index(
@@ -175,11 +184,26 @@ class ReplayObservation(UUIDModel):
                 name="rlo_team_in_flight_idx",
                 condition=models.Q(status__in=("pending", "running")),
             ),
-            # Serves the embedding feed's whole-window pick query, which reads only these columns of ranked rows.
+            # The pick query counts each scanner's ranked rows here; the anchor version sits in the condition so the count never reads `watch_rank`.
             models.Index(
                 fields=["scanner", "created_at"],
-                include=["id", "team", "completed_at", "watch_rank", "distinct_id", "session_id"],
-                name="rlo_scanner_ranked_idx",
+                include=["id", "team", "completed_at"],
+                name="rlo_ranked_count_idx",
+                condition=models.Q(status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=1),
+            ),
+            # The pick query reads each scanner's top rows by score from here.
+            models.Index(
+                F("scanner"),
+                watch_rank_contrast().desc(),
+                F("id").desc(),
+                include=["team", "created_at", "completed_at", "watch_rank"],
+                name="rlo_ranked_contrast_idx",
+                condition=models.Q(status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=1),
+            ),
+            # Finds the members of the feed picks' groups, to count the sessions and people each one reached.
+            models.Index(
+                watch_group_root(),
+                name="rlo_ranked_feed_group_idx",
                 condition=models.Q(status="succeeded", watch_rank__isnull=False),
             ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.

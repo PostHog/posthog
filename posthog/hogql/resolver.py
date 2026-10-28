@@ -30,7 +30,13 @@ from posthog.hogql.database.schema.log_entries import (
 )
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    UNRESOLVED_FIELD_MESSAGE,
+    ImpossibleASTError,
+    NotImplementedError,
+    QueryError,
+    ResolutionError,
+)
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -1458,7 +1464,7 @@ class Resolver(CloningVisitor):
                         raise
                     database_table = opaque_table
 
-            self._record_read(database_table)
+            self._record_read(database_table, ".".join(table_name_chain))
 
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
@@ -2543,7 +2549,7 @@ class Resolver(CloningVisitor):
                 #
                 # One likely cause is that the database context isn't set up as you
                 # expect it to be.
-                raise QueryError(f"Unable to resolve field: {name}{suggestion_suffix}", node=node, fix=fix)
+                raise QueryError(f"{UNRESOLVED_FIELD_MESSAGE}: {name}{suggestion_suffix}", node=node, fix=fix)
             else:
                 type = ast.UnresolvedFieldType(name=name)
                 self.context.add_error(
@@ -2974,7 +2980,7 @@ class Resolver(CloningVisitor):
 
         return False
 
-    def _record_read(self, database_table: Table) -> None:
+    def _record_read(self, database_table: Table, table_name: str) -> None:
         if isinstance(database_table, SavedQuery):
             self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
@@ -2982,6 +2988,8 @@ class Resolver(CloningVisitor):
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
             self._record_direct_read(database_table.table_id)
+        else:
+            self._record_direct_read(table_name)
 
     def _record_saved_query_read(self, saved_query_id: str, *, is_user_view: bool) -> None:
         self.context.referenced_saved_query_ids.add(saved_query_id)

@@ -138,11 +138,19 @@ def train_network(
 
 
 def seed_scores(
-    table: ExampleTable, inputs: NetworkInputs, heads: Sequence[Head], config: NetworkConfig, seeds: Sequence[int]
+    table: ExampleTable,
+    inputs: NetworkInputs,
+    heads: Sequence[Head],
+    config: NetworkConfig,
+    seeds: Sequence[int],
+    train_rows: np.ndarray | None = None,
 ) -> list[np.ndarray]:
     """One train-only fit per seed, each scoring every row. Two arms fit with the same seeds on the
-    same rows give the paired scores `vs_baseline_block` grades."""
-    train_rows = table.network_train_rows()
+    same rows give the paired scores `vs_baseline_block` grades. `train_rows` defaults to the
+    table's network train rows; the pair lane's report-level reference narrows them to the pair
+    train days."""
+    if train_rows is None:
+        train_rows = table.network_train_rows()
     all_rows = np.arange(len(inputs))
     return [
         _fit(inputs, heads, dataclasses.replace(config, seed=seed), table.labels, train_rows).predict(inputs, all_rows)

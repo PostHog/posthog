@@ -71,8 +71,10 @@ import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
+import { GeneralSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/general/GeneralSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/FeatureFlagRequestBlocklist'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
@@ -884,14 +886,21 @@ export const SETTINGS_MAP: SettingSection[] = [
         },
         settings: [
             {
-                id: 'error-tracking-exception-autocapture',
-                title: 'Exception autocapture',
-                description:
-                    'Automatically capture frontend exceptions using onError and onUnhandledRejection listeners in the web JavaScript SDK.',
-                docsUrl: 'https://posthog.com/docs/error-tracking',
-                platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
-                component: <ExceptionAutocaptureToggle />,
-                keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                id: 'error-tracking-general',
+                title: 'General',
+                component: <GeneralSettings />,
+                keywords: [
+                    'kill switch',
+                    'disable',
+                    'stop',
+                    'ingestion',
+                    'drop',
+                    'autocapture',
+                    'crash',
+                    'bug',
+                    'exception',
+                    'stack trace',
+                ],
             },
             {
                 id: 'error-tracking-alerting',
@@ -938,7 +947,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Suppression rules',
                 description: 'Filter out exceptions that match the given filters.',
                 component: <SuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
+                keywords: [
+                    'filter',
+                    'ignore',
+                    'suppress',
+                    'exception',
+                    'type',
+                    'message',
+                    'automatic',
+                    'bot',
+                    'crawler',
+                    'localhost',
+                    'browser',
+                    'hydration',
+                    'chunk',
+                ],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -1093,6 +1116,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Require every new feature flag to have at least one tag, and stop a tagged flag losing its last one, so flags stay attributable to a team or workstream. Flags created for surveys, experiments, early access features, product tours, and web experiments are exempt.',
                 component: <RequireFeatureFlagTags />,
                 keywords: ['tag', 'tags', 'require', 'governance'],
+            },
+            {
+                id: 'feature-flag-request-blocklist',
+                title: 'Blocked domains and IP addresses',
+                description:
+                    'Feature flag requests from these domains or IP addresses get an empty response and are not billed. Use this when someone else uses your project token without permission.',
+                component: <FeatureFlagRequestBlocklist />,
+                keywords: ['block', 'blocklist', 'domain', 'ip', 'origin', 'abuse', 'token'],
             },
             {
                 id: 'feature-flag-require-evaluation-contexts',
@@ -1662,7 +1693,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
                 component: <GithubReposSetting />,
-                flag: 'BUSINESS_KNOWLEDGE_GITHUB_REPOS',
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
             },
         ],

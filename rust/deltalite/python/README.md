@@ -184,6 +184,7 @@ All inherit from `DeltaLiteError`, so you can catch the base or branch on kind:
 | `DeltaLiteTableNotFoundError` | No Delta table at the URI. |
 | `DeltaLiteUnsupportedTableError` | Table uses a feature deltalite can't handle (e.g. deletion vectors, column mapping). |
 | `DeltaLiteSourceTooLargeError` | Batch exceeds `max_source_bytes` (see below). |
+| `DeltaLiteTimeoutError` | A wait for a process-wide budget passed its bound (see "Timeouts" below). |
 
 ## Operational knobs
 
@@ -223,6 +224,29 @@ budgets:
 `DELTALITE_MULTIPART_PART_SIZE_BYTES`, `DELTALITE_MULTIPART_CONCURRENCY`,
 `DELTALITE_RANGE_GET_PART_SIZE_BYTES`, `DELTALITE_RANGE_GET_CONCURRENCY`.
 The last five are the defaults of the per-call arguments of the same names.
+
+**Timeouts.** All upserts and compactions of one process share the
+process-wide budgets above, and their waits are fair. So one call that holds
+permits and stops making progress can make every other call wait. Three bounds
+stop that:
+
+| Bound | Default | Override | When it passes |
+|---|---|---|---|
+| S3 request | `timeout` 120s, `connect_timeout` 5s, `pool_idle_timeout` 15s | the storage option of the same name (any spelling `object_store` accepts, for example `aws_timeout`), or its environment variable (`AWS_TIMEOUT`) | `object_store` retries the request, then the call fails. |
+| One object-store call | 10 minutes | `DELTALITE_IO_DEADLINE_SECS` (`0` removes it) | An upload of a data file or a part, or a ranged read of a data file, fails with a `DeltaLiteError` that names the call. Conditional puts (commits) have no deadline. |
+| One wait for a process-wide budget | 30 minutes | `DELTALITE_PERMIT_WAIT_TIMEOUT_SECS` (`0` removes it) | The call fails with `DeltaLiteTimeoutError`, which names the budget and gives its free permits and waiters. |
+
+Only S3 tables get the request defaults. `object_store` uses a 30s request
+timeout, which cuts a 128 MiB checkpoint read or a 64 MiB single PUT on a
+connection slower than about 4 MB/s.
+
+`deltalite.limits_snapshot()` returns the free and total permits of each
+process-wide budget and the number of acquisitions that wait for it:
+`{"partitions": {"available": 8, "total": 8, "waiters": 0}, "files": ...,
+"buffer_kb": ..., "fetch_kb": ...}`. It does no I/O and takes no lock, so a
+caller can read it while another call of the process hangs. A waiter that needs
+more permits than are free takes the free ones and waits for the rest, so
+`available` can be 0 while a part of the budget belongs to a waiter.
 
 **Probe cache.** The probe reads a footer and the PK column of every candidate
 file, so on object storage its cost grows with the number of files in the

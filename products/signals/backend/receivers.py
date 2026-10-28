@@ -490,7 +490,7 @@ def arm_pending_checks_when_report_monitoring(
     ):
         return
     effective_status = instance.effective_status
-    if effective_status != SignalReport.Status.MONITORING:
+    if effective_status not in {SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED}:
         if prior_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             from products.signals.backend.report_check_execution import park_report_checks_on_reopen
 
@@ -498,8 +498,10 @@ def arm_pending_checks_when_report_monitoring(
         return
     team_id = instance.team_id
     report_id = str(instance.id)
-    monitoring_started_at = instance.monitoring_started_at
-    if monitoring_started_at is None:
+    monitoring_started_at = (
+        instance.monitoring_started_at if effective_status == SignalReport.Status.MONITORING else None
+    )
+    if effective_status == SignalReport.Status.MONITORING and monitoring_started_at is None:
         return
     # After commit so a rollback cannot start measurement; the callback also verifies the captured period.
     transaction.on_commit(
@@ -507,7 +509,7 @@ def arm_pending_checks_when_report_monitoring(
             _arm_pending_checks_safely,
             team_id=team_id,
             report_id=report_id,
-            resolved_at=monitoring_started_at,
+            resolved_at=monitoring_started_at or timezone.now(),
             expected_monitoring_started_at=monitoring_started_at,
         )
     )
@@ -921,6 +923,17 @@ def _status_change_properties(
     }
 
 
+def _is_first_visible_report(team_id: int, report_id: str) -> bool:
+    # The id breaks a tie between reports that became visible in the same instant.
+    first = (
+        SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False)
+        .order_by("first_visible_at", "id")
+        .values_list("id", flat=True)
+        .first()
+    )
+    return first is not None and str(first) == report_id
+
+
 @receiver(post_save, sender=SignalReport)
 def capture_status_change_analytics(
     sender: type[SignalReport],
@@ -994,6 +1007,7 @@ def capture_status_change_analytics(
                 properties={
                     **properties,
                     "previous_status": previous_status,
+                    "is_first_report": _is_first_visible_report(instance.team_id, report_id),
                     **_actor_properties(actor, actor_user),
                     **_classification_snapshot(
                         report_id,

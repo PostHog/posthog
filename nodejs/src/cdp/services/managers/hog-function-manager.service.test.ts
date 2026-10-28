@@ -58,6 +58,7 @@ describe('HogFunctionManager', () => {
             await insertHogFunction(hub.postgres, teamId1, {
                 name: 'Test Hog Function team 1 - transformation',
                 type: 'transformation',
+                hog: 'return event',
                 inputs_schema: [],
                 inputs: {},
             })
@@ -114,6 +115,7 @@ describe('HogFunctionManager', () => {
                 },
                 "execution_order": null,
                 "filters": null,
+                "hog": null,
                 "id": "<REPLACED-UUID-0>",
                 "inputs": {
                   "input_1": {
@@ -175,6 +177,7 @@ describe('HogFunctionManager', () => {
             expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation']))[0].type).toEqual(
                 'transformation'
             )
+            expect((await manager.getHogFunctionsForTeam(teamId1, ['transformation']))[0].hog).toEqual('return event')
         })
 
         it('for just destinations', async () => {

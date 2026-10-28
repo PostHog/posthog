@@ -12,3 +12,8 @@ export function findTreeNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | 
     }
     return null
 }
+
+/** Every node, each before its children, in tree order. */
+export function flattenTree(nodes: TraceNodeApi[]): TraceNodeApi[] {
+    return nodes.flatMap((node) => [node, ...flattenTree(node.children)])
+}
