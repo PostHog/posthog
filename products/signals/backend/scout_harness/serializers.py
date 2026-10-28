@@ -2407,6 +2407,16 @@ class ReviewerCorrectionEntrySerializer(serializers.Serializer):
     after = serializers.ListField(
         child=serializers.CharField(), help_text="GitHub logins on the report after the human edit (lowercased)."
     )
+    removal_reason = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.",
+    )
+    removal_reason_reviewers = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="The removed identities that `removal_reason` applies to.",
+    )
     at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the edit.")
 
 

@@ -78,6 +78,15 @@ tools:
             so a query you just ran through one of the `query-*` tools can be passed straight through.
 
 
+            A saved SQL insight must follow the dashboard and insight date range. Before you save a `HogQLQuery`,
+            replace its fixed date window, such as `timestamp >= now() - INTERVAL 30 DAY`, with the `{filters}`
+            placeholder: `WHERE event = 'signed_up' AND {filters}`. Then put the requested window in
+            `query.source.filters.dateRange`, for example `{"date_from": "-30d"}`. A fixed window ignores the date
+            picker, and `{filters}` without a `dateRange` shows all time. `{filters}` also applies the property and
+            test-account filters. For a table without a `timestamp` column, bind its date column with
+            `{filters(created_at AS timestamp)}`.
+
+
             Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
             `InsightVizNode`.
 

@@ -11,6 +11,8 @@ export type SidePanelSceneContext = {
     // only currently used for comments which are very similar to activity items
     activity_item_context?: CommentType['item_context']
     discussions_disabled?: boolean
+    /** Why this scene has turned discussions off, shown in place of the generic "not supported" message. */
+    discussions_disabled_reason?: string
     /** The canvas on screen. Its panel tabs replace the general ones. */
     canvas_id?: string
     /** Whether the canvas on screen is being edited by hand, which adds its Blocks tab. */

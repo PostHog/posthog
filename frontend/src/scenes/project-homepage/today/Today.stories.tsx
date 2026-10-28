@@ -660,6 +660,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.85,
             priority: 'P1',
             source: 'alerts',
+            product: 'alerts',
         },
         {
             key: 'new_error:0195a0b2-0000-0000-0000-000000000001',
@@ -671,6 +672,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.82,
             priority: 'P1',
             source: 'errors',
+            product: 'error_tracking',
         },
         {
             key: 'home:rev01',
@@ -682,6 +684,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P2',
             source: 'home',
+            product: 'today',
         },
         {
             key: 'key_metric:payment_event',
@@ -693,6 +696,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.57,
             priority: 'P2',
             source: 'key_metrics',
+            product: 'today',
         },
         {
             key: 'experiment_ended:12',
@@ -704,6 +708,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.6,
             priority: 'P3',
             source: 'experiments',
+            product: 'experiments',
         },
         {
             key: 'assigned_quiet',
@@ -715,6 +720,7 @@ const HIGHLIGHTS: HighlightsApi = {
             score: 0.35,
             priority: 'P4',
             source: 'errors',
+            product: 'error_tracking',
         },
     ],
 }

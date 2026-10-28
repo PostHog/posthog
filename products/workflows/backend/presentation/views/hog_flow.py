@@ -3010,7 +3010,8 @@ class TeamEmailReputationResponseSerializer(serializers.Serializer):
         read_only=True,
         help_text=(
             "The project's sending tier, what it allows, and how much of it has been used; null when the "
-            "caller lacks project-wide workflow access."
+            "caller lacks project-wide workflow access. Tiers grow on their own as the project builds a clean "
+            "sending record."
         ),
     )
 
@@ -4978,6 +4979,11 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                     "whether a schedule still has sends to come."
                 ),
             ),
+            OpenApiParameter(
+                "latest_send_first",
+                OpenApiTypes.BOOL,
+                description="Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.",
+            ),
         ]
     ),
     # The mixin action's default schema documents integer ids; workflows are keyed by UUID.
@@ -5274,6 +5280,7 @@ class HogFlowViewSet(
             broadcast_statuses=frozenset(broadcast_statuses),
             suggestions_first=params.get("suggestions_first") in ("true", "1"),
             tags=tags,
+            latest_send_first=params.get("latest_send_first") == "true",
             field_filters={name: params[name] for name in WORKFLOW_FIELD_FILTER_PARAMS if name in params},
         )
 
