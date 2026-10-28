@@ -26,7 +26,8 @@ use tokio::sync::Semaphore;
 
 use crate::batch::{Block, SessionKey};
 use crate::index::{BlockIndexRow, ImageIndexRow};
-use crate::rewrite::{canonical_strings, UrlRewrite};
+use crate::rewrite::{canonical_strings, Fallback, RewriteReport, UrlRewrite};
+use crate::scrub::Scrub;
 use crate::store::{BlobStore, StoreError};
 
 /// Brotli settings for blocks, the same as the v3 lane, which uses the same C encoder. The lane keeps blocks for months
@@ -65,9 +66,13 @@ pub struct WriterCounts {
     /// The bytes of the lines the writer gives the encoder, and the longest line.
     pub jsonl_bytes: u64,
     pub max_line_bytes: u64,
-    /// Why the block must not be stored, as the outcome of its drop: a URL the policy declines stays in it, or the
-    /// inspector did not name all its URLs.
+    /// Why the block must not be stored, as the outcome of its drop: a URL the policy declines stays in it even after
+    /// the fallback.
     pub dropped: Option<&'static str>,
+    /// Why the writer used a fallback to keep the block, as a metric label.
+    pub fallback: Option<&'static str>,
+    /// The URL tokens the fallback replaced.
+    pub scrubbed: u64,
 }
 
 /// A block compressed once for all the attempts of its flush, with the images it moved out.
@@ -107,23 +112,13 @@ pub fn object_key(write_day: &str, at: DateTime<Utc>) -> String {
 /// per event. Every image goes into this flush's packs, even one an earlier flush stored: a pack expires by its own
 /// write time, so it must be no older than the blocks that reference it.
 /// Expanded `cv` events can make a block far larger than its messages, so only one event is held at a time.
-pub fn prepare_block(
+fn prepare_block(
     block: &Block,
     team_key: &[u8; 32],
     key_month: &str,
+    fallback: &Fallback,
     out: &mut impl Write,
-) -> io::Result<(Vec<Image>, WriterCounts)> {
-    // Fail closed: a URL the inspector did not name could be one the policy declines.
-    if let Some(limit) = block.url_limit {
-        let dropped = Some(limit.label());
-        return Ok((
-            Vec::new(),
-            WriterCounts {
-                dropped,
-                ..WriterCounts::default()
-            },
-        ));
-    }
+) -> io::Result<(Vec<Image>, WriterCounts, RewriteReport)> {
     let content_key = image_content_key(team_key);
     let mut rewrite = UrlRewrite::new(
         &block.remote_urls,
@@ -131,7 +126,8 @@ pub fn prepare_block(
         block.session.team_id,
         key_month,
         team_key,
-    );
+    )
+    .with_fallback(fallback.clone());
     let mut images = Vec::new();
     let mut kept = HashSet::new();
     let mut counts = WriterCounts::default();
@@ -182,11 +178,70 @@ pub fn prepare_block(
                 .filter(|image| kept.insert(image.reference.clone())),
         );
     }
-    // Fail closed: the flush drops a block that still holds a declined URL, a credential or a private host.
-    if !rewrite.finish() {
+    let report = rewrite.finish();
+    counts.scrubbed = report.scrubbed;
+    Ok((images, counts, report))
+}
+
+/// A block whose URLs the inspector did not all name has every remote URL token it did not name scrubbed, so that the
+/// block is kept without a URL nobody checked.
+fn first_fallback(block: &Block) -> Fallback {
+    match block.url_limit {
+        Some(limit) => Fallback {
+            overwrite_declined: true,
+            scrub: Scrub::AllRemote,
+            reason: Some(limit.label()),
+        },
+        None => Fallback::default(),
+    }
+}
+
+/// What the second pass does about what the first left unsafe: it overwrites each declined URL wherever it is, and
+/// scrubs the tokens that hold the host of a declined URL the stored bytes do not hold as the inspector read it.
+fn second_fallback(first: &Fallback, report: &RewriteReport) -> Fallback {
+    let scrub = match (&first.scrub, &report.unfound_hosts) {
+        (Scrub::AllRemote, _) | (_, None) => Scrub::AllRemote,
+        (_, Some(hosts)) if hosts.is_empty() => Scrub::Nothing,
+        (_, Some(hosts)) => Scrub::Hosts(hosts.clone()),
+    };
+    let reason = if report.unfound_hosts.as_ref().is_some_and(Vec::is_empty) {
+        "declined_kept"
+    } else {
+        "declined_unfound"
+    };
+    Fallback {
+        overwrite_declined: true,
+        scrub,
+        reason: first.reason.or(Some(reason)),
+    }
+}
+
+/// Writes a block's lines to an output from `open`. A block that the first pass leaves unsafe is written again to a
+/// fresh output with the fallback that makes it safe, so a block is dropped only when even that fails. Moves the
+/// images out and returns them with the output.
+pub fn write_block<W: Write>(
+    block: &Block,
+    team_key: &[u8; 32],
+    key_month: &str,
+    mut open: impl FnMut() -> io::Result<W>,
+) -> io::Result<(W, Vec<Image>, WriterCounts)> {
+    let first = first_fallback(block);
+    let mut out = open()?;
+    let (images, mut counts, report) = prepare_block(block, team_key, key_month, &first, &mut out)?;
+    if report.safe {
+        counts.fallback = first.reason;
+        return Ok((out, images, counts));
+    }
+    let second = second_fallback(&first, &report);
+    let mut out = open()?;
+    let (images, mut counts, report) =
+        prepare_block(block, team_key, key_month, &second, &mut out)?;
+    counts.fallback = second.reason;
+    // Fail closed only when the fallback could not make the block safe either.
+    if !report.safe {
         counts.dropped = Some("declined_unrewritten");
     }
-    Ok((images, counts))
+    Ok((out, images, counts))
 }
 
 fn block_encoder() -> Result<brotlic::BrotliEncoder, WriteError> {
@@ -223,11 +278,24 @@ pub fn compress_block(
     let seal_error = |e: io::Error| WriteError::Seal(e.to_string());
     // Lines go into the encoder as they are built, so memory follows the compressed block and not its plaintext.
     // A brotli stream does not state its decompressed size, so a reader decompresses it as a stream.
-    let encoder = brotlic::CompressorWriter::with_encoder(block_encoder()?, Vec::new());
     // The encoder works on each write it gets, so small writes cost far more CPU than the same bytes in one.
-    let mut lines = io::BufWriter::with_capacity(BLOCK_WRITE_BUFFER, encoder);
-    let (images, counts) =
-        prepare_block(block, team_key, key_month, &mut lines).map_err(seal_error)?;
+    let open = || {
+        block_encoder()
+            .map(|encoder| {
+                io::BufWriter::with_capacity(
+                    BLOCK_WRITE_BUFFER,
+                    brotlic::CompressorWriter::with_encoder(encoder, Vec::new()),
+                )
+            })
+            .map_err(|e| io::Error::other(e.to_string()))
+    };
+    let (lines, images, counts) =
+        write_block(block, team_key, key_month, open).map_err(seal_error)?;
+    if let Some(reason) = counts.fallback {
+        counter!("ai_research_v4_recorder_url_fallbacks_total", "reason" => reason).increment(1);
+        counter!("ai_research_v4_recorder_scrubbed_urls_total", "reason" => reason)
+            .increment(counts.scrubbed);
+    }
     let encoder = lines.into_inner().map_err(|e| seal_error(e.into_error()))?;
     let body = encoder
         .into_inner()
@@ -613,13 +681,13 @@ mod tests {
     use base64::engine::general_purpose::STANDARD;
     use base64::Engine;
     use replay_core_v4::envelope::open_frame;
-    use replay_core_v4::inspect::dom::MAX_REMOTE_URL_BYTES;
     use replay_core_v4::inspect::session::Moment;
     use replay_core_v4::scan::message::read_message;
     use serde_json::{json, Value};
 
     use super::*;
     use crate::batch::{Origin, Tp};
+    use replay_core_v4::inspect::dom::MAX_BLOCK_REMOTE_URLS;
 
     #[derive(Default)]
     struct MemoryStore {
@@ -718,8 +786,8 @@ mod tests {
         inspected
             .remote_urls
             .extend(extra.iter().map(|url| (*url).to_owned()));
-        let mut lines = Vec::new();
-        let (_, counts) = prepare_block(&inspected, &[6; 32], "2026-10", &mut lines).unwrap();
+        let (lines, _, counts) =
+            write_block(&inspected, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
         if counts.dropped.is_some() {
             return String::new();
         }
@@ -752,15 +820,19 @@ mod tests {
             )),
             "{lines}"
         );
-        // A URL past the length cap is not named, so the block is not stored.
+        // A URL past the length the fetcher takes is named and declined.
         let long = |len: usize| {
             let url = format!("https://cdn.example.com/{}", "a".repeat(len - 24));
             json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
                 "attributes": [{"id": 99, "attributes": {"src": url}}]}}])
             .to_string()
         };
-        assert!(!stored_lines(&long(MAX_REMOTE_URL_BYTES), &[]).is_empty());
-        assert_eq!(stored_lines(&long(MAX_REMOTE_URL_BYTES + 1), &[]), "");
+        // A URL too long to fetch is declined, and the block is kept.
+        let long_lines = stored_lines(&long(16 * 1024), &[]);
+        assert!(
+            long_lines.contains(&crate::rewrite::declined_marker("too_long")),
+            "{long_lines}"
+        );
         // Keys written with escapes hide no URL.
         let escaped = events
             .replace(r#""src""#, r#""\u0073rc""#)
@@ -798,12 +870,43 @@ mod tests {
                 "{lines}"
             );
         }
-        // A declined URL the inspector named but the stored bytes do not show as it read it fails the whole block.
-        let event =
-            json!([{"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/"}}])
-                .to_string();
-        assert_eq!(stored_lines(&event, &[signed]), "");
+        // A declined URL the inspector named but the stored bytes do not show as it read it no longer fails the block:
+        // the writer scrubs every token that holds its host, and keeps the rest.
+        let event = json!([{"type": 4, "timestamp": 1, "data": {"href": "https://app.example.com/", "img": "https\\3a //bucket.s3.amazonaws.com/avatar.png"}}])
+            .to_string();
+        let lines = stored_lines(&event, &[signed]);
+        assert!(
+            lines.contains("https://app.example.com/")
+                && !lines.contains("bucket.s3.amazonaws.com"),
+            "{lines}"
+        );
         assert!(!stored_lines(&event, &[public]).is_empty());
+        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
+        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+            "attributes": [{"id": 99, "attributes": {"src": signed, "alt": format!("{signed}&size=2")}}]}}])
+        .to_string();
+        let lines = stored_lines(&events, &[]);
+        assert!(
+            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+            "{lines}"
+        );
+    }
+
+    #[test]
+    fn keeps_a_block_past_the_url_limit_without_a_url_it_did_not_check() {
+        let urls = MAX_BLOCK_REMOTE_URLS + 1;
+        let nodes: Vec<_> = (0..urls)
+            .map(|i| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://cdn.example.com/{i}.png")}, "childNodes": [], "id": i + 2}))
+            .collect();
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
+        let lines = stored_lines(&events, &[]);
+        // The inspector named the first URLs, which keep their references; the fallback scrubbed the rest.
+        assert!(
+            lines.contains("imageurl:v4:7:2026-10:"),
+            "named URLs keep their references"
+        );
+        assert!(lines.contains(crate::scrub::UNCHECKED_MARKER));
+        assert!(!lines.contains("https://"));
     }
 
     #[test]
@@ -1002,8 +1105,8 @@ mod tests {
         keys.team_months.insert(7, [6; 32]);
         let mut stats = BlockStats::default();
         let jobs = crate::urls::fetch_jobs([(&block, &mut stats)], &keys, "2026-10", 1, &|_| false);
-        let mut lines = Vec::new();
-        prepare_block(&block, &[6; 32], "2026-10", &mut lines).unwrap();
+        let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
+
         let lines = String::from_utf8(lines).unwrap();
         let reference = jobs["example.com"][0]["originalRef"].as_str().unwrap();
         assert!(
@@ -1070,8 +1173,8 @@ mod tests {
         let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": uri(b"logo")}}}}]);
         let mut repeated = block("s", events.clone());
         repeated.messages.extend(block("s", events).messages);
-        let (images, counts) =
-            prepare_block(&repeated, &[6; 32], "2026-10", &mut io::sink()).unwrap();
+        let (_, images, counts) =
+            write_block(&repeated, &[6; 32], "2026-10", || Ok(io::sink())).unwrap();
         assert_eq!((images.len(), counts.extracted), (1, 2));
     }
 

@@ -19,6 +19,7 @@ use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_
 use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
+use crate::scrub::{Scrub, Scrubber};
 use crate::urls::url_reference;
 
 /// The bytes with each JSON string that holds an escape `write_json_string` does not write, such as `\/` or `\u0041`,
@@ -117,6 +118,7 @@ fn ends_with_escape(bytes: &[u8], at: usize) -> bool {
 const SRCSET_KEY: &[u8] = br#""srcset":"#;
 
 struct Target {
+    url: String,
     replacement: Vec<u8>,
     /// The policy's reason, for a declined URL.
     declined: Option<&'static str>,
@@ -141,6 +143,32 @@ pub struct UrlRewrite {
     team_id: i64,
     key_month: String,
     url_key: [u8; 32],
+    fallback: Fallback,
+    scrubber: Scrubber,
+    scrubbed: u64,
+}
+
+/// How the writer handles what the first pass over a block left unsafe, instead of dropping the block.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Fallback {
+    /// Replace a declined URL wherever its bytes are, also inside a longer URL that would otherwise keep it.
+    pub overwrite_declined: bool,
+    pub scrub: Scrub,
+    /// The metric label of why the fallback runs.
+    pub reason: Option<&'static str>,
+}
+
+/// What `finish` found about a block.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct RewriteReport {
+    /// No URL the policy declines can stay in the stored bytes.
+    pub safe: bool,
+    /// A declined URL stayed, as a second copy that the rewrite passed over.
+    pub declined_kept: bool,
+    /// The hosts of declined URLs the inspector named but the stored bytes do not hold as it read them. `None` when
+    /// one of them has no host to look for.
+    pub unfound_hosts: Option<Vec<String>>,
+    pub scrubbed: u64,
 }
 
 impl UrlRewrite {
@@ -165,6 +193,7 @@ impl UrlRewrite {
                 Err(decline) => (declined_marker(decline.label()), Some(decline.label())),
             };
             targets.push(Target {
+                url: url.clone(),
                 replacement: replacement.into_bytes(),
                 declined,
                 found: false,
@@ -237,7 +266,16 @@ impl UrlRewrite {
             team_id,
             key_month: key_month.to_owned(),
             url_key,
+            fallback: Fallback::default(),
+            scrubber: Scrubber::new(&Scrub::Nothing),
+            scrubbed: 0,
         }
+    }
+
+    pub fn with_fallback(mut self, fallback: Fallback) -> Self {
+        self.scrubber = Scrubber::new(&fallback.scrub);
+        self.fallback = fallback;
+        self
     }
 
     /// The bytes with each srcset that holds a candidate the block cannot keep rebuilt from the candidates it keeps.
@@ -291,13 +329,20 @@ impl UrlRewrite {
     /// holds none. Only a full snapshot or a mutation holds image slots, so a srcset in any other event, such as a
     /// custom event's payload with the same value, is left to the rewrite of each URL.
     pub fn apply<'b>(&mut self, bytes: &'b [u8], dom_event: bool) -> Cow<'b, [u8]> {
-        if !dom_event {
-            return self.replace_urls(bytes);
+        let replaced = if !dom_event {
+            self.replace_urls(bytes)
+        } else {
+            match self.rebuild_srcsets(bytes) {
+                Cow::Borrowed(bytes) => self.replace_urls(bytes),
+                Cow::Owned(rebuilt) => Cow::Owned(self.replace_urls(&rebuilt).into_owned()),
+            }
+        };
+        let (scrubbed, count) = self.scrubber.apply(&replaced);
+        if count == 0 {
+            return replaced;
         }
-        match self.rebuild_srcsets(bytes) {
-            Cow::Borrowed(bytes) => self.replace_urls(bytes),
-            Cow::Owned(rebuilt) => Cow::Owned(self.replace_urls(&rebuilt).into_owned()),
-        }
+        self.scrubbed += count;
+        Cow::Owned(scrubbed.into_owned())
     }
 
     fn replace_urls<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
@@ -309,9 +354,13 @@ impl UrlRewrite {
         for found in matcher.find_iter(bytes) {
             let (start, end) = (found.start(), found.end());
             let index = found.pattern().as_usize();
-            if start.checked_sub(1).is_some_and(|before| {
-                continues_url(bytes[before]) && !ends_with_escape(bytes, start)
-            }) || bytes.get(end).is_some_and(|&after| continues_url(after))
+            // A declined URL inside a longer URL is replaced too when the fallback asks, so that it cannot stay.
+            let overwrite =
+                self.fallback.overwrite_declined && self.targets[index].declined.is_some();
+            if !overwrite
+                && (start.checked_sub(1).is_some_and(|before| {
+                    continues_url(bytes[before]) && !ends_with_escape(bytes, start)
+                }) || bytes.get(end).is_some_and(|&after| continues_url(after)))
             {
                 continue;
             }
@@ -336,12 +385,26 @@ impl UrlRewrite {
     }
 
     /// Counts the block's URLs. One the block does not hold as the inspector read it, for example with a CSS escape,
-    /// stays as it arrived. Returns false when a URL the policy declines stays, unreplaced or as a second copy that
-    /// `apply` passed over, because the block must not be stored then.
-    pub fn finish(self) -> bool {
+    /// stays as it arrived. The block is unsafe when a URL the policy declines can stay, unreplaced or as a second copy
+    /// that `apply` passed over, unless the fallback scrubbed every token that could hold it.
+    pub fn finish(self) -> RewriteReport {
+        let covered = |url: &str| match &self.fallback.scrub {
+            Scrub::AllRemote => true,
+            Scrub::Hosts(hosts) => url_host(url).is_some_and(|host| hosts.contains(&host)),
+            Scrub::Nothing => false,
+        };
+        let mut unfound_hosts = Some(Vec::new());
         let mut safe = !self.declined_kept;
+        for target in &self.targets {
+            if !target.found && target.declined.is_some() && !covered(&target.url) {
+                safe = false;
+                match (url_host(&target.url), &mut unfound_hosts) {
+                    (Some(host), Some(hosts)) => hosts.push(host),
+                    _ => unfound_hosts = None,
+                }
+            }
+        }
         for target in self.targets {
-            safe &= target.found || target.declined.is_none();
             let outcome = match (target.found, target.declined) {
                 (false, _) => "unrewritten",
                 (true, None) => "rewritten",
@@ -354,12 +417,30 @@ impl UrlRewrite {
             )
             .increment(1);
         }
-        safe
+        RewriteReport {
+            safe,
+            declined_kept: self.declined_kept,
+            unfound_hosts,
+            scrubbed: self.scrubbed,
+        }
     }
 }
 
-/// The srcset with only the candidates the block keeps, each remote URL as its reference, how it was rebuilt, and the
-/// URL targets of the remote URLs it held. `None` when every candidate stays, because the URL targets then replace it.
+/// The host of a URL the inspector named, in lowercase, protocol-relative and backslash forms included.
+fn url_host(url: &str) -> Option<String> {
+    let with_scheme;
+    let url = if replay_core_v4::url_policy::is_protocol_relative(url) {
+        with_scheme = format!("https:{}", url.trim());
+        with_scheme.as_str()
+    } else {
+        url
+    };
+    url::Url::parse(url)
+        .ok()?
+        .host_str()
+        .map(str::to_ascii_lowercase)
+}
+
 /// Where the JSON string that opens at `start` ends, after its closing quote.
 fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
     let mut position = start + 1;
@@ -373,6 +454,8 @@ fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
     None
 }
 
+/// The srcset with only the candidates the block keeps, each remote URL as its reference, how it was rebuilt, and the
+/// URL targets of the remote URLs it held. `None` when every candidate stays, because the URL targets then replace it.
 fn rebuilt_srcset(
     text: &str,
     unfetched: &HashSet<String>,
@@ -473,7 +556,7 @@ mod tests {
                 declined_marker("non_public_host")
             )
         );
-        assert!(rewrite.finish());
+        assert!(rewrite.finish().safe);
     }
 
     #[test]
@@ -489,7 +572,7 @@ mod tests {
                 declined_marker("credential")
             )
         );
-        assert!(rewrite.finish());
+        assert!(rewrite.finish().safe);
         // An event capture wrote is left as it is.
         let plain = r#"{"text":"a\"b\\c\u0001","n":1}"#;
         assert!(matches!(
@@ -498,7 +581,7 @@ mod tests {
         ));
         // A declined URL the block still holds fails the block.
         let rewrite = UrlRewrite::new(&[url.to_owned()], &[], 7, "2026-10", &TEAM_KEY);
-        assert!(!rewrite.finish());
+        assert!(!rewrite.finish().safe);
     }
 
     #[test]
@@ -529,6 +612,6 @@ mod tests {
             format!(r#"{{"src":"{url}","alt":"x{url}"}}"#).as_bytes(),
             true,
         );
-        assert!(!rewrite.finish());
+        assert!(!rewrite.finish().safe);
     }
 }
