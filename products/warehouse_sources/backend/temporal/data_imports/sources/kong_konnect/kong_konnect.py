@@ -261,9 +261,16 @@ def _iter_offset(session: requests.Session, url: str, logger: FilteringBoundLogg
 
 
 def _without_fields(row: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
-    if not fields:
-        return row
-    return {key: value for key, value in row.items() if key not in fields}
+    """Drop each field, given as a dotted path into nested objects, without mutating `row`."""
+    for field_path in fields:
+        key, _, rest = field_path.partition(".")
+        if key not in row:
+            continue
+        if not rest:
+            row = {k: v for k, v in row.items() if k != key}
+        elif isinstance(row[key], dict):
+            row = {**row, key: _without_fields(row[key], (rest,))}
+    return row
 
 
 def _iter_core_entities(
@@ -349,7 +356,12 @@ def get_lookup_rows(
     resumable_source_manager: ResumableSourceManager[KongKonnectResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     endpoint_config = KONG_KONNECT_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_get_headers(api_token), redact_values=(api_token,))
+    session = make_tracked_session(
+        headers=_get_headers(api_token),
+        redact_values=(api_token,),
+        # Excluded fields hold credentials, which HTTP samples would capture before the rows are cleaned.
+        capture=not endpoint_config.excluded_fields,
+    )
 
     if endpoint_config.kind == "core_entity":
         yield from _iter_core_entities(

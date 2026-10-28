@@ -69,7 +69,7 @@ class KongKonnectEndpointConfig:
     # is the parent row ID, which is copied onto each child row as `parent_id_field`.
     parent: Optional[str] = None
     parent_id_field: Optional[str] = None
-    # Fields dropped from every row before it is written, such as plugin config that can hold credentials.
+    # Dotted paths dropped from every row before it is written, because they can hold credentials.
     excluded_fields: tuple[str, ...] = ()
     description: Optional[str] = None
 
@@ -163,6 +163,7 @@ KONG_KONNECT_ENDPOINTS: dict[str, KongKonnectEndpointConfig] = {
         path="/core-entities/upstreams",
         kind="core_entity",
         primary_keys=["control_plane_id", "id"],
+        excluded_fields=("healthchecks.active.headers",),
         incremental_fields=[],
         description="Gateway upstreams across all control planes, with their load balancing and health check settings.",
     ),

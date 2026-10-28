@@ -330,17 +330,48 @@ class TestLookupRows:
         ]
         assert result.params("offset") == [None, None, "next-token", None, None]
 
-    def test_plugins_drop_config(self) -> None:
-        result = _driver().run(
-            "plugins",
-            [
-                ScriptedResponse(json={"data": [_control_plane("cp-a")], "meta": {"page": {"total": 1}}}),
-                ScriptedResponse(json={"data": [{"id": "p-1", "name": "aws-lambda", "config": {"aws_secret": "shh"}}]}),
-            ],
-        )
+    @parameterized.expand(
+        [
+            (
+                "plugin_config",
+                "plugins",
+                {"id": "p-1", "name": "aws-lambda", "config": {"aws_secret": "shh"}},
+                {"id": "p-1", "name": "aws-lambda", "control_plane_id": "cp-a"},
+            ),
+            (
+                "upstream_health_check_headers",
+                "upstreams",
+                {
+                    "id": "u-1",
+                    "healthchecks": {
+                        "active": {"headers": {"Authorization": ["Bearer shh"]}, "http_path": "/health"},
+                        "passive": {"type": "http"},
+                    },
+                },
+                {
+                    "id": "u-1",
+                    "healthchecks": {"active": {"http_path": "/health"}, "passive": {"type": "http"}},
+                    "control_plane_id": "cp-a",
+                },
+            ),
+        ]
+    )
+    def test_core_entities_drop_credential_fields(
+        self, _name: str, endpoint: str, row: dict[str, Any], expected: dict[str, Any]
+    ) -> None:
+        with patch(f"{kong_konnect.__name__}.make_tracked_session", wraps=kong_konnect.make_tracked_session) as spy:
+            result = _driver().run(
+                endpoint,
+                [
+                    ScriptedResponse(json={"data": [_control_plane("cp-a")], "meta": {"page": {"total": 1}}}),
+                    ScriptedResponse(json={"data": [row]}),
+                ],
+            )
 
         assert result.raised is None
-        assert result.rows == [{"id": "p-1", "name": "aws-lambda", "control_plane_id": "cp-a"}]
+        assert result.rows == [expected]
+        # HTTP samples would capture the raw response before the fields are dropped.
+        assert spy.call_args.kwargs["capture"] is False
 
     def test_core_entities_raise_on_auth_error(self) -> None:
         result = _driver().run(
