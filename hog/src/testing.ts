@@ -1,5 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 
+import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+
 import type { Prompts } from '@/core/prompts'
 import type { Env, Runtime } from '@/core/runtime'
 
@@ -19,6 +21,8 @@ export interface FakeRuntimeOptions {
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
     // as is, for JSON that JSON.stringify can't produce.
     respond?: (url: string, body: unknown) => { status: number; body: unknown }
+    // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
+    apiTools?: ApiToolLibrary
 }
 
 export interface FakeRuntime extends Runtime {
@@ -107,6 +111,12 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             return true
         },
         prompts: fakePrompts([...(options.answers ?? [])]),
+        loadApiTools: async () => {
+            if (!options.apiTools) {
+                throw new Error('This test loads the API tools without passing apiTools')
+            }
+            return options.apiTools
+        },
         stdout: () => stdout,
         stderr: () => stderr,
         requests,

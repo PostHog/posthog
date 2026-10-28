@@ -9,13 +9,15 @@
     "type": "module",
     "scripts": {
         "hog": "bun --no-env-file src/index.ts",
-        "compile": "bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/index.ts --outfile dist/hog",
+        "compile": "pnpm run build:mcp && bun build --compile --no-compile-autoload-dotenv --no-compile-autoload-bunfig src/index.ts --outfile dist/hog",
         "typecheck": "tsc --noEmit",
         "unit": "bun test",
-        "schema": "bun scripts/write-schema.ts"
+        "schema": "bun scripts/write-schema.ts",
+        "build:mcp": "pnpm --filter @posthog/mcp build:cli:library"
     },
     "dependencies": {
         "@clack/prompts": "1.8.1",
+        "@posthog/mcp": "workspace:*",
         "cli-table3": "0.6.5",
         "commander": "15.0.0",
         "pako": "2.1.0",

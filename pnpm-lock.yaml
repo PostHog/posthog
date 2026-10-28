@@ -1523,6 +1523,9 @@ importers:
       '@clack/prompts':
         specifier: 1.8.1
         version: 1.8.1
+      '@posthog/mcp':
+        specifier: workspace:*
+        version: link:../services/mcp
       cli-table3:
         specifier: 0.6.5
         version: 0.6.5
