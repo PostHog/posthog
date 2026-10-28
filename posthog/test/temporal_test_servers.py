@@ -5,7 +5,7 @@ with no retry and no deadline, so a trickling transfer hangs the test until the 
 The SDK reuses an earlier download that it finds at `<temp dir>/<name>-sdk-python-<sdk version>`, without
 network access. CI runs this script before the tests to put both binaries there. curl cuts a stalled
 transfer with `--speed-limit` and `--max-time` and starts it again with `--retry`. When this script fails,
-the SDK downloads the binaries itself, so a CI failure here does not stop the tests.
+the CI step fails, because the SDK would download them again with no deadline.
 
 Usage: python -m posthog.test.temporal_test_servers
 """
