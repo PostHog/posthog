@@ -1639,22 +1639,22 @@ const visionScannersVariantsList = (): ToolBase<
     },
 })
 
-const VisionScannersWatchFeedSchema = () => {
-    const VisionScannersWatchFeedRetrieveQueryParams = orvalSchemas.VisionScannersWatchFeedRetrieveQueryParams()
-    return VisionScannersWatchFeedRetrieveQueryParams
+const VisionScannersHighlightFeedSchema = () => {
+    const VisionScannersHighlightFeedRetrieveQueryParams = orvalSchemas.VisionScannersHighlightFeedRetrieveQueryParams()
+    return VisionScannersHighlightFeedRetrieveQueryParams
 }
 
-const visionScannersWatchFeed = (): ToolBase<
-    ReturnType<typeof VisionScannersWatchFeedSchema>,
-    WithAgentNote<Schemas.WatchFeedResponse>
+const visionScannersHighlightFeed = (): ToolBase<
+    ReturnType<typeof VisionScannersHighlightFeedSchema>,
+    WithAgentNote<Schemas.HighlightFeedResponse>
 > => ({
-    name: 'vision-scanners-watch-feed',
-    schema: VisionScannersWatchFeedSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersWatchFeedSchema>>) => {
+    name: 'vision-scanners-highlight-feed',
+    schema: VisionScannersHighlightFeedSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof VisionScannersHighlightFeedSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.WatchFeedResponse>({
+        const result = await context.api.request<Schemas.HighlightFeedResponse>({
             method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/watch_feed/`,
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/highlight_feed/`,
             query: {
                 as_of: params.as_of,
                 created_by: params.created_by,
@@ -1732,5 +1732,5 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'vision-scanners-self-driving-stats': visionScannersSelfDrivingStats,
     'vision-scanners-update': visionScannersUpdate,
     'vision-scanners-variants-list': visionScannersVariantsList,
-    'vision-scanners-watch-feed': visionScannersWatchFeed,
+    'vision-scanners-highlight-feed': visionScannersHighlightFeed,
 }

@@ -517,7 +517,7 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
 })
 
@@ -1593,7 +1593,7 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
 })
 
@@ -1683,7 +1683,7 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
 })
 
@@ -1772,7 +1772,7 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .string()
         .optional()
         .describe(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
 })
 
@@ -2325,7 +2325,7 @@ export const VisionScannersStatsRetrieveParams = () => zod.object({
 /**
  * Succeeded observations in the window worth watching, ranked for the Highlights tab.
  */
-export const VisionScannersWatchFeedRetrieveParams = () => zod.object({
+export const VisionScannersHighlightFeedRetrieveParams = () => zod.object({
     project_id: zod
         .string()
         .describe(
@@ -2333,16 +2333,16 @@ export const VisionScannersWatchFeedRetrieveParams = () => zod.object({
         ),
 })
 
-export const visionScannersWatchFeedRetrieveQueryDateFromDefault = `-7d`
+export const visionScannersHighlightFeedRetrieveQueryDateFromDefault = `-7d`
 
-export const visionScannersWatchFeedRetrieveQueryLimitDefault = 20
-export const visionScannersWatchFeedRetrieveQueryLimitMax = 50
+export const visionScannersHighlightFeedRetrieveQueryLimitDefault = 20
+export const visionScannersHighlightFeedRetrieveQueryLimitMax = 50
 
-export const visionScannersWatchFeedRetrieveQueryOffsetDefault = 0
-export const visionScannersWatchFeedRetrieveQueryOffsetMin = 0
-export const visionScannersWatchFeedRetrieveQueryOffsetMax = 1000
+export const visionScannersHighlightFeedRetrieveQueryOffsetDefault = 0
+export const visionScannersHighlightFeedRetrieveQueryOffsetMin = 0
+export const visionScannersHighlightFeedRetrieveQueryOffsetMax = 1000
 
-export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
+export const VisionScannersHighlightFeedRetrieveQueryParams = () => zod.object({
     as_of: zod.iso
         .datetime({ offset: true })
         .optional()
@@ -2357,7 +2357,7 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
     date_from: zod
         .string()
         .min(1)
-        .default(visionScannersWatchFeedRetrieveQueryDateFromDefault)
+        .default(visionScannersHighlightFeedRetrieveQueryDateFromDefault)
         .describe(
             "Only observations created at or after this time. Accepts ISO 8601, a relative date like `-7d`, or `now`; values without an explicit offset are interpreted in the project's timezone. The window between `date_from` and `date_to` may span at most 90 days."
         ),
@@ -2371,16 +2371,16 @@ export const VisionScannersWatchFeedRetrieveQueryParams = () => zod.object({
     limit: zod
         .number()
         .min(1)
-        .max(visionScannersWatchFeedRetrieveQueryLimitMax)
-        .default(visionScannersWatchFeedRetrieveQueryLimitDefault)
+        .max(visionScannersHighlightFeedRetrieveQueryLimitMax)
+        .default(visionScannersHighlightFeedRetrieveQueryLimitDefault)
         .describe(
             'Ceiling on feed items to return per page, at most 50. A page routinely returns fewer: a window is not padded to this number with clips that carry no finding.'
         ),
     offset: zod
         .number()
-        .min(visionScannersWatchFeedRetrieveQueryOffsetMin)
-        .max(visionScannersWatchFeedRetrieveQueryOffsetMax)
-        .default(visionScannersWatchFeedRetrieveQueryOffsetDefault)
+        .min(visionScannersHighlightFeedRetrieveQueryOffsetMin)
+        .max(visionScannersHighlightFeedRetrieveQueryOffsetMax)
+        .default(visionScannersHighlightFeedRetrieveQueryOffsetDefault)
         .describe('How many ranked items to skip. Send `as_of` with every page after the first.'),
     scanner_ids: zod
         .string()

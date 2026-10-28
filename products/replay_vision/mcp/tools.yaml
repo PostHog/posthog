@@ -1020,8 +1020,8 @@ tools:
             `analysis_observations`, not of `observations`. Balanced sampling gives small variants a higher
             `sampling_rate`, so even observation counts do not mean even traffic. To read one variant's summaries, call
             `vision-scanners-observations-list` with `variant` set to its key.
-    vision-scanners-watch-feed:
-        operation: vision_scanners_watch_feed_retrieve
+    vision-scanners-highlight-feed:
+        operation: vision_scanners_highlight_feed_retrieve
         enabled: true
         scopes:
             - replay_scanner:read

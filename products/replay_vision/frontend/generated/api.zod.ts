@@ -1544,9 +1544,9 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
 /**
  * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
  */
-export const visionScannersWatchFeedImpressionsCreateBodyObservationIdsMax = 100
+export const visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax = 100
 
-export const VisionScannersWatchFeedImpressionsCreateBody = /* @__PURE__ */ zod
+export const VisionScannersHighlightFeedImpressionsCreateBody = /* @__PURE__ */ zod
     .object({
         feed_load_id: zod
             .uuid()
@@ -1554,9 +1554,9 @@ export const VisionScannersWatchFeedImpressionsCreateBody = /* @__PURE__ */ zod
         observation_ids: zod
             .array(zod.uuid())
             .min(1)
-            .max(visionScannersWatchFeedImpressionsCreateBodyObservationIdsMax)
+            .max(visionScannersHighlightFeedImpressionsCreateBodyObservationIdsMax)
             .describe(
                 'Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.'
             ),
     })
-    .describe('Body of POST \/vision\/scanners\/watch_feed_impressions\/.')
+    .describe('Body of POST \/vision\/scanners\/highlight_feed_impressions\/.')

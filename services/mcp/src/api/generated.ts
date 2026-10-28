@@ -122940,19 +122940,19 @@ export namespace Schemas {
      * * `struggle` - Struggle
      * * `revenue` - Revenue
      */
-    export type WatchFeedCategoryEnum = typeof WatchFeedCategoryEnum[keyof typeof WatchFeedCategoryEnum];
+    export type HighlightFeedCategoryEnum = typeof HighlightFeedCategoryEnum[keyof typeof HighlightFeedCategoryEnum];
 
 
-    export const WatchFeedCategoryEnum = {
+    export const HighlightFeedCategoryEnum = {
       Failure: 'failure',
       Struggle: 'struggle',
       Revenue: 'revenue',
     } as const;
 
     /**
-     * Body of POST /vision/scanners/watch_feed_impressions/.
+     * Body of POST /vision/scanners/highlight_feed_impressions/.
      */
-    export interface WatchFeedImpressions {
+    export interface HighlightFeedImpressions {
       /** The client's id for the feed load that showed these cards. One load counts each card once. */
       feed_load_id: string;
       /**
@@ -122968,10 +122968,10 @@ export namespace Schemas {
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent
      */
-    export type WatchFeedReasonEnum = typeof WatchFeedReasonEnum[keyof typeof WatchFeedReasonEnum];
+    export type HighlightFeedReasonEnum = typeof HighlightFeedReasonEnum[keyof typeof HighlightFeedReasonEnum];
 
 
-    export const WatchFeedReasonEnum = {
+    export const HighlightFeedReasonEnum = {
       EmbeddingPick: 'embedding_pick',
       UnviewedRecent: 'unviewed_recent',
       Recent: 'recent',
@@ -122980,19 +122980,19 @@ export namespace Schemas {
     /**
      * Machine-readable reason an observation made the feed; the frontend renders the copy.
      */
-    export interface WatchFeedReason {
+    export interface HighlightFeedReason {
       /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
        *
        * * `embedding_pick` - Embedding Pick
        * * `unviewed_recent` - Unviewed Recent
        * * `recent` - Recent */
-      kind: WatchFeedReasonEnum;
+      kind: HighlightFeedReasonEnum;
       /** What the session reads like, for `embedding_pick`.
        *
        * * `failure` - Failure
        * * `struggle` - Struggle
        * * `revenue` - Revenue */
-      watch_category?: WatchFeedCategoryEnum;
+      watch_category?: HighlightFeedCategoryEnum;
       /**
          * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
          * @nullable
@@ -123008,19 +123008,19 @@ export namespace Schemas {
     /**
      * One feed entry: the observation plus why it ranked.
      */
-    export interface WatchFeedItem {
+    export interface HighlightFeedItem {
       /** The observation, in the standard shape. */
       observation: ReplayObservation;
       /** Why this observation made the feed. */
-      reason: WatchFeedReason;
+      reason: HighlightFeedReason;
     }
 
     /**
-     * Response of GET /vision/scanners/watch_feed/.
+     * Response of GET /vision/scanners/highlight_feed/.
      */
-    export interface WatchFeedResponse {
+    export interface HighlightFeedResponse {
       /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
-      results: WatchFeedItem[];
+      results: HighlightFeedItem[];
       /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
       has_more: boolean;
       /** The time this feed ranks as of. Send it back with later pages. */
@@ -142328,7 +142328,7 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142574,7 +142574,7 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142637,7 +142637,7 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142700,7 +142700,7 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142787,12 +142787,12 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
 
-    export type VisionScannersWatchFeedRetrieveParams = {
+    export type VisionScannersHighlightFeedRetrieveParams = {
     /**
      * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
      */
@@ -142839,7 +142839,7 @@ export namespace Schemas {
      * * `experiment` - Experiment
      * @minLength 1
      */
-    scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
+    scanner_type?: VisionScannersHighlightFeedRetrieveScannerType;
     /**
      * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
      * @minLength 1
@@ -142847,10 +142847,10 @@ export namespace Schemas {
     tags?: string;
     };
 
-    export type VisionScannersWatchFeedRetrieveScannerType = typeof VisionScannersWatchFeedRetrieveScannerType[keyof typeof VisionScannersWatchFeedRetrieveScannerType];
+    export type VisionScannersHighlightFeedRetrieveScannerType = typeof VisionScannersHighlightFeedRetrieveScannerType[keyof typeof VisionScannersHighlightFeedRetrieveScannerType];
 
 
-    export const VisionScannersWatchFeedRetrieveScannerType = {
+    export const VisionScannersHighlightFeedRetrieveScannerType = {
       Monitor: 'monitor',
       Classifier: 'classifier',
       Scorer: 'scorer',

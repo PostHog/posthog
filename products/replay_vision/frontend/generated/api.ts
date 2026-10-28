@@ -76,10 +76,10 @@ import type {
     VisionScannersObservationsSignalReportsListParams,
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersObservationsThumbnailRetrieveParams,
-    VisionScannersWatchFeedRetrieveParams,
+    VisionScannersHighlightFeedRetrieveParams,
     VisionSpendSeriesApi,
-    WatchFeedImpressionsApi,
-    WatchFeedResponseApi,
+    HighlightFeedImpressionsApi,
+    HighlightFeedResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -1640,9 +1640,9 @@ export const visionScannersStatsRetrieve = async (
     })
 }
 
-export const getVisionScannersWatchFeedRetrieveUrl = (
+export const getVisionScannersHighlightFeedRetrieveUrl = (
     projectId: string,
-    params?: VisionScannersWatchFeedRetrieveParams
+    params?: VisionScannersHighlightFeedRetrieveParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1655,40 +1655,40 @@ export const getVisionScannersWatchFeedRetrieveUrl = (
     const stringifiedParams = normalizedParams.toString()
 
     return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/vision/scanners/watch_feed/?${stringifiedParams}`
-        : `/api/projects/${projectId}/vision/scanners/watch_feed/`
+        ? `/api/projects/${projectId}/vision/scanners/highlight_feed/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/scanners/highlight_feed/`
 }
 
 /**
  * Succeeded observations in the window worth watching, ranked for the Highlights tab.
  */
-export const visionScannersWatchFeedRetrieve = async (
+export const visionScannersHighlightFeedRetrieve = async (
     projectId: string,
-    params?: VisionScannersWatchFeedRetrieveParams,
+    params?: VisionScannersHighlightFeedRetrieveParams,
     options?: RequestInit
-): Promise<WatchFeedResponseApi> => {
-    return apiMutator<WatchFeedResponseApi>(getVisionScannersWatchFeedRetrieveUrl(projectId, params), {
+): Promise<HighlightFeedResponseApi> => {
+    return apiMutator<HighlightFeedResponseApi>(getVisionScannersHighlightFeedRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getVisionScannersWatchFeedImpressionsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/vision/scanners/watch_feed_impressions/`
+export const getVisionScannersHighlightFeedImpressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/highlight_feed_impressions/`
 }
 
 /**
  * Record that the calling user saw these cards in the Highlights feed, so the feed ranks them lower next time.
  */
-export const visionScannersWatchFeedImpressionsCreate = async (
+export const visionScannersHighlightFeedImpressionsCreate = async (
     projectId: string,
-    watchFeedImpressionsApi: WatchFeedImpressionsApi,
+    highlightFeedImpressionsApi: HighlightFeedImpressionsApi,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getVisionScannersWatchFeedImpressionsCreateUrl(projectId), {
+    return apiMutator<void>(getVisionScannersHighlightFeedImpressionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(watchFeedImpressionsApi),
+        body: JSON.stringify(highlightFeedImpressionsApi),
     })
 }

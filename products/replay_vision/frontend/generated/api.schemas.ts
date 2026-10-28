@@ -2916,9 +2916,9 @@ export interface ScannerStatsResponseApi {
  * * `unviewed_recent` - Unviewed Recent
  * * `recent` - Recent
  */
-export type WatchFeedReasonEnumApi = (typeof WatchFeedReasonEnumApi)[keyof typeof WatchFeedReasonEnumApi]
+export type HighlightFeedReasonEnumApi = (typeof HighlightFeedReasonEnumApi)[keyof typeof HighlightFeedReasonEnumApi]
 
-export const WatchFeedReasonEnumApi = {
+export const HighlightFeedReasonEnumApi = {
     EmbeddingPick: 'embedding_pick',
     UnviewedRecent: 'unviewed_recent',
     Recent: 'recent',
@@ -2929,9 +2929,10 @@ export const WatchFeedReasonEnumApi = {
  * * `struggle` - Struggle
  * * `revenue` - Revenue
  */
-export type WatchFeedCategoryEnumApi = (typeof WatchFeedCategoryEnumApi)[keyof typeof WatchFeedCategoryEnumApi]
+export type HighlightFeedCategoryEnumApi =
+    (typeof HighlightFeedCategoryEnumApi)[keyof typeof HighlightFeedCategoryEnumApi]
 
-export const WatchFeedCategoryEnumApi = {
+export const HighlightFeedCategoryEnumApi = {
     Failure: 'failure',
     Struggle: 'struggle',
     Revenue: 'revenue',
@@ -2940,19 +2941,19 @@ export const WatchFeedCategoryEnumApi = {
 /**
  * Machine-readable reason an observation made the feed; the frontend renders the copy.
  */
-export interface WatchFeedReasonApi {
+export interface HighlightFeedReasonApi {
     /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
      *
      * * `embedding_pick` - Embedding Pick
      * * `unviewed_recent` - Unviewed Recent
      * * `recent` - Recent */
-    kind: WatchFeedReasonEnumApi
+    kind: HighlightFeedReasonEnumApi
     /** What the session reads like, for `embedding_pick`.
      *
      * * `failure` - Failure
      * * `struggle` - Struggle
      * * `revenue` - Revenue */
-    watch_category?: WatchFeedCategoryEnumApi
+    watch_category?: HighlightFeedCategoryEnumApi
     /**
      * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
      * @nullable
@@ -2968,19 +2969,19 @@ export interface WatchFeedReasonApi {
 /**
  * One feed entry: the observation plus why it ranked.
  */
-export interface WatchFeedItemApi {
+export interface HighlightFeedItemApi {
     /** The observation, in the standard shape. */
     observation: ReplayObservationApi
     /** Why this observation made the feed. */
-    reason: WatchFeedReasonApi
+    reason: HighlightFeedReasonApi
 }
 
 /**
- * Response of GET /vision/scanners/watch_feed/.
+ * Response of GET /vision/scanners/highlight_feed/.
  */
-export interface WatchFeedResponseApi {
+export interface HighlightFeedResponseApi {
     /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
-    results: WatchFeedItemApi[]
+    results: HighlightFeedItemApi[]
     /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
     has_more: boolean
     /** The time this feed ranks as of. Send it back with later pages. */
@@ -2988,9 +2989,9 @@ export interface WatchFeedResponseApi {
 }
 
 /**
- * Body of POST /vision/scanners/watch_feed_impressions/.
+ * Body of POST /vision/scanners/highlight_feed_impressions/.
  */
-export interface WatchFeedImpressionsApi {
+export interface HighlightFeedImpressionsApi {
     /** The client's id for the feed load that showed these cards. One load counts each card once. */
     feed_load_id: string
     /**
@@ -3120,7 +3121,7 @@ export type VisionObservationsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3367,7 +3368,7 @@ export type VisionScannersObservationsListParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3430,7 +3431,7 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3493,7 +3494,7 @@ export type VisionScannersObservationsSignalReportsListParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
@@ -3580,12 +3581,12 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     verdict?: string
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string
 }
 
-export type VisionScannersWatchFeedRetrieveParams = {
+export type VisionScannersHighlightFeedRetrieveParams = {
     /**
      * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
      */
@@ -3632,7 +3633,7 @@ export type VisionScannersWatchFeedRetrieveParams = {
      * * `experiment` - Experiment
      * @minLength 1
      */
-    scanner_type?: VisionScannersWatchFeedRetrieveScannerType
+    scanner_type?: VisionScannersHighlightFeedRetrieveScannerType
     /**
      * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
      * @minLength 1
@@ -3640,10 +3641,10 @@ export type VisionScannersWatchFeedRetrieveParams = {
     tags?: string
 }
 
-export type VisionScannersWatchFeedRetrieveScannerType =
-    (typeof VisionScannersWatchFeedRetrieveScannerType)[keyof typeof VisionScannersWatchFeedRetrieveScannerType]
+export type VisionScannersHighlightFeedRetrieveScannerType =
+    (typeof VisionScannersHighlightFeedRetrieveScannerType)[keyof typeof VisionScannersHighlightFeedRetrieveScannerType]
 
-export const VisionScannersWatchFeedRetrieveScannerType = {
+export const VisionScannersHighlightFeedRetrieveScannerType = {
     Monitor: 'monitor',
     Classifier: 'classifier',
     Scorer: 'scorer',
