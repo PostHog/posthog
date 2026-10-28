@@ -158,6 +158,14 @@ def restricted_property_keys_for_table_type(
         # The native JSON columns store the flat key `a.b` under the path `a%2Eb`, and the printer reads a
         # requested `a%2Eb` from that same path. Restrict both spellings, or the encoded one reads the value.
         restricted_keys |= {key.replace(".", "%2E") for key in restricted_keys if "." in key}
+        if prop_def_type == PropertyDefinition.Type.EVENT:
+            # The container is a path segment, but dots inside a person property name are escaped within that key.
+            restricted_keys |= {
+                f"{container}.{key.replace('.', '%2E')}"
+                for container in PERSON_PROPERTY_CONTAINERS
+                for key in restricted_person_keys
+                if "." in key
+            }
         # Quarantine contains raw property values inside a string, beyond JSONDropKeys' reach.
         restricted_keys.add(UNPARSEABLE_PROPERTIES_KEY)
     return restricted_keys

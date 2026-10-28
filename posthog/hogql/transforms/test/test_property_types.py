@@ -684,14 +684,20 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     def test_person_restriction_masks_set_containers_on_events(self) -> None:
         context = self._context()
-        context.restricted_properties = {RestrictedProperty(name="email", property_type=PropertyDefinition.Type.PERSON)}
+        context.restricted_properties = {
+            RestrictedProperty(name=name, property_type=PropertyDefinition.Type.PERSON)
+            for name in ("email", "user.email")
+        }
         query = parse_select(
             """SELECT properties.$set,
                 properties.$set.email,
+                properties.$set."user%2Eemail" AS dotted_set,
                 properties.$set.name,
                 properties.$set_once.email,
+                properties.$set_once."user%2Eemail" AS dotted_set_once,
                 properties.email,
                 JSONHas(properties, '$set', 'email'),
+                JSONHas(properties, '$set', 'user%2Eemail'),
                 JSONExtractString(properties, '$set_once', 'email')
             FROM events"""
         )
@@ -710,14 +716,14 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 "document": '{"email":"event-level"}',
                 # The native cleaner stores $set and $set_once in temporary_properties, so a read of either
                 # container comes from that document.
-                "temporary_document": '{"$set":{"email":"hidden","name":"visible"},"$set_once":{"email":"hidden"}}',
+                "temporary_document": '{"$set":{"email":"hidden","user%2Eemail":"hidden","name":"visible"},"$set_once":{"email":"hidden","user%2Eemail":"hidden"}}',
                 "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
                 "person_type": PERSON_PROPERTIES_JSON_TYPE(),
                 "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
             },
         )
         # `email` as an event property is a different property and stays readable.
-        assert row == ('{"name":"visible"}', None, "visible", None, "event-level", 0, "")
+        assert row == ('{"name":"visible"}', None, None, "visible", None, None, "event-level", 0, 0, "")
 
     def test_person_restriction_masks_set_containers_on_legacy_events(self) -> None:
         context = self._context(use_new_events_schema=False)
