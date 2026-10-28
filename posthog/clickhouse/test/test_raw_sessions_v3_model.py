@@ -30,10 +30,12 @@ def create_distinct_id():
     return f"d{distinct_id_counter}"
 
 
-def create_session_id():
+def create_session_id(start: str = "2024-03-08T00:00:00+00:00") -> str:
+    # The sessions MV drops events that are far from the session id's own timestamp, so the id has to
+    # start at the same time as the events these tests write.
     global session_id_counter
     session_id_counter += 1
-    return str(uuid7(random=session_id_counter))
+    return str(uuid7(start, random=session_id_counter))
 
 
 @snapshot_clickhouse_queries
@@ -491,7 +493,13 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         # Without toValidUTF8 this value comes back as bytes, which breaks text readers.
         assert "ttclid=\ufffd" in result[0]["entry_ad_ids_set"]
 
-    def test_channel_type_properties(self):
+    @parameterized.expand(
+        [
+            ("click_ids_present", "some_gclid", "some_fbclid", True, True),
+            ("empty_click_ids_are_not_present", "", "", False, False),
+        ]
+    )
+    def test_channel_type_properties(self, _name, gclid, fbclid, expected_has_gclid, expected_has_fbclid):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
 
@@ -502,7 +510,8 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             properties={
                 "$session_id": session_id,
                 "gad_source": "1",
-                "gclid": "some_gclid",
+                "gclid": gclid,
+                "fbclid": fbclid,
                 "$referring_domain": "google.com",
                 "utm_campaign": "some_campaign",
                 "utm_medium": "some_medium",
@@ -518,10 +527,12 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             "some_medium",
             "some_campaign",
             "google.com",
-            True,
-            False,
+            expected_has_gclid,
+            expected_has_fbclid,
             "1",
         )
+        assert result[0]["entry_has_gclid"] is expected_has_gclid
+        assert result[0]["entry_has_fbclid"] is expected_has_fbclid
 
     def test_autocapture_does_not_set_attribution_when_pageview_present(self):
         distinct_id = create_distinct_id()
@@ -738,6 +749,35 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert {k: v for k, v in result_1[0].items() if k not in {"has_replay_events", "max_inserted_at"}} == {
             k: v for k, v in result_2[0].items() if k not in {"has_replay_events", "max_inserted_at"}
         }
+
+    @parameterized.expand(
+        [
+            ("garbage_session_timestamp", "1970-01-02T00:00:00+00:00", "2024-03-08", False),
+            ("session_id_over_31_days_after_event", "2024-04-10T00:00:00+00:00", "2024-03-08", False),
+            ("client_clock_days_ahead", "2024-03-11T00:00:00+00:00", "2024-03-08", True),
+            ("late_event_within_31_days", "2024-03-08T00:00:00+00:00", "2024-04-07", True),
+        ]
+    )
+    def test_drops_events_far_from_the_session_id_timestamp(self, _name, session_start, event_timestamp, kept):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id(session_start)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={"$current_url": "/", "$session_id": session_id},
+            timestamp=event_timestamp,
+        )
+        produce_replay_summary(
+            team_id=self.team.pk,
+            distinct_id=distinct_id,
+            session_id=session_id,
+            first_timestamp=event_timestamp,
+            last_timestamp=event_timestamp,
+            ensure_analytics_event_in_session=False,
+        )
+
+        assert len(self.select_by_session_id(session_id)) == (1 if kept else 0)
 
     def test_event_names_are_collected(self):
         distinct_id = create_distinct_id()

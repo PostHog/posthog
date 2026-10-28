@@ -5741,8 +5741,8 @@ SELECT
   initializeAggregation('argMinState', _gclid, pageview_prio_timestamp_min) AS entry_gclid,
   initializeAggregation('argMinState', _gad_source, pageview_prio_timestamp_min) AS entry_gad_source,
   initializeAggregation('argMinState', _fbclid, pageview_prio_timestamp_min) AS entry_fbclid,
-  initializeAggregation('argMinState', _gclid IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_gclid,
-  initializeAggregation('argMinState', _fbclid IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_fbclid,
+  initializeAggregation('argMinState', nullIf(_gclid, '') IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_gclid,
+  initializeAggregation('argMinState', nullIf(_fbclid, '') IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_fbclid,
   initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) AS entry_ad_ids_set,
   initializeAggregation(
     'argMinState',
@@ -5751,8 +5751,8 @@ SELECT
       _utm_medium,
       _utm_campaign,
       _referring_domain,
-      _gclid IS NOT NULL,
-      _fbclid IS NOT NULL,
+      nullIf(_gclid, '') IS NOT NULL,
+      nullIf(_fbclid, '') IS NOT NULL,
       _gad_source
     ),
     pageview_prio_timestamp_min
@@ -5777,6 +5777,8 @@ SELECT
 FROM posthog.sharded_events AS source_table
 WHERE
   (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7)
+AND
+  ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) >= (timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) <= (timestamp + toIntervalDay(31))))
 AND
   true;
 CREATE MATERIALIZED VIEW posthog.raw_sessions_v3_recordings_mv TO posthog.writable_raw_sessions_v3 (team_id Int64, session_id_v7 UInt128, session_timestamp DateTime64(3), distinct_id AggregateFunction(argMax, String, DateTime64(6)), distinct_ids AggregateFunction(groupUniqArray, String), min_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')), max_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')), max_inserted_at DateTime, urls Array(String), entry_url AggregateFunction(argMin, Nullable(String), DateTime64(6)), end_url AggregateFunction(argMax, Nullable(String), DateTime64(6)), last_external_click_url AggregateFunction(argMax, Nullable(String), DateTime64(6)), browser AggregateFunction(argMin, Nullable(String), DateTime64(6)), browser_version AggregateFunction(argMin, Nullable(String), DateTime64(6)), os AggregateFunction(argMin, Nullable(String), DateTime64(6)), os_version AggregateFunction(argMin, Nullable(String), DateTime64(6)), device_type AggregateFunction(argMin, Nullable(String), DateTime64(6)), viewport_width AggregateFunction(argMin, Nullable(Int64), DateTime64(6)), viewport_height AggregateFunction(argMin, Nullable(Int64), DateTime64(6)), geoip_country_code AggregateFunction(argMin, Nullable(String), DateTime64(6)), geoip_subdivision_1_code AggregateFunction(argMin, Nullable(String), DateTime64(6)), geoip_subdivision_1_name AggregateFunction(argMin, Nullable(String), DateTime64(6)), geoip_subdivision_city_name AggregateFunction(argMin, Nullable(String), DateTime64(6)), geoip_time_zone AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_referring_domain AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_source AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_campaign AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_medium AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_term AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_utm_content AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6)), entry_has_gclid AggregateFunction(argMin, Bool, DateTime64(6)), entry_has_fbclid AggregateFunction(argMin, Bool, DateTime64(6)), entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6)), entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Bool, Bool, Nullable(String)), DateTime64(6)), pageview_uniq AggregateFunction(uniq, Nullable(UUID)), autocapture_uniq AggregateFunction(uniq, Nullable(UUID)), screen_uniq AggregateFunction(uniq, Nullable(UUID)), page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)), has_autocapture Bool, flag_key_values Array(String), event_names Array(String), hosts Array(String), emails Array(String), has_replay_events Bool) AS WITH
@@ -5841,6 +5843,8 @@ SELECT
 FROM posthog.sharded_session_replay_events AS source_table
 WHERE
   (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 15) = 7)
+AND
+  ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) >= (min_first_timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) <= (min_first_timestamp + toIntervalDay(31))))
 AND
   true;
 CREATE MATERIALIZED VIEW posthog.session_replay_events_mv TO posthog.writable_session_replay_events (session_id String, team_id Int64, distinct_id String, min_first_timestamp DateTime64(6, 'UTC'), max_last_timestamp DateTime64(6, 'UTC'), block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))), block_urls SimpleAggregateFunction(groupArrayArray, Array(String)), first_url AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)), click_count Int64, keypress_count Int64, mouse_activity_count Int64, active_milliseconds Int64, console_log_count Int64, console_warn_count Int64, console_error_count Int64, size Int64, message_count Int64, event_count Int64, snapshot_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), snapshot_mode_v2 AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')), _timestamp Nullable(DateTime), retention_period_days SimpleAggregateFunction(max, Nullable(Int64)), is_deleted SimpleAggregateFunction(max, UInt8), ai_tags_fixed SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_tags_freeform SimpleAggregateFunction(groupUniqArrayArray, Array(String)), ai_highlighted SimpleAggregateFunction(max, UInt8), surfacing_score SimpleAggregateFunction(max, Nullable(Float32))) AS SELECT

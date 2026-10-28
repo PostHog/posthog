@@ -11402,8 +11402,8 @@ SELECT
   initializeAggregation('argMinState', _gclid, pageview_prio_timestamp_min) AS entry_gclid,
   initializeAggregation('argMinState', _gad_source, pageview_prio_timestamp_min) AS entry_gad_source,
   initializeAggregation('argMinState', _fbclid, pageview_prio_timestamp_min) AS entry_fbclid,
-  initializeAggregation('argMinState', _gclid IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_gclid,
-  initializeAggregation('argMinState', _fbclid IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_fbclid,
+  initializeAggregation('argMinState', nullIf(_gclid, '') IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_gclid,
+  initializeAggregation('argMinState', nullIf(_fbclid, '') IS NOT NULL, pageview_prio_timestamp_min) AS entry_has_fbclid,
   initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) AS entry_ad_ids_set,
   initializeAggregation(
     'argMinState',
@@ -11412,8 +11412,8 @@ SELECT
       _utm_medium,
       _utm_campaign,
       _referring_domain,
-      _gclid IS NOT NULL,
-      _fbclid IS NOT NULL,
+      nullIf(_gclid, '') IS NOT NULL,
+      nullIf(_fbclid, '') IS NOT NULL,
       _gad_source
     ),
     pageview_prio_timestamp_min
@@ -11438,6 +11438,8 @@ SELECT
 FROM posthog.sharded_events AS source_table
 WHERE
   (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 15) = 7)
+AND
+  ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) >= (timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) <= (timestamp + toIntervalDay(31))))
 AND
   true
 SQL
@@ -11647,6 +11649,8 @@ SELECT
 FROM posthog.sharded_session_replay_events AS source_table
 WHERE
   (bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 76), 15) = 7)
+AND
+  ((fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) >= (min_first_timestamp - toIntervalDay(31))) AND (fromUnixTimestamp64Milli(toUInt64(bitShiftRight(toUInt128(accurateCastOrNull(session_id, 'UUID')), 80))) <= (min_first_timestamp + toIntervalDay(31))))
 AND
   true
 SQL
