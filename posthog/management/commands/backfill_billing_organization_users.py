@@ -15,6 +15,15 @@ PROGRESS_EVERY = 100
 def sync_organization(org_id: str) -> str | None:
     """Syncs one organization's members to billing. Returns why it failed, or None when billing accepted it."""
     try:
+        return _sync_organization(org_id)
+    except BillingServiceResponseError as e:
+        return f"billing returned {e.status_code}"
+    except Exception as e:
+        return f"{type(e).__name__}: {e}"
+
+
+def _sync_organization(org_id: str) -> str | None:
+    try:
         organization = Organization.objects.get(id=org_id)
     except (Organization.DoesNotExist, ValidationError):
         return "organization not found"
@@ -23,13 +32,7 @@ def sync_organization(org_id: str) -> str | None:
     if owner is None:
         return "organization has no owner"
 
-    try:
-        response = BillingManager(license=None, user=owner).sync_organization_users(organization)
-    except BillingServiceResponseError as e:
-        return f"billing returned {e.status_code}"
-    except Exception as e:
-        return f"{type(e).__name__}: {e}"
-
+    response = BillingManager(license=None, user=owner).sync_organization_users(organization)
     if not 200 <= response.status_code < 300:
         return f"billing returned {response.status_code}"
     return None

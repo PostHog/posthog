@@ -10,6 +10,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import OperationalError
 
 import requests
 from parameterized import parameterized
@@ -108,3 +109,20 @@ class TestBackfillBillingOrganizationUsers(BaseTest):
                 [missing_id, "organization not found"],
                 [str(ownerless.id), "organization has no owner"],
             ]
+
+    @patch("ee.billing.billing_manager.http_session.patch")
+    def test_database_error_fails_the_org_and_continues(self, mock_patch):
+        mock_patch.return_value = MagicMock(status_code=200, json=MagicMock(return_value={}))
+        first = self._org_with_owner("Lookup fails")
+        second = self._org_with_owner("Synced")
+        second_owner = User.objects.get(email=f"owner-{second.id}@example.com")
+
+        with patch(
+            "posthog.management.commands.backfill_billing_organization_users.get_most_recent_owner",
+            side_effect=[OperationalError("statement timeout"), second_owner],
+        ):
+            out, err = self._run([str(first.id), str(second.id)])
+
+        assert f"FAILED {first.id}: OperationalError: statement timeout" in err
+        mock_patch.assert_called_once()
+        assert "Finished: 1 ok, 1 failed" in out
