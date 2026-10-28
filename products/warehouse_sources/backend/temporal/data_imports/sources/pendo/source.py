@@ -28,7 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.pend
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.settings import (
     ENDPOINTS,
+    EVENTS_DEFAULT_LOOKBACK_DAYS,
     INCREMENTAL_FIELDS,
+    PENDO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -134,14 +136,20 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh: Pendo exposes no server-side timestamp filter for
-        # this metadata, so neither incremental nor append would avoid re-reading every row.
+        # Metadata endpoints are full refresh: Pendo exposes no server-side timestamp filter for
+        # them. Event endpoints sync incrementally by day, but each run re-reads the latest day, so
+        # append would duplicate its rows — merge only.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=PENDO_ENDPOINTS[endpoint].is_events,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                description=(
+                    f"Daily event buckets. Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
+                    if PENDO_ENDPOINTS[endpoint].is_events
+                    else None
+                ),
             )
             for endpoint in ENDPOINTS
         ]
@@ -182,4 +190,7 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

@@ -1,4 +1,9 @@
+from collections.abc import Iterator
+from datetime import UTC, datetime
+from typing import Any
+
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
@@ -110,13 +115,86 @@ class TestGetRowsAggregation:
         assert {"filter": 'visitorId>"ab\\"cd"'} in pipeline
 
 
+def _ms(value: str) -> int:
+    return int(datetime.fromisoformat(value).replace(tzinfo=UTC).timestamp() * 1000)
+
+
+def _event_window_starts(result: Any) -> list[int]:
+    return [request.json()["request"]["pipeline"][0]["source"]["timeSeries"]["first"] for request in result.requests]
+
+
+class TestGetRowsEvents:
+    @pytest.fixture(autouse=True)
+    def _frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(datetime(2026, 3, 10, 6, 0, tzinfo=UTC), tick=False):
+            yield
+
+    @pytest.mark.parametrize(
+        "inputs, expected_first_window",
+        [
+            ({}, "2025-12-09T12:00:00"),
+            # Local midnight in UTC-5 is 05:00 UTC; the watermark day is re-read.
+            (
+                {"incremental_field": "day", "db_incremental_field_last_value": _ms("2026-03-05T05:00:00")},
+                "2026-03-05T12:00:00",
+            ),
+            # Local midnight in UTC+10 is 14:00 UTC of the previous UTC date.
+            (
+                {"incremental_field": "day", "db_incremental_field_last_value": _ms("2026-03-04T14:00:00")},
+                "2026-03-05T12:00:00",
+            ),
+        ],
+    )
+    def test_walks_one_day_windows_up_to_the_last_started_anchor(
+        self, inputs: dict[str, Any], expected_first_window: str
+    ) -> None:
+        result = _driver().run("page_events", always(ScriptedResponse(json={"results": []})), **inputs)
+
+        assert result.raised is None
+        windows = _event_window_starts(result)
+        assert windows[0] == _ms(expected_first_window)
+        # Today's noon-UTC anchor is still in the future at 06:00 UTC.
+        assert windows[-1] == _ms("2026-03-09T12:00:00")
+        assert all(later - earlier == 24 * 60 * 60 * 1000 for earlier, later in zip(windows, windows[1:]))
+
+        source = result.requests[0].json()["request"]["pipeline"][0]["source"]
+        assert source["pageEvents"] == {"appId": 'expandAppIds("*")'}
+        assert source["timeSeries"]["period"] == "dayRange"
+        assert source["timeSeries"]["count"] == 1
+
+    def test_resumes_from_saved_day_and_keys_buckets_without_measures(self) -> None:
+        bucket = {"day": _ms("2026-03-09T05:00:00"), "trackTypeId": "t1", "visitorId": "v1", "tabId": "a"}
+        first_read = {**bucket, "numEvents": 1, "numMinutes": 1, "lastTime": 1}
+        re_read = {**bucket, "numEvents": 7, "numMinutes": 3, "lastTime": 2}
+        other_tab = {**bucket, "tabId": "b", "numEvents": 1, "numMinutes": 1, "lastTime": 1}
+
+        result = _driver().run(
+            "track_events",
+            [
+                ScriptedResponse(json={"results": [first_read, other_tab]}),
+                ScriptedResponse(json={"results": [re_read]}),
+            ],
+            resume_state=PendoResumeConfig(next_day="2026-03-08"),
+        )
+
+        assert result.raised is None
+        assert _event_window_starts(result) == [_ms("2026-03-08T12:00:00"), _ms("2026-03-09T12:00:00")]
+        assert result.committed_states == [
+            PendoResumeConfig(next_day="2026-03-09"),
+            PendoResumeConfig(next_day="2026-03-10"),
+        ]
+        first_id, other_tab_id, re_read_id = (row["id"] for row in result.rows)
+        assert first_id == re_read_id
+        assert first_id != other_tab_id
+
+
 class TestPendoSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = PENDO_ENDPOINTS[endpoint]
-        payload: object = {"results": []} if config.is_aggregation else []
+        payload: object = [] if config.path else {"results": []}
 
-        result = _driver().run(endpoint, [ScriptedResponse(json=payload)])
+        result = _driver().run(endpoint, always(ScriptedResponse(json=payload)))
 
         assert result.raised is None
         assert result.response is not None
