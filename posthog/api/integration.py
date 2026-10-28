@@ -763,8 +763,9 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         choices=IntegrationAuthType.choices,
         read_only=True,
         help_text=(
-            "How this integration authenticates with the provider, for example an App installation, an OAuth "
-            "grant or a typed-in API key. A kind can have several auth types."
+            "How this integration authenticates with the provider: `oauth` for a connection the provider manages "
+            "(an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several "
+            "typed-in fields. A kind can have several auth types."
         ),
     )
     files_write_requestable = serializers.SerializerMethodField(
@@ -821,7 +822,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     @extend_schema_field(serializers.BooleanField(allow_null=True))
     def get_installation_shared(self, obj: Integration) -> bool | None:
-        if obj.kind != "github" or obj.auth_type != IntegrationAuthType.APP or not obj.integration_id:
+        if obj.kind != "github" or obj.auth_type != IntegrationAuthType.OAUTH or not obj.integration_id:
             return None
         # Mirrors the check in IntegrationViewSet.perform_destroy: only other *team* rows keep the App
         # installed on GitHub. Personal rows don't count because destroy deletes them along with it.
@@ -833,7 +834,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
 
     @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
     def get_installation_status(self, obj: Integration) -> str | None:
-        if obj.kind != "github" or obj.auth_type != IntegrationAuthType.APP:
+        if obj.kind != "github" or obj.auth_type != IntegrationAuthType.OAUTH:
             return None
         return (
             "unavailable"
@@ -1561,7 +1562,7 @@ class IntegrationViewSet(
     # "not configured". Order oldest-first: several clients take the first row of a kind as their
     # default connection.
     # Lists every auth type, so typed-in credentials show next to installations and OAuth grants.
-    queryset = defer_repository_cache_fields(Integration.objects.with_auth(ANY)).order_by("created_at", "id")
+    queryset = defer_repository_cache_fields(Integration.objects._with_auth(ANY)).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
@@ -1577,7 +1578,7 @@ class IntegrationViewSet(
         # row in the default shape of its kind, so they keep to rows with the default auth type.
         if self.action not in ("list", "retrieve"):
             assert isinstance(queryset, IntegrationQuerySet)
-            queryset = queryset.with_auth(DEFAULT)
+            queryset = queryset._with_auth(DEFAULT)
         return queryset
 
     def handle_exception(self, exc: Exception) -> Response:

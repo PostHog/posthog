@@ -401,7 +401,7 @@ Rules:
 - When you are not sure, keep the default (connection). A setting stored as a connection field still works. A credential marked as a sync setting stays in plain source config.
 - A field in `connection_host_fields` must stay a connection field. The invariant test fails otherwise.
 - Never set `sync_setting=True` on a field that is `secret=True`, a password or a file upload. The invariant test fails otherwise.
-- Every new source and every field change needs the audit CSV regenerated (step 6 of the workflow). The command also rewrites `facade/credential_kinds.py`.
+- Every new source and every field change needs the audit CSV regenerated (step 6 of the workflow). The command also rewrites `facade/credential_kinds.py` and `facade/credential_auth_types.py`.
 - A source that has an OAuth field and an account id field must mark the account id field `account_selector=True`. A test flags the unmarked ones by name.
 
 #### Credential kind
@@ -414,6 +414,14 @@ Each source has a credential kind: the `Integration` kind that holds its typed-i
 4. The kebab-case source type (`AwsCloudTrail` is `aws-cloud-trail`).
 
 The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind. Add an override when a new source needs one of the cases above. The Custom source has no credential kind.
+
+Each credential kind also has a default auth type, which `sources/common/credential_auth_type.py` derives from the connection fields:
+
+- `oauth`: the source has an OAuth field and no typed-in connection field.
+- `token`: the source has exactly one typed-in field, and it is a secret.
+- `credentials`: every other source.
+
+The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `products/integrations/backend/facade/api.py`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
 
 #### Reading and writing `job_inputs`
 
@@ -809,8 +817,9 @@ If new:
 
 2. **Integration kind**.
    - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
-   - Add the kind to `_KIND_AUTH_TYPES` in `posthog/models/integration/auth_types.py`, with `default=IntegrationAuthType.OAUTH`.
-     Query its rows with `Integration.objects.with_auth(Integration.AuthType.OAUTH)`.
+   - Add the kind to `KINDS` in `products/integrations/backend/facade/catalogue.py`, with `default=_OAUTH`, then run `hogli build:projections --only integration-kinds`.
+     Read and write its rows through the integrations SDK, for example `IntegrationManager.your_source.oauth.get(team_id, integration_id)`.
+     See `products/integrations/backend/README.md`.
    - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the

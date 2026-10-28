@@ -1,14 +1,15 @@
 """Auth types of `Integration` rows, and the catalogue of the auth types that each kind supports.
 
 A kind names the provider (`github`, `stripe`, `postgresql`). An auth type names how the row
-authenticates with that provider (an App installation, an OAuth grant, a typed-in API key). A kind
-can have several auth types. Each kind has one default auth type: the meaning the kind had before
-auth types existed. A row stores its auth type in `config["auth_type"]` only when it is not the
-default. A row without that key has the default auth type of its kind, so rows written before auth
-types existed need no migration.
+authenticates with that provider: `oauth` (a connection the provider manages), `token` (one static
+secret) or `credentials` (several typed-in fields). A kind can have several auth types. Each kind
+has one default auth type: the meaning the kind had before auth types existed. A row stores its auth
+type in `config["auth_type"]` only when it is not the default. A row without that key has the
+default auth type of its kind, so rows written before auth types existed need no migration.
 
-Every query states the auth types it can handle with `Integration.objects.with_auth(...)`. See
-`IntegrationQuerySet.with_auth` in `model.py`.
+Code outside the integrations SDK (`products/integrations/backend/facade/api.py`) does not query
+the model. The SDK states the auth types of each query with the internal
+`IntegrationQuerySet._with_auth`.
 
 This module must not import `model.py`: `model.py` imports it to build the queryset filters.
 """
@@ -17,38 +18,20 @@ from collections.abc import Iterable, Mapping
 from enum import Enum
 from typing import Any, Self
 
-from django.db import models
 from django.db.models import Q
 
 from posthog.dataclasses import frozen
 
+from products.integrations.backend.facade.catalogue import KINDS
+from products.integrations.backend.facade.contracts import KindSpec
+from products.integrations.backend.facade.enums import IntegrationAuthType
+
 AUTH_TYPE_CONFIG_KEY = "auth_type"
 
 
-class IntegrationAuthType(models.TextChoices):
-    OAUTH = "oauth", "OAuth"
-    APP = "app", "App installation"
-    API_KEY = "api_key", "API key"
-    API_TOKEN = "api_token", "API token"
-    ACCESS_TOKEN = "access_token", "Access token"
-    AUTH_TOKEN = "auth_token", "Auth token"
-    # A personal access token or a bot token that a user typed in.
-    TOKEN = "token", "Token"
-    ACCESS_KEY = "access_key", "Access key"
-    ACCOUNT_KEY = "account_key", "Account key"
-    HMAC_KEY = "hmac_key", "HMAC key"
-    KEY_PAIR = "key_pair", "Key pair"
-    SIGNING_KEY = "signing_key", "Signing key"
-    CONNECTION_STRING = "connection_string", "Connection string"
-    PASSWORD = "password", "Password"
-    SERVICE_ACCOUNT = "service_account", "Service account"
-    SERVICE_PRINCIPAL = "service_principal", "Service principal"
-    DATABASE_CREDENTIALS = "database_credentials", "Database credentials"
-    VERIFIED_DOMAIN = "verified_domain", "Verified domain"
-    WEBHOOK_SECRET = "webhook_secret", "Webhook secret"
-    # Typed-in fields in the kind's own shape. Kinds whose rows hold one of several credential
-    # shapes (an access key or an IAM role, a password or a key pair) use it as their default.
-    CREDENTIALS = "credentials", "Credentials"
+# The auth types and the kind catalogue belong to the integrations product. Core reads them here for
+# the storage rule and the implicit default filter of the model manager.
+KindAuthTypes = KindSpec
 
 
 class AuthTypeSelector(Enum):
@@ -61,90 +44,26 @@ class AuthTypeSelector(Enum):
 ANY = AuthTypeSelector.ANY
 DEFAULT = AuthTypeSelector.DEFAULT
 
+# Kinds that are not in the catalogue get this entry until they register their own with
+# `register_kind_auth_types`.
+UNKNOWN_KIND_AUTH_TYPES = KindSpec(label="Unknown", default=IntegrationAuthType.CREDENTIALS)
 
-@frozen
-class KindAuthTypes:
-    default: IntegrationAuthType
-    others: frozenset[IntegrationAuthType] = frozenset()
-
-    @property
-    def supported(self) -> frozenset[IntegrationAuthType]:
-        return self.others | {self.default}
+_KIND_AUTH_TYPES: dict[str, KindSpec] = dict(KINDS)
 
 
-_A = IntegrationAuthType
-
-# Kinds that are not in this catalogue (for example kinds that a product registers at runtime)
-# get this entry until they register their own with `register_kind_auth_types`.
-UNKNOWN_KIND_AUTH_TYPES = KindAuthTypes(default=_A.CREDENTIALS)
-
-_KIND_AUTH_TYPES: dict[str, KindAuthTypes] = {
-    "anthropic": KindAuthTypes(default=_A.API_KEY),
-    "apple-ads": KindAuthTypes(default=_A.OAUTH, others=frozenset({_A.KEY_PAIR})),
-    "apns": KindAuthTypes(default=_A.SIGNING_KEY),
-    "aws-redshift": KindAuthTypes(default=_A.CREDENTIALS),
-    "aws-s3": KindAuthTypes(default=_A.CREDENTIALS),
-    "azure-blob": KindAuthTypes(default=_A.CONNECTION_STRING, others=frozenset({_A.ACCOUNT_KEY})),
-    "bing-ads": KindAuthTypes(default=_A.OAUTH),
-    "clickup": KindAuthTypes(default=_A.OAUTH, others=frozenset({_A.API_KEY})),
-    "customerio-app": KindAuthTypes(default=_A.API_KEY),
-    "customerio-track": KindAuthTypes(default=_A.API_KEY),
-    "customerio-webhook": KindAuthTypes(default=_A.WEBHOOK_SECRET),
-    "databricks": KindAuthTypes(default=_A.SERVICE_PRINCIPAL, others=frozenset({_A.ACCESS_TOKEN})),
-    "email": KindAuthTypes(default=_A.VERIFIED_DOMAIN),
-    "firebase": KindAuthTypes(default=_A.SERVICE_ACCOUNT, others=frozenset({_A.DATABASE_CREDENTIALS})),
-    "github": KindAuthTypes(default=_A.APP, others=frozenset({_A.TOKEN})),
-    "gitlab": KindAuthTypes(default=_A.ACCESS_TOKEN),
-    "google-ads": KindAuthTypes(default=_A.OAUTH),
-    "google-analytics": KindAuthTypes(default=_A.OAUTH),
-    "google-calendar": KindAuthTypes(default=_A.OAUTH),
-    "google-cloud-service-account": KindAuthTypes(default=_A.SERVICE_ACCOUNT),
-    "google-cloud-storage": KindAuthTypes(default=_A.SERVICE_ACCOUNT, others=frozenset({_A.HMAC_KEY})),
-    "google-pubsub": KindAuthTypes(default=_A.SERVICE_ACCOUNT),
-    "google-search-console": KindAuthTypes(default=_A.OAUTH),
-    "google-sheets": KindAuthTypes(default=_A.OAUTH),
-    "helpscout": KindAuthTypes(default=_A.OAUTH),
-    "hubspot": KindAuthTypes(default=_A.OAUTH),
-    "instagram": KindAuthTypes(default=_A.OAUTH),
-    "intercom": KindAuthTypes(default=_A.OAUTH),
-    "jira": KindAuthTypes(default=_A.OAUTH, others=frozenset({_A.API_TOKEN})),
-    "linear": KindAuthTypes(default=_A.OAUTH),
-    "linkedin-ads": KindAuthTypes(default=_A.OAUTH),
-    "meta-ads": KindAuthTypes(default=_A.OAUTH),
-    "pardot": KindAuthTypes(default=_A.OAUTH),
-    "pinterest-ads": KindAuthTypes(default=_A.OAUTH),
-    "postgresql": KindAuthTypes(default=_A.PASSWORD),
-    "posthog": KindAuthTypes(default=_A.OAUTH),
-    "reddit-ads": KindAuthTypes(default=_A.OAUTH),
-    "resend": KindAuthTypes(default=_A.OAUTH, others=frozenset({_A.API_KEY})),
-    "s3-compatible": KindAuthTypes(default=_A.ACCESS_KEY),
-    "salesforce": KindAuthTypes(default=_A.OAUTH),
-    "slack": KindAuthTypes(default=_A.OAUTH, others=frozenset({_A.TOKEN})),
-    "slack-posthog-code": KindAuthTypes(default=_A.OAUTH),
-    "snapchat": KindAuthTypes(default=_A.OAUTH),
-    "snowflake": KindAuthTypes(default=_A.CREDENTIALS),
-    "stripe": KindAuthTypes(default=_A.OAUTH, others=frozenset({_A.API_KEY})),
-    "tiktok-ads": KindAuthTypes(default=_A.OAUTH),
-    "twilio": KindAuthTypes(default=_A.AUTH_TOKEN, others=frozenset({_A.API_KEY})),
-    "twitter-ads": KindAuthTypes(default=_A.OAUTH),
-    "vercel": KindAuthTypes(default=_A.APP, others=frozenset({_A.API_TOKEN})),
-    "youtube-analytics": KindAuthTypes(default=_A.OAUTH),
-}
-
-
-def register_kind_auth_types(kind: str, auth_types: KindAuthTypes) -> None:
-    """Add a kind to the catalogue. Call it at import time, before the first query runs."""
+def register_kind_auth_types(kind: str, auth_types: KindSpec) -> None:
+    """Add a kind to the catalogue, before the first query of the kind runs. `register_source_kinds` calls it."""
     existing = _KIND_AUTH_TYPES.get(kind)
     if existing is not None and existing != auth_types:
         raise ValueError(f"Integration kind {kind!r} already has auth types {existing!r}")
     _KIND_AUTH_TYPES[kind] = auth_types
 
 
-def kind_auth_types(kind: str) -> KindAuthTypes:
+def kind_auth_types(kind: str) -> KindSpec:
     return _KIND_AUTH_TYPES.get(kind, UNKNOWN_KIND_AUTH_TYPES)
 
 
-def catalogued_kinds() -> Mapping[str, KindAuthTypes]:
+def catalogued_kinds() -> Mapping[str, KindSpec]:
     return dict(_KIND_AUTH_TYPES)
 
 
@@ -215,7 +134,7 @@ def normalized_config(kind: Any, config: Any) -> Any:
 class AuthRequirement:
     """The auth types that a caller can handle.
 
-    It is the input of `with_auth`. Later it can also carry the scopes that a caller needs, so that
+    It is the input of `_with_auth`. Later it can also carry the scopes that a caller needs, so that
     one check compares them with the scopes that a row grants.
     """
 
@@ -226,7 +145,7 @@ class AuthRequirement:
     @classmethod
     def of(cls, *selectors: "IntegrationAuthType | AuthTypeSelector | str") -> Self:
         if not selectors:
-            raise ValueError("with_auth() needs at least one auth type, DEFAULT or ANY")
+            raise ValueError("_with_auth() needs at least one auth type, DEFAULT or ANY")
         if ANY in selectors:
             if len(selectors) > 1:
                 raise ValueError("ANY already includes every auth type, so pass it alone")
@@ -283,7 +202,7 @@ def config_for_write(kind: Any, config: Any, requirement: AuthRequirement) -> An
         if kind is not None and stored not in kind_auth_types(kind).supported:
             raise ValueError(f"Integration kind {kind!r} does not support auth type {stored!r}")
         if not requirement.accepts(kind, stored):
-            raise ValueError(f"Auth type {stored!r} is not in the with_auth() of this query")
+            raise ValueError(f"Auth type {stored!r} is not in the _with_auth() of this query")
         return config
 
     target = requirement.single_auth_type
@@ -299,5 +218,5 @@ def config_for_write(kind: Any, config: Any, requirement: AuthRequirement) -> An
         return {**config, AUTH_TYPE_CONFIG_KEY: target.value}
 
     if kind is not None and not requirement.accepts(kind, default_auth_type(kind).value):
-        raise ValueError("A write through with_auth() needs exactly one auth type, or one that is the kind's default")
+        raise ValueError("A write through _with_auth() needs exactly one auth type, or one that is the kind's default")
     return config

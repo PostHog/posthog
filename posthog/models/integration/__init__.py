@@ -82,7 +82,7 @@ from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
     Integration,
-    IntegrationManager,
+    IntegrationModelManager,
     IntegrationQuerySet,
     UndecryptedIntegrationSecretError,
     aget_integration_by_id,
@@ -169,7 +169,7 @@ __all__ = [
     "UndecryptedIntegrationSecretError",
     "integration_secret_decrypt_counter",
     "IntegrationQuerySet",
-    "IntegrationManager",
+    "IntegrationModelManager",
     "Integration",
     "defer_repository_cache_fields",
     "aget_integration_by_id",

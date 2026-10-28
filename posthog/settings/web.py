@@ -112,6 +112,7 @@ PRODUCTS_APPS = [
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
     "products.web_analytics.backend.apps.WebAnalyticsConfig",
+    "products.integrations.backend.apps.IntegrationsConfig",
     "products.warehouse_sources.backend.apps.WarehouseSourcesConfig",
     "products.data_tools.backend.apps.DataToolsConfig",
     "products.alerts.backend.apps.AlertsConfig",
