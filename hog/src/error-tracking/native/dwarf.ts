@@ -548,7 +548,8 @@ export function parseLineHeader(
     }
     const headerLength = rest.offset(is64)
     const hdr = rest.split(headerLength)
-    if (hdr.u8() === 0) {
+    const minInstLength = hdr.u8()
+    if (minInstLength === 0) {
         throw new DwarfError('minimum instruction length zero')
     }
     const maxOps = version >= 4 ? hdr.u8() : 1
@@ -557,14 +558,15 @@ export function parseLineHeader(
     }
     hdr.u8() // default_is_stmt
     hdr.i8() // line_base
-    if (hdr.u8() === 0) {
+    const lineRange = hdr.u8()
+    if (lineRange === 0) {
         throw new DwarfError('line range zero')
     }
     const opcodeBase = hdr.u8()
     if (opcodeBase === 0) {
         throw new DwarfError('opcode base zero')
     }
-    hdr.split(opcodeBase - 1)
+    const opcodeLengths = hdr.split(opcodeBase - 1)
 
     const enc = { is64, version, addressSize }
     const includeDirs: AttrValue[] = []
@@ -587,6 +589,10 @@ export function parseLineHeader(
             hdr.uleb() // length
             files.push({ path: { k: 'string', v: p }, dirIndex })
         }
+        const programStart = offset + lenSize + fixed + headerLength
+        const program = new Cursor(s.line.read(programStart, unitLength - fixed - headerLength), s.le)
+        const params = { minInstLength, maxOps, lineRange, opcodeBase, opcodeLengths, addressSize }
+        files.push(...definedFiles(program, params))
         return { version, compDir, includeDirs, files }
     }
     const dirFormat = entryFormat(hdr)
@@ -618,6 +624,163 @@ export function parseLineHeader(
     }
     // DWARF 5 has no implicit compilation directory; index 0 is an explicit entry.
     return { version, compDir: null, includeDirs, files }
+}
+
+interface LineProgramParams {
+    minInstLength: number
+    maxOps: number
+    lineRange: number
+    opcodeBase: number
+    opcodeLengths: Cursor
+    addressSize: number
+}
+
+const U64_MAX = (1n << 64n) - 1n
+
+/** gimli `leb128::read::unsigned`, exact to 64 bits. */
+function uleb64(c: Cursor): bigint {
+    let result = 0n
+    let shift = 0n
+    for (;;) {
+        const byte = c.u8()
+        if (shift === 63n && byte !== 0x00 && byte !== 0x01) {
+            throw new DwarfError('bad unsigned LEB128')
+        }
+        result |= BigInt(byte & 0x7f) << shift
+        if ((byte & 0x80) === 0) {
+            return result & U64_MAX
+        }
+        shift += 7n
+    }
+}
+
+function uintBig(c: Cursor, size: number): bigint {
+    const bytes = c.split(size)
+    let value = 0n
+    for (let i = 0; i < size; i++) {
+        value = (value << 8n) | BigInt(bytes.buf[bytes.pos + (c.le ? size - 1 - i : i)]!)
+    }
+    return value
+}
+
+/** gimli `leb128::read::signed`. Only its errors matter here, so it returns nothing. */
+function skipSleb64(c: Cursor): void {
+    let shift = 0
+    for (;;) {
+        const byte = c.u8()
+        if (shift === 63 && byte !== 0x00 && byte !== 0x7f) {
+            throw new DwarfError('bad signed LEB128')
+        }
+        shift += 7
+        if ((byte & 0x80) === 0) {
+            return
+        }
+    }
+}
+
+/**
+ * The files `DW_LNE_define_file` adds while the program runs. symbolic runs every line program
+ * (`DwarfLineProgram::prepare`) until its end or its first error, and gimli appends each defined
+ * file to the header's list. Address arithmetic can raise that error, so it is tracked exactly.
+ */
+function definedFiles(c: Cursor, p: LineProgramParams): LineFile[] {
+    const files: LineFile[] = []
+    const ones = p.addressSize === 8 ? U64_MAX : (1n << BigInt(8 * p.addressSize)) - 1n
+    const minTombstone = (ones - 1n) & ones
+    let address = 0n
+    let opIndex = 0n
+    let tombstone = false
+    const addSized = (length: bigint): void => {
+        const sum = address + length
+        if (sum > U64_MAX || (sum & ~ones) !== 0n) {
+            throw new DwarfError('address overflow')
+        }
+        address = sum
+    }
+    const advance = (operationAdvance: bigint): void => {
+        if (tombstone) {
+            return
+        }
+        const minInst = BigInt(p.minInstLength)
+        const maxOps = BigInt(p.maxOps)
+        let addressAdvance: bigint
+        if (maxOps === 1n) {
+            opIndex = 0n
+            addressAdvance = (minInst * operationAdvance) & U64_MAX
+        } else {
+            const withAdvance = (opIndex + operationAdvance) & U64_MAX
+            opIndex = withAdvance % maxOps
+            addressAdvance = (minInst * (withAdvance / maxOps)) & U64_MAX
+        }
+        addSized(addressAdvance)
+    }
+    try {
+        while (!c.isEmpty()) {
+            const opcode = c.u8()
+            let endSequence = false
+            if (opcode === 0) {
+                const length = uleb64(c)
+                if (length > BigInt(c.remaining)) {
+                    throw new DwarfEof()
+                }
+                const rest = c.split(Number(length))
+                const extended = rest.u8()
+                if (extended === 0x01) {
+                    endSequence = true
+                } else if (extended === 0x02) {
+                    if (p.addressSize !== 1 && p.addressSize !== 2 && p.addressSize !== 4 && p.addressSize !== 8) {
+                        throw new DwarfError('unsupported address size')
+                    }
+                    const value = uintBig(rest, p.addressSize)
+                    tombstone = value < address || value >= minTombstone
+                    if (!tombstone) {
+                        address = value
+                        opIndex = 0n
+                    }
+                } else if (extended === 0x03) {
+                    const path = rest.cstr()
+                    const dirIndex = uleb64(rest)
+                    uleb64(rest) // mtime
+                    uleb64(rest) // length
+                    files.push({ path: { k: 'string', v: path }, dirIndex: Number(dirIndex) })
+                } else if (extended === 0x04) {
+                    uleb64(rest)
+                }
+            } else if (opcode >= p.opcodeBase) {
+                const adjusted = BigInt(opcode - p.opcodeBase)
+                advance(adjusted / BigInt(p.lineRange))
+            } else if (opcode === 0x02) {
+                advance(uleb64(c))
+            } else if (opcode === 0x03) {
+                skipSleb64(c)
+            } else if (opcode === 0x04 || opcode === 0x05 || opcode === 0x0c) {
+                uleb64(c)
+            } else if (opcode === 0x08) {
+                advance(BigInt(255 - p.opcodeBase) / BigInt(p.lineRange))
+            } else if (opcode === 0x09) {
+                const operand = BigInt(c.u16())
+                if (!tombstone) {
+                    addSized(operand)
+                    opIndex = 0n
+                }
+            } else if (opcode > 0x0c) {
+                const args = p.opcodeLengths.buf[p.opcodeLengths.pos + opcode - 1]!
+                for (let i = 0; i < args; i++) {
+                    uleb64(c)
+                }
+            }
+            if (endSequence) {
+                address = 0n
+                opIndex = 0n
+                tombstone = false
+            }
+        }
+    } catch (error) {
+        if (!(error instanceof DwarfError)) {
+            throw error
+        }
+    }
+    return files
 }
 
 function entryFormat(c: Cursor): { type: number; form: number }[] {
