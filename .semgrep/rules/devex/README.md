@@ -37,6 +37,6 @@ For a migration that runs over many PRs, use a per-file baseline instead:
 
 The ratchet fails when a file has more findings than its baseline count, and also when it has fewer. So each migration PR lowers the count or removes the line.
 
-| Rule | Baseline |
-| --- | --- |
+| Rule                                | Baseline                                            |
+| ----------------------------------- | --------------------------------------------------- |
 | `integration-queries-use-with-auth` | `posthog/models/integration/with_auth_baseline.txt` |

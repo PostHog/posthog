@@ -246,7 +246,7 @@ class TestIntegrationWithAuth(BaseTest):
 
     @parameterized.expand(
         [
-            ("all", lambda: Integration.objects.all().with_auth(ANY)),
+            ("all", lambda: Integration.objects.all().with_auth(ANY)),  # type: ignore[attr-defined]
             ("filter", lambda: Integration.objects.filter(kind="github").with_auth(AuthType.TOKEN)),
         ]
     )

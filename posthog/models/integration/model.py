@@ -107,7 +107,7 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
     _implicit_default_auth: bool = False
 
     def _clone(self) -> Self:
-        clone = super()._clone()
+        clone = super()._clone()  # type: ignore[misc]
         clone._auth_requirement = self._auth_requirement
         clone._implicit_default_auth = self._implicit_default_auth
         return clone
@@ -125,7 +125,7 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
                 "with the default auth type of their kind."
             )
         requirement = AuthRequirement.of(*auth_types)
-        queryset = self._chain() if requirement.any else self.filter(requirement.q())
+        queryset = self._chain() if requirement.any else self.filter(requirement.q())  # type: ignore[attr-defined]
         queryset._auth_requirement = requirement
         return queryset
 
@@ -181,7 +181,7 @@ class IntegrationManager(models.Manager["Integration"]):
     _queryset_class = IntegrationQuerySet
 
     def get_queryset(self) -> IntegrationQuerySet:
-        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)
+        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)  # type: ignore[attr-defined]
         if self._is_related_manager():
             return queryset
         return queryset._with_implicit_default_auth()
@@ -189,7 +189,8 @@ class IntegrationManager(models.Manager["Integration"]):
     def with_auth(self, *auth_types: IntegrationAuthType | AuthTypeSelector | str) -> IntegrationQuerySet:
         if self._is_related_manager():
             return self.get_queryset().with_auth(*auth_types)
-        return IntegrationQuerySet(self.model, using=self._db, hints=self._hints).with_auth(*auth_types)
+        queryset = IntegrationQuerySet(self.model, using=self._db, hints=self._hints)  # type: ignore[attr-defined]
+        return queryset.with_auth(*auth_types)
 
     def filter(self, *args: Any, **kwargs: Any) -> IntegrationQuerySet:
         return self.get_queryset().filter(*args, **kwargs)
