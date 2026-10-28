@@ -71,13 +71,20 @@ class TestInsightAlertMessage(SimpleTestCase):
 
     def test_summary_keeps_emphasis_and_blocks_external_links(self) -> None:
         message = self._properties(
-            summary="- **Request time** reached **240 ms** at _10:00 UTC_.\n- [Report](https://untrusted.example/report)"
+            summary="- **Request time** reached **240 ms** at _10:00 UTC_.\n- [Report](https://untrusted.example/report)\n- https://untrusted.example/bare <https://untrusted.example/auto>"
         )
         content = message["slack_alert_details"]
         elements = content["elements"][0]["elements"][0]["elements"]
         assert any(element.get("style", {}).get("bold") for element in elements)
         assert any(element.get("style", {}).get("italic") for element in elements)
         assert '"type": "link"' not in json.dumps(content)
+        text_elements = [
+            element for section in content["elements"] for item in section["elements"] for element in item["elements"]
+        ]
+        assert not any(
+            "untrusted.example" in element["text"] and not element.get("style", {}).get("code")
+            for element in text_elements
+        )
 
     def test_grouped_summary_preserves_groups_and_next_step(self) -> None:
         details = [

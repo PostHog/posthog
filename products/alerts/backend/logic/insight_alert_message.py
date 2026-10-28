@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
+from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.markdown import slack_rich_text
 
@@ -181,7 +182,9 @@ def insight_alert_slack_properties(
     elif summary and summary.strip():
         if len(summary) > INVESTIGATION_SUMMARY_MAX_CHARS:
             summary = summary[: INVESTIGATION_SUMMARY_MAX_CHARS - 3] + "..."
-        content = slack_rich_text(summary, allowed_root=allowed_root)
+        content = slack_rich_text(
+            strip_external_links_markdown(summary, additional_allowed_origin=allowed_root), allowed_root=allowed_root
+        )
     else:
         sections = []
         budget = 2600
