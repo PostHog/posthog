@@ -53,8 +53,9 @@ const REFUSED_PARSE_CACHE_MAX_WEIGHT: u64 = 16 * 1024 * 1024;
 // A parse of a known input size with an estimate above the whole budget is refused, because
 // it can use more memory than the pod has free. The limiter remembers the refusal for
 // `refusal_ttl`, so frames that use the same symbol set do not fetch it again. A parse of an
-// unknown input size is never refused, because its estimate comes from the fetched size only.
-// Such a parse reserves at most the whole budget and runs alone.
+// unknown input size is never refused. Its estimate uses the fetched size and a multiplier that
+// is not measured for these formats, so it is not reliable enough to drop symbol data. Such a
+// parse reserves at most the whole budget and runs alone.
 #[derive(Clone)]
 pub struct ParseLimiter {
     large_parse_bytes: usize,
