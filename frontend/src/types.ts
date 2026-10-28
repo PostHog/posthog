@@ -6597,11 +6597,24 @@ export interface SimpleExternalDataSourceSchema {
     sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
 }
 
+/** The kind of personal or secret data a column's name and type suggest. Mirrors `WarehouseColumnSensitivity`. */
+export type ColumnSensitivity =
+    | 'email'
+    | 'phone'
+    | 'name'
+    | 'address'
+    | 'date_of_birth'
+    | 'ip_address'
+    | 'token'
+    | 'secret'
+    | 'card_number'
+
 export interface AvailableColumn {
     label: string
     field: string
     type: string
     nullable: boolean
+    sensitivity?: ColumnSensitivity | null
 }
 
 /** The comparison operators a row filter may use. Mirrors the backend allowlist. */
@@ -6728,7 +6741,12 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     enabled_columns?: string[] | null
     /** Source columns whose values are replaced with a one-way hash at sync time. */
     masked_columns?: string[] | null
-    available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    available_columns?: {
+        name: string
+        data_type?: string
+        is_nullable?: boolean
+        sensitivity?: ColumnSensitivity | null
+    }[]
     /** Exact source identifiers are available for sources that project columns upstream. */
     source_column_metadata_available?: boolean
     /**
