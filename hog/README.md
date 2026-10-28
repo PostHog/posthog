@@ -60,7 +60,7 @@ Point `$schema` at the published schema to get validation in your editor:
 `hog` reads the same credentials as `posthog-cli`, in the same order:
 
 1. `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` in the environment, plus an optional `POSTHOG_CLI_HOST`
-2. The same variables in the file `--dotenv-file` names
+2. The same variables in the file `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
 3. `~/.posthog/credentials.json`, which `hog auth login` and `posthog-cli login` write (`POSTHOG_HOME` moves the folder). `hog auth login` makes it readable only by you.
 
 `--host` overrides the host from any of these.

@@ -1,6 +1,6 @@
 import { defineCommand } from '@/core/command'
 import { API_KEY_ENV_VARS, posthogFile } from '@/posthog/credentials'
-import { PENDING_LOGIN_FILE } from '@/posthog/device-auth'
+import { clearPendingLogin } from '@/posthog/login'
 
 interface LogoutResult {
     status: 'logged_out' | 'not_logged_in'
@@ -27,7 +27,7 @@ export default defineCommand({
             stored = false
         }
         await runtime.removeFile(credentialsPath)
-        await runtime.removeFile(posthogFile(runtime, PENDING_LOGIN_FILE))
+        await clearPendingLogin(runtime)
         return {
             status: stored ? 'logged_out' : 'not_logged_in',
             credentialsPath,
