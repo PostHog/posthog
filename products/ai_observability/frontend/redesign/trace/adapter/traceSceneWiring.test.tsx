@@ -148,6 +148,20 @@ describe('TraceScene', () => {
             expect(await findByText('Cites a source')).toBeTruthy()
         })
 
+        it('shows the trace git branch in the summary bar', async () => {
+            useMocks({
+                get: {
+                    [TRACE_URL]: () => [
+                        200,
+                        makeTraceResource({ defaultNodeId: 'gen-2', git: { branch: 'feat/rag', repo: 'acme/app' } }),
+                    ],
+                },
+            })
+            const { findByText } = renderNewView()
+
+            expect(await findByText('feat/rag')).toBeTruthy()
+        })
+
         it.each([true, false])('offers add to dataset on the step only when datasets are on (%s)', async (enabled) => {
             const { findByText, queryByText } = renderNewView({ [DATASETS_FLAG]: enabled })
 
