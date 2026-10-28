@@ -21,8 +21,8 @@ export function BIMetricSnapshotContext({ config }: { config: BIConfig }): JSX.E
                 </div>
                 {context ? (
                     <div className="flex flex-wrap items-center gap-2 break-words">
-                        <span>Catalog status when copied:</span>
-                        <LemonTag type={approved ? 'success' : 'warning'}>
+                        <span>Catalog status when copied (unverified):</span>
+                        <LemonTag type={approved ? 'default' : 'warning'}>
                             {context.isDrifted ? 'Drifted' : context.status === 'approved' ? 'Approved' : 'Proposed'}
                         </LemonTag>
                         {context.unit && <span>Unit: {context.unit}</span>}
@@ -31,8 +31,10 @@ export function BIMetricSnapshotContext({ config }: { config: BIConfig }): JSX.E
                 ) : (
                     <span>Catalog status was not recorded for this copy.</span>
                 )}
-                {context && !approved && (
-                    <span>This copy was not an approved, current definition when it was opened.</span>
+                {context && (
+                    <span>
+                        These saved details are unverified. Check the current catalog entry before using this copy.
+                    </span>
                 )}
                 {config.catalogMetric && (
                     <Link to={urls.dataCatalogMetric(config.catalogMetric)}>View current catalog entry</Link>

@@ -14,7 +14,7 @@ it.each([
     ['approved', false, 'Approved'],
     ['proposed', false, 'Proposed'],
     ['approved', true, 'Drifted'],
-] as const)('labels %s, drifted=%s as historical catalog context', (status, is_drifted, label) => {
+] as const)('labels %s, drifted=%s as unverified catalog context', (status, is_drifted, label) => {
     initKeaTests()
     const config = catalogMetricWorksheet({
         id: 'example-metric',
@@ -26,13 +26,14 @@ it.each([
         definition: { kind: NodeKind.HogQLQuery, query: 'SELECT 42' },
     })!.config
     const view = render(<BIMetricSnapshotContext config={config} />)
-    expect(screen.getByText('Catalog status when copied:')).toBeInTheDocument()
+    expect(screen.getByText('Catalog status when copied (unverified):')).toBeInTheDocument()
     expect(screen.getByText(label)).toBeInTheDocument()
     expect(screen.getByText('Unit: usd')).toBeInTheDocument()
     expect(screen.getByText('Owner: analyst@example.com')).toBeInTheDocument()
-    expect(screen.queryByText('This copy was not an approved, current definition when it was opened.') !== null).toBe(
-        status !== 'approved' || is_drifted
-    )
+    expect(
+        screen.getByText('These saved details are unverified. Check the current catalog entry before using this copy.')
+    ).toBeInTheDocument()
+    expect(view.container.querySelector('.LemonTag--success')).not.toBeInTheDocument()
     view.rerender(<BIMetricSnapshotContext config={{ ...config, catalogMetricContext: undefined }} />)
     expect(screen.queryByText('Approved')).not.toBeInTheDocument()
     expect(screen.getByText('Catalog status was not recorded for this copy.')).toBeInTheDocument()
