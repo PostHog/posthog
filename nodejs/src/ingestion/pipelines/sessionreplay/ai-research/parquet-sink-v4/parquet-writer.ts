@@ -1,23 +1,37 @@
-/** Encodes v4 index rows into a Snappy-compressed Parquet buffer, with the types of the COLUMNS table. */
+/** Encodes v4 index rows into a zstd-compressed Parquet buffer, with the types of the COLUMNS table. */
 import { ParquetSchema } from '@dsnp/parquetjs'
+import { PARQUET_COMPRESSION_METHODS } from '@dsnp/parquetjs/dist/lib/compression'
+import { promisify } from 'node:util'
+import { constants, zstdCompress, zstdDecompress } from 'node:zlib'
 
 import { INDEX_COLUMNS, ParquetType, V4Column, V4Index, V4IndexRow } from './index-columns'
 import { parquetRecordsToBuffer } from './parquet-buffer'
 
 type SchemaDef = ConstructorParameters<typeof ParquetSchema>[0]
 
-// Snappy on every column: compression is a per-field option in parquetjs, not a writer option.
+const ZSTD_LEVEL = 3
+const zstdCompressAsync = promisify(zstdCompress)
+const zstdDecompressAsync = promisify(zstdDecompress)
+
+// parquetjs ships no zstd codec, but its codec table is open and its Thrift enum has ZSTD, so the file records the right codec.
+PARQUET_COMPRESSION_METHODS.ZSTD = {
+    deflate: (value: Buffer) =>
+        zstdCompressAsync(value, { params: { [constants.ZSTD_c_compressionLevel]: ZSTD_LEVEL } }),
+    inflate: (value: Buffer) => zstdDecompressAsync(value),
+}
+
+// Zstd on every column: compression is a per-field option in parquetjs, not a writer option.
 function schemaDef(columns: readonly V4Column[]): SchemaDef {
     const def: Record<string, unknown> = {}
     for (const column of columns) {
         if ('repeated' in column) {
             def[column.name] = { repeated: true, fields: schemaDef(column.fields) }
         } else if ('list' in column) {
-            def[column.name] = { type: column.list, repeated: true, compression: 'SNAPPY' }
+            def[column.name] = { type: column.list, repeated: true, compression: 'ZSTD' }
         } else {
             def[column.name] = {
                 type: column.type,
-                compression: 'SNAPPY',
+                compression: 'ZSTD',
                 ...(column.optional && { optional: true }),
                 ...(column.opaque && { statistics: false }),
             }
@@ -29,6 +43,24 @@ function schemaDef(columns: readonly V4Column[]): SchemaDef {
 const SCHEMAS: Record<V4Index, ParquetSchema> = {
     blocks: new ParquetSchema(schemaDef(INDEX_COLUMNS.blocks)),
     images: new ParquetSchema(schemaDef(INDEX_COLUMNS.images)),
+}
+
+const compareStrings = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+
+const compareNumbersNullsLast = (a: number | null, b: number | null): number =>
+    a === b ? 0 : a === null ? 1 : b === null ? -1 : a - b
+
+function compareBlocks(a: V4IndexRow, b: V4IndexRow): number {
+    return (
+        (a.team_id as number) - (b.team_id as number) ||
+        compareStrings(a.session_id as string, b.session_id as string) ||
+        compareNumbersNullsLast(a.first_ts_ms as number | null, b.first_ts_ms as number | null)
+    )
+}
+
+/** Puts a session's blocks next to each other, so its repeated session and window ids compress to almost nothing. */
+function inFileOrder(index: V4Index, rows: readonly V4IndexRow[]): readonly V4IndexRow[] {
+    return index === 'blocks' ? [...rows].sort(compareBlocks) : rows
 }
 
 function toValue(type: ParquetType, value: unknown): unknown {
@@ -56,7 +88,7 @@ export function indexRowsToParquet(index: V4Index, rows: readonly V4IndexRow[], 
     const columns = INDEX_COLUMNS[index]
     return parquetRecordsToBuffer(
         SCHEMAS[index],
-        rows.map((row) => toRecord(row, columns)),
+        inFileOrder(index, rows).map((row) => toRecord(row, columns)),
         { rowGroupSize }
     )
 }

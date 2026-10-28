@@ -493,7 +493,7 @@ The recorder does not write the two index prefixes itself, as in v3:
 - After a flush stores its packs and blocks, the recorder sends one JSON record per index row to `ai_research_v4_index`. The record's keys are the Parquet column names.
 - The recorder commits without waiting for delivery. A row that is not delivered leaves its block or image stored but not in the index.
 - The v4 Parquet sink reads the topic, groups the rows by index and write day, and writes one file per group and flush as `{ms}-{random}.parquet`. A flush runs every 10 minutes, or at 128 MiB of rows or 1,000,000 rows. The sink commits its offsets only after the files are stored.
-- Index files use four column types: `INT32`, `INT64`, `UTF8` and `BOOLEAN`. Integers are signed. The recorder caps an `INT32` value at the type's range and an `INT64` value at ±(2^53 − 1), so every value is a safe JavaScript integer. It ignores an event timestamp outside the JavaScript date range. Byte counts, offsets and times are `INT64`, the other counts `INT32`. `moments` is a repeated group whose item is named `moments`; an Arrow reader sees a list of structs. `url_fingerprints` and `window_ids` are lists of `UTF8` with no null items. Row groups hold 131072 rows, and every column is snappy-compressed. The sink writes no statistics for `urls`, because a sealed value has no useful order.
+- Index files use four column types: `INT32`, `INT64`, `UTF8` and `BOOLEAN`. Integers are signed. The recorder caps an `INT32` value at the type's range and an `INT64` value at ±(2^53 − 1), so every value is a safe JavaScript integer. It ignores an event timestamp outside the JavaScript date range. Byte counts, offsets and times are `INT64`, the other counts `INT32`. `moments` is a repeated group whose item is named `moments`; an Arrow reader sees a list of structs. `url_fingerprints` and `window_ids` are lists of `UTF8` with no null items. Row groups hold 131072 rows, and every column is zstd-compressed at level 3. Older files can still be snappy-compressed and in arrival order until they expire; Parquet records the codec per column chunk, so a reader handles both. The sink writes no statistics for `urls`, because a sealed value has no useful order.
 - The sink can write a row twice after a restart. The copies have the same `flush_id`, so the rule below does not remove them: readers first drop rows that repeat within one `flush_id`.
 
 ### Block index
@@ -512,6 +512,9 @@ Readers drop duplicates with one rule per (`topic`, `partition`), applied to all
 4. Then walk the incomplete flushes in the same order, with the same overlap check. A kept incomplete flush is best effort: some of its blocks are missing from the index, but the blocks it lists are valid.
 
 A flush keeps or loses its whole range. When two flushes overlap, the reader keeps only the one it reaches first, even when their ranges differ in size, so it never merges parts of two flushes.
+
+Each file holds its rows in (`team_id`, `session_id`, `first_ts_ms`) order, with a null `first_ts_ms` last, so the blocks of a session in one file are adjacent and in time order.
+The order holds only within a file. The blocks of a session spread over many files and write days, and a file is usually one row group, so its min and max statistics do not narrow a lookup.
 
 A reader that needs whole sessions selects them by the start time in the session UUIDv7, not by write day:
 
