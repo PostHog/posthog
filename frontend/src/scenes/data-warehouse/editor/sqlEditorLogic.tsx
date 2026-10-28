@@ -993,7 +993,7 @@ export interface sqlEditorLogicActions {
         value: true
     }
     reviewEditingViewUpdate: (skipReview?: boolean) => {
-        skipReview?: boolean
+        skipReview: boolean | undefined
     }
     reviewViewUpdate: (
         view: UpdateViewPayload,
