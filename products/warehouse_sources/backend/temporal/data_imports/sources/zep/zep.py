@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     make_tracked_session,
     retry_with_deadline,
@@ -24,13 +26,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.zep.settin
 # any Retry-After the API sends on a 429.
 REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRIES = 5
+# The graph list endpoints return a bare JSON list and send the next page's cursor in this header.
+NEXT_CURSOR_HEADER = "Zep-Next-Cursor"
 
 
 class ZepRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ZepResumeConfig:
     # Page-based endpoints (users, threads): the next 1-based page to fetch.
     page_number: int | None = None
@@ -39,6 +43,19 @@ class ZepResumeConfig:
     # added/removed between a crash and the retry can't resume us into the wrong thread.
     thread_id: str | None = None
     cursor: int | None = None
+    # Graph fan-out (graph_edges, graph_nodes, graph_episodes): the graph to resume at and the
+    # opaque page cursor within it. None for the cursor means the first page of that graph.
+    graph_scope: str | None = None
+    graph_owner_id: str | None = None
+    graph_cursor: str | None = None
+    # Set once the last graph's rows are all yielded, so a resume after that reads nothing again.
+    graph_finished: bool = False
+
+
+@frozen
+class GraphOwner:
+    scope: str  # "user" or "graph"
+    owner_id: str
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -55,7 +72,7 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{url}?{urlencode(params)}"
 
 
-@retry_with_deadline(
+_retry_request = retry_with_deadline(
     retry=retry_if_exception_type(
         (
             ZepRetryableError,
@@ -68,6 +85,9 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
+
+
+@_retry_request
 def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
     response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
 
@@ -81,6 +101,26 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         response.raise_for_status()
 
     return response.json()
+
+
+@_retry_request
+def _post_graph_page(
+    session: requests.Session, url: str, headers: dict[str, str], body: dict[str, Any], logger: FilteringBoundLogger
+) -> tuple[list[dict[str, Any]], str | None] | None:
+    """POST one page of a graph list endpoint. Returns the rows and the next cursor, or None on a 404."""
+    response = session.post(url, headers=headers, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise ZepRetryableError(f"Zep API error (retryable): status={response.status_code}, url={url}")
+
+    if response.status_code == 404:
+        return None
+
+    if not response.ok:
+        logger.error(f"Zep API error: status={response.status_code}, url={url}")
+        response.raise_for_status()
+
+    return response.json() or [], response.headers.get(NEXT_CURSOR_HEADER) or None
 
 
 def validate_credentials(api_key: str) -> bool:
@@ -250,6 +290,135 @@ def _fan_out_message_rows(
         cursor = 0  # only the resumed-into thread uses the saved cursor
 
 
+def _iter_ids(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, endpoint: str, id_field: str
+) -> Iterator[str]:
+    """Lazily page a page-numbered list endpoint (users, graphs), yielding one id at a time."""
+    config = ZEP_ENDPOINTS[endpoint]
+    assert config.page_number_param is not None and config.page_size_param is not None
+    page_number = 1
+    seen = 0
+    while True:
+        params: dict[str, Any] = {
+            config.page_size_param: config.page_size,
+            config.page_number_param: page_number,
+            "order_by": "created_at",
+            "asc": "true",
+        }
+        data = _fetch_page(session, _build_url(config.path, params), headers, logger)
+        items = data.get(config.data_key) or []
+        if not items:
+            break
+        for item in items:
+            item_id = item.get(id_field)
+            if item_id:
+                yield item_id
+        seen += len(items)
+        total_count = data.get("total_count")
+        if (total_count is not None and seen >= total_count) or len(items) < config.page_size:
+            break
+        page_number += 1
+
+
+def _iter_graph_owners(
+    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
+) -> Iterator[GraphOwner]:
+    """Yield every user graph, then every standalone graph."""
+    for user_id in _iter_ids(session, headers, logger, "users", "user_id"):
+        yield GraphOwner(scope="user", owner_id=user_id)
+    for graph_id in _iter_ids(session, headers, logger, "graphs", "graph_id"):
+        yield GraphOwner(scope="graph", owner_id=graph_id)
+
+
+def _graph_row(item: dict[str, Any], scope: str, owner_id: str) -> dict[str, Any]:
+    return {
+        **item,
+        "graph_scope": scope,
+        "graph_owner_id": owner_id,
+        "user_id": owner_id if scope == "user" else None,
+        "graph_id": owner_id if scope == "graph" else None,
+    }
+
+
+def _fan_out_graph_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[ZepResumeConfig],
+    config: ZepEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan out over every user graph and standalone graph, yielding the graph's edges, nodes or episodes."""
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.graph_finished:
+        return
+
+    owners: Iterator[GraphOwner] = iter(_iter_graph_owners(session, headers, logger))
+    resume_cursor: str | None = None
+
+    if resume is not None and resume.graph_scope is not None and resume.graph_owner_id is not None:
+        target = GraphOwner(scope=resume.graph_scope, owner_id=resume.graph_owner_id)
+        for owner in owners:
+            if owner == target:
+                break
+        else:
+            logger.warning(f"Zep: resume graph {target} no longer present, ending {config.name}")
+            return
+        owners = itertools.chain([target], owners)
+        resume_cursor = resume.graph_cursor
+
+    def _stage_next_owner(nxt: GraphOwner | None) -> None:
+        if nxt is None:
+            resumable_source_manager.save_state(ZepResumeConfig(graph_finished=True))
+        else:
+            resumable_source_manager.save_state(ZepResumeConfig(graph_scope=nxt.scope, graph_owner_id=nxt.owner_id))
+
+    # One owner of lookahead so the bookmark can point at the next graph before its rows exist.
+    current = next(owners, None)
+    while current is not None:
+        nxt = next(owners, None)
+        scope, owner_id = current.scope, current.owner_id
+        # user_id and graph_id are user-defined strings; escape path-significant characters.
+        path = config.path.format(scope=scope, owner_id=quote(owner_id, safe=""))
+        cursor, resume_cursor = resume_cursor, None
+
+        while True:
+            body: dict[str, Any] = {"limit": config.page_size, "order_by": "created_at", "direction": "asc"}
+            if cursor:
+                body["cursor"] = cursor
+
+            page = _post_graph_page(session, _build_url(path, {}), headers, body, logger)
+            if page is None:
+                # The user or graph was deleted after we listed it.
+                logger.warning(f"Zep: {config.name} for {scope} {owner_id} returned 404, skipping")
+                items: list[dict[str, Any]] = []
+                next_cursor = None
+            else:
+                items, next_cursor = page
+                if next_cursor == cursor:
+                    # A repeated cursor would loop forever on the same page.
+                    next_cursor = None
+
+            if not items:
+                _stage_next_owner(nxt)
+                resumable_source_manager.safe_point()
+                break
+
+            if next_cursor:
+                resumable_source_manager.save_state(
+                    ZepResumeConfig(graph_scope=scope, graph_owner_id=owner_id, graph_cursor=next_cursor)
+                )
+            else:
+                _stage_next_owner(nxt)
+
+            yield [_graph_row(item, scope, owner_id) for item in items]
+
+            if not next_cursor:
+                break
+            cursor = next_cursor
+
+        current = nxt
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -267,6 +436,8 @@ def get_rows(
 
     if config.fan_out_over_threads:
         yield from _fan_out_message_rows(session, headers, logger, resumable_source_manager, config)
+    elif config.fan_out_over_graphs:
+        yield from _fan_out_graph_rows(session, headers, logger, resumable_source_manager, config)
     else:
         yield from _page_based_rows(session, headers, logger, resumable_source_manager, config)
 
@@ -288,8 +459,9 @@ def zep_source(
             resumable_source_manager=resumable_source_manager,
         ),
         primary_keys=config.primary_keys,
-        # Rows arrive oldest-first (created_at ascending / message cursor order).
-        sort_mode="asc",
+        # Rows arrive oldest-first (created_at ascending / message cursor order). The graph fan-out
+        # restarts the order for each graph, so it is not one ordered series.
+        sort_mode=None if config.fan_out_over_graphs else "asc",
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
