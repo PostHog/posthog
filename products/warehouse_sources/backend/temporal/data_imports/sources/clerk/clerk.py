@@ -310,7 +310,15 @@ def validate_credentials(secret_key: str) -> tuple[bool, str | None]:
 
 # Clerk error codes meaning "this account has not switched the feature on". Paired with the
 # statuses Clerk returns them under: 402 carries no body code, so the status alone is the signal.
-_FEATURE_DISABLED_CODES = frozenset({"billing_not_enabled", "feature_not_enabled"})
+_FEATURE_DISABLED_CODES = frozenset(
+    {
+        "billing_not_enabled",
+        "feature_not_enabled",
+        "organization_not_enabled_in_instance",
+        # Enterprise SSO connections need email address sign-in on the instance.
+        "feature_requires_email_address_enabled",
+    }
+)
 
 # A gated list endpoint (the Restrictions allow-list and block-list) answers 404 `resource_not_found`
 # instead of a 4xx feature code when its feature is off. This check only runs for endpoints that carry
@@ -323,7 +331,7 @@ def _is_feature_disabled(response: Optional[Response]) -> bool:
         return False
     if response.status_code == 402:
         return True
-    if response.status_code not in (400, 403, 404):
+    if response.status_code not in (400, 403, 404, 422):
         return False
 
     try:

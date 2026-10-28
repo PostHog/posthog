@@ -6,13 +6,16 @@ vectors. A worker outage only delays ranks, and a database outage shorter than t
 """
 
 import time
+import uuid
 import signal
 import asyncio
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Any, Literal, Protocol
 
 from django.conf import settings
 from django.db import close_old_connections
+from django.utils import timezone
 
 import orjson
 import structlog
@@ -32,6 +35,8 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDING_MODEL,
 )
 from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
+from products.replay_vision.backend.watch_semantics import assign_semantics
+from products.replay_vision.backend.watch_themes import name_theme
 
 logger = structlog.get_logger(__name__)
 
@@ -42,10 +47,11 @@ _POLL_TIMEOUT_S = 1.0
 # A batch stops after this long and goes back to Kafka, so the loop polls well inside the poll interval.
 _BATCH_BUDGET_S = 240.0
 _MAX_POLL_INTERVAL_S = 360.0
-# ClickHouse loads the embeddings table from its own topic some seconds after the worker writes both.
-_CLICKHOUSE_VISIBILITY_DELAY_S = 30.0
 # How long one observation keeps failing, across batches, before the consumer moves past it.
 _RETRY_WINDOW_S = 600.0
+_NAMING_DRAIN_S = 20.0
+# A due theme left unnamed while this many are in flight is named when its next member arrives.
+_MAX_NAMING_TASKS = 8
 _RETRY_BACKOFF_S = 2.0
 _RETRY_BACKOFF_MAX_S = 60.0
 
@@ -108,6 +114,8 @@ class WatchRankConsumer:
         self._stop = asyncio.Event()
         # When each observation that is still failing first failed, so its retry window spans batches.
         self._first_failed_at: dict[str, float] = {}
+        # Naming calls run beside the loop, so a slow model call never holds up ranking. Kept to stop collection.
+        self._naming: set[asyncio.Task[Any]] = set()
 
     async def _wait(self, seconds: float) -> bool:
         """Sleep, unless shutdown comes first. True when the full time passed."""
@@ -117,19 +125,19 @@ class WatchRankConsumer:
             return True
         return False
 
-    async def handle(self, value: bytes | None, produced_at: float, batch_deadline: float) -> Outcome:
+    async def handle(self, value: bytes | None, batch_deadline: float) -> Outcome:
         """Rank the observation in one message, retrying failures until the batch or retry window ends."""
         request = parse_rank_request(value)
         if request is None:
             return "skipped"
-        if not await self._wait(produced_at + _CLICKHOUSE_VISIBILITY_DELAY_S - time.time()):
-            return "interrupted"
         backoff = _RETRY_BACKOFF_S
         while True:
             # Async ORM calls share one thread, so a connection that broke must be replaced before a retry.
             await sync_to_async(close_old_connections)()
             try:
                 outcome = await rank_observation(request)
+                if outcome != "missing":
+                    await self._semantics(request)
                 self._first_failed_at.pop(request.observation_id, None)
                 return outcome
             except Exception:
@@ -151,6 +159,32 @@ class WatchRankConsumer:
                 return "interrupted"
             backoff = min(backoff * 2, _RETRY_BACKOFF_MAX_S)
 
+    async def _semantics(self, request: RankRequest) -> None:
+        """Put a ranked observation in a feed group and a theme, and name the theme in the background once it is due."""
+        now = timezone.now()
+        assignment = await sync_to_async(assign_semantics)(
+            team_id=request.team_id,
+            scanner_id=request.scanner_id,
+            observation_id=request.observation_id,
+            vector=request.vector,
+            now=now,
+        )
+        if assignment is None or assignment.theme is None or not assignment.theme.name_due:
+            return
+        if len(self._naming) >= _MAX_NAMING_TASKS:
+            return
+        task = asyncio.create_task(self._name(request.team_id, assignment.theme.theme_id, now))
+        self._naming.add(task)
+        task.add_done_callback(self._naming.discard)
+
+    @staticmethod
+    async def _name(team_id: int, theme_id: uuid.UUID, now: datetime) -> None:
+        try:
+            await name_theme(team_id, theme_id, now)
+        except Exception:
+            # A theme that missed its name is named again when it next doubles.
+            logger.exception("replay_vision.watch_rank_consumer.theme_naming_failed", team_id=team_id)
+
     async def process_batch(self, consumer: BatchConsumer, messages: Sequence[Message]) -> None:
         batch_deadline = time.monotonic() + _BATCH_BUDGET_S
         for index, message in enumerate(messages):
@@ -159,8 +193,7 @@ class WatchRankConsumer:
             if message.error():
                 logger.warning("replay_vision.watch_rank_consumer.kafka_error", error=str(message.error()))
                 continue
-            _, produced_at_ms = message.timestamp()
-            outcome = await self.handle(message.value(), produced_at_ms / 1000, batch_deadline)
+            outcome = await self.handle(message.value(), batch_deadline)
             self._liveness.record_heartbeat()
             if outcome == "interrupted":
                 return
@@ -232,4 +265,7 @@ class WatchRankConsumer:
                 await self.process_batch(consumer, messages)
         finally:
             consumer.close()
+            # A theme claimed for naming stays unnamed until it doubles, so in-flight names get a moment to finish.
+            if self._naming:
+                await asyncio.wait(self._naming, timeout=_NAMING_DRAIN_S)
             logger.info("replay_vision.watch_rank_consumer.stopped")

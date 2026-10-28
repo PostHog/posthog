@@ -165,6 +165,7 @@ You can create an API client in your controller under **Administration → API C
                     ),
                     SourceFieldInputConfig(
                         name="metric_paths",
+                        sync_setting=True,
                         label="Metric paths (one per line)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,
@@ -173,6 +174,7 @@ You can create an API client in your controller under **Administration → API C
                     ),
                     SourceFieldInputConfig(
                         name="event_types",
+                        sync_setting=True,
                         label="Event types (one per line)",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=False,

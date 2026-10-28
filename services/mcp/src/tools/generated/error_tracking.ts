@@ -855,6 +855,9 @@ const queryErrorTrackingIssuesList = (): ToolBase<
         handler: async (context: Context, params: z.infer<ReturnType<typeof QueryErrorTrackingIssuesListSchema>>) => {
             const projectId = await context.stateManager.getProjectId()
             const body: Record<string, unknown> = {}
+            if (params.firstSeenAfter !== undefined) {
+                body['firstSeenAfter'] = params.firstSeenAfter
+            }
             if (params.dateRange !== undefined) {
                 body['dateRange'] = params.dateRange
             }

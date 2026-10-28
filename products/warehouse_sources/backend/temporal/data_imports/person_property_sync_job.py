@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
+    is_worker_interruption,
     record_completed_runs,
     record_failed_runs,
     record_started_runs,
@@ -44,7 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 
 logger = structlog.get_logger(__name__)
 
-INTERRUPTED_RUN_NEXT_STEP = "The next sync will try again."
+INTERRUPTED_RUN_NEXT_STEP = "Check the source status, then click Sync now to try again."
 # Three recorder attempts of up to 5 minutes each.
 RECORD_FAILED_RUN_RESERVE = timedelta(minutes=15)
 RECORD_FAILED_RUN_PATCH = "person-property-sync-record-failed-run-2026-10"
@@ -149,6 +150,7 @@ async def record_failed_person_property_sync_runs_activity(inputs: PersonPropert
         started_at=inputs.started_at,
         finished_at=datetime.now(UTC).isoformat(),
         error=inputs.error,
+        count_failure=inputs.count_failure,
     )
     PERSON_PROPERTY_SYNC_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
 
@@ -191,6 +193,7 @@ class SyncWarehousePersonPropertiesWorkflow(PostHogWorkflow):
                             trigger="scheduled",
                             started_at=info.start_time.isoformat(),
                             error=failed_run_error(e, INTERRUPTED_RUN_NEXT_STEP),
+                            count_failure=not is_worker_interruption(e),
                         ),
                         start_to_close_timeout=timedelta(minutes=5),
                         retry_policy=RetryPolicy(maximum_attempts=3),
