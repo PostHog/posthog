@@ -73,7 +73,6 @@ class SecureEnclaveSigningSetup:
         self.protection = protection
         self.use_global = use_global
         self.repos = repos
-        # A target is a repository root, or None for the global config.
         self.targets: list[Path | None] = []
         self.previous_settings: dict[Path | None, dict[str, str | None]] = {}
 
@@ -119,12 +118,11 @@ class SecureEnclaveSigningSetup:
         click.echo("\nThese stop using your current signing key. Current values in effect:")
         for target in self.targets:
             click.echo(f"  {'Global git config (every repository)' if target is None else target}")
-            # `git -C <repo> config --get` without a scope shows the value in effect, global included.
-            effective = ["git", "config"] if target is None else ["git", "-C", str(target), "config"]
+            effective_command = ["git", "config"] if target is None else ["git", "-C", str(target), "config"]
             self.previous_settings[target] = {}
             for setting in GIT_SETTINGS:
                 self.previous_settings[target][setting] = self._git_config_get(git_config_command(target), setting)
-                click.echo(f"    {setting} = {self._git_config_get(effective, setting) or '(unset)'}")
+                click.echo(f"    {setting} = {self._git_config_get(effective_command, setting) or '(unset)'}")
         click.echo("SSH logins and pushes keep using your current SSH agent.")
         click.confirm("Continue?", abort=True)
 
