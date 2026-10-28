@@ -227,21 +227,21 @@ Masking rewrites `properties.<key>` reads and strips keys from a JSON blob. It d
 Several catalog tables expose such columns because reading them scans far less data than digging the value out of the blob: `events` exposes `$session_id`, `$window_id`, and `$group_0`..`$group_4`; `flag_evaluations` exposes `flag_key`, `response`, `session_id`, `request_id`, and `$group_0`..`$group_4`.
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
-`flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_properties_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+`flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_property_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 `intent_text` on `posthog.mcp_intent_assignments` and `posthog.raw_mcp_intent_assignments` holds a truncated copy of `$mcp_intent` and masks the same way.
 `intent_hash` on both tables masks with it, because it is the unsalted sha256 of the full text, so a reader could confirm a guessed text by comparing hashes.
 When `intent_hash` is masked, `posthog.mcp_intent_assignments` returns no rows, because it picks one row per hash and a NULL hash would merge every intent into one row.
-The intent pipeline also embeds each `$mcp_intent` value into the shared embedding tables (`document_embeddings`, `raw_document_embeddings` and the per-model tables), with the text in `content` and the hash in `document_id`.
-Other products share those columns, so `restricted_embedding_documents()` masks them per row: a row with `product = 'mcp_analytics'` and `document_type = 'mcp-intent'` reads as NULL, and every other row reads as stored.
-`conversation_hashes` on `posthog.mcp_intent_calls_hourly` and `posthog.mcp_intent_topic_daily` holds the unsalted cityHash64 of each conversation id, read from `$mcp_session_id` or `$session_id`, so it masks when either property is restricted.
-It reads as an empty array rather than NULL, so array functions over it still run and count no conversations.
+The intent pipeline also embeds each `$mcp_intent` value into the shared embedding tables (`document_embeddings`, `raw_document_embeddings` and the per-model tables), with the text in `content`, the hash in `document_id` and the vector in `embedding`.
+Other products share those columns, so `restricted_embedding_documents()` masks them per row: on a row with `product = 'mcp_analytics'` and `document_type = 'mcp-intent'`, `content` and `document_id` read as NULL and `embedding` reads as an empty array, and every other row reads as stored.
+The check uses the stored column name, so a column alias such as `FROM raw_document_embeddings AS e(document_type, product)` cannot rename a column out of the mask. When an alias hides the stored `product` or `document_type` column, every row reads as masked.
+The pipeline copies no other event property into the embedding `metadata`.
 The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
 The same rule applies when a filter or an aggregate reads the column.
 Nested keys in an allowed AI payload are not separate event properties: a restriction on the event property `content` does not restrict `input.content`.
 That resolver rewrites a restricted mirror column to the same `Constant(value=None, type=StringType(nullable=True))` the source property lowers to, before the AST reaches the printer — so the mirror column and its source property are one AST node by the time comparisons and nullability are decided, not two independently masked spellings that could drift apart.
-Covering `events`' remaining mirror columns, or a future catalog table's, means adding it to `_FLAG_EVALUATIONS_MIRRORED_COLUMNS`'s sibling mapping (or a new one `mirrored_properties_for_column` dispatches to) rather than a print-time patch.
+Covering `events`' remaining mirror columns, or a future catalog table's, means adding it to `_FLAG_EVALUATIONS_MIRRORED_COLUMNS`'s sibling mapping (or a new one `mirrored_property_for_column` dispatches to) rather than a print-time patch.
 
 ### No user: default rules apply
 
