@@ -8,12 +8,10 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.dashboards.evals.offline_config import offline_suite
 from products.dashboards.evals.scorers import SavedWidgetState, WidgetFirstWriteValid
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
-
-NO_SEND_LOGS = True
 
 DASHBOARD_NAME = "Release health"
 ERROR_TRACKING_WIDGET = "error_tracking_list"
@@ -41,8 +39,7 @@ def seed_error_tracking_widget(context: CustomPromptSandboxContext) -> dict[str,
 
 
 async def eval_dashboard_widgets(ctx: EvalContext) -> None:
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         experiment_name="sandboxed-dashboards-widgets-cli",
         offline_suite=offline_suite(
             "dashboards/eval_dashboard_widgets::eval_dashboard_widgets",

@@ -60,15 +60,19 @@ _AI_EVENTS_MIRRORED_COLUMNS = {column: property_name for property_name, column i
 # sha256. Anyone can hash a guessed text and compare, so the hash reveals the text as much as the copy does.
 # The rollups also keep the unsalted cityHash64 of each conversation id, which the pipeline reads from
 # `$mcp_session_id` and falls back to `$session_id`. The hash reveals the id, so restricting either masks it.
+# Their `tool` column copies the tool name, so restricting any property it is read from masks it.
 _MCP_INTENT_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     "intent_text": ("$mcp_intent",),
     "intent_hash": ("$mcp_intent",),
     "conversation_hashes": ("$mcp_session_id", "$session_id"),
+    # The rollups' effective tool name reads the exec wrapper's target before `$mcp_tool_name`.
+    "tool": ("$mcp_tool_name", "$mcp_exec_tool_call_name", "$mcp_exec_target_tool"),
 }
 
 
-# The same pipeline embeds each `$mcp_intent` value into the shared embedding tables, with the text in `content` and
-# the hash in `document_id`. Other products share those columns, so only the rows of the copied property mask.
+# The same pipeline embeds each `$mcp_intent` value into the shared embedding tables, with the text in `content`,
+# the hash in `document_id` and the vector in `embedding`. A vector of a public model confirms a guessed text as well
+# as the hash does. Other products share those columns, so only the rows of the copied property mask.
 @frozen
 class EmbeddedDocumentKind:
     product: str
@@ -78,7 +82,7 @@ class EmbeddedDocumentKind:
 _EMBEDDED_PROPERTY_DOCUMENTS: dict[str, EmbeddedDocumentKind] = {
     "$mcp_intent": EmbeddedDocumentKind(product="mcp_analytics", document_type="mcp-intent")
 }
-_EMBEDDING_MIRRORED_COLUMNS = frozenset({"content", "document_id"})
+_EMBEDDING_MIRRORED_COLUMNS = frozenset({"content", "document_id", "embedding"})
 
 
 def mirrored_properties_for_column(table_type: ast.Type, column_name: str, context: HogQLContext) -> tuple[str, ...]:
@@ -123,7 +127,10 @@ def mirrored_column_is_restricted(table_type: ast.Type, column_name: str, contex
 def restricted_embedding_documents(
     table_type: ast.Type, column_name: str, context: HogQLContext
 ) -> list[EmbeddedDocumentKind]:
-    """The document kinds whose rows read as NULL in this embedding column, or an empty list."""
+    """The document kinds whose rows read as masked in this stored embedding column, or an empty list.
+
+    `column_name` is the stored column name, not the name a column alias gives it in the query.
+    """
     if column_name not in _EMBEDDING_MIRRORED_COLUMNS or not isinstance(table_type, ast.BaseTableType):
         return []
     try:

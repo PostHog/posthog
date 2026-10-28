@@ -14,9 +14,11 @@ from posthog.schema import DateRange, MCPIntentTopicsQuery  # noqa: E402
 from posthog.hogql.parser import parse_select  # noqa: E402
 from posthog.hogql.query import execute_hogql_query  # noqa: E402
 
+from posthog.models.team.team import Team  # noqa: E402
+
 from products.mcp_analytics.backend.hogql_queries.intent_topics import MCPIntentTopicsQueryRunner  # noqa: E402
 from products.mcp_analytics.backend.intent_hash import intent_hash  # noqa: E402
-from products.mcp_analytics.backend.intent_topics import pipeline, rollups  # noqa: E402
+from products.mcp_analytics.backend.intent_topics import persist, pipeline, rollups  # noqa: E402
 from products.mcp_analytics.backend.intent_topics.corpus import HourlyCalls  # noqa: E402
 from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel  # noqa: E402
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic  # noqa: E402
@@ -110,6 +112,63 @@ class TestRunSync(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBase
         ).results
 
         assert (hourly, daily) == ([(3, 3)], [(3, 3)])
+
+    def _call(self, text: str, at, team: Team | None = None) -> None:
+        _create_event(
+            team=team or self.team,
+            event="$mcp_tool_call",
+            distinct_id="a",
+            timestamp=at,
+            properties={"$mcp_tool_name": "query-trends", "$mcp_intent": text},
+        )
+
+    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
+    def test_a_window_over_the_budget_is_drained_across_runs_without_losing_intents(self, mock_emit) -> None:
+        start = NOW - timedelta(hours=3)
+        for text, hour in (("a", 0), ("b", 0), ("a", 1), ("c", 1), ("d", 2)):
+            self._call(text, start + timedelta(hours=hour, minutes=20))
+        flush_persons_and_events()
+
+        first = pipeline.run_sync(self.team, window_start=start, window_end=NOW, budget=2, page_size=1)
+
+        assert (first.status, first.n_intents) == ("succeeded", 2)
+        assert MCPIntentClusteringRun.objects.get(run_id=first.run_id).window_end == start + timedelta(hours=1)
+        for call in mock_emit.call_args_list:
+            insert_intent_embedding(self.team.pk, call.kwargs["document_id"], call.kwargs["content"], at=start)
+        resume = pipeline.sync_window_start(self.team, now=NOW)
+        assert resume == start + timedelta(hours=1) - pipeline.SYNC_RESUME_OVERLAP
+
+        second = pipeline.run_sync(self.team, window_start=resume, window_end=NOW, budget=100, page_size=1)
+
+        assert second.status == "succeeded"
+        assert MCPIntentClusteringRun.objects.get(run_id=second.run_id).window_end == NOW
+        emitted = [call.kwargs["document_id"] for call in mock_emit.call_args_list]
+        assert sorted(emitted) == sorted(intent_hash(t) for t in ("a", "b", "c", "d"))
+
+    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
+    def test_one_hour_over_the_budget_is_still_drained_whole(self, mock_emit) -> None:
+        start = NOW - timedelta(hours=1)
+        for text in ("a", "b", "c"):
+            self._call(text, start + timedelta(minutes=10))
+        flush_persons_and_events()
+
+        outcome = pipeline.run_sync(self.team, window_start=start, window_end=NOW, budget=1, page_size=1)
+
+        assert (outcome.status, outcome.n_intents, outcome.n_embeddings_requested) == ("succeeded", 3, 3)
+        assert MCPIntentClusteringRun.objects.get(run_id=outcome.run_id).window_end == NOW
+
+    @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
+    def test_each_environment_resumes_from_its_own_syncs(self, _mock_emit) -> None:
+        sibling = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Sibling"
+        )
+        sibling_end = NOW - timedelta(hours=5)
+
+        pipeline.run_sync(sibling, window_start=sibling_end - timedelta(hours=1), window_end=sibling_end)
+        pipeline.run_sync(self.team, window_start=NOW - timedelta(hours=1), window_end=NOW)
+
+        assert pipeline.sync_window_start(sibling, now=NOW) == sibling_end - pipeline.SYNC_RESUME_OVERLAP
+        assert pipeline.sync_window_start(self.team, now=NOW) == NOW - pipeline.SYNC_RESUME_OVERLAP
 
     @patch("products.mcp_analytics.backend.intent_topics.embedding_sync.emit_embedding_request")
     def test_skips_without_consent(self, mock_emit) -> None:
@@ -254,6 +313,7 @@ class TestSyncWindow(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
             status=status,
             window_start=window_end - timedelta(hours=1),
             window_end=window_end,
+            params={persist.SOURCE_TEAM_PARAM: self.team.pk},
         )
 
     def test_first_run_covers_the_default_window(self) -> None:

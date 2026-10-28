@@ -1307,31 +1307,64 @@ class ClickHousePropertyResolver(CloningVisitor):
         ):
             return masked
         if self.context.restricted_properties and isinstance(node.type, ast.FieldType):
-            documents = restricted_embedding_documents(node.type.table_type, node.type.name, self.context)
-            if documents:
-                return self._masked_embedding_rows(node, node.type, documents)
+            resolved_field = node.type.resolve_database_field(self.context)
+            if isinstance(resolved_field, DatabaseField):
+                documents = restricted_embedding_documents(node.type.table_type, resolved_field.name, self.context)
+                if documents:
+                    return self._masked_embedding_rows(node, node.type, resolved_field, documents)
         return super().visit_field(node)
 
     def _masked_embedding_rows(
-        self, node: ast.Field, field_type: ast.FieldType, documents: list[EmbeddedDocumentKind]
+        self,
+        node: ast.Field,
+        field_type: ast.FieldType,
+        resolved_field: DatabaseField,
+        documents: list[EmbeddedDocumentKind],
     ) -> ast.Expr:
-        """The column read as NULL on rows of a restricted property's documents, and as stored on every other row."""
+        """The column read as masked on rows of a restricted property's documents, and as stored on every other row.
 
-        def column(name: str) -> ast.Field:
-            return ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=field_type.table_type))
+        An array column reads as an empty array, which array functions accept. When a column alias hides the stored
+        `product` or `document_type` column, no row can be told apart, so every row reads as masked.
+        """
+        constant_type = resolved_field.get_constant_type()
+        masked: ast.Expr = (
+            ast.Array(exprs=[], type=replace(constant_type, nullable=False))
+            if isinstance(constant_type, ast.ArrayType)
+            else ast.Constant(value=None, type=ast.StringType(nullable=True))
+        )
 
+        def column(stored_name: str) -> ast.Field | None:
+            visible_name: str | None = stored_name
+            if isinstance(field_type.table_type, ast.ColumnAliasedTableType):
+                visible_name = next(
+                    (
+                        alias
+                        for alias, original in field_type.table_type.alias_to_original.items()
+                        if original == stored_name
+                    ),
+                    None,
+                )
+            if visible_name is None:
+                return None
+            return ast.Field(
+                chain=[visible_name], type=ast.FieldType(name=visible_name, table_type=field_type.table_type)
+            )
+
+        product, document_type = column("product"), column("document_type")
+        if product is None or document_type is None:
+            return masked
         is_restricted_row = ast.Or(
             exprs=[
                 ast.And(
                     exprs=[
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=column("product"),
+                            left=clone_expr(product),
                             right=ast.Constant(value=document.product),
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
-                            left=column("document_type"),
+                            left=clone_expr(document_type),
                             right=ast.Constant(value=document.document_type),
                         ),
                     ]
@@ -1339,11 +1372,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                 for document in documents
             ]
         )
-        return ast.Call(
-            name="if",
-            args=[is_restricted_row, ast.Constant(value=None), super().visit_field(node)],
-            type=ast.CallType(name="if", arg_types=[], param_types=[], return_type=ast.StringType(nullable=True)),
-        )
+        return ast.Call(name="if", args=[is_restricted_row, masked, super().visit_field(node)])
 
     def _masked_mirrored_column(self, field_type: ast.FieldType) -> ast.Expr | None:
         """The NULL constant a restricted mirror column reads as, or None if it is unrestricted.

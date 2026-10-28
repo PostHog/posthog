@@ -249,6 +249,11 @@
         "params": [],
         "scope": "project"
     },
+    "applicationObservability": {
+        "template": "/application-observability",
+        "params": [],
+        "scope": "project"
+    },
     "approval": {
         "template": "/approvals/{id}",
         "params": ["id"],
@@ -317,6 +322,11 @@
     "broadcasts": {
         "template": "/broadcasts",
         "params": [],
+        "scope": "project"
+    },
+    "broadcastsTemplate": {
+        "template": "/broadcasts/library/templates/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "businessIntelligence": {
@@ -1837,6 +1847,21 @@
     "tracingRetentionNew": {
         "template": "/tracing/retention-rules/new",
         "params": [],
+        "scope": "project"
+    },
+    "transactional": {
+        "template": "/transactional",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalNew": {
+        "template": "/transactional/new",
+        "params": [],
+        "scope": "project"
+    },
+    "transactionalTemplate": {
+        "template": "/transactional/library/templates/{id}",
+        "params": ["id"],
         "scope": "project"
     },
     "transformations": {

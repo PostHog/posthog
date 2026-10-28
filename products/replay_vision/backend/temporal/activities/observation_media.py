@@ -259,7 +259,6 @@ class _MediaLink:
     position: int
     asset_id: int
     video_start_ms: int
-    rec_start_ms: int | None
     content_location: str
     small_asset_id: int | None
     small_content_location: str | None
@@ -286,9 +285,7 @@ def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> 
                     "team_id": team_id,
                     "asset_id": link.asset_id,
                     "video_start_ms": link.video_start_ms,
-                    "rec_start_ms": link.rec_start_ms,
-                    # Left alone without a copy, so a render from before small copies keeps one the backfill linked.
-                    **({"small_asset_id": link.small_asset_id} if link.small_asset_id is not None else {}),
+                    "small_asset_id": link.small_asset_id,
                 },
             )
             for asset_id, location in link.asset_locations():
@@ -357,7 +354,6 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
                 position=frame.position,
                 asset_id=frame.media_asset_id,
                 video_start_ms=frame.video_start_ms,
-                rec_start_ms=frame.rec_start_ms,
                 content_location=_content_location(result.s3_uri),
                 small_asset_id=frame.small_media_asset_id if small else None,
                 small_content_location=_content_location(result.small_s3_uri)

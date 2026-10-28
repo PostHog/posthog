@@ -6,6 +6,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.clickhouse.client.connection import NodeRole
+
 from products.error_tracking.backend.indexed_embedding import (
     DOCUMENT_EMBEDDINGS_UNION_VIEW_SQL,
     EMBEDDING_TABLES,
@@ -15,17 +17,22 @@ from products.error_tracking.backend.indexed_embedding import (
     ModelTableDefinitions,
 )
 
-MIGRATION_0361 = "posthog.clickhouse.migrations.0361_embedding_model_small_256"
+MIGRATION_0247 = "posthog.clickhouse.migrations.0247_warpstream_shared_kafka_engines"
+MIGRATION_0363 = "posthog.clickhouse.migrations.0363_embedding_model_small_256"
 
 
-def _migration_statements(module_name: str, cloud_deployment: str) -> list[str]:
+def _migration_operations(module_name: str, cloud_deployment: str) -> list:
     module: ModuleType = importlib.import_module(module_name)
     try:
         with mock.patch("posthog.settings.CLOUD_DEPLOYMENT", cloud_deployment):
             module = importlib.reload(module)
-            return [op._sql for op in module.operations]
+            return list(module.operations)
     finally:
         importlib.reload(module)
+
+
+def _migration_statements(module_name: str, cloud_deployment: str) -> list[str]:
+    return [op._sql for op in _migration_operations(module_name, cloud_deployment)]
 
 
 def _mv_source_and_target(statements: list[str], mv_name: str) -> list[tuple[int, str, str]]:
@@ -100,8 +107,8 @@ class TestMigrationReplay:
         assert all("text_embedding_3_small_256" not in sql for sql in statements)
 
     @parameterized.expand(["", "US", "EU", "DEV"])
-    def test_migration_0361_replaces_the_union_view_without_dropping_it(self, cloud_deployment):
-        statements = _migration_statements(MIGRATION_0361, cloud_deployment)
+    def test_migration_0363_replaces_the_union_view_without_dropping_it(self, cloud_deployment):
+        statements = _migration_statements(MIGRATION_0363, cloud_deployment)
         assert not any(re.search(r"DROP VIEW", sql) for sql in statements)
         view_sql = [sql for sql in statements if "posthog_document_embeddings_union_view" in sql]
         assert len(view_sql) == 1
@@ -109,18 +116,8 @@ class TestMigrationReplay:
         for table in [*EMBEDDING_TABLES_1, *EMBEDDING_TABLES_2]:
             assert f"FROM {table.distributed_table_name()}" in view_sql[0]
 
-    @parameterized.expand(
-        [
-            ("hobby_and_local", "", "kafka_posthog_document_embeddings", False),
-            ("us", "US", "kafka_posthog_document_embeddings_ws", True),
-            ("eu", "EU", "kafka_posthog_document_embeddings_ws", True),
-            ("dev", "DEV", "kafka_posthog_document_embeddings_ws", True),
-        ]
-    )
-    def test_migration_0361_resumes_the_buffer_from_the_active_kafka_source(
-        self, _name, cloud_deployment, kafka_source, warpstream_consumer_paused
-    ):
-        statements = _migration_statements(MIGRATION_0361, cloud_deployment)
+    def test_migration_0363_resumes_the_buffer_from_the_msk_kafka_table_outside_cloud(self):
+        statements = _migration_statements(MIGRATION_0363, "")
         model_mv_positions = [
             position
             for position, sql in enumerate(statements)
@@ -131,26 +128,24 @@ class TestMigrationReplay:
 
         buffer_mvs = _mv_source_and_target(statements, "posthog_document_embeddings_kafka_to_buffer_mv")
         assert [(target, source) for _, target, source in buffer_mvs] == [
-            ("writable_posthog_document_embeddings_buffer", kafka_source)
+            ("writable_posthog_document_embeddings_buffer", "kafka_posthog_document_embeddings")
         ]
         assert buffer_mvs[0][0] > max(model_mv_positions)
         assert statements[0].strip() == "DROP TABLE IF EXISTS posthog_document_embeddings_kafka_to_buffer_mv"
+        assert not any("posthog_document_embeddings_ws_mv" in sql for sql in statements)
 
-        ws_drops = [
-            i
-            for i, sql in enumerate(statements)
-            if sql.strip() == "DROP TABLE IF EXISTS posthog_document_embeddings_ws_mv"
-        ]
+    @parameterized.expand(["US", "EU", "DEV"])
+    def test_migration_0363_leaves_deployed_cloud_ingestion_running(self, cloud_deployment):
+        operations = _migration_operations(MIGRATION_0363, cloud_deployment)
+        assert operations
+        assert [op._sql for op in operations if op._node_roles != [NodeRole.DATA]] == []
+
+    def test_migration_0247_points_the_warpstream_mv_at_the_buffer(self):
+        statements = _migration_statements(MIGRATION_0247, "US")
         ws_mvs = _mv_source_and_target(statements, "posthog_document_embeddings_ws_mv")
-        if warpstream_consumer_paused:
-            assert ws_drops and ws_drops[0] < min(model_mv_positions)
-            assert [(target, source) for _, target, source in ws_mvs] == [
-                ("writable_posthog_document_embeddings", "kafka_posthog_document_embeddings_ws")
-            ]
-            assert ws_mvs[0][0] > max(model_mv_positions)
-        else:
-            assert ws_drops == []
-            assert ws_mvs == []
+        assert [(target, source) for _, target, source in ws_mvs] == [
+            ("writable_posthog_document_embeddings_buffer", "kafka_posthog_document_embeddings_ws")
+        ]
 
 
 class TestResponseSchema:

@@ -1,6 +1,8 @@
 import json
 from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
@@ -33,6 +35,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalScoutConfig,
     SignalScoutRun,
+    SignalSpend,
 )
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_metrics import ReportMetric
@@ -59,7 +62,7 @@ from products.signals.backend.scout_report import (
 from products.signals.backend.scout_report.judge import resolve_authored_report_status
 from products.signals.backend.scout_report.persistence import _report_metrics_unchanged
 from products.signals.backend.slack_inbox_notifications import resolve_suggested_reviewer_user_ids
-from products.signals.backend.spend import signal_spend_totals
+from products.signals.backend.spend import register_report_task_spend, signal_spend_totals
 from products.tasks.backend.models import Task, TaskRun
 
 PERSISTENCE_MODULE = "products.signals.backend.scout_report.persistence"
@@ -247,19 +250,28 @@ class TestScoutReportPersistence(BaseTest):
             patch("posthog.temporal.common.client.async_connect", new=AsyncMock()),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            TaskRun.objects.create(
-                team=self.team,
-                task=task,
+            implementation_run = task.create_run(
                 environment=TaskRun.Environment.CLOUD,
-                state={
+                extra_state={
                     "ai_stage": "implementation",
                     "unprocessed_request_ids": [],
                     "token_cost": {"model": {"provider": {"cost_microusd": 10_001}}},
                 },
             )
-        assert signal_spend_totals(team_id=self.team.id, signal_ids=doc_ids) == {doc_ids[0]: 5.0001}
+        register_report_task_spend(
+            team_id=self.team.id,
+            run_id=str(implementation_run.id),
+            report_id=str(report.id),
+            stage="implementation",
+            implementation_kind=SignalSpend.Kind.SCOUT_TRIGGERED_IMPLEMENTATION,
+        )
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=implementation_run.id)
+        assert spend.report_id == report.id
+        assert spend.signal_id is None
+        assert spend.spend == Decimal("5.0001")
+        assert signal_spend_totals(team_id=self.team.id, signal_ids=doc_ids) == {}
         report.refresh_from_db()
-        assert str(report.triggering_signal_id) == doc_ids[0]
+        assert report.triggering_signal_id == (None if legacy else UUID(doc_ids[0]))
 
         # Provenance: a note artefact marks the report scout-authored and is attributed to the task.
         note = SignalReportArtefact.objects.get(report_id=result.report_id, type=SignalReportArtefact.ArtefactType.NOTE)

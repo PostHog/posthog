@@ -25,7 +25,11 @@ REQUEST_TIMEOUT_SECONDS = 60
 MAX_RETRY_ATTEMPTS = 5
 PAGE_SIZE = 100
 # Periodic reports return one row per day; 500 covers the full default backfill.
+# Breakdown reports page through with offset at the same size.
 REPORT_ROW_LIMIT = 500
+# The campaign periodic report applies its limit per campaign, so a page holds
+# this many days for every campaign; kept small to bound the response size.
+CAMPAIGN_PERIODIC_ROW_LIMIT = 31
 # Tokens are valid 30 days but /login is capped at 2 requests/hour, so the
 # token is cached across runs and only re-minted when it expires.
 TOKEN_CACHE_TTL_SECONDS = 29 * 24 * 60 * 60
@@ -35,10 +39,15 @@ class OutbrainRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class OutbrainResumeConfig:
     # Index of the next fan-out parent (marketer or campaign) to process.
     next_index: int
+    # Report offset to resume at within that marketer (paginated breakdown reports only).
+    next_offset: int = 0
+    # Report window the offset belongs to, so a resume after UTC midnight keeps paging the same window.
+    window_from: str | None = None
+    window_to: str | None = None
 
 
 def _get_session(password: str, token: Optional[str] = None) -> requests.Session:
@@ -140,11 +149,17 @@ def get_rows(
     def fetch_paginated(path: str) -> Iterator[list[dict[str, Any]]]:
         offset = 0
         while True:
-            params = {"limit": PAGE_SIZE, "offset": offset} if config.paginated else {}
+            params: dict[str, Any] = {"limit": PAGE_SIZE, "offset": offset} if config.paginated else {}
+            params.update(config.params)
             url = f"{OUTBRAIN_BASE_URL}{path}"
             if params:
                 url = f"{url}?{urlencode(params)}"
-            rows = rows_of(fetch(url), config.data_key)
+            data = fetch(url)
+            rows = rows_of(data, config.data_key)
+            if config.excluded_data_key:
+                rows = [{**row, "_excluded": False} for row in rows] + [
+                    {**row, "_excluded": True} for row in rows_of(data, config.excluded_data_key)
+                ]
             if rows:
                 yield rows
             if not config.paginated or len(rows) < PAGE_SIZE:
@@ -208,38 +223,78 @@ def get_rows(
                 # Conversions restate for ~30 days — re-pull the lookback window.
                 window_start = watermark - timedelta(days=REPORT_LOOKBACK_DAYS)
 
+    start_offset = 0
+    if resume_config is not None and config.paginated and resume_config.next_offset:
+        start_offset = resume_config.next_offset
+        saved_from, saved_to = _to_date(resume_config.window_from), _to_date(resume_config.window_to)
+        if saved_from is not None and saved_to is not None:
+            window_start, today = saved_from, saved_to
+    is_periodic = config.kind in ("periodic_report", "campaign_periodic_report")
+    row_limit = CAMPAIGN_PERIODIC_ROW_LIMIT if config.kind == "campaign_periodic_report" else REPORT_ROW_LIMIT
     marketer_ids = list_marketer_ids()
     for index in range(start_index, len(marketer_ids)):
         marketer_id = marketer_ids[index]
-        params = urlencode(
-            {
-                "from": window_start.isoformat(),
-                "to": today.isoformat(),
-                "breakdown": "daily",
-                "limit": REPORT_ROW_LIMIT,
-            }
-            if config.kind == "periodic_report"
-            else {"from": window_start.isoformat(), "to": today.isoformat(), "limit": REPORT_ROW_LIMIT}
-        )
         path = config.path.format(marketer_id=quote(marketer_id))
-        rows = rows_of(fetch(f"{OUTBRAIN_BASE_URL}{path}?{params}"), config.data_key)
+        offset = start_offset if index == start_index else 0
+        while True:
+            params: dict[str, Any] = {"from": window_start.isoformat(), "to": today.isoformat()}
+            if is_periodic:
+                params["breakdown"] = "daily"
+            params["limit"] = row_limit
+            if config.paginated:
+                params["offset"] = offset
+            if config.include_inactive_campaigns:
+                params["includeArchivedCampaigns"] = "true"
+                params["enabledCampaignsOnly"] = "false"
+            data = fetch(f"{OUTBRAIN_BASE_URL}{path}?{urlencode(params)}")
 
-        out: list[dict[str, Any]] = []
-        for row in rows:
-            enriched = {**row, "_marketer_id": marketer_id}
-            if config.kind == "periodic_report":
-                metadata_value = row.get("metadata")
-                metadata = metadata_value if isinstance(metadata_value, dict) else {}
-                row_date = metadata.get("fromDate") or metadata.get("id")
-                if not row_date:
-                    continue
-                enriched["_date"] = row_date
-            out.append(enriched)
-        if out:
-            yield out
+            # The campaign periodic report nests each campaign's daily rows under it.
+            row_groups: list[tuple[Optional[str], list[dict[str, Any]]]]
+            if config.kind == "campaign_periodic_report":
+                row_groups = [
+                    (str(campaign["campaignId"]), rows_of(campaign, "results"))
+                    for campaign in rows_of(data, config.data_key)
+                    if campaign.get("campaignId")
+                ]
+            else:
+                row_groups = [(None, rows_of(data, config.data_key))]
 
-        # Save state AFTER yielding so a crash re-yields the in-flight marketer.
-        resumable_source_manager.save_state(OutbrainResumeConfig(next_index=index + 1))
+            out: list[dict[str, Any]] = []
+            for campaign_id, rows in row_groups:
+                for row in rows:
+                    enriched = {**row, "_marketer_id": marketer_id}
+                    if campaign_id is not None:
+                        enriched["_campaign_id"] = campaign_id
+                    if is_periodic:
+                        metadata_value = row.get("metadata")
+                        metadata = metadata_value if isinstance(metadata_value, dict) else {}
+                        row_date = metadata.get("fromDate") or metadata.get("id")
+                        if not row_date:
+                            continue
+                        enriched["_date"] = row_date
+                    out.append(enriched)
+
+            has_more = config.paginated and any(len(rows) >= row_limit for _, rows in row_groups)
+            next_state = (
+                OutbrainResumeConfig(
+                    next_index=index,
+                    next_offset=offset + row_limit,
+                    window_from=window_start.isoformat(),
+                    window_to=today.isoformat(),
+                )
+                if has_more
+                else OutbrainResumeConfig(next_index=index + 1)
+            )
+            # Stage before the yield so a resumed full refresh never re-appends a written page.
+            resumable_source_manager.save_state(next_state)
+            if out:
+                yield out
+            else:
+                resumable_source_manager.safe_point()
+
+            if not has_more:
+                break
+            offset += row_limit
 
 
 def _to_date(value: Any) -> Optional[date]:

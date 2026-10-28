@@ -11,6 +11,8 @@ from posthog.clickhouse.kafka_engine import (
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDINGS_TOPIC
 
+from products.error_tracking.backend.indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE
+
 DOCUMENT_EMBEDDINGS = "posthog_document_embeddings"
 SHARDED_DOCUMENT_EMBEDDINGS = f"sharded_{DOCUMENT_EMBEDDINGS}"
 PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS = f"partitioned_sharded_{DOCUMENT_EMBEDDINGS}"
@@ -159,9 +161,12 @@ def DROP_DOCUMENT_EMBEDDINGS_WRITABLE_SQL():
     return f"DROP TABLE IF EXISTS {DOCUMENT_EMBEDDING_WRITABLE}"
 
 
-# WarpStream-shared Kafka engine table + MV (coexist alongside MSK tables, same target writable
-# table). The MSK side stays in place during the cut-over and gets dropped in a follow-up
-# migration once produce traffic has shifted to the shared cluster.
+# WarpStream-shared Kafka engine table + MV (coexist alongside MSK tables). The MSK side stays in
+# place during the cut-over and gets dropped in a follow-up migration once produce traffic has
+# shifted to the shared cluster.
+#
+# The MV writes to the buffer that feeds the model-specific tables. The legacy writable table forwards to
+# a sharded table that deployed cloud does not have, so an MV that writes there stops the consumer.
 
 DROP_KAFKA_DOCUMENT_EMBEDDINGS_WS_TABLE_SQL = f"DROP TABLE IF EXISTS {KAFKA_DOCUMENT_EMBEDDINGS_WS}"
 DROP_DOCUMENT_EMBEDDINGS_WS_MV_SQL = f"DROP TABLE IF EXISTS {DOCUMENT_EMBEDDINGS_WS_MV}"
@@ -181,7 +186,7 @@ def KAFKA_DOCUMENT_EMBEDDINGS_WS_TABLE_SQL():
     )
 
 
-def DOCUMENT_EMBEDDINGS_WS_MV_SQL(target_table=DOCUMENT_EMBEDDING_WRITABLE):
+def DOCUMENT_EMBEDDINGS_WS_MV_SQL(target_table=DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE):
     return """
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name}
 TO {target_table}

@@ -1745,7 +1745,8 @@ class ProjectViewSet(
         license = get_cached_instance_license()
         try:
             has_active_subscription = (
-                settings.EE_AVAILABLE
+                is_last_project
+                and settings.EE_AVAILABLE
                 and is_cloud()
                 and license
                 and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
@@ -2078,6 +2079,7 @@ class ProjectViewSet(
             item_ids=[str(project.pk)],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 

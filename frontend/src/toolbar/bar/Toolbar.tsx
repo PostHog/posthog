@@ -43,6 +43,7 @@ import { PII_MASKING_PRESET_COLORS } from '~/toolbar/bar/piiMaskingStyles'
 import { ToolbarLockedFeature } from '~/toolbar/bar/ToolbarLockedFeature'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { UiHostConfigModal } from '~/toolbar/bar/UiHostConfigModal'
+import { readPosthogDebugInfo } from '~/toolbar/debug/posthogDebugInfo'
 import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { screenshotUploadLogic } from '~/toolbar/screenshot-upload/screenshotUploadLogic'
@@ -147,7 +148,7 @@ function postHogDebugInfoMenuItem(
     loadingSurveys: boolean,
     surveysCount: number
 ): LemonMenuItem {
-    const isAutocaptureEnabled = posthog?.autocapture?.isEnabled
+    const info = readPosthogDebugInfo(posthog)
 
     return {
         icon: <IconStethoscope />,
@@ -157,7 +158,7 @@ function postHogDebugInfoMenuItem(
                 label: (
                     <div className="flex justify-between items-center w-full">
                         <div>version: </div>
-                        <div>{posthog?.version || 'posthog not available'}</div>
+                        <div>{info.version || 'posthog not available'}</div>
                     </div>
                 ),
             },
@@ -165,7 +166,7 @@ function postHogDebugInfoMenuItem(
                 label: (
                     <div className="flex justify-between items-center w-full">
                         <div>api host: </div>
-                        <div>{posthog?.config.api_host}</div>
+                        <div>{info.apiHost}</div>
                     </div>
                 ),
             },
@@ -173,28 +174,14 @@ function postHogDebugInfoMenuItem(
                 label: (
                     <div className="flex justify-between items-center w-full">
                         <div>ui host: </div>
-                        <div>{posthog?.config.ui_host || 'not set'}</div>
+                        <div>{info.uiHost || 'not set'}</div>
                     </div>
                 ),
             },
-            { label: <EnabledStatusItem label="autocapture" value={!!isAutocaptureEnabled} /> },
-            {
-                label: (
-                    <EnabledStatusItem
-                        label="rageclicks"
-                        value={!!(isAutocaptureEnabled && posthog?.config.rageclick)}
-                    />
-                ),
-            },
-            {
-                label: (
-                    <EnabledStatusItem
-                        label="dead clicks"
-                        value={!!posthog?.deadClicksAutocapture?.lazyLoadedDeadClicksAutocapture}
-                    />
-                ),
-            },
-            { label: <EnabledStatusItem label="heatmaps" value={!!posthog?.heatmaps?.isEnabled} /> },
+            { label: <EnabledStatusItem label="autocapture" value={info.autocapture} /> },
+            { label: <EnabledStatusItem label="rageclicks" value={info.rageclicks} /> },
+            { label: <EnabledStatusItem label="dead clicks" value={info.deadClicks} /> },
+            { label: <EnabledStatusItem label="heatmaps" value={info.heatmaps} /> },
             {
                 label: (
                     <div className="flex justify-between items-center w-full">
@@ -205,19 +192,19 @@ function postHogDebugInfoMenuItem(
                     </div>
                 ),
             },
-            { label: <EnabledStatusItem label="session recording" value={!!posthog?.sessionRecording?.started} /> },
+            { label: <EnabledStatusItem label="session recording" value={info.sessionRecordingStarted} /> },
             {
                 label: (
                     <div className="flex justify-between items-center w-full">
                         <div>session recording status: </div>
-                        <div>{posthog?.sessionRecording?.status || 'unknown'}</div>
+                        <div>{info.sessionRecordingStatus || 'unknown'}</div>
                     </div>
                 ),
             },
             {
                 label: (
                     <div className="flex items-center w-full">
-                        <Link to={posthog?.get_session_replay_url()} target="_blank">
+                        <Link to={info.sessionReplayUrl ?? undefined} target="_blank">
                             View current session recording
                         </Link>
                     </div>

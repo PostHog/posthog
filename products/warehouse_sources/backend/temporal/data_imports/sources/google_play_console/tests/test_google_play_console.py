@@ -475,13 +475,14 @@ def test_metric_set_reraises_a_403_that_is_not_the_games_restriction() -> None:
     assert isinstance(result.raised, requests.HTTPError)
 
 
-def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy() -> None:
+@pytest.mark.parametrize("status", [500, 503])
+def test_metric_set_server_error_stays_retryable_with_vendor_outage_copy(status: int) -> None:
     with mock.patch(f"{MODULE}._today", return_value=TODAY):
         result = _run(
             "crash_rate",
             [
                 ScriptedResponse(json=_freshness(dt.date(2024, 3, 2))),
-                ScriptedResponse(status=500, body=b'{"error": {"status": "INTERNAL"}}'),
+                ScriptedResponse(status=status, body=b'{"error": {"status": "INTERNAL"}}'),
             ],
             should_use_incremental_field=True,
             db_incremental_field_last_value=dt.date(2024, 3, 1),

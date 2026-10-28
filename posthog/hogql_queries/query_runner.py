@@ -129,7 +129,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -199,8 +198,6 @@ from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_cache_modifiers,
     events_route_scope,
-    get_new_events_cluster_host,
-    new_events_cluster_host_scope,
     strip_events_route_modifiers,
     use_new_events_schema,
     with_pinned_events_route,
@@ -2524,7 +2521,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
             return query_result, query_duration_ms
 
-    @new_events_cluster_host_scope()
     @_pin_events_route
     def run(
         self,
@@ -2536,12 +2532,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
-        if self.modifiers.useNewEventsCluster:
-            if not isinstance(self.query, HogQLQuery):
-                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
-            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
-
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
         # __init__; let them refresh it now that we know the real user. Only on an
@@ -3280,8 +3270,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
-        if self.modifiers.useNewEventsCluster:
-            payload["native_events_host"] = get_new_events_cluster_host()
 
         # Include property-level access control restrictions in the cache key so that
         # users with different property restrictions get separate cache entries.
