@@ -4484,7 +4484,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             actions.updateFlag(featureFlag)
             actions.loadFeatureFlagStatus()
             if (featureFlag.id && isOnFeatureFlagPage(props.id)) {
-                router.actions.replace(urls.featureFlag(featureFlag.id))
+                // Keep the ridden list filter params through the post-save redirect, so the
+                // breadcrumb still returns to the filtered list. A new flag's params are
+                // creation presets (`type`, `properties`), not list filters, so drop those.
+                const listParams = props.id === 'new' ? {} : featureFlagsListFilterParams(router.values.searchParams)
+                router.actions.replace(combineUrl(urls.featureFlag(featureFlag.id), listParams).url)
             }
             actions.editFeatureFlag(false)
 

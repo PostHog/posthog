@@ -9,7 +9,7 @@ import {
 } from 'lib/api.mock'
 
 import { render } from '@testing-library/react'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { toast } from 'react-toastify'
@@ -1192,6 +1192,24 @@ describe('featureFlagLogic', () => {
                 }).toFinishAllListeners()
 
                 expect(replaceSpy).toHaveBeenCalledWith(urls.featureFlag(MOCK_FEATURE_FLAG.id))
+            } finally {
+                replaceSpy.mockRestore()
+            }
+        })
+
+        it('keeps the carried list filter params when the flag page saves', async () => {
+            router.actions.push(urls.featureFlag(MOCK_FEATURE_FLAG.id), { search: 'checkout', edit: 'true' })
+            await expectLogic(logic).toFinishAllListeners()
+            const replaceSpy = jest.spyOn(router.actions, 'replace')
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.saveFeatureFlagSuccess(logic.values.featureFlag)
+                }).toFinishAllListeners()
+
+                expect(replaceSpy).toHaveBeenCalledWith(
+                    combineUrl(urls.featureFlag(MOCK_FEATURE_FLAG.id), { search: 'checkout' }).url
+                )
             } finally {
                 replaceSpy.mockRestore()
             }
