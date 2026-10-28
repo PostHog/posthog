@@ -158,17 +158,28 @@ def _scanner_rank() -> Window:
     return Window(RowNumber(), partition_by=[F("scanner_id")], order_by=[F("member_count").desc(), "id"])
 
 
-def naming_candidates(team_id: int, now: datetime) -> QuerySet[ReplayScannerSearchTheme]:
+def naming_candidates(
+    team_id: int, now: datetime, scanner_id: uuid.UUID | None = None
+) -> QuerySet[ReplayScannerSearchTheme]:
     """Themes due a name among those a suggestion could show, so the daily naming budget never goes to themes nobody
     sees."""
     active = ReplayScannerSearchTheme.objects.for_team(team_id).filter(last_member_at__gte=now - THEME_ACTIVE_WINDOW)
+    if scanner_id is not None:
+        active = active.filter(scanner_id=scanner_id)
     # The rank comes from all active themes, since a filter beside it would rank only the due ones.
     shown = active.annotate(scanner_rank=_scanner_rank()).filter(scanner_rank__lte=_SUGGESTION_CANDIDATES)
     return active.filter(id__in=shown.values("id"), member_count__gte=F("rename_at_member_count"))
 
 
 def _is_naming_candidate(team_id: int, theme_id: uuid.UUID, now: datetime) -> bool:
-    return naming_candidates(team_id, now).filter(id=theme_id).exists()
+    # Ranking only the theme's own scanner keeps this check cheap, since the consumer runs it for every due member.
+    scanner_id = (
+        ReplayScannerSearchTheme.objects.for_team(team_id)
+        .filter(id=theme_id)
+        .values_list("scanner_id", flat=True)
+        .first()
+    )
+    return scanner_id is not None and naming_candidates(team_id, now, scanner_id).filter(id=theme_id).exists()
 
 
 def _claim_naming(team_id: int, theme_id: uuid.UUID) -> int | None:
