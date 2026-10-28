@@ -43,11 +43,11 @@ class TestMetricsAlertConfig(SimpleTestCase):
     @parameterized.expand(
         [
             ("threshold_without_operator", {"query": _QUERY, "condition": {"threshold": 10}}),
-            ("threshold_without_value", {"query": _QUERY, "condition": {"operator": ">"}}),
+            ("threshold_without_value", {"query": _QUERY, "condition": {"operator": "gt"}}),
             ("present_with_threshold", {"query": _QUERY, "condition": {"kind": "present", "threshold": 1}}),
             ("empty_query", {"query": "", "condition": {"kind": "present"}}),
-            ("unknown_operator", {"query": _QUERY, "condition": {"operator": "above", "threshold": 1}}),
-            ("nan_threshold", {"query": _QUERY, "condition": {"operator": ">", "threshold": float("nan")}}),
+            ("unknown_operator", {"query": _QUERY, "condition": {"operator": ">", "threshold": 1}}),
+            ("nan_threshold", {"query": _QUERY, "condition": {"operator": "gt", "threshold": float("nan")}}),
         ]
     )
     def test_a_config_that_cannot_be_evaluated_is_refused(self, _name: str, config: dict[str, object]) -> None:
@@ -68,7 +68,7 @@ class TestMetricsAlertCreate(APIBaseTest):
         )
 
     def test_a_metrics_alert_is_created_through_the_platform_api(self) -> None:
-        response = self._create({"query": _QUERY, "condition": {"operator": ">", "threshold": 1000}})
+        response = self._create({"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["source_kind"] == "metrics"
@@ -127,7 +127,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
                 edit=PlatformAlertConfigurationEdit(
                     name="Consumer lag",
                     enabled=True,
-                    source_config={"query": _QUERY, "condition": {"operator": ">", "threshold": 1000}},
+                    source_config={"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}},
                     grouping=Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("group",)),
                     schedule_restriction=None,
                     evaluation_periods=1,
