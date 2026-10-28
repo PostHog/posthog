@@ -578,6 +578,8 @@ The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups, its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings and a share of the v3 per-host limits. It shares no code or table with v3.
 It applies the recorder's URL policy through `@posthog/ai-research-v4-native`, an addon over `replay_core_v4::url_policy`, so it canonicalizes a URL, groups it by registrable domain and refuses private hosts exactly as the recorder does.
 It stores each image, sealed and unscrubbed, under `images/url/`, and it does not send images to the scrub lane.
+It stores PNG, JPEG, GIF, WebP and SVG as fetched. It does not rasterize an SVG; redaction downstream of the dataset handles SVG text.
+The response must have one of these media types and bytes of that format: a signature for a raster image, or an SVG root element for SVG. An SVG may carry a byte order mark, comments, processing instructions and a doctype before its root. The doctype may name no internal subset and no external DTD other than a W3C SVG DTD, so that a parser downstream cannot resolve entities from the document. It refuses AVIF and every other type.
 
 The fetcher keeps a crawl history per URL reference, so per team and month, in its own DynamoDB table `ai-research-v4-image-fetch-history`, with the v3 fetch interval and conditional requests. The table also holds its robots.txt and tdmrep cache:
 

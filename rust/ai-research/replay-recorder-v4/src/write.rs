@@ -805,15 +805,17 @@ mod tests {
             "https://cdn.example.com/a.png",
         );
         let source = |id: i64, attributes: serde_json::Value| json!({"type": 2, "tagName": "source", "attributes": attributes, "childNodes": [], "id": id});
-        // The scan leaves an SVG inline, so the browser can load it from the block.
         let (bare, typeless) = (
             "https://cdn.example.com/b.avif",
             "https://cdn.example.com/c.webp",
         );
+        // The scan leaves an SVG inline, so the browser can load it from the block. The fetcher stores a remote SVG.
         let svg =
             "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
+        let remote_svg = "https://cdn.example.com/a.svg";
         let picture = json!({"type": 2, "tagName": "picture", "attributes": {}, "id": 2, "childNodes": [
             source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
+            source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
             source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x")})),
             // A bare srcset equal to the img's src below: only the srcset empties.
             source(8, json!({"type": "image/avif", "srcset": bare})),
@@ -849,6 +851,10 @@ mod tests {
         assert!(lines.contains(r#""srcset":"""#), "{lines}");
         assert!(
             lines.contains(&format!(r#""srcset":"{svg} 1x""#)),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(remote_svg))),
             "{lines}"
         );
         assert!(

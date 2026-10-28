@@ -363,7 +363,13 @@ pub fn is_remote(url: &str) -> bool {
 }
 
 /// The media types the image fetcher stores, the `ALLOWED_CONTENT_TYPES` of `image-fetch-v4/image-fetcher.ts`.
-pub const FETCHED_IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+pub const FETCHED_IMAGE_TYPES: [&str; 5] = [
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/svg+xml",
+];
 
 /// Whether a `<source type>` names a type the fetcher stores, ignoring parameters such as `codecs`.
 pub fn is_fetched_image_type(source_type: &str) -> bool {
