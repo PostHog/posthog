@@ -73,6 +73,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
     get_replay_vision_observations_by_team,
+    get_replay_vision_scanner_monthly_credits_by_team,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
@@ -222,6 +223,8 @@ class UsageReportCounters:
     replay_vision_observation_count_in_period: int
     replay_vision_scanner_count: int
     replay_vision_scanner_active_count: int
+    # Enabled scanners' 30-day credit rate. A snapshot, not usage: billing forecasts Replay Vision spend from it.
+    replay_vision_scanner_monthly_credits: int
 
     # Persons and Groups
     group_types_total: int
@@ -1276,6 +1279,12 @@ def get_teams_with_replay_vision_credits_used_in_period(begin: datetime, end: da
 def get_teams_with_replay_vision_observation_count_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     # Counted from the same ReplayObservationUsage receipt ledger the credits sum over, so it stays consistent.
     return get_replay_vision_observations_by_team(begin, end)
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_replay_vision_scanner_monthly_credits() -> list[tuple[int, int]]:
+    return get_replay_vision_scanner_monthly_credits_by_team()
 
 
 @timed_log()
@@ -3219,6 +3228,7 @@ def _get_all_usage_data(
         "teams_with_replay_vision_scanner_active_count": list(
             ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
+        "teams_with_replay_vision_scanner_monthly_credits": get_teams_with_replay_vision_scanner_monthly_credits(),
         "teams_with_issues_created_total": [
             {"team_id": team_id, "total": total} for team_id, total in error_tracking_api.get_issue_counts_by_team()
         ],
@@ -3447,6 +3457,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         replay_vision_scanner_count=all_data["teams_with_replay_vision_scanner_count"].get(team.id, 0),
         replay_vision_scanner_active_count=all_data["teams_with_replay_vision_scanner_active_count"].get(team.id, 0),
+        replay_vision_scanner_monthly_credits=all_data["teams_with_replay_vision_scanner_monthly_credits"].get(
+            team.id, 0
+        ),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
         decide_requests_count_in_period=decide_requests_count_in_period,
         local_evaluation_requests_count_in_period=local_evaluation_requests_count_in_period,

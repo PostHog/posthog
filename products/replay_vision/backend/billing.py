@@ -6,6 +6,7 @@ price changes never reprice history.
 """
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
@@ -16,7 +17,7 @@ from django.db.models.functions import Coalesce
 import structlog
 
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ScannerModel
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel
 
 logger = structlog.get_logger(__name__)
 
@@ -132,6 +133,20 @@ def observation_credits_for_model(model: str) -> int:
         logger.warning("replay_vision.unknown_model_credits", model=model, fallback=_FALLBACK_CREDITS)
         return _FALLBACK_CREDITS
     return credits
+
+
+def get_replay_vision_scanner_monthly_credits_by_team() -> list[tuple[int, int]]:
+    """Each team's enabled scanners' 30-day credit rate, which billing forecasts the period's spend from.
+
+    Free-only scanners are left out: they stop when the free credits run out, so they never add spend.
+    """
+    rows = ReplayScanner.objects.filter(
+        enabled=True, free_only=False, estimated_monthly_observations__isnull=False
+    ).values_list("team_id", "model", "estimated_monthly_observations", "credit_limit")
+    totals: defaultdict[int, int] = defaultdict(int)
+    for team_id, model, estimate, credit_limit in rows:
+        totals[team_id] += projected_monthly_credits(model, estimate, credit_limit) or 0
+    return sorted(totals.items())
 
 
 def get_replay_vision_credits_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:

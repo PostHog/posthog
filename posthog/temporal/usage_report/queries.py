@@ -81,6 +81,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_replay_vision_observation_count_in_period,
+    get_teams_with_replay_vision_scanner_monthly_credits,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
@@ -723,6 +724,12 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_replay_vision_scanner_active_count",
         fn=_replay_vision_scanner_active_count,
+        timeout_minutes=5,
+        kind="snapshot",
+    ),
+    QuerySpec(
+        name="teams_with_replay_vision_scanner_monthly_credits",
+        fn=get_teams_with_replay_vision_scanner_monthly_credits,
         timeout_minutes=5,
         kind="snapshot",
     ),
