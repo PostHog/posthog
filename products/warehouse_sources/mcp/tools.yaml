@@ -622,9 +622,9 @@ tools:
             Create the planned PostHog source for one Fivetran migration item, with the planned tables, prefix,
             destination and sync schedule. 'credential_id' comes from 'data-warehouse-stored-credentials-list' after the
             user filled the connect link for this item. Pass the table mapping the user confirmed in 'table_overrides':
-            each entry maps a 'vendor_table' to a 'posthog_table', for an inferred pair or an unmatched table, and a null
-            'posthog_table' leaves the table out. Read the returned caveats to the user: they include any planned table
-            PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.
+            each entry maps a 'vendor_table' to a 'posthog_table', for an inferred pair or an unmatched table, and a
+            null 'posthog_table' leaves the table out. Read the returned caveats to the user: they include any planned
+            table PostHog could not find or read. If it fails because the prefix is taken, retry with another 'prefix'.
         exclude_params:
             - created_via
         inject_body:
