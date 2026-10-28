@@ -21,6 +21,15 @@ Generation has a 15-hour run timeout and a 15-hour execution timeout shared acro
 A healthy run can use the full generation budget without restarting and regenerating completed batches after six hours.
 Sending starts only after generation succeeds and has separate six-hour run and 15-hour execution timeouts.
 
+### Delivery
+
+Every digest is captured as an event in the US project, and the event name picks the provider.
+The send activity checks the `transactional-emails-via-workflows` flag for each recipient, with `transactional_email_template` set to `weekly_digest_report` and the recipient's `email` and `region`.
+When the flag is off, it captures `transactional email`, which the Customer.io destination forwards to the Customer.io digest campaign.
+When the flag is on, it captures `weekly digest ready` with the recipient address in `to`, which triggers the digest workflow in Workflows.
+Workflows drops event-triggered runs above its per-workflow rate, so all send batches share one Redis token bucket that keeps `weekly digest ready` captures to about 3,000 a minute.
+The workflow paces the emails themselves with its own sending rate limit.
+
 ## Redis Storage Structure
 
 Data is stored with keys prefixed by `{digest_key}` (e.g., `weekly-digest-2024-01`).

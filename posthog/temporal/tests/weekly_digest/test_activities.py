@@ -663,15 +663,16 @@ def _send_input(
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "dry_run,already_sent,expected_captures",
+    "dry_run,already_sent,to_workflows,expected_captures",
     [
-        (False, False, 1),
-        (True, False, 0),
-        (False, True, 0),
+        (False, False, False, 1),
+        (False, False, True, 1),
+        (True, False, False, 0),
+        (False, True, False, 0),
     ],
 )
 def test_send_weekly_digest_batch_emails_subscribed_members_once(
-    dry_run, already_sent, expected_captures, organization, team, redis_servers, common_input, digest
+    dry_run, already_sent, to_workflows, expected_captures, organization, team, redis_servers, common_input, digest
 ):
     subscribed = create_user(organization, "subscribed@example.com")
     create_user(organization, "unsubscribed@example.com")
@@ -687,7 +688,10 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         record.save()
     ph_client = MagicMock()
 
-    with patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client):
+    with (
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        patch("posthog.temporal.weekly_digest.activities.posthoganalytics.feature_enabled", return_value=to_workflows),
+    ):
         run_sync(send_weekly_digest_batch, _send_input(organization, digest, common_input, dry_run=dry_run))
 
     assert ph_client.capture.call_count == expected_captures
@@ -703,7 +707,11 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
 
     capture = ph_client.capture.call_args.kwargs
     assert capture["distinct_id"] == subscribed.distinct_id
-    assert capture["event"] == "transactional email"
+    # Customer.io's destination listens to one event and the digest workflow to the other, so nobody gets both.
+    assert capture["event"] == ("weekly digest ready" if to_workflows else "transactional email")
+    assert ("to" in capture["properties"]) is to_workflows
+    if to_workflows:
+        assert capture["properties"]["to"] == subscribed.email
     assert capture["groups"]["organization"] == str(organization.id)
     (team_payload,) = capture["properties"]["teams"]
     assert team_payload["team_id"] == team.id

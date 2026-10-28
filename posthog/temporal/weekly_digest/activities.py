@@ -13,6 +13,7 @@ from django.db.models.functions import RowNumber
 from django.utils import timezone
 
 import redis
+import posthoganalytics
 from posthoganalytics import Posthog
 from posthoganalytics.consumer import MAX_MSG_SIZE
 from pydantic import ValidationError
@@ -29,6 +30,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.email import WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models.messaging import MessagingRecord
 from posthog.models.organization_notification_lock import GovernedSetting, notification_locks_for_users
@@ -84,6 +86,8 @@ from posthog.temporal.weekly_digest.types import (
     UsageTrends,
     UserDigestContext,
 )
+from posthog.token_bucket import BucketDecision, Budget, consume
+from posthog.utils import get_instance_region
 
 from products.error_tracking.backend.facade.api import get_new_issues_for_team
 from products.growth.backend.product_push.selection import project_uses_product, resolve_product_path
@@ -984,6 +988,12 @@ DRAIN_EVENT_COUNT = 500
 DIGEST_PAYLOAD_SIZE_LIMIT = MAX_MSG_SIZE - 16 * 1024
 UPLOAD_CLEANUP_SECONDS = 120
 DRAIN_SLICE_SECONDS = 5
+DIGEST_TEMPLATE_NAME = "weekly_digest_report"
+CUSTOMER_IO_DIGEST_EVENT = "transactional email"
+WORKFLOWS_DIGEST_EVENT = "weekly digest ready"
+# Workflows drops event-triggered runs above 6,000 a minute for one workflow. Every send batch runs at
+# once, so they share one budget that keeps the digest workflow's events well below that.
+WORKFLOWS_CAPTURE_BUDGET = Budget(burst=500, per_hour=180_000)
 
 
 # These derive from BaseException, so that the per-organization `except Exception` handler cannot swallow them.
@@ -1022,6 +1032,35 @@ def _drain(ph_client: Posthog, deadline: float) -> bool:
         ph_client.flush(timeout_seconds=budget)
         if time.monotonic() - started < budget:
             return True
+
+
+def _routes_to_workflows(user: User) -> bool:
+    # The same flag and person properties as the other transactional emails, so one flag condition ramps the digest.
+    person_properties = {"email": user.email, "transactional_email_template": DIGEST_TEMPLATE_NAME}
+    if region := get_instance_region():
+        person_properties["region"] = region
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG,
+                user.distinct_id,
+                person_properties=person_properties,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as err:
+        LOGGER.warning("Failed to check the digest routing flag, sending through Customer.io", error=str(err))
+        return False
+
+
+def _wait_for_workflows_capture(digest_key: str) -> None:
+    while True:
+        _raise_if_cancelled()
+        decision = consume(f"weekly_digest_workflows_capture:{digest_key}", WORKFLOWS_CAPTURE_BUDGET)
+        # Without Redis the send would stall on a budget it can't read. Workflows' own limit still applies.
+        if not isinstance(decision, BucketDecision) or decision.allowed:
+            return
+        time.sleep(min(decision.retry_after, DRAIN_SLICE_SECONDS))
 
 
 def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
@@ -1155,11 +1194,14 @@ def _send_weekly_digest_batch(input: SendWeeklyDigestBatchInput) -> None:
                             failed_organization_ids.add(str(organization.id))
                             continue
                         elif ph_client is not None:
+                            to_workflows = _routes_to_workflows(user)
+                            if to_workflows:
+                                _wait_for_workflows_capture(input.digest.key)
                             partial = True
                             queued = ph_client.capture(
                                 distinct_id=user.distinct_id,
-                                event="transactional email",
-                                properties=payload,
+                                event=WORKFLOWS_DIGEST_EVENT if to_workflows else CUSTOMER_IO_DIGEST_EVENT,
+                                properties={**payload, "to": user.email} if to_workflows else payload,
                                 groups={
                                     "organization": str(organization.id),
                                     "instance": settings.SITE_URL,
