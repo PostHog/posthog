@@ -12,7 +12,8 @@ Pick the severity that matches the rule's intent:
 
 - **ERROR** when zero violations are expected — either because the pattern is genuinely new (regression guard) or because a previously-WARNING rule has been cleaned up.
 - **WARNING** when there's a known non-zero backlog that will be migrated over time.
-  A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/rules/devex/`; only the severity changes. To flip a rule:
+
+A WARNING rule typically gets flipped to ERROR once its backlog hits zero. The rule stays in `.semgrep/rules/devex/`; only the severity changes. To flip a rule:
 
 1. Verify locally that `semgrep --config .semgrep/rules/devex/<rule>.yaml bin/ common/ ee/ frontend/ packages/ posthog/ products/ services/ tools/` returns zero findings.
 2. Edit the rule file: change `severity: WARNING` to `severity: ERROR`.
@@ -24,4 +25,3 @@ Pick the severity that matches the rule's intent:
 - Include the migration playbook (or a pointer to a skill) in the rule's `message:` field — that's what reviewers and authors see when the rule fires.
 - Scope with `paths.include:` rather than relying only on `paths.exclude:` — narrower scope means faster scans and clearer intent.
 - For legitimate exceptions, prefer `paths.exclude:` for categorical cases (whole dirs/files) and `# nosemgrep: <rule-id>` for case-by-case exemptions at the call site.
-- When an exemption needs a person to approve it, take it as an entry in the rule file's own `paths.exclude:` (exact paths only, never a glob) and say so in the rule's `message:`. A rule file edit shows up in review; a `# nosemgrep` inside a new file fights for attention with the file itself.
