@@ -99,17 +99,8 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_START_PLACEHOLDER,
     WINDOW_END_PLACEHOLDER,
 )
-_NULL_ON_FAILURE_DATE_PARSERS = frozenset(
-    {
-        "parseDateTimeOrNull",
-        "parseDateTime64BestEffortOrNull",
-        "parseDateTime64BestEffortUSOrNull",
-        "toDateOrNull",
-        "toModifiedJulianDayOrNull",
-    }
-)
-_DOUBLE_BRACE_TOKEN = re.compile(r"\{\{[^{}]*\}\}")
-_BRACKETED_NAME = re.compile(r"[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
+_SILENT_ON_FAILURE_SUFFIXES = ("OrNull", "OrZero")
+_PLACEHOLDER_TOKEN = re.compile(r"\{\{[^{}]*\}\}|[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
 AI_QUERY_PLAN_VERSION = 8
@@ -261,12 +252,11 @@ class _PlaceholderTokenFinder(TraversingVisitor):
         function = find_hogql_function(node.name)
         if (
             function is not None
-            and function.clickhouse_name in _NULL_ON_FAILURE_DATE_PARSERS
+            and function.clickhouse_name.endswith(_SILENT_ON_FAILURE_SUFFIXES)
             and isinstance(literal, ast.Constant)
             and isinstance(literal.value, str)
         ):
-            self.tokens.extend(_DOUBLE_BRACE_TOKEN.findall(literal.value))
-            self.tokens.extend(_BRACKETED_NAME.findall(_DOUBLE_BRACE_TOKEN.sub("", literal.value)))
+            self.tokens.extend(_PLACEHOLDER_TOKEN.findall(literal.value))
         super().visit_call(node)
 
 
