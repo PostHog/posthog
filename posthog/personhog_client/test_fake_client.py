@@ -971,7 +971,7 @@ class TestFakePersonHogClientLifecycleDeletes:
         self.client.add_cohort_membership(person_id=10, cohort_id=7)
 
     def _delete(self, person_ids: list[int], op_id: str = OP_A, team_id: int = TEAM_ID):
-        return self.client.delete_persons_lifecycle(
+        return self.client.lifecycle.delete_persons(
             lifecycle_pb2.DeletePersonsRequest(team_id=team_id, person_ids=person_ids, op_id=op_id)
         )
 
@@ -1026,7 +1026,7 @@ class TestFakePersonHogClientLifecycleDeletes:
         assert retry == first
         stored = self.client.stored_person(self.TEAM_ID, "abc-123")
         assert stored is not None and stored.version == 5
-        assert len(self.client.assert_called("delete_persons_lifecycle")) == 2
+        assert len(self.client.assert_called("lifecycle.delete_persons")) == 2
 
     @parameterized.expand(
         [

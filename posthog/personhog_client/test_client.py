@@ -69,8 +69,8 @@ class TestLifecycleChannel:
         service = _RecordingLifecycleService()
 
         with _client_for(service) as client:
-            assert client.lifecycle_configured
-            response = client.delete_persons_lifecycle(
+            assert client.lifecycle.configured
+            response = client.lifecycle.delete_persons(
                 LifecycleDeletePersonsRequest(team_id=1, person_ids=[10, 20], op_id=OP_ID)
             )
 
@@ -88,7 +88,7 @@ class TestLifecycleChannel:
 
         with _client_for(service) as client:
             with pytest.raises(grpc.RpcError) as raised:
-                client.delete_persons_lifecycle(LifecycleDeletePersonsRequest(team_id=1, person_ids=[10], op_id=OP_ID))
+                client.lifecycle.delete_persons(LifecycleDeletePersonsRequest(team_id=1, person_ids=[10], op_id=OP_ID))
 
         assert raised.value.code() == grpc.StatusCode.FAILED_PRECONDITION
         assert semantic_refusal_reason(raised.value) == "op_id_reused"
@@ -97,8 +97,8 @@ class TestLifecycleChannel:
     def test_without_a_lifecycle_address_the_method_refuses_instead_of_dialling_the_facade(self):
         client = PersonHogClient("localhost:1", client_name="test-client")
         try:
-            assert not client.lifecycle_configured
+            assert not client.lifecycle.configured
             with pytest.raises(PersonHogLifecycleUnavailable):
-                client.delete_persons_lifecycle(LifecycleDeletePersonsRequest(team_id=1, person_ids=[10], op_id=OP_ID))
+                client.lifecycle.delete_persons(LifecycleDeletePersonsRequest(team_id=1, person_ids=[10], op_id=OP_ID))
         finally:
             client.close()

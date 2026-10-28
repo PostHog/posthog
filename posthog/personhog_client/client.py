@@ -182,6 +182,38 @@ class PersonHogLifecycleUnavailable(RuntimeError):
     """The client has no lifecycle channel because PERSONHOG_LIFECYCLE_ADDR is not set."""
 
 
+class PersonHogLifecycleClient:
+    """The identity server's sagas, reached as ``client.lifecycle`` over their own channel.
+
+    The facade and the lifecycle service both have a DeletePersons, with opposite consistency: the
+    facade writes the replica's database directly, a saga fences the person's leader first. Keeping
+    the sagas behind their own namespace makes the destination visible at every call site.
+    """
+
+    def __init__(self, stub: PersonHogLifecycleStub | None, timeout: float) -> None:
+        self._stub = stub
+        self._timeout = timeout
+
+    @property
+    def configured(self) -> bool:
+        return self._stub is not None
+
+    def delete_persons(
+        self, request: LifecycleDeletePersonsRequest, timeout: float | None = None
+    ) -> LifecycleDeletePersonsResponse:
+        """Run the delete saga for up to 250 person ids of one team.
+
+        The call returns once the saga is complete: the persons are tombstoned in Postgres and their
+        leaders have produced the death documents. Retry a transient failure with the SAME op_id and
+        the byte-identical person_ids list; the retry attaches to the existing operation and returns
+        its recorded outcome. A FAILED_PRECONDITION whose ``semantic_refusal_reason`` is
+        ``op_id_reused`` means the op_id belongs to a different request and must not be retried.
+        """
+        if self._stub is None:
+            raise PersonHogLifecycleUnavailable("personhog lifecycle client not configured (PERSONHOG_LIFECYCLE_ADDR)")
+        return self._stub.DeletePersons(request, timeout=timeout or self._timeout)
+
+
 class PersonHogClient:
     def __init__(
         self,
@@ -236,8 +268,7 @@ class PersonHogClient:
         # lifecycle requests have no read_options. Retries are safe: every request carries an op_id.
         self._lifecycle_channel: grpc.Channel | None = None
         self._lifecycle_state_monitor: _ChannelStateMonitor | None = None
-        self._lifecycle_stub: PersonHogLifecycleStub | None = None
-        self._lifecycle_timeout = lifecycle_timeout_ms / 1000.0
+        lifecycle_stub: PersonHogLifecycleStub | None = None
         if lifecycle_addr:
             lifecycle_channel = grpc.insecure_channel(lifecycle_addr, options=options)
             self._lifecycle_channel = grpc.intercept_channel(
@@ -248,7 +279,8 @@ class PersonHogClient:
             )
             # The channel-state gauge is keyed by client_name alone; two channels under one name would fight over it.
             self._lifecycle_state_monitor = _ChannelStateMonitor(lifecycle_channel, f"{client_name}-lifecycle")
-            self._lifecycle_stub = PersonHogLifecycleStub(self._lifecycle_channel)
+            lifecycle_stub = PersonHogLifecycleStub(self._lifecycle_channel)
+        self.lifecycle = PersonHogLifecycleClient(lifecycle_stub, lifecycle_timeout_ms / 1000.0)
 
     def close(self) -> None:
         self._state_monitor.close()
@@ -257,27 +289,6 @@ class PersonHogClient:
             self._lifecycle_state_monitor.close()
         if self._lifecycle_channel is not None:
             self._lifecycle_channel.close()
-
-    # -- Lifecycle sagas (identity server) --
-
-    @property
-    def lifecycle_configured(self) -> bool:
-        return self._lifecycle_stub is not None
-
-    def delete_persons_lifecycle(
-        self, request: LifecycleDeletePersonsRequest, timeout: float | None = None
-    ) -> LifecycleDeletePersonsResponse:
-        """Run the delete saga for up to 250 person ids of one team.
-
-        The call returns once the saga is complete: the persons are tombstoned in Postgres and their
-        leaders have produced the death documents. Retry a transient failure with the SAME op_id and
-        the byte-identical person_ids list; the retry attaches to the existing operation and returns
-        its recorded outcome. A FAILED_PRECONDITION whose ``semantic_refusal_reason`` is
-        ``op_id_reused`` means the op_id belongs to a different request and must not be retried.
-        """
-        if self._lifecycle_stub is None:
-            raise PersonHogLifecycleUnavailable("personhog lifecycle client not configured (PERSONHOG_LIFECYCLE_ADDR)")
-        return self._lifecycle_stub.DeletePersons(request, timeout=timeout or self._lifecycle_timeout)
 
     # -- Person deletes --
 

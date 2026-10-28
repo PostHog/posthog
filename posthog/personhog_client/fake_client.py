@@ -88,6 +88,22 @@ LIFECYCLE_DELETE_MAX_PERSON_IDS = 250
 _MAX_TEAM_ID = 2**31 - 1
 
 
+class _FakeLifecycleClient:
+    """The fake's ``lifecycle`` namespace; the saga state lives on the fake itself."""
+
+    def __init__(self, fake: FakePersonHogClient) -> None:
+        self._fake = fake
+
+    @property
+    def configured(self) -> bool:
+        return True
+
+    def delete_persons(
+        self, request: lifecycle_pb2.DeletePersonsRequest, timeout: float | None = None
+    ) -> lifecycle_pb2.DeletePersonsResponse:
+        return self._fake._lifecycle_delete_persons(request)
+
+
 class FakePersonHogClient:
     """In-memory fake that implements the same interface as PersonHogClient.
 
@@ -97,6 +113,7 @@ class FakePersonHogClient:
 
     def __init__(self) -> None:
         self.calls: list[_Call] = []
+        self.lifecycle = _FakeLifecycleClient(self)
 
         # keyed by (team_id, person_id)
         self._persons_by_id: dict[tuple[int, int], person_pb2.Person] = {}
@@ -739,10 +756,10 @@ class FakePersonHogClient:
 
     # ── Lifecycle sagas ───────────────────────────────────────────────
 
-    def delete_persons_lifecycle(
-        self, request: lifecycle_pb2.DeletePersonsRequest, timeout: float | None = None
+    def _lifecycle_delete_persons(
+        self, request: lifecycle_pb2.DeletePersonsRequest
     ) -> lifecycle_pb2.DeletePersonsResponse:
-        self.calls.append(_Call("delete_persons_lifecycle", request))
+        self.calls.append(_Call("lifecycle.delete_persons", request))
         self._validate_lifecycle_delete(request)
 
         frozen = (request.team_id, tuple(request.person_ids))
