@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -361,18 +362,69 @@ class TestPlatformAlertAPI(APIBaseTest):
             ("grouping_without_mode", {"grouping": {"keys": ["service_name"]}}, "grouping__mode"),
             ("enabled_without_filters", {"source_config": {"filters": {}, "condition": CONDITION}}, "source_config"),
             ("grouped_by_an_attribute", {"grouping": {"mode": "by_result_labels", "keys": ["http.route"]}}, "grouping"),
+            ("reserved_label", {"labels": {"alertname": "Checkout"}}, "labels"),
+            ("unencodable_label_name", {"labels": {"te\ud800am": "checkout"}}, "labels"),
+            (
+                "annotation_on_an_unknown_label",
+                {"annotations": {"summary": "{{ $labels.service_name }} errors"}},
+                "annotations",
+            ),
         ]
     )
     def test_an_invalid_edit_names_the_field_and_changes_nothing(self, _name: str, body: dict, field: str) -> None:
         self._set_flag(True)
         configuration = self._create_configuration(self.team, "API errors", owner="platform")
 
-        response = self.client.patch(self._edit_url(configuration), body, format="json")
+        # `json.dumps` escapes a lone surrogate as a client does. The test client's encoder cannot send one.
+        response = self.client.patch(self._edit_url(configuration), json.dumps(body), content_type="application/json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == field
         configuration.refresh_from_db()
         assert (configuration.source_config["condition"], configuration.grouping["mode"]) == (CONDITION, "single")
+        assert (configuration.labels, configuration.annotations) == ({}, {})
+
+    def test_labels_and_annotations_are_stored_and_read_back(self) -> None:
+        self._set_flag(True)
+        configuration = self._create_configuration(self.team, "API errors", owner="platform")
+        labels = {"team": "checkout", "severity": "critical"}
+        annotations = {
+            "summary": "Checkout errors for {{ $labels.service_name }} at {{ $value }}",
+            "runbook_url": "https://runbooks.example.com/{{ $labels.team }}",
+        }
+
+        response = self.client.patch(
+            self._edit_url(configuration),
+            {
+                "grouping": {"mode": "by_result_labels", "keys": ["service_name"]},
+                "labels": labels,
+                "annotations": annotations,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        read = self.client.get(self._edit_url(configuration)).json()
+        assert (read["labels"], read["annotations"]) == (labels, annotations)
+
+        full_update = {
+            key: read[key]
+            for key in (
+                "source_kind",
+                "name",
+                "enabled",
+                "source_config",
+                "grouping",
+                "schedule_restriction",
+                "evaluation_periods",
+                "datapoints_to_alarm",
+                "cooldown_minutes",
+            )
+        }
+        response = self.client.put(self._edit_url(configuration), {**full_update, "name": "Renamed"}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert (response.json()["labels"], response.json()["annotations"]) == (labels, annotations)
 
     @parameterized.expand(
         [

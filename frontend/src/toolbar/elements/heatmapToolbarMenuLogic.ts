@@ -23,7 +23,7 @@ import {
     heatmapUrlPatternToRegex,
     resolveHeatmapUrlFilter,
 } from 'lib/components/heatmaps/heatmapUrlMatch'
-import { HeatmapBoundsFilter } from 'lib/components/heatmaps/types'
+import { HeatmapBoundsFilter, ScrollDepthPosthogJsError } from 'lib/components/heatmaps/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { createSliceYielder } from 'lib/utils/async'
 import { createVersionChecker } from 'lib/utils/semver'
@@ -48,7 +48,7 @@ import {
     elementIsVisible,
     elementToActionStep,
     getParent,
-    getToolbarRootElement,
+    isInToolbarRoot,
     invalidateZoomCache,
     trimElement,
 } from '~/toolbar/utils'
@@ -97,12 +97,11 @@ const AREA_CANDIDATE_LIMIT = 300
 // visibly its own region. Same-rect wrapper chains collapse to their deepest element,
 // and the result is sorted biggest-first so nested boxes paint children-on-top.
 export function computeAreaCandidates(): HTMLElement[] {
-    const toolbarRoot = getToolbarRootElement()
     const visibilityCache = new WeakMap<HTMLElement, boolean>()
     const byRectKey = new Map<string, { element: HTMLElement; area: number }>()
 
     for (const element of collectAllElementsDeep('*', document) as HTMLElement[]) {
-        if (toolbarRoot?.contains(element) || !element.matches(`${AREA_TARGET_SELECTOR}, div`)) {
+        if (isInToolbarRoot(element) || !element.matches(`${AREA_TARGET_SELECTOR}, div`)) {
             continue
         }
         const rect = element.getBoundingClientRect()
@@ -407,7 +406,7 @@ export interface heatmapToolbarMenuLogicValues {
         processed: number
         total: number
     } | null
-    scrollDepthPosthogJsError: 'disabled' | 'version' | null
+    scrollDepthPosthogJsError: ScrollDepthPosthogJsError
     wantedDataAttributes: string[]
     windowHeight: number
     windowWidth: number
@@ -626,7 +625,7 @@ export interface heatmapToolbarMenuLogicMeta {
         wantedDataAttributes: (dataAttributes: string[]) => string[]
         clickCount: (countedElements: CountedHTMLElement[]) => number
         highestClickCount: (countedElements: CountedHTMLElement[]) => number
-        scrollDepthPosthogJsError: (posthog: PostHog | null) => 'disabled' | 'version' | null
+        scrollDepthPosthogJsError: (posthog: PostHog | null) => ScrollDepthPosthogJsError
         processingInputs: (
             elementStats: PaginatedResponse<ElementsEventType> | null,
             dataAttributes: string[],
@@ -1014,9 +1013,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
         scrollDepthPosthogJsError: [
             (s) => [s.posthog],
-            (posthog: PostHog | null): 'version' | 'disabled' | null => {
+            (posthog: PostHog | null): ScrollDepthPosthogJsError => {
                 if (!posthog) {
-                    return null
+                    return 'missing'
                 }
 
                 const posthogVersion =
@@ -1536,8 +1535,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         cache.disposables.add(() => {
             // capture-phase document listeners so area picking sees page elements before the
             // page's own handlers do; guarded by areaSelectionActive so they cost nothing otherwise
-            const isToolbarElement = (element: HTMLElement): boolean =>
-                getToolbarRootElement()?.contains(element) ?? false
+            const isToolbarElement = isInToolbarRoot
 
             const onMouseOver = (e: MouseEvent): void => {
                 if (!values.areaSelectionActive) {

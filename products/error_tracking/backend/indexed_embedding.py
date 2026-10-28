@@ -228,11 +228,11 @@ EMBEDDING_MODELS_2 = [SMALL_256_MODEL_NAME]
 # - Add the new models to a new list like the one above
 # - Create a new list like EMBEDDING_TABLES_1
 # - Add that new list to EMBEDDING_TABLES full-list, so all the HOGQL modelling is automatically updated
-# And then write a migration (similar to 0361_embedding_model_small_256) that:
-# - Drop the buffer-table-filling MV (in deployed cloud, also the WarpStream MV, to pause the consumer)
+# And then write a migration (similar to 0363_embedding_model_small_256) that:
+# - Drop the buffer-table-filling MV (outside deployed cloud only, see 0363)
 # - Create the new tables and MVs for the new model-specific tables
 # - Replaces the union view
-# - Re-creates the buffer-table-filling MV from the Kafka table that is live in that deployment
+# - Re-creates the buffer-table-filling MV (outside deployed cloud only)
 
 
 # Helper functions for pausing/resuming the entire embedding system
@@ -241,11 +241,8 @@ def drop_kafka_to_buffer_mv_sql() -> str:
     return f"DROP TABLE IF EXISTS {KAFKA_TO_BUFFER_MV} "
 
 
-def KAFKA_TO_BUFFER_MV_SQL(kafka_table: str | None = None) -> str:
-    """Create the Kafka-to-buffer MV to resume embedding consumption.
-
-    Deployed cloud has no MSK Kafka table since migration 0248, so cloud migrations pass the WarpStream one.
-    """
+def KAFKA_TO_BUFFER_MV_SQL() -> str:
+    """Create the Kafka-to-buffer MV to resume embedding consumption."""
     from products.error_tracking.backend.embedding import KAFKA_DOCUMENT_EMBEDDINGS
 
     return """
@@ -270,7 +267,7 @@ FROM {database}.{kafka_table}
 """.format(
         mv_name=KAFKA_TO_BUFFER_MV,
         target_table=DOCUMENT_EMBEDDINGS_BUFFER_WRITABLE_TABLE,
-        kafka_table=kafka_table or KAFKA_DOCUMENT_EMBEDDINGS,
+        kafka_table=KAFKA_DOCUMENT_EMBEDDINGS,
         database=settings.CLICKHOUSE_DATABASE,
     )
 

@@ -107,6 +107,9 @@ class TestOutOfContractRowMask:
             ("selection_copy_count", -1),
             ("event_rate", float("inf")),
             ("event_rate", float("-inf")),
+            # Finite in float64 but inf once XGBoost casts to float32.
+            ("event_rate", 1e39),
+            ("mouse_mean_x", -1e39),
         ],
     )
     def test_out_of_contract_value_flags_only_its_row(
@@ -118,6 +121,8 @@ class TestOutOfContractRowMask:
     ) -> None:
         good_row = feature_frame.iloc[0].copy()
         df = pd.DataFrame([feature_frame.iloc[0], good_row]).reset_index(drop=True)
+        # ClickHouse returns Float64; the float32 fixture would turn 1e39 into inf before the mask sees it.
+        df[column] = df[column].astype(np.float64)
         df.loc[0, column] = bad_value
 
         mask = out_of_contract_row_mask(df, feature_names=feature_names_for_tests)

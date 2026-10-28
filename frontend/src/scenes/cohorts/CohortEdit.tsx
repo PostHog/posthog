@@ -904,6 +904,9 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                                 disabledReason={broadcastDisabledReason}
                                                             />
                                                         ),
+                                                        dataTableExpectedTotalRows: shouldShowCountWarning
+                                                            ? (cohort.count ?? undefined)
+                                                            : undefined,
                                                         columns: canRemovePersonFromCohort
                                                             ? {
                                                                   'person.$delete': {
