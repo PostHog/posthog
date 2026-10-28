@@ -267,7 +267,7 @@ describe('todayHighlightsLogic', () => {
                 ([event, properties]) => event === 'today pulse load finished' && properties?.outcome === 'ready'
             )
             expect(restored?.[1]?.load_id).not.toBe(firstLoadId)
-            expect(restored).toBeDefined()
+            expect(restored?.[1]).toMatchObject({ outcome: 'ready', number_count: 1, load_id: expect.any(String) })
         }
         logic.actions.pulseViewUnmounted()
         window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
