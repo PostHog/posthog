@@ -1,6 +1,6 @@
 # Workflows
 
-Workflows is the product where a team builds automated workflows and sends messages to people through broadcasts, transactional emails and messaging workflows.
+Workflows is the product where a team builds workflows, broadcasts and transactional emails, and sends messages to people through them.
 It also holds the channels, recipients and deliverability setup behind those messages.
 This glossary sets the words for the Messaging home in the new sidebar.
 A term marked "(Messaging home)" becomes true when that home ships behind `today-rail-nav`.
