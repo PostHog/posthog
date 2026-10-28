@@ -20,6 +20,9 @@ export interface actionNamesModelActions {
     loadActionNames: (ids: number[]) => {
         ids: number[]
     }
+    releaseActionNames: (ids: number[]) => {
+        ids: number[]
+    }
     requestActionNames: (ids: number[]) => {
         ids: number[]
     }
@@ -39,12 +42,14 @@ export const actionNamesModel = kea<actionNamesModelType>([
         loadActionNames: (ids: number[]) => ({ ids }),
         requestActionNames: (ids: number[]) => ({ ids }),
         setActionNames: (actionsById: ActionsById) => ({ actionsById }),
+        releaseActionNames: (ids: number[]) => ({ ids }),
     }),
     reducers({
         requestedActionIds: [
             [] as number[],
             {
                 requestActionNames: (state, { ids }) => [...state, ...ids],
+                releaseActionNames: (state, { ids }) => state.filter((id) => !ids.includes(id)),
             },
         ],
         actionsById: [
@@ -64,17 +69,22 @@ export const actionNamesModel = kea<actionNamesModelType>([
         },
         requestActionNames: async ({ ids }) => {
             // Retrieve, unlike list, also returns a soft-deleted action, which a saved query can still reference
-            const entries = await Promise.all(
+            const actionsById: ActionsById = {}
+            const failedIds: number[] = []
+            await Promise.all(
                 ids.map(async (id) => {
                     try {
                         const action = await actionsRetrieve(String(values.currentProjectId), id)
-                        return [id, { name: action.name ?? null }] as const
+                        actionsById[id] = { name: action.name ?? null }
                     } catch {
-                        return [id, { name: null }] as const
+                        failedIds.push(id)
                     }
                 })
             )
-            actions.setActionNames(Object.fromEntries(entries))
+            actions.setActionNames(actionsById)
+            if (failedIds.length > 0) {
+                actions.releaseActionNames(failedIds)
+            }
         },
     })),
 ])

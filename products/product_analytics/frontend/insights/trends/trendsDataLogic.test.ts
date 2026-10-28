@@ -268,24 +268,36 @@ describe('trendsDataLogic', () => {
     })
 
     describe('actionsById', () => {
-        it('loads the name of an action series saved without a name, once per action', async () => {
-            const retrieveAction = jest.fn(() => [200, { id: 7, name: 'Signed up' }])
-            useMocks({ get: { '/api/projects/:team_id/actions/:id/': retrieveAction } })
-            const query: TrendsQuery = { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.ActionsNode, id: 7 }] }
+        it.each([
+            { name: 'once per action', firstResponse: [200, { id: 7, name: 'Signed up' }], expectedCalls: 1 },
+            { name: 'again after a failed lookup', firstResponse: [500, {}], expectedCalls: 2 },
+        ])(
+            'loads the name of an action series saved without a name $name',
+            async ({ firstResponse, expectedCalls }) => {
+                const retrieveAction = jest
+                    .fn()
+                    .mockReturnValueOnce(firstResponse)
+                    .mockReturnValue([200, { id: 7, name: 'Signed up' }])
+                useMocks({ get: { '/api/projects/:team_id/actions/:id/': retrieveAction } })
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.ActionsNode, id: 7 }],
+                }
 
-            await expectLogic(logic, () => {
-                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
-            }).toFinishAllListeners()
-            await expectLogic(actionNamesModel).toDispatchActions(['setActionNames'])
-            await expectLogic(logic, () => {
-                insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource({
-                    series: [{ kind: NodeKind.ActionsNode, id: 7, math: BaseMathType.UniqueUsers }],
-                })
-            }).toFinishAllListeners()
+                await expectLogic(logic, () => {
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                }).toFinishAllListeners()
+                await expectLogic(actionNamesModel).toDispatchActions(['setActionNames'])
+                await expectLogic(logic, () => {
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource({
+                        series: [{ kind: NodeKind.ActionsNode, id: 7, math: BaseMathType.UniqueUsers }],
+                    })
+                }).toFinishAllListeners()
 
-            expect(logic.values.actionsById[7]?.name).toEqual('Signed up')
-            expect(retrieveAction).toHaveBeenCalledTimes(1)
-        })
+                expect(logic.values.actionsById[7]?.name).toEqual('Signed up')
+                expect(retrieveAction).toHaveBeenCalledTimes(expectedCalls)
+            }
+        )
     })
 
     describe('legend series isolation selectors', () => {
