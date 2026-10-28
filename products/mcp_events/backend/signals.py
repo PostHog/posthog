@@ -52,33 +52,35 @@ def revoke_subscriptions_of_removed_member(
     revocation.revoke_user_in_organization(user_id=instance.user_id, organization_id=instance.organization_id)
 
 
-class _RevalidateTeam:
-    def __init__(self, team_id: int) -> None:
-        self.team_id = team_id
+class _RevalidateTeams:
+    def __init__(self, team_ids: frozenset[int]) -> None:
+        self.team_ids = team_ids
         self.pending = True
 
     def __call__(self) -> None:
-        if self.pending:
-            self.pending = False
-            revalidate_mcp_event_subscriptions.delay(self.team_id)
+        if not self.pending:
+            return
+        self.pending = False
+        live = (
+            MCPEventSubscription.objects.unscoped()
+            .filter(team_id__in=self.team_ids, active=True, expires_at__gt=timezone.now())
+            .values_list("team_id", flat=True)
+            .distinct()
+        )
+        for team_id in live:
+            revalidate_mcp_event_subscriptions.delay(team_id)
 
 
 def _revalidate_after_commit(team_ids: list[int]) -> None:
-    live = (
-        MCPEventSubscription.objects.unscoped()
-        .filter(team_id__in=team_ids, active=True, expires_at__gt=timezone.now())
-        .values_list("team_id", flat=True)
-        .distinct()
-    )
     connection = transaction.get_connection()
-    for team_id in live:
-        # Django removes rolled-back savepoint callbacks, so their deduplication state cannot leak.
-        if any(
-            isinstance(callback, _RevalidateTeam) and callback.pending and callback.team_id == team_id
-            for _, callback, _ in connection.run_on_commit
-        ):
-            continue
-        transaction.on_commit(_RevalidateTeam(team_id), robust=True)
+    pending: set[int] = set()
+    # Django removes rolled-back savepoint callbacks, so their deduplication state cannot leak.
+    for _, callback, _ in connection.run_on_commit:
+        if isinstance(callback, _RevalidateTeams) and callback.pending:
+            pending.update(callback.team_ids)
+    remaining = frozenset(team_ids) - pending
+    if remaining:
+        transaction.on_commit(_RevalidateTeams(remaining), robust=True)
 
 
 def revalidate_after_access_rule_change(sender: type[Model], instance: Any, **kwargs: Any) -> None:

@@ -478,7 +478,8 @@ class TestMCPEventSubscriptionRevocation(MCPEventSubscriptionTestCase):
 
     @parameterized.expand(["action", "test_account"])
     def test_changed_saved_filters_recheck_property_access(self, target: str) -> None:
-        self.restrict_event_property("secret")
+        with self.captureOnCommitCallbacks(execute=True):
+            self.restrict_event_property("secret")
         action = Action.objects.create(
             team=self.team, name="Example action", steps_json=[{"event": "example_event"}], created_by=self.user
         )

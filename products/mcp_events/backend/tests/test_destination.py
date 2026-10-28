@@ -167,7 +167,7 @@ class TestMCPEventDestinationHog(SimpleTestCase):
 
     @parameterized.expand(["a", "測", "😀"])
     def test_payload_limit_counts_utf8_bytes(self, character: str) -> None:
-        properties = {"text": character * 50}
+        properties: dict[str, JsonValue] = {"text": character * 50}
         self.run_hog(properties, MCPEventPropertyAccess.redaction([]))
         size = len(self.fetch.call_args.args[1]["body"].encode("utf-8"))
         self.fetch.reset_mock()
