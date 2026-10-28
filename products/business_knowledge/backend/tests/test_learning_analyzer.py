@@ -180,9 +180,12 @@ def _provider_connection_error() -> Exception:
     return error
 
 
-def _tool_response(name: str, payload: dict[str, object]) -> MagicMock:
+def _tool_response(name: str, *payloads: dict[str, object]) -> MagicMock:
     response = MagicMock()
-    response.content = [ToolUseBlock(id="toolu_test", name=name, input=payload, type="tool_use")]
+    response.content = [
+        ToolUseBlock(id=f"toolu_{index}", name=name, input=payload, type="tool_use")
+        for index, payload in enumerate(payloads)
+    ]
     return response
 
 
@@ -349,17 +352,21 @@ class TestLearningAnalyzer:
         publish.assert_not_called()
 
     @pytest.mark.parametrize(
-        "pii_result",
-        [PiiVerdict(verdict="unsafe"), PiiVerdict(verdict="uncertain")],
+        "pii_results",
+        [
+            pytest.param([PiiVerdict(verdict="unsafe")], id="unsafe"),
+            pytest.param([PiiVerdict(verdict="uncertain")], id="uncertain"),
+            pytest.param([PiiVerdict(verdict="safe"), PiiVerdict(verdict="unsafe")], id="safe_then_unsafe"),
+        ],
     )
-    def test_model_pii_rejection_is_fail_closed(self, team: Team, pii_result: PiiVerdict) -> None:
+    def test_model_pii_rejection_is_fail_closed(self, team: Team, pii_results: list[PiiVerdict]) -> None:
         run, input = _setup_sync(team)
         provider = _Provider(EvidenceBundle(replies=("Use the standard contact process.",)))
         client, entered = _gateway_client()
         extraction = _extraction(canonical_topic="Contact policy", canonical_answer="Contact Taylor for help.")
         entered.messages.create.side_effect = [
             _tool_response("ExtractedKnowledge", extraction.model_dump()),
-            _tool_response("PiiVerdict", pii_result.model_dump()),
+            _tool_response("PiiVerdict", *(verdict.model_dump() for verdict in pii_results)),
         ]
 
         with (
