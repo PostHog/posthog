@@ -1,10 +1,12 @@
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 from enum import StrEnum
+from functools import reduce
+from operator import or_
 from typing import Any, Literal
 
 from django.conf import settings
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import pydantic
@@ -883,11 +885,12 @@ def _deleted_definition_names(
         deletions = deletions.filter(created_at__gte=since)
     return set(
         deletions.filter(
+            # A containment test per name can use `idx_alog_detail_gin_path_ops`, which `detail__name__in` can't.
+            reduce(or_, (Q(detail__contains={"name": name}) for name in names)),
             # These match the condition of `idx_alog_team_act_scope_usr`, so the lookup reads only the deletions. A
             # deletion made while impersonating a user is not read.
             was_impersonated=False,
             is_system=False,
-            detail__name__in=names,
         ).values_list("detail__name", flat=True)
     )
 
