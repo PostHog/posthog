@@ -23,7 +23,7 @@ from posthog.utils import generate_cache_key
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
-from products.mcp_analytics.backend import intent_generation, mcp_harness
+from products.mcp_analytics.backend import intent_generation, logic, mcp_harness
 from products.mcp_analytics.backend.facade import api, contracts, enums
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPSession
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -940,6 +940,35 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
             overview = api.get_activity_overview(self.team, filter_test_accounts=change_filters, user=self.user)
 
         assert overview.stats.total_calls == expected_calls
+
+    @parameterized.expand(
+        [
+            ("plain_property_is_shared", "$mcp_tool_name", TEST_ACCOUNT_FILTERS, True),
+            ("virtual_property_is_per_member", "$virt_tier", TEST_ACCOUNT_FILTERS, False),
+            (
+                "hogql_test_account_filter_is_per_member",
+                "$mcp_tool_name",
+                [{"key": "1 = 1", "type": "hogql"}],
+                False,
+            ),
+        ]
+    )
+    def test_overview_cache_key_is_per_member_unless_filters_read_the_same_for_everyone(
+        self, _name: str, key: str, test_account_filters: list[dict[str, Any]], shared: bool
+    ) -> None:
+        self.team.test_account_filters = test_account_filters
+        self.team.save()
+        other_user = self._create_user("other@example.com")
+        properties: list[AnyPropertyFilterDiscriminated] = [
+            EventPropertyFilter(key=key, value="x", operator=PropertyOperator.EXACT)
+        ]
+
+        keys = {
+            logic._activity_overview_cache_key(self.team, properties, True, set(), user)
+            for user in (self.user, other_user)
+        }
+
+        assert (len(keys) == 1) == shared
 
     def test_tool_filter_does_not_hide_missing_capability_reports(self) -> None:
         self._emit_call({"$mcp_tool_name": "query_run"})
