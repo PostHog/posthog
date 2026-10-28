@@ -19,6 +19,7 @@ import { agentConversationEventToAcpNotification } from '@posthog/agent-contract
 import type { AgentConversationEvent } from '@posthog/agent-contracts/agent-conversation'
 
 import api from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { uuid } from 'lib/utils/dom'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -335,6 +336,18 @@ export function mapHttpStatusToStreamError(status: number | undefined): StreamEr
                 status
             )
     }
+}
+
+function streamErrorFromFailure(error: unknown): StreamErrorEnvelope {
+    if (error instanceof NetworkError && error.reason === 'network') {
+        return {
+            errorTitle: "Couldn't reach PostHog",
+            errorMessage:
+                'A browser extension, such as an ad blocker, may be blocking the request. Turn it off for this site, then retry.',
+            retryable: true,
+        }
+    }
+    return mapHttpStatusToStreamError((error as { status?: number })?.status)
 }
 
 /**
@@ -4122,7 +4135,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             const envelope =
                 isRecord(error) && typeof error.errorTitle === 'string'
                     ? (error as unknown as StreamErrorEnvelope)
-                    : mapHttpStatusToStreamError((error as { status?: number })?.status)
+                    : streamErrorFromFailure(error)
             session.paused = true
             cache.pausedError = envelope
             session.buffer = []

@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { NetworkError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
@@ -3852,6 +3853,21 @@ describe('runStreamLogic', () => {
                 expect(tasksRunsCommandCreate).not.toHaveBeenCalled()
             }
         )
+
+        it.each([
+            [
+                'network',
+                "Couldn't reach PostHog. A browser extension, such as an ad blocker, may be blocking the request. Turn it off for this site, then retry.",
+            ],
+            ['offline', 'Cloud stream failed'],
+        ] as const)('explains a history request that fails with network reason %s', async (reason, message) => {
+            jest.mocked(api.tasks.runs.getLogEntries).mockRejectedValue(new NetworkError(reason))
+            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
+            await flushPromises()
+            await jest.advanceTimersByTimeAsync(2000)
+            await jest.advanceTimersByTimeAsync(4000)
+            expect(logic.values.runConnectionState).toEqual({ kind: 'connection_failed', message, retryable: true })
+        })
 
         it.each([401, 403, 406, 404, 400])('does not automatically retry HTTP %s', async (status) => {
             jest.mocked(tasksRunsRetrieve).mockRejectedValue({ status })
