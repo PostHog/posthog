@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -94,6 +95,99 @@ describe('insightsTableDataLogic', () => {
                 })
             })
         })
+
+        it.each([
+            ['a breakdown of total counts', {}, true, true],
+            ['no breakdown', { breakdownFilter: undefined }, false, false],
+            [
+                'a cohort breakdown',
+                { breakdownFilter: { breakdown: [1, 'all'], breakdown_type: 'cohort' } },
+                false,
+                false,
+            ],
+            [
+                'the "Other" bucket hidden',
+                {
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                        breakdown_hide_other_aggregation: true,
+                    },
+                },
+                false,
+                false,
+            ],
+            [
+                'unique users',
+                { series: [{ kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers }] },
+                false,
+                false,
+            ],
+            [
+                'an average of a property',
+                {
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            math: PropertyMathType.Average,
+                            math_property: '$screen_width',
+                        },
+                    ],
+                },
+                false,
+                false,
+            ],
+            [
+                'a sum of session duration',
+                {
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            math: PropertyMathType.Sum,
+                            math_property: '$session_duration',
+                        },
+                    ],
+                },
+                false,
+                false,
+            ],
+            [
+                'a sum of a session property',
+                {
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$pageview',
+                            math: PropertyMathType.Sum,
+                            math_property: '$pageview_count',
+                            math_property_type: 'session_properties',
+                        },
+                    ],
+                },
+                false,
+                false,
+            ],
+            ['a formula', { trendsFilter: { formulaNodes: [{ formula: 'A * 2' }] } }, false, false],
+        ] as [string, Partial<TrendsQuery>, boolean, boolean][])(
+            'percent of total columns with %s',
+            async (_name, overrides, expectedTotal, expectedDay) => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                    ...overrides,
+                }
+
+                insightVizDataLogic(props).actions.updateQuerySource(query)
+
+                await expectLogic(logic).toMatchValues({
+                    showPercentOfTotal: expectedTotal,
+                    showPercentOfDayTotal: expectedDay,
+                })
+            }
+        )
 
         describe('aggregation', () => {
             it('by default averages for insights with unique math entity', async () => {
@@ -343,6 +437,159 @@ describe('insightsTableDataLogic', () => {
             expect(previousItem).not.toBeUndefined()
             expect(previousItem!.compare_label).toBe('previous')
             expect(previousItem!.count).toBe(80)
+        })
+
+        it('getPercentOfDayTotal handles results without daily data', async () => {
+            const insight: Partial<InsightModel> = {
+                result: [makeCompareResult({ data: null as any })],
+            }
+
+            await expectLogic(logic, () => {
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            expect(logic.values.getPercentOfDayTotal(logic.values.indexedResults[0], 0)).toBeNull()
+        })
+
+        it.each([
+            [
+                'load',
+                200,
+                [
+                    [null, 1],
+                    [null, 0.5],
+                    [null, null],
+                ],
+            ],
+            [
+                'fail',
+                500,
+                [
+                    [null, null],
+                    [null, null],
+                    [null, null],
+                ],
+            ],
+        ] as [string, number, (number | null)[][]][])(
+            'unique users divide by the daily totals without the breakdown when they %s',
+            async (_name, totalsStatus, expectedUniqueShares) => {
+                const sentQueries: TrendsQuery[] = []
+                useMocks({
+                    post: {
+                        '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                            sentQueries.push(((await request.json()) as { query: TrendsQuery }).query)
+                            return [
+                                totalsStatus,
+                                {
+                                    results: [
+                                        makeCompareResult({
+                                            order: 0,
+                                            days: ['2023-01-02', '2023-01-03'],
+                                            data: [2, 9],
+                                        }),
+                                    ],
+                                },
+                            ]
+                        },
+                    },
+                })
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: '$pageview' },
+                        { kind: NodeKind.EventsNode, event: '$pageview', math: BaseMathType.UniqueUsers },
+                    ],
+                    breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                }
+                const insight: Partial<InsightModel> = {
+                    result: [
+                        makeCompareResult({ order: 0, breakdown_value: 'Chrome', data: [4, 4] }),
+                        makeCompareResult({ order: 0, breakdown_value: 'Firefox', data: [4, 0] }),
+                        makeCompareResult({ order: 1, breakdown_value: 'Chrome', data: [1, 2] }),
+                        makeCompareResult({ order: 1, breakdown_value: 'Firefox', data: [1, 1] }),
+                        makeCompareResult({ order: 1, breakdown_value: BREAKDOWN_OTHER_STRING_LABEL, data: [1, 1] }),
+                    ],
+                }
+
+                await expectLogic(logic, () => {
+                    insightVizDataLogic.findMounted(props)?.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toFinishAllListeners()
+
+                expect(sentQueries.map((q) => [q.series, q.breakdownFilter])).toEqual([[[query.series[1]], undefined]])
+                const shares = (): (number | null)[][] =>
+                    logic.values.indexedResults.map((r) => [
+                        logic.values.getPercentOfDayTotal(r, 0),
+                        logic.values.getPercentOfDayTotal(r, 1),
+                    ])
+                expect(shares()).toEqual([[0.5, 1], [0.5, 0], ...expectedUniqueShares])
+
+                insightVizDataLogic
+                    .findMounted(props)
+                    ?.actions.updateQuerySource({ trendsFilter: { display: ChartDisplayType.ActionsBar } })
+                await expectLogic(logic).toFinishAllListeners()
+                expect(shares()).toEqual([[0.5, 1], [0.5, 0], ...expectedUniqueShares])
+
+                insightVizDataLogic.findMounted(props)?.actions.updateQuerySource({ dateRange: { date_from: '-30d' } })
+                await expectLogic(logic).toFinishAllListeners()
+                expect(shares().slice(2)).toEqual([
+                    [null, null],
+                    [null, null],
+                    [null, null],
+                ])
+            }
+        )
+
+        it('percent of total divides by the total of the same series and period', async () => {
+            const row = (
+                order: number,
+                compare_label: CompareLabelType,
+                breakdown_value: string,
+                data: number[]
+            ): Partial<IndexedTrendResult> =>
+                makeCompareResult({
+                    action: { order, id: '$pageview', name: '$pageview' } as any,
+                    order,
+                    compare: true,
+                    compare_label,
+                    breakdown_value,
+                    data,
+                    count: data.reduce((a, b) => a + b, 0),
+                })
+            const insight: Partial<InsightModel> = {
+                result: [
+                    row(0, CompareLabelType.Current, 'Chrome', [10, 20]),
+                    row(0, CompareLabelType.Current, 'Firefox', [10, 0]),
+                    row(0, CompareLabelType.Previous, 'Chrome', [5, 0]),
+                    row(0, CompareLabelType.Previous, 'Firefox', [5, 10]),
+                    row(1, CompareLabelType.Current, 'Chrome', [50, 0]),
+                ],
+            }
+
+            const query: TrendsQuery = {
+                kind: NodeKind.TrendsQuery,
+                series: [
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                    { kind: NodeKind.EventsNode, event: '$pageview' },
+                ],
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                compareFilter: { compare: true },
+            }
+
+            await expectLogic(logic, () => {
+                insightVizDataLogic.findMounted(props)?.actions.updateQuerySource(query)
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
+            }).toFinishAllListeners()
+
+            const { indexedResults, getPercentOfTotal, getPercentOfDayTotal } = logic.values
+            expect(indexedResults.map(getPercentOfTotal)).toEqual([0.75, 0.25, 0.25, 0.75, 1])
+            expect(indexedResults.map((r) => [getPercentOfDayTotal(r, 0), getPercentOfDayTotal(r, 1)])).toEqual([
+                [0.5, 1],
+                [0.5, 0],
+                [0.5, 0],
+                [0.5, 1],
+                [1, null],
+            ])
         })
     })
 })

@@ -234,6 +234,7 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    automatedUpdate?: boolean
     /** Edit count from the comment row. 0 means never edited. */
     version?: number
     emailDeliveryStatus?: EmailDeliveryStatus

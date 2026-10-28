@@ -11,6 +11,7 @@ import psycopg
 import structlog
 from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import HostNotAllowedError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import tls_options
@@ -123,7 +124,7 @@ class PostgresCDCAdapter:
         )
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
-        inputs = source.job_inputs or {}
+        inputs = SourceInputsStore.load(source)
         cdc_config = self.parse_cdc_config(source)
         # Two-arg form honors the SSH-tunnel `require_tls` opt-out, matching the management
         # path (slot_manager.cdc_pg_connection) so a tunnelled source that opted out of TLS
@@ -417,5 +418,5 @@ class PostgresCDCAdapter:
         return cdc_config.publication_name
 
     def _resolve_schema(self, source: ExternalDataSource) -> str:
-        raw = (source.job_inputs or {}).get("schema")
+        raw = SourceInputsStore.load_settings(source).get("schema")
         return raw.strip() if isinstance(raw, str) and raw.strip() else "public"

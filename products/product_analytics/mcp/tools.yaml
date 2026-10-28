@@ -10,6 +10,17 @@ ui_apps:
         type: detail
         view_prop: data
         link_prop: openLink
+    explain-chart:
+        type: custom
+        app_name: PostHog Chart Walkthrough
+        description: A trends chart with the moments that stand out highlighted, explained one chapter at a time.
+        render_ui:
+            component_import: ../components/ExplainChart
+            view_component: ExplainChart
+            view_prop: data
+            data_type: ExplainChartData
+            link_prop: openLink
+            app_prop: app
 tools:
     elements-stats-retrieve:
         operation: elements_stats_retrieve
@@ -65,6 +76,15 @@ tools:
 
             Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
             so a query you just ran through one of the `query-*` tools can be passed straight through.
+
+
+            A saved SQL insight must follow the dashboard and insight date range. Before you save a `HogQLQuery`,
+            replace its fixed date window, such as `timestamp >= now() - INTERVAL 30 DAY`, with the `{filters}`
+            placeholder: `WHERE event = 'signed_up' AND {filters}`. Then put the requested window in
+            `query.source.filters.dateRange`, for example `{"date_from": "-30d"}`. A fixed window ignores the date
+            picker, and `{filters}` without a `dateRange` shows all time. `{filters}` also applies the property and
+            test-account filters. For a table without a `timestamp` column, bind its date column with
+            `{filters(created_at AS timestamp)}`.
 
 
             Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
@@ -149,7 +169,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result
@@ -272,7 +292,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result

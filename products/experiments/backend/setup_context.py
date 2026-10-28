@@ -1135,7 +1135,10 @@ def _custom_exposure(experiment: Experiment, exposure_criteria: dict[str, Any]) 
         return exposure
     if isinstance(config, ActionsNode):
         return dataclasses.replace(exposure, action_id=int(config.id))
-    return dataclasses.replace(exposure, event=str(config.event) if config and config.event else None)
+    return dataclasses.replace(
+        exposure,
+        event=str(config.event) if isinstance(config, ExperimentEventExposureConfig) and config.event else None,
+    )
 
 
 def _filters_test_accounts(exposure_criteria: dict[str, Any]) -> bool:
