@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -93,6 +94,11 @@ const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRun
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
+
+const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
+    in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
+    shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
+}
 
 export type PrChecksError = {
     message: string
@@ -345,6 +351,7 @@ export interface inboxReportDetailLogicValues {
     feedbackSubmitting: boolean
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
+    implementationDisabledReason: string | null
     implementationSlotClaim: ImplementationSlotClaim | null
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
@@ -762,6 +769,11 @@ export interface inboxReportDetailLogicMeta {
         isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
         isReportClaimable: (report: SignalReport | null) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
+        implementationDisabledReason: (
+            implementationSlotClaim: ImplementationSlotClaim | null,
+            reportClaimant: _UserApi | null,
+            isClaimedByMe: boolean
+        ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
@@ -1520,6 +1532,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (s) => [s.reportTasks],
             (reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null =>
                 implementationSlotClaim(reportTasks),
+        ],
+        implementationDisabledReason: [
+            (s) => [s.implementationSlotClaim, s.reportClaimant, s.isClaimedByMe],
+            (
+                slotClaim: ImplementationSlotClaim | null,
+                claimant: _UserApi | null,
+                isClaimedByMe: boolean
+            ): string | null =>
+                slotClaim
+                    ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
+                    : claimant && !isClaimedByMe
+                      ? `${fullNameOrEmail(claimant)} is working on this report.`
+                      : null,
         ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
         // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
