@@ -275,6 +275,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Lets a service send transactional email through `messaging_templates/:id/send/`. Every other
     # hog_flow route stays PSAK-denied, because no other hog_flow viewset lists PSAK actions.
     ("hog_flow", "write"),
+    # Sends logs and traces to capture-logs in place of the public project token, which
+    # a frontend can expose. No logs viewset lists a PSAK action, so the logs API stays denied.
+    ("logs", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

@@ -4,6 +4,7 @@
 //! to reach some endpoints and not others. Resolving the token is only available here, together
 //! with the checks, so a handler cannot obtain a token without having been authorized.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 
 use axum::http::{HeaderMap, StatusCode};
@@ -12,9 +13,14 @@ use capture::token::validate_token;
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use tracing::error;
 
 const REJECTED_COUNTER: &str = "capture_logs_requests_rejected_total";
+
+/// Project secret API keys and the legacy team secret token share this prefix. Only project
+/// secret API keys with the `logs:write` scope resolve to a team downstream.
+const SECRET_KEY_PREFIX: &str = "phs_";
 
 /// The `(status, body)` pair the handlers already return, so a rejection needs no new plumbing.
 type Rejection = (StatusCode, Json<serde_json::Value>);
@@ -48,18 +54,17 @@ impl Authorizer {
         Self { token_dropper }
     }
 
-    /// Resolve the project token from `Authorization: Bearer <token>`, falling back to the
-    /// `token` query parameter, then authorize it for `signal`.
+    /// Resolve the token from `Authorization: Bearer <token>`, falling back to the `token` query
+    /// parameter, then authorize it for `signal`. Returns the credential to forward downstream.
     pub fn authorize<'a>(
         &self,
         headers: &'a HeaderMap,
         query_token: Option<&'a str>,
         signal: Signal,
-    ) -> Result<&'a str, Rejection> {
+    ) -> Result<Cow<'a, str>, Rejection> {
         let token = resolve_token(headers, query_token)
             .map_err(|rejection| self.reject(signal, "missing_token", rejection))?;
-        self.authorize_token(token, signal)?;
-        Ok(token)
+        self.authorize_token(token, signal)
     }
 
     /// Resolve the token from a vendor-specific header that carries it verbatim, falling back to
@@ -71,28 +76,28 @@ impl Authorizer {
         headers: &'a HeaderMap,
         header_name: &str,
         signal: Signal,
-    ) -> Result<&'a str, Rejection> {
+    ) -> Result<Cow<'a, str>, Rejection> {
         let verbatim = headers
             .get(header_name)
             .and_then(|value| value.to_str().ok())
             .map(strip_bearer)
             .filter(|token| !token.is_empty());
         match verbatim {
-            Some(token) => {
-                self.authorize_token(token, signal)?;
-                Ok(token)
-            }
+            Some(token) => self.authorize_token(token, signal),
             None => self.authorize(headers, None, signal),
         }
     }
 
     /// Authorize a token that the caller resolved itself. The Datadog endpoint accepts the token
     /// in a path segment and in a bare `Authorization` value, so it cannot use `authorize`.
-    pub fn authorize_token(&self, token: &str, signal: Signal) -> Result<(), Rejection> {
-        if self.token_dropper.should_drop(token, "") {
-            return Err(self.reject(signal, "dropped_token", unauthorized("Invalid token")));
-        }
-
+    ///
+    /// A project token is forwarded as is. A project secret API key is forwarded as the hash
+    /// that its row stores, so the raw secret never reaches Kafka, spans, or debug files.
+    pub fn authorize_token<'a>(
+        &self,
+        token: &'a str,
+        signal: Signal,
+    ) -> Result<Cow<'a, str>, Rejection> {
         // Shape validation only rules out tokens that cannot be a project API key at all, such
         // as a personal API key pasted into an exporter. A well-formed token belonging to no
         // team still gets a 200 here and is dropped by the consumer, because resolving a token
@@ -108,7 +113,28 @@ impl Authorizer {
             ));
         }
 
-        Ok(())
+        let credential = if token.starts_with(SECRET_KEY_PREFIX) {
+            // The metrics consumer resolves only project tokens. Accepting a secret key here would
+            // answer 200 and then drop every sample downstream.
+            if signal == Signal::Metrics {
+                return Err(self.reject(
+                    signal,
+                    "secret_key_unsupported",
+                    unauthorized(
+                        "Project secret API keys can't send metrics. Use your project token for metrics.",
+                    ),
+                ));
+            }
+            Cow::Owned(hash_secret_key(token))
+        } else {
+            Cow::Borrowed(token)
+        };
+
+        if self.token_dropper.should_drop(&credential, "") {
+            return Err(self.reject(signal, "dropped_token", unauthorized("Invalid token")));
+        }
+
+        Ok(credential)
     }
 
     fn reject(&self, signal: Signal, reason: &'static str, rejection: Rejection) -> Rejection {
@@ -122,6 +148,11 @@ fn unauthorized(message: impl Into<String>) -> Rejection {
         StatusCode::UNAUTHORIZED,
         Json(json!({ "error": message.into() })),
     )
+}
+
+/// Matches `hash_key_value` in `posthog/models/utils.py`, which writes the key's `secure_value`.
+fn hash_secret_key(token: &str) -> String {
+    format!("sha256${}", hex::encode(Sha256::digest(token.as_bytes())))
 }
 
 /// Splits before it trims, so a value of exactly `Bearer ` still yields the empty token callers reject.
@@ -183,8 +214,16 @@ mod tests {
     #[test]
     fn structurally_impossible_tokens_are_rejected() {
         let too_long = "a".repeat(65);
+        let too_long_secret = format!("phs_{}", "a".repeat(61));
 
-        for token in [too_long.as_str(), "tokenwith\0nullbyte", "🦀", ""] {
+        for token in [
+            too_long.as_str(),
+            "tokenwith\0nullbyte",
+            "🦀",
+            "",
+            too_long_secret.as_str(),
+            "phs_with\0nullbyte",
+        ] {
             let (status, _) = authorizer()
                 .authorize_token(token, Signal::Logs)
                 .expect_err("expected rejection");
@@ -194,9 +233,40 @@ mod tests {
 
     #[test]
     fn a_well_formed_token_is_accepted() {
-        assert!(authorizer()
-            .authorize_token("phc_well_formed", Signal::Logs)
-            .is_ok());
+        assert_eq!(
+            authorizer()
+                .authorize_token("phc_well_formed", Signal::Logs)
+                .ok()
+                .as_deref(),
+            Some("phc_well_formed")
+        );
+    }
+
+    const PROJECT_SECRET: &str = "phs_project_secret";
+    const PROJECT_SECRET_HASH: &str =
+        "sha256$17c377f043245bdbed5f26c5c63bac9e98d98ce68f1bbef498ee0cc965777baa";
+
+    #[test]
+    fn a_project_secret_key_is_forwarded_as_its_hash_for_logs_and_traces() {
+        // The raw secret must never reach Kafka, spans, or debug files, so only the hash the
+        // consumer matches against the key's stored secure value leaves the authorizer.
+        for signal in [Signal::Logs, Signal::Traces] {
+            let forwarded = authorizer()
+                .authorize_token(PROJECT_SECRET, signal)
+                .unwrap_or_else(|_| panic!("{signal:?} should accept a project secret key"));
+            assert_eq!(forwarded, PROJECT_SECRET_HASH, "{signal:?}");
+        }
+    }
+
+    #[test]
+    fn a_project_secret_key_is_rejected_for_metrics() {
+        // The metrics consumer resolves only project tokens, so accepting a secret key there
+        // would answer 200 and drop every sample downstream.
+        let (status, _) = authorizer()
+            .authorize_token(PROJECT_SECRET, Signal::Metrics)
+            .expect_err("metrics should not accept a project secret key yet");
+
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
     }
 
     struct TokenSourceCase {
@@ -228,6 +298,12 @@ mod tests {
                 expected: Some("phc_query"),
             },
             TokenSourceCase {
+                name: "project secret key in the bearer header",
+                auth_header: Some("Bearer phs_project_secret"),
+                query_token: None,
+                expected: Some(PROJECT_SECRET_HASH),
+            },
+            TokenSourceCase {
                 name: "nothing provided",
                 auth_header: None,
                 query_token: None,
@@ -255,7 +331,7 @@ mod tests {
             let result = authorizer().authorize(&request_headers, case.query_token, Signal::Logs);
 
             match case.expected {
-                Some(token) => assert_eq!(result.ok(), Some(token), "{}", case.name),
+                Some(token) => assert_eq!(result.ok().as_deref(), Some(token), "{}", case.name),
                 None => assert_eq!(
                     result.expect_err(case.name).0,
                     StatusCode::UNAUTHORIZED,

@@ -446,9 +446,10 @@ pub async fn export_prometheus_remote_write_http(
         }
     };
 
-    service
+    let token = service
         .authorizer
-        .authorize_token(&token, Signal::Metrics)?;
+        .authorize_token(&token, Signal::Metrics)?
+        .into_owned();
 
     tracing::Span::current().record("token", &token);
 

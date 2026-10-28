@@ -447,10 +447,11 @@ pub async fn export_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
-    let token =
+    let credential =
         service
             .authorizer
             .authorize(&headers, query_params.token.as_deref(), Signal::Logs)?;
+    let token: &str = &credential;
 
     tracing::Span::current().record("token", token);
 
@@ -609,10 +610,11 @@ pub async fn export_traces_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
-    let token =
+    let credential =
         service
             .authorizer
             .authorize(&headers, query_params.token.as_deref(), Signal::Traces)?;
+    let token: &str = &credential;
 
     tracing::Span::current().record("token", token);
 
@@ -747,10 +749,11 @@ pub async fn export_metrics_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
-    let token =
+    let credential =
         service
             .authorizer
             .authorize(&headers, query_params.token.as_deref(), Signal::Metrics)?;
+    let token: &str = &credential;
 
     tracing::Span::current().record("token", token);
 
