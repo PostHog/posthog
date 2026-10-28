@@ -133,7 +133,7 @@ class ServiceMapViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     @extend_schema(parameters=[ServicesHealthRequestSerializer], responses={200: ServiceMapResponseSerializer})
     def list(self, request: Request, *args, **kwargs) -> Response:
-        _check_flag(self.team)
+        _check_flag(self.team, cast(User, request.user))
         tag_queries(product=ProductKey.TRACING, feature=Feature.QUERY)
         window = _window(ServicesHealthRequestSerializer(data=request.query_params))
 
