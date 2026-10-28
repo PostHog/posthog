@@ -700,6 +700,17 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
         assert self.client.get(self._url()).json() == []
 
+    def test_child_environment_lists_and_deletes_the_rules_it_creates(self) -> None:
+        child = Team.objects.create(
+            organization=self.organization, project=self.team.project, parent_team=self.team, name="Child"
+        )
+        child_url = f"/api/environments/{child.id}/mcp_analytics/custom_harnesses/"
+
+        created = self.client.post(child_url, {"name": "Acme", "match_pattern": "acme"}, format="json").json()
+
+        assert [row["name"] for row in self.client.get(child_url).json()] == ["Acme"]
+        assert self.client.delete(f"{child_url}{created['id']}/").status_code == status.HTTP_204_NO_CONTENT
+
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def _url(self, session_id: str) -> str:
