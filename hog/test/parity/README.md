@@ -29,6 +29,8 @@ Native scenarios compare `hog error-tracking upload` with `posthog-cli symbol-se
 The fixtures cover a fat dSYM, loose Mach-O DWARF files, files without debug info or a build ID, and two files that share a build ID.
 The `--include-source` scenarios put `native/src/` back in that folder first with the `setup` hook, and one scenario leaves it empty to cover sources that can't be read.
 
+The `release`, `extract` and `download` scenarios compare requests and the files each CLI writes. The fake server stores symbol sets for download, built with hog's writers, which the upload scenarios already hold to posthog-cli's bytes.
+
 Hermes scenarios run the React Native steps in order with `before`: inject the Metro bundle, clone into the composed map, then upload.
 The files in `hermes-fixtures.ts` are hand-written, with the Metro and Hermes keys, odd numbers and escapes that the serializer has to reproduce.
 
@@ -41,6 +43,9 @@ The files in `hermes-fixtures.ts` are hand-written, with the Metro and Hermes ke
 - the order of `symbol_sets` in request bodies, which follows posthog-cli's unsorted folder walk
 - the order of object-storage uploads within one batch, which run in parallel
 - random UUIDv7 chunk IDs in files, for scenarios marked `randomIds`
+
+A golden lists only the files a run created, changed or deleted. Files over 2 KB are stored as their SHA-512, so goldens stay small and still catch every changed byte. A scenario that another one starts from sets `fullSnapshot` to keep whole files.
+
 - the multipart boundary
 - the user agent: hog sends `hog/<version>`, posthog-cli sends `posthog-cli`
 
