@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonInput, LemonModal, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { ExternalDataSourceSchema } from '~/types'
 
@@ -243,25 +243,41 @@ export function ColumnSelectionPicker({
                             ) : (
                                 checkbox
                             )}
-                            {enableMasking && (
-                                <LemonButton
-                                    size="xsmall"
-                                    type={isMasked(column.name) ? 'primary' : 'tertiary'}
-                                    icon={<IconLock />}
-                                    aria-pressed={isMasked(column.name)}
-                                    onClick={() => toggleMask(column.name)}
-                                    tooltip="Replace this column's values with a one-way hash when syncing. Use it for passwords and personal data. A masked column no longer matches the same values in tables where it isn't masked."
-                                    disabledReason={
-                                        isMaskable(column.name) || isMasked(column.name)
-                                            ? undefined
-                                            : retained
-                                              ? "Primary key and incremental columns can't be masked"
-                                              : 'Only synced columns can be masked'
-                                    }
-                                >
-                                    {isMasked(column.name) ? 'Masked' : 'Mask'}
-                                </LemonButton>
-                            )}
+                            {enableMasking &&
+                                (isMasked(column.name) ? (
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <LemonTag type="muted" icon={<IconLock />}>
+                                            Masked
+                                        </LemonTag>
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="tertiary"
+                                            onClick={() => toggleMask(column.name)}
+                                            tooltip="Sync this column's real values again. A synced table is rebuilt from the source."
+                                            data-attr="schema-column-unmask"
+                                        >
+                                            Unmask
+                                        </LemonButton>
+                                    </div>
+                                ) : (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="tertiary"
+                                        icon={<IconLock />}
+                                        onClick={() => toggleMask(column.name)}
+                                        tooltip="Replace this column's values with a one-way hash when syncing. Use it for passwords and personal data. A masked column no longer matches the same values in tables where it isn't masked."
+                                        disabledReason={
+                                            isMaskable(column.name)
+                                                ? undefined
+                                                : retained
+                                                  ? "Primary key and incremental columns can't be masked"
+                                                  : 'Only synced columns can be masked'
+                                        }
+                                        data-attr="schema-column-mask"
+                                    >
+                                        Mask
+                                    </LemonButton>
+                                ))}
                         </div>
                     )
                 })}
