@@ -303,6 +303,8 @@ class TestTables(SimpleTestCase):
         assert [schema.name for schema in item.proposal.schemas] == expected
         assert [(pair.vendor_table, pair.posthog_table) for pair in item.proposal.inferred_tables] == list(inferred)
         assert item.proposal.unmatched_tables == unmatched
+        # The tables left to choose from come with the unmatched ones, and only then.
+        assert bool(item.proposal.unused_posthog_tables) == bool(unmatched)
         if expected_caveat:
             assert any(expected_caveat in caveat for caveat in item.caveats), item.caveats
         else:

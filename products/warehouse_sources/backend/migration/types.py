@@ -181,6 +181,8 @@ class ItemProposal:
     inferred_tables: tuple[TablePair, ...] = ()
     # Fivetran tables with no PostHog table. The user can map one to a PostHog table at apply.
     unmatched_tables: tuple[str, ...] = ()
+    # The source's PostHog tables that no Fivetran table maps to, to choose from for the unmatched ones.
+    unused_posthog_tables: tuple[str, ...] = ()
 
     def to_json(self) -> dict[str, Any]:
         return _PROPOSAL_ADAPTER.dump_python(self, mode="json")
