@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import type { SimpleOption } from 'lib/components/TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils/objects'
@@ -20,6 +21,7 @@ import type {
     AccountRelationshipDefinitionApi,
     CustomPropertyDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
+import { loadEveryPage } from 'products/customer_analytics/frontend/utils'
 
 import { ACCOUNT_FIELD_TAXONOMIC_OPTIONS, propertyTypeForDisplayType } from './accountsPropertyFilters'
 
@@ -650,8 +652,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             [] as CustomPropertyDefinitionApi[],
             {
                 loadCustomPropertyDefinitions: async (): Promise<CustomPropertyDefinitionApi[]> => {
-                    const response = await customPropertyDefinitionsList(String(values.currentProjectId))
-                    return response.results
+                    const projectId = String(values.currentProjectId)
+                    return await loadEveryPage((params) => customPropertyDefinitionsList(projectId, params))
                 },
             },
         ],
@@ -659,8 +661,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             [] as AccountRelationshipDefinitionApi[],
             {
                 loadRelationshipDefinitions: async (): Promise<AccountRelationshipDefinitionApi[]> => {
-                    const response = await accountRelationshipDefinitionsList(String(values.currentProjectId))
-                    return response.results
+                    const projectId = String(values.currentProjectId)
+                    return await loadEveryPage((params) => accountRelationshipDefinitionsList(projectId, params))
                 },
             },
         ],
@@ -814,6 +816,12 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         ],
     }),
     listeners(({ actions, values, selectors, cache }) => ({
+        loadCustomPropertyDefinitionsFailure: ({ error }) => {
+            posthog.captureException(error, { scope: 'accountsColumnConfigLogic.loadCustomPropertyDefinitions' })
+        },
+        loadRelationshipDefinitionsFailure: ({ error }) => {
+            posthog.captureException(error, { scope: 'accountsColumnConfigLogic.loadRelationshipDefinitions' })
+        },
         // Seed property types so filters show valid operators.
         loadCustomPropertyDefinitionsSuccess: () => {
             updatePropertyDefinitions(

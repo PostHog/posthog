@@ -22,6 +22,7 @@ import type {
     PinnedAccountPropertyApi,
     UserCustomerAnalyticsConfigApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
+import { loadEveryPage } from 'products/customer_analytics/frontend/utils'
 
 import {
     AccountPropertyOption,
@@ -31,7 +32,6 @@ import {
 } from './components/accountPropertyTypes'
 
 export { MAX_PINNED_ACCOUNT_PROPERTIES } from './components/accountPropertyTypes'
-const DEFINITION_PAGE_SIZE = 100
 // The requesting user always owns this configuration, so the endpoint accepts only this fixed lookup token.
 const CURRENT_USER_CONFIG_ID = '@me'
 
@@ -127,24 +127,6 @@ const pinnedPropertiesEqual = (
 ): boolean =>
     first.length === second.length &&
     first.every((reference, index) => referenceKey(reference) === referenceKey(second[index]))
-
-const loadEveryPage = async <T>(
-    loadPage: (params: { limit: number; offset: number }) => Promise<{ count: number; results: T[] }>
-): Promise<T[]> => {
-    const results: T[] = []
-    let offset = 0
-    let count = 1
-    while (offset < count) {
-        const page = await loadPage({ limit: DEFINITION_PAGE_SIZE, offset })
-        count = page.count
-        results.push(...page.results)
-        if (page.results.length === 0) {
-            break
-        }
-        offset += page.results.length
-    }
-    return results
-}
 
 export const resolvePinnedProperties = (
     references: readonly PinnedAccountProperty[],
