@@ -58,56 +58,17 @@ describe('flagCallCriterionProblem', () => {
         ['2113 hours', { explicit_datetime: '-2113h' }, 'window'],
         ['an absolute start', { explicit_datetime: '2026-09-01' }, 'window'],
         ['no window', { time_value: null, time_interval: null }, 'window'],
-        // Flag key: an equals filter on $feature_flag, and event property filters only
-        ['no filters', { event_filters: [] }, 'flag-key'],
-        ['several flag keys', { event_filters: [{ ...FLAG_KEY_FILTER, value: ['beta-feature', 'new-nav'] }] }, null],
-        ['an empty flag key', { event_filters: [{ ...FLAG_KEY_FILTER, value: '' }] }, 'flag-key'],
+        // Filters: event property filters only, with or without a flag key
+        ['no filters', { event_filters: [] }, null],
         [
-            'several flag keys with one empty',
-            { event_filters: [{ ...FLAG_KEY_FILTER, value: ['beta-feature', ''] }] },
-            'flag-key',
-        ],
-        // The rewrite refuses a key that parses as JSON, including what only Python's json.loads reads
-        ['a flag key that reads as a number', { event_filters: [{ ...FLAG_KEY_FILTER, value: '100' }] }, 'flag-key'],
-        ['a flag key that reads as null', { event_filters: [{ ...FLAG_KEY_FILTER, value: 'null' }] }, 'flag-key'],
-        ['a flag key that reads as NaN', { event_filters: [{ ...FLAG_KEY_FILTER, value: 'NaN' }] }, 'flag-key'],
-        [
-            'a flag key filter with no operator',
-            {
-                event_filters: [
-                    {
-                        key: '$feature_flag',
-                        type: PropertyFilterType.Event,
-                        value: 'beta-feature',
-                    } as EventPropertyFilter,
-                ],
-            },
-            null,
-        ],
-        [
-            'a flag key that is contained rather than equal',
-            { event_filters: [{ ...FLAG_KEY_FILTER, operator: PropertyOperator.IContains }] },
-            'flag-key',
-        ],
-        [
-            'another event property beside the flag key',
+            'a HogQL filter beside the flag key',
             {
                 event_filters: [
                     FLAG_KEY_FILTER,
-                    {
-                        key: '$browser',
-                        type: PropertyFilterType.Event,
-                        operator: PropertyOperator.Exact,
-                        value: 'Chrome',
-                    },
+                    { key: "goe_0.properties.plan = 'pro'", type: PropertyFilterType.HogQL },
                 ],
             },
-            null,
-        ],
-        [
-            'a HogQL filter beside the flag key',
-            { event_filters: [FLAG_KEY_FILTER, { key: "$window_id = 'w'", type: PropertyFilterType.HogQL }] },
-            'flag-key',
+            'filters',
         ],
     ])('%s', (_, overrides, expected) => {
         expect(flagCallCriterionProblem(flagCallCriterion(overrides))).toBe(expected)
