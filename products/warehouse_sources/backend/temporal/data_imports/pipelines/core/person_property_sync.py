@@ -557,6 +557,7 @@ async def _process_source_bundles(
             team_id, source, [key for key, _ in chunk]
         )
         to_send = [(key, bundle) for key, bundle in chunk if key in existing]
+        existing_count = len(to_send)
         # rows_read, changed and skipped_missing_person are this attempt's running totals, not per-chunk
         # amounts. rows_read and changed give the run row its denominator. A missing person is never
         # snapshotted, so a retry skips it again and only a total can avoid counting it twice.
@@ -564,7 +565,6 @@ async def _process_source_bundles(
             source_id=ps.source_id,
             rows_read=ps.rows_read,
             changed=ps.changed,
-            existing=len(to_send),
             skipped_missing_person=len(chunk) - len(to_send),
         )
         delivered: set[str] = set()
@@ -579,7 +579,8 @@ async def _process_source_bundles(
                 group_type_name=group_type_name,
             )
         increment.produced = len(delivered)
-        ps.existing += increment.existing
+        increment.existing = increment.produced
+        ps.existing += existing_count
         ps.skipped_missing_person += increment.skipped_missing_person
         ps.produced += increment.produced
         ps.undelivered += len(to_send) - len(delivered)

@@ -210,23 +210,34 @@ class TestRunOrchestration:
         team = MagicMock(api_token="tok", project_id=7)
         rows = [{"distinct_id": "a", "plan": "pro"}, {"distinct_id": "b", "plan": "free"}]
         fake = _FakeS3()
+        progress: list[pps.PerSourceResult] = []
+
+        async def _on_progress(increment: pps.PerSourceResult) -> None:
+            progress.append(increment)
+
         with (
             _fake_s3_patch(fake),
             patch(f"{_MODULE}.person_property_sync_sources_for", return_value=[self._source()]),
             patch(f"{_MODULE}.Team") as team_cls,
             patch(f"{_MODULE}._read_staged_rows", new=AsyncMock(return_value=rows)),
             patch(f"{_MODULE}._filter_existing_ids", return_value={"a", "b"}),
-            patch(f"{_MODULE}._produce_intents", return_value={"a"}),
+            patch(f"{_MODULE}._produce_intents", side_effect=({"a"}, {"b"})),
             patch(f"{_MODULE}._reconcile_property_definitions"),
             patch(f"{_MODULE}._clear_staged", new=AsyncMock()) as clear,
         ):
             team_cls.objects.get.return_value = team
             with pytest.raises(pps.PropertyUpdatesNotDeliveredError, match="1 of 2"):
-                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress)
+            result = await pps.run_person_property_sync(
+                team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress
+            )
             hashes = await pps._read_snapshot_hashes(1, _SCHEMA, "source-1")
 
-        assert set(hashes) == {"a"}
-        clear.assert_not_awaited()
+        assert set(hashes) == {"a", "b"}
+        assert sum(increment.existing for increment in progress) == 2
+        assert sum(increment.produced for increment in progress) == 2
+        assert result.produced == 1
+        clear.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_a_killed_run_keeps_confirmed_chunks_but_a_later_job_cannot_resume_undelivered_rows(self):
