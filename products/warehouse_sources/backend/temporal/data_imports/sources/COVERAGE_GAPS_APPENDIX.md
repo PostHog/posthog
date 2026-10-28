@@ -8949,12 +8949,12 @@ Diffed against: <https://raw.githubusercontent.com/orbcorp/orb-node/main/api.md>
 - [x] `GET /metrics (billable metrics)` — lookup resolving the billable-metric IDs that prices reference; without it usage-based charges are unexplainable (high)
 - [x] `GET /customers/{customer_id}/credits/ledger` — credit grant/decrement transaction log — the ledger a warehouse user needs for prepaid-balance analysis (high)
 - [x] `GET /customers/{customer_id}/balance_transactions` — customer account balance movements over time, joined to synced customers and invoices (high)
-- [ ] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
+- [x] `GET /customers/{customer_id}/costs` — per-customer cost breakdown by price/metric over a timeframe — Orb's headline revenue metric (high)
 - [ ] `GET /subscriptions/{subscription_id}/usage` — usage quantities per billable metric per subscription, the raw driver of every invoice line (medium)
 - [ ] `GET /subscription_changes` — state-transition history for the subscriptions table already synced (upgrades, downgrades, cancellations) (medium)
-- [ ] `GET /subscriptions/{subscription_id}/schedule` — plan-over-time schedule per subscription — resolves which plan applied in which period (medium)
-- [ ] `GET /customers/{customer_id}/credits` — outstanding credit block balances per customer (medium)
-- [ ] `GET /subscriptions/{subscription_id}/costs` — cost breakdown at subscription grain, complementing the customer-level view (medium)
+- [x] `GET /subscriptions/{subscription_id}/schedule` — plan-over-time schedule per subscription — resolves which plan applied in which period (medium)
+- [x] `GET /customers/{customer_id}/credits` — outstanding credit block balances per customer (medium)
+- [x] `GET /subscriptions/{subscription_id}/costs` — cost breakdown at subscription grain, complementing the customer-level view (medium)
 - [ ] `GET /events/volume` — ingested event volume over time — useful for reconciling usage against billing (low)
 - [ ] `GET /dimensional_price_groups` — lookup for dimensional pricing groups referenced by prices (low)
 
@@ -9270,10 +9270,10 @@ Today (5): `accounts`, `features`, `guides`, `pages`, `visitors`
 Diffed against: <https://engageapi.pendo.io/api/collections/16265887/Tzm6jvKG>
 
 - [ ] `aggregation source: events` — the raw usage event stream - Pendo's headline dataset and the basis of every engagement metric (high)
-- [ ] `aggregation source: featureEvents` — feature click events joined to the features table already synced (high)
-- [ ] `aggregation source: pageEvents` — page view events joined to the pages table already synced (high)
-- [ ] `GET /api/v1/tracktype` — lookup resolving custom track event type IDs; also needed to interpret trackEvents (high)
-- [ ] `aggregation source: trackEvents` — custom-instrumented events, the analog of product analytics custom events (high)
+- [x] `aggregation source: featureEvents` — feature click events joined to the features table already synced (high)
+- [x] `aggregation source: pageEvents` — page view events joined to the pages table already synced (high)
+- [x] `GET /api/v1/tracktype` — lookup resolving custom track event type IDs; also needed to interpret trackEvents (high)
+- [x] `aggregation source: trackEvents` — custom-instrumented events, the analog of product analytics custom events (high)
 - [ ] `aggregation source: guideEvents (plus guidesSeen)` — guide impressions and interactions for the guides table already synced (medium)
 - [ ] `aggregation source: pollEvents / pollsSeen` — poll and NPS responses, the source of Pendo's NPS reporting (medium)
 - [ ] `aggregation source: surveyResponses` — survey response rows for voice-of-customer analysis (medium)
@@ -13533,9 +13533,9 @@ Today (3): `documents`, `signers`, `templates`
 
 Diffed against: <https://docs.zapsign.com.br/english/sitemap-pages.xml>
 
-- [ ] `docs/signer-log/{doc_token} (document audit trail)` — per-document signature event history (viewed, signed, refused, timestamps) - the state-transition table behind document status (high)
-- [ ] `users (GET /api/v1/users/, account users)` — lookup table resolving the created_by / account user IDs already carried on documents (medium)
-- [ ] `signer-verification-details/{signer_token}` — authentication and identity-verification outcome per signer, needed to analyze signing friction and failures (medium)
+- [x] `docs/signer-log/{doc_token} (document audit trail)` — per-document signature event history (viewed, signed, refused, timestamps) - the state-transition table behind document status (high)
+- [x] `users (GET /api/v1/users/, account users)` — lookup table resolving the created_by / account user IDs already carried on documents (medium)
+- [x] `signer-verification-details/{signer_token}` — authentication and identity-verification outcome per signer, needed to analyze signing friction and failures (medium)
 - [ ] `checks/{check_id} and checks/{check_id}/details (background checks)` — background-check status and results tied to signers; no list endpoint, so it must fan out from signers (low)
 
 Note: Docs are a GitBook site with no OpenAPI spec; the English sitemap enumerates every endpoint page and each page embeds the literal api.zapsign.com.br path, which is what I diffed against. Webhook create/delete/logs endpoints exist but were excluded as plumbing.
