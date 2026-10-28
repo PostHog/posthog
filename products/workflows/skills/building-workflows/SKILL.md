@@ -28,6 +28,8 @@ Work the workflow through these stages. Don't jump straight to enabling it.
 7. **Dispatch (batch/schedule only).** A `batch` or `schedule` workflow does **not** fire on enable alone. Send a one-off broadcast with `workflows-run-batch`, or attach a recurring schedule with `workflows-schedule-create`. A `batch` trigger fans out to a person audience, so scheduling it needs the `workflows-blast-radius` preview and its confirm token; a `schedule` trigger runs once per occurrence with no audience, so schedule it directly. Confirm with `workflows-get` that `status=='active'` _and_ its read-only `schedules` field has an active entry.
 8. **Monitor.** Drill down: `workflows-global-stats` (which workflows are failing) to `workflows-stats` (one workflow's trend) to `workflows-list-invocations` (who it failed for) to `workflows-get-invocation` (the triggering payload) to `workflows-logs` (the failing step).
 
+**End on the workflow.** After you create or change a workflow, call `workflows-get` for it as your last tool call before you reply. A host that renders MCP apps draws the workflow's steps there, next to your answer, so the user sees what they approve without scrolling back.
+
 Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](references/lifecycle-and-debugging.md).
 
 ## Editing a draft

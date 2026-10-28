@@ -12,7 +12,7 @@ description: >-
 
 A Loop is a workflow tagged `origin_product: "loops"` with one shape: a trigger, one "Create AI task" step, an optional notify step, and an exit. Desktop's Loops screens read this shape back. A workflow with anything else still runs, but Desktop shows it as "changed in the workflow editor" and makes it read-only.
 
-Build it in this order: `workflows-create` as a draft, `workflows-test-run` step by step, `workflows-schedule-create` for schedule loops, then `workflows-enable` once the user signs off. For anything not covered here (patching a draft, publishing a live workflow, reading logs), use the `building-workflows` skill.
+Build it in this order: `workflows-create` as a draft, `workflows-test-run` step by step, `workflows-schedule-create` for schedule loops, then `workflows-enable` once the user signs off. After you create or change a loop, call `workflows-get` for it as your last tool call, so a host that renders MCP apps shows its steps next to your reply. For anything not covered here (patching a draft, publishing a live workflow, reading logs), use the `building-workflows` skill.
 
 ## The graph
 
