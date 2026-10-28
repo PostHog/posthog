@@ -14,12 +14,14 @@ import type { Breadcrumb } from '~/types'
 
 export function BetsPage({
     title,
+    titleAddon,
     description,
     actions,
     children,
     breadcrumbs,
 }: {
     title: ReactNode
+    titleAddon?: ReactNode
     description?: string
     actions?: ReactNode
     children: ReactNode
@@ -46,9 +48,12 @@ export function BetsPage({
                 </nav>
                 <header className="Bets__heading flex flex-wrap items-start justify-between gap-4">
                     <div className="min-w-0">
-                        <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
-                            {title}
-                        </Text>
+                        <div className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
+                            <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
+                                {title}
+                            </Text>
+                            {titleAddon}
+                        </div>
                         {description && (
                             <Text size="sm" variant="muted" render={<p className="mt-2 mb-0" />}>
                                 {description}

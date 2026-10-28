@@ -18618,6 +18618,26 @@ export namespace Schemas {
     }
 
     /**
+     * * `ideas` - Ideas
+     * * `edit` - Edit
+     * * `pull_request` - Pull request
+     * * `work` - Work
+     * * `budget` - Budget
+     * * `settings` - Settings
+     */
+    export type BetActionKindEnum = typeof BetActionKindEnum[keyof typeof BetActionKindEnum];
+
+
+    export const BetActionKindEnum = {
+      Ideas: 'ideas',
+      Edit: 'edit',
+      PullRequest: 'pull_request',
+      Work: 'work',
+      Budget: 'budget',
+      Settings: 'settings',
+    } as const;
+
+    /**
      * * `` -
      * * `task` - Task
      * * `experiment` - Experiment
@@ -18646,6 +18666,38 @@ export namespace Schemas {
     export const BetDirectionEnum = {
       Increase: 'increase',
       Decrease: 'decrease',
+    } as const;
+
+    /**
+     * * `setting_up` - Setting up
+     * * `checking_measure` - Checking the measure
+     * * `finding_ideas` - Finding ideas
+     * * `checking_ideas` - Checking ideas
+     * * `choosing` - Choosing
+     * * `building` - Building
+     * * `reviewing` - Reviewing
+     * * `testing` - Testing
+     * * `confirming_goal` - Confirming the goal
+     * * `waiting` - Waiting
+     * * `paused` - Paused
+     * * `ended` - Ended
+     */
+    export type BetPhaseEnum = typeof BetPhaseEnum[keyof typeof BetPhaseEnum];
+
+
+    export const BetPhaseEnum = {
+      SettingUp: 'setting_up',
+      CheckingMeasure: 'checking_measure',
+      FindingIdeas: 'finding_ideas',
+      CheckingIdeas: 'checking_ideas',
+      Choosing: 'choosing',
+      Building: 'building',
+      Reviewing: 'reviewing',
+      Testing: 'testing',
+      ConfirmingGoal: 'confirming_goal',
+      Waiting: 'waiting',
+      Paused: 'paused',
+      Ended: 'ended',
     } as const;
 
     /**
@@ -18680,6 +18732,36 @@ export namespace Schemas {
       Reached: 'reached',
       Spent: 'spent',
       Closed: 'closed',
+    } as const;
+
+    /**
+     * * `tracking` - Tracking
+     * * `measure` - Measure
+     * * `scout` - Scout
+     * * `idea` - Idea
+     * * `experiment` - Experiment
+     * * `pull_request` - Pull request
+     * * `problem` - Problem
+     * * `idle` - Idle
+     * * `paused` - Paused
+     * * `reached` - Reached
+     * * `ended` - Ended
+     */
+    export type BetTileEnum = typeof BetTileEnum[keyof typeof BetTileEnum];
+
+
+    export const BetTileEnum = {
+      Tracking: 'tracking',
+      Measure: 'measure',
+      Scout: 'scout',
+      Idea: 'idea',
+      Experiment: 'experiment',
+      PullRequest: 'pull_request',
+      Problem: 'problem',
+      Idle: 'idle',
+      Paused: 'paused',
+      Reached: 'reached',
+      Ended: 'ended',
     } as const;
 
     /**
@@ -18788,6 +18870,129 @@ export namespace Schemas {
       change: number | null;
       /** Reason a measurement is unavailable. */
       message: string;
+    }
+
+    export interface BetsStateAction {
+      /** Button text. */
+      label: string;
+      /** What the button opens or does.
+       *
+       * * `ideas` - Ideas
+       * * `edit` - Edit
+       * * `pull_request` - Pull request
+       * * `work` - Work
+       * * `budget` - Budget
+       * * `settings` - Settings */
+      kind: BetActionKindEnum;
+      /** Whether the owner must act, rather than an optional step. */
+      primary: boolean;
+      /**
+         * Work item the button opens or acts on.
+         * @nullable
+         */
+      work_id: string | null;
+      /** Work action the button runs on the work item, or empty to open it.
+       *
+       * * `retry` - Retry
+       * * `drop` - Drop
+       * * `build` - Build
+       * * `dismiss` - Dismiss
+       * * `extend` - Extend */
+      work_action: BetWorkActionEnum | null;
+      /** Pull request to open. */
+      url: string;
+    }
+
+    export interface BetsScoutState {
+      /** What the Scout does now, in a few words. */
+      label: string;
+      /** Why the Scout does this, in one or two sentences. */
+      reason: string;
+    }
+
+    export interface BetsNextAction {
+      /** Stable identifier. */
+      id: string;
+      /** Bet requiring attention. */
+      bet_id: string;
+      /** Name of the bet. */
+      bet_title: string;
+      /** What needs attention. */
+      title: string;
+      /** What to do next. */
+      description: string;
+      /** Why this needs attention. */
+      label: string;
+      /**
+         * Related work item.
+         * @nullable
+         */
+      work_id: string | null;
+      /** Pull request or other place to act. */
+      url: string;
+    }
+
+    export interface BetsState {
+      /** What the bet is doing now.
+       *
+       * * `setting_up` - Setting up
+       * * `checking_measure` - Checking the measure
+       * * `finding_ideas` - Finding ideas
+       * * `checking_ideas` - Checking ideas
+       * * `choosing` - Choosing
+       * * `building` - Building
+       * * `reviewing` - Reviewing
+       * * `testing` - Testing
+       * * `confirming_goal` - Confirming the goal
+       * * `waiting` - Waiting
+       * * `paused` - Paused
+       * * `ended` - Ended */
+      phase: BetPhaseEnum;
+      /** Which part of Bets the status line is about.
+       *
+       * * `tracking` - Tracking
+       * * `measure` - Measure
+       * * `scout` - Scout
+       * * `idea` - Idea
+       * * `experiment` - Experiment
+       * * `pull_request` - Pull request
+       * * `problem` - Problem
+       * * `idle` - Idle
+       * * `paused` - Paused
+       * * `reached` - Reached
+       * * `ended` - Ended */
+      tile: BetTileEnum;
+      /** Main status line. */
+      headline: string;
+      /** Second status line. */
+      detail: string;
+      /** Title of the idea the status line is about. */
+      subject: string;
+      /**
+         * Work item the status line is about.
+         * @nullable
+         */
+      work_id: string | null;
+      /** Whether Bets works on this step now. */
+      working: boolean;
+      /** The owner's next step for this status. */
+      action: BetsStateAction | null;
+      /** A second choice next to the action. */
+      alternative: BetsStateAction | null;
+      /** What the Scout does now. */
+      scout: BetsScoutState;
+      /** Ideas ready for the owner to choose. */
+      ready_ideas: number;
+      /** Owner ideas that wait for the Scout's check. */
+      checking_ideas: number;
+      /** Why no idea can be built now, or empty. */
+      build_blocked: string;
+      /** Whether the bet takes new owner ideas. */
+      can_add_idea: boolean;
+      /** Whether the bet waits for the owner. */
+      needs_you: boolean;
+      /** Everything the owner must do, most urgent first. */
+      actions: BetsNextAction[];
     }
 
     export interface BetsSpendPoint {
@@ -19090,28 +19295,6 @@ export namespace Schemas {
       running: boolean;
     }
 
-    export interface BetsNextAction {
-      /** Stable identifier. */
-      id: string;
-      /** Bet requiring attention. */
-      bet_id: string;
-      /** Name of the bet. */
-      bet_title: string;
-      /** What needs attention. */
-      title: string;
-      /** What to do next. */
-      description: string;
-      /** Why this needs attention. */
-      label: string;
-      /**
-         * Related work item.
-         * @nullable
-         */
-      work_id: string | null;
-      /** Pull request or other place to act. */
-      url: string;
-    }
-
     export interface BetsDetail {
       /** The person who owns and controls this bet. */
       owner: BetsOwner;
@@ -19161,8 +19344,6 @@ export namespace Schemas {
        * * `spent` - Budget used
        * * `closed` - Closed */
       status: BetStatusEnum;
-      /** What the bet is doing now. */
-      note: string;
       /**
          * Primary metric when the bet started running.
          * @nullable
@@ -19185,6 +19366,8 @@ export namespace Schemas {
       ideas_won: number;
       /** Whether the bet waits for the owner, for example to choose an idea. */
       needs_you: boolean;
+      /** What the bet does now and what it needs from the owner. */
+      state: BetsState;
       /** Latest change. */
       updated_at: string;
       /** Whether the viewer owns this bet and can change it. */
@@ -19259,8 +19442,6 @@ export namespace Schemas {
        * * `spent` - Budget used
        * * `closed` - Closed */
       status: BetStatusEnum;
-      /** What the bet is doing now. */
-      note: string;
       /**
          * Primary metric when the bet started running.
          * @nullable
@@ -19283,6 +19464,8 @@ export namespace Schemas {
       ideas_won: number;
       /** Whether the bet waits for the owner, for example to choose an idea. */
       needs_you: boolean;
+      /** What the bet does now and what it needs from the owner. */
+      state: BetsState;
       /** Latest change. */
       updated_at: string;
     }

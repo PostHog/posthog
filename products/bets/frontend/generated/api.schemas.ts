@@ -126,6 +126,203 @@ export interface BetsMetricApi {
     message: string
 }
 
+/**
+ * * `setting_up` - Setting up
+ * * `checking_measure` - Checking the measure
+ * * `finding_ideas` - Finding ideas
+ * * `checking_ideas` - Checking ideas
+ * * `choosing` - Choosing
+ * * `building` - Building
+ * * `reviewing` - Reviewing
+ * * `testing` - Testing
+ * * `confirming_goal` - Confirming the goal
+ * * `waiting` - Waiting
+ * * `paused` - Paused
+ * * `ended` - Ended
+ */
+export type BetPhaseEnumApi = (typeof BetPhaseEnumApi)[keyof typeof BetPhaseEnumApi]
+
+export const BetPhaseEnumApi = {
+    SettingUp: 'setting_up',
+    CheckingMeasure: 'checking_measure',
+    FindingIdeas: 'finding_ideas',
+    CheckingIdeas: 'checking_ideas',
+    Choosing: 'choosing',
+    Building: 'building',
+    Reviewing: 'reviewing',
+    Testing: 'testing',
+    ConfirmingGoal: 'confirming_goal',
+    Waiting: 'waiting',
+    Paused: 'paused',
+    Ended: 'ended',
+} as const
+
+/**
+ * * `tracking` - Tracking
+ * * `measure` - Measure
+ * * `scout` - Scout
+ * * `idea` - Idea
+ * * `experiment` - Experiment
+ * * `pull_request` - Pull request
+ * * `problem` - Problem
+ * * `idle` - Idle
+ * * `paused` - Paused
+ * * `reached` - Reached
+ * * `ended` - Ended
+ */
+export type BetTileEnumApi = (typeof BetTileEnumApi)[keyof typeof BetTileEnumApi]
+
+export const BetTileEnumApi = {
+    Tracking: 'tracking',
+    Measure: 'measure',
+    Scout: 'scout',
+    Idea: 'idea',
+    Experiment: 'experiment',
+    PullRequest: 'pull_request',
+    Problem: 'problem',
+    Idle: 'idle',
+    Paused: 'paused',
+    Reached: 'reached',
+    Ended: 'ended',
+} as const
+
+/**
+ * * `ideas` - Ideas
+ * * `edit` - Edit
+ * * `pull_request` - Pull request
+ * * `work` - Work
+ * * `budget` - Budget
+ * * `settings` - Settings
+ */
+export type BetActionKindEnumApi = (typeof BetActionKindEnumApi)[keyof typeof BetActionKindEnumApi]
+
+export const BetActionKindEnumApi = {
+    Ideas: 'ideas',
+    Edit: 'edit',
+    PullRequest: 'pull_request',
+    Work: 'work',
+    Budget: 'budget',
+    Settings: 'settings',
+} as const
+
+/**
+ * * `retry` - Retry
+ * * `drop` - Drop
+ * * `build` - Build
+ * * `dismiss` - Dismiss
+ * * `extend` - Extend
+ */
+export type BetWorkActionEnumApi = (typeof BetWorkActionEnumApi)[keyof typeof BetWorkActionEnumApi]
+
+export const BetWorkActionEnumApi = {
+    Retry: 'retry',
+    Drop: 'drop',
+    Build: 'build',
+    Dismiss: 'dismiss',
+    Extend: 'extend',
+} as const
+
+export interface BetsStateActionApi {
+    /** Button text. */
+    label: string
+    /** What the button opens or does.
+     *
+     * * `ideas` - Ideas
+     * * `edit` - Edit
+     * * `pull_request` - Pull request
+     * * `work` - Work
+     * * `budget` - Budget
+     * * `settings` - Settings */
+    kind: BetActionKindEnumApi
+    /** Whether the owner must act, rather than an optional step. */
+    primary: boolean
+    /**
+     * Work item the button opens or acts on.
+     * @nullable
+     */
+    work_id: string | null
+    /** Work action the button runs on the work item, or empty to open it.
+     *
+     * * `retry` - Retry
+     * * `drop` - Drop
+     * * `build` - Build
+     * * `dismiss` - Dismiss
+     * * `extend` - Extend */
+    work_action: BetWorkActionEnumApi | null
+    /** Pull request to open. */
+    url: string
+}
+
+export interface BetsScoutStateApi {
+    /** What the Scout does now, in a few words. */
+    label: string
+    /** Why the Scout does this, in one or two sentences. */
+    reason: string
+}
+
+export interface BetsStateApi {
+    /** What the bet is doing now.
+     *
+     * * `setting_up` - Setting up
+     * * `checking_measure` - Checking the measure
+     * * `finding_ideas` - Finding ideas
+     * * `checking_ideas` - Checking ideas
+     * * `choosing` - Choosing
+     * * `building` - Building
+     * * `reviewing` - Reviewing
+     * * `testing` - Testing
+     * * `confirming_goal` - Confirming the goal
+     * * `waiting` - Waiting
+     * * `paused` - Paused
+     * * `ended` - Ended */
+    phase: BetPhaseEnumApi
+    /** Which part of Bets the status line is about.
+     *
+     * * `tracking` - Tracking
+     * * `measure` - Measure
+     * * `scout` - Scout
+     * * `idea` - Idea
+     * * `experiment` - Experiment
+     * * `pull_request` - Pull request
+     * * `problem` - Problem
+     * * `idle` - Idle
+     * * `paused` - Paused
+     * * `reached` - Reached
+     * * `ended` - Ended */
+    tile: BetTileEnumApi
+    /** Main status line. */
+    headline: string
+    /** Second status line. */
+    detail: string
+    /** Title of the idea the status line is about. */
+    subject: string
+    /**
+     * Work item the status line is about.
+     * @nullable
+     */
+    work_id: string | null
+    /** Whether Bets works on this step now. */
+    working: boolean
+    /** The owner's next step for this status. */
+    action: BetsStateActionApi | null
+    /** A second choice next to the action. */
+    alternative: BetsStateActionApi | null
+    /** What the Scout does now. */
+    scout: BetsScoutStateApi
+    /** Ideas ready for the owner to choose. */
+    ready_ideas: number
+    /** Owner ideas that wait for the Scout's check. */
+    checking_ideas: number
+    /** Why no idea can be built now, or empty. */
+    build_blocked: string
+    /** Whether the bet takes new owner ideas. */
+    can_add_idea: boolean
+    /** Whether the bet waits for the owner. */
+    needs_you: boolean
+    /** Everything the owner must do, most urgent first. */
+    actions: BetsNextActionApi[]
+}
+
 export interface BetsEntryApi {
     /** The person who owns and controls this bet. */
     owner: BetsOwnerApi
@@ -175,8 +372,6 @@ export interface BetsEntryApi {
      * * `spent` - Budget used
      * * `closed` - Closed */
     status: BetStatusEnumApi
-    /** What the bet is doing now. */
-    note: string
     /**
      * Primary metric when the bet started running.
      * @nullable
@@ -199,6 +394,8 @@ export interface BetsEntryApi {
     ideas_won: number
     /** Whether the bet waits for the owner, for example to choose an idea. */
     needs_you: boolean
+    /** What the bet does now and what it needs from the owner. */
+    state: BetsStateApi
     /** Latest change. */
     updated_at: string
 }
@@ -731,8 +928,6 @@ export interface BetsDetailApi {
      * * `spent` - Budget used
      * * `closed` - Closed */
     status: BetStatusEnumApi
-    /** What the bet is doing now. */
-    note: string
     /**
      * Primary metric when the bet started running.
      * @nullable
@@ -755,6 +950,8 @@ export interface BetsDetailApi {
     ideas_won: number
     /** Whether the bet waits for the owner, for example to choose an idea. */
     needs_you: boolean
+    /** What the bet does now and what it needs from the owner. */
+    state: BetsStateApi
     /** Latest change. */
     updated_at: string
     /** Whether the viewer owns this bet and can change it. */
@@ -933,23 +1130,6 @@ export interface BetsStatusApi {
      * * `closed` - Close */
     status: BetStatusChangeEnumApi
 }
-
-/**
- * * `retry` - Retry
- * * `drop` - Drop
- * * `build` - Build
- * * `dismiss` - Dismiss
- * * `extend` - Extend
- */
-export type BetWorkActionEnumApi = (typeof BetWorkActionEnumApi)[keyof typeof BetWorkActionEnumApi]
-
-export const BetWorkActionEnumApi = {
-    Retry: 'retry',
-    Drop: 'drop',
-    Build: 'build',
-    Dismiss: 'dismiss',
-    Extend: 'extend',
-} as const
 
 export interface BetsPlanInputApi {
     /**

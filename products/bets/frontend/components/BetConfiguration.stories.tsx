@@ -4,6 +4,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import 'scenes/project-homepage/today/Today.scss'
 
+import type { BetsDetailApi } from '../generated/api.schemas'
 import { BetConfiguration } from './BetConfiguration'
 
 const meta: Meta<typeof BetConfiguration> = {
@@ -19,7 +20,7 @@ const meta: Meta<typeof BetConfiguration> = {
     args: {
         bet: {
             repository: 'example/editor',
-            status: 'running',
+            state: { scout: { label: 'Looking for the next idea', reason: '' } } as BetsDetailApi['state'],
             goal_version: 1,
             work: [],
             scout: {

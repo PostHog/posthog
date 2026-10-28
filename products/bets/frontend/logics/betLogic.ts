@@ -2,7 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
-import { dayjs } from 'lib/dayjs'
 import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,6 +18,7 @@ import { betsActivityList, betsIdeasCreate, betsRetrieve, betsStatusCreate, bets
 import type {
     BetsActivityApi,
     BetsDetailApi,
+    BetsStateActionApi,
     BetsEntryApi,
     BetsStatusApi,
     BetsWorkActionApi,
@@ -28,7 +28,6 @@ import type { BetStatusChangeEnumApi, BetsPlanApi } from '../generated/api.schem
 import type { BetsOverviewApi } from '../generated/api.schemas'
 import { errorMessage } from '../lib/format'
 import {
-    buildDisabledReason as ideaBuildDisabledReason,
     dismissedIdeas as currentDismissedIdeas,
     firstSupportedIdea,
     ideaInProgress as currentIdeaInProgress,
@@ -50,7 +49,7 @@ function sidebarFields(bet: BetsEntryApi | BetsDetailApi): string {
     return JSON.stringify([
         bet.title,
         bet.status,
-        bet.note,
+        bet.state.headline,
         bet.money,
         bet.metric.current,
         bet.spend_pending,
@@ -83,7 +82,6 @@ export interface betLogicValues {
     expandedIdea: string | null
     expandedIdeas: string[]
     expandedWork: string | null
-    goalConfirmAt: string | null
     ideaDraft: string
     ideaError: string | null
     ideaInProgress: BetsWorkApi | null
@@ -255,6 +253,9 @@ export interface betLogicActions {
     stopWork: (workId: string) => {
         workId: string
     }
+    runStateAction: (action: BetsStateActionApi) => {
+        action: BetsStateActionApi
+    }
     toggleIdeaReport: (workId: string) => {
         workId: string
     }
@@ -283,7 +284,6 @@ export interface betLogicMeta {
             waitingIdeas: BetsWorkApi[],
             ideaInProgress: BetsWorkApi | null
         ) => string | null
-        goalConfirmAt: (bet: BetsDetailApi | null, overview: BetsOverviewApi | null) => string | null
         openWork: (expandedWork: string | null, workToggled: boolean, bet: BetsDetailApi | null) => string | null
         ideaPlans: (bet: BetsDetailApi | null, planDrafts: Record<string, PlanDraft>) => Record<string, IdeaPlan>
         buildDisabledReason: (bet: BetsDetailApi | null) => string | null
@@ -341,6 +341,7 @@ export const betLogic = kea<betLogicType>([
         openBuild: (workId: string | null) => ({ workId }),
         openStop: (workId: string | null) => ({ workId }),
         stopWork: (workId: string) => ({ workId }),
+        runStateAction: (action: BetsStateActionApi) => ({ action }),
     }),
     loaders(({ props, values }) => ({
         pullRequestTitles: [
@@ -461,13 +462,6 @@ export const betLogic = kea<betLogicType>([
                 ideaInProgress: BetsWorkApi | null
             ): string | null => (ideaToggled || ideaInProgress ? expandedIdea : firstSupportedIdea(waitingIdeas)),
         ],
-        goalConfirmAt: [
-            (s) => [s.bet, s.overview],
-            (bet: BetsDetailApi | null, overview: BetsOverviewApi | null): string | null =>
-                bet?.goal_met_since && overview
-                    ? dayjs(bet.goal_met_since).add(overview.settings.goal_confirm_hours, 'hour').toISOString()
-                    : null,
-        ],
         openWork: [
             (s) => [s.expandedWork, s.workToggled, s.bet],
             (expandedWork: string | null, workToggled: boolean, bet: BetsDetailApi | null): string | null =>
@@ -486,7 +480,7 @@ export const betLogic = kea<betLogicType>([
         ],
         buildDisabledReason: [
             (s) => [s.bet],
-            (bet: BetsDetailApi | null): string | null => (bet ? ideaBuildDisabledReason(bet) : null),
+            (bet: BetsDetailApi | null): string | null => bet?.state.build_blocked || null,
         ],
     })),
     listeners(({ actions, values, props, cache }) => {
@@ -608,6 +602,23 @@ export const betLogic = kea<betLogicType>([
                 )
                 if (done) {
                     actions.openStop(null)
+                }
+            },
+            runStateAction: ({ action }) => {
+                if (action.kind === 'ideas') {
+                    document.getElementById('bet-ideas')?.scrollIntoView({ behavior: 'smooth' })
+                    actions.setAddingIdea(!values.bet?.state.ready_ideas)
+                } else if (!action.work_id) {
+                    return
+                } else if (action.work_action === 'extend') {
+                    actions.extendWork(action.work_id)
+                } else if (action.work_action === 'drop') {
+                    actions.setExpandedWork(action.work_id)
+                    actions.openStop(action.work_id)
+                } else if (action.work_action) {
+                    actions.work({ work_id: action.work_id, action: action.work_action })
+                } else {
+                    actions.setExpandedWork(action.work_id)
                 }
             },
             dismissIdea: async ({ workId, reason }) => {

@@ -18,8 +18,8 @@ from ..facade.enums import BetsAccessLevel, IdeaOutcome, LedgerKind, ModelStep, 
 from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import totals
 from .metrics import metric, proposed_plan
-from .next_actions import NextAction, next_actions
 from .scout import recent_scout_runs
+from .state import bet_state
 from .step_models import choice, model_options, plan_available
 from .workspace import get_settings, project_id
 
@@ -42,7 +42,6 @@ BET_FIELDS = (
     "direction",
     "unit",
     "status",
-    "note",
     "baseline_value",
     "baseline_at",
     "updated_at",
@@ -78,7 +77,6 @@ def entry(
     user: User,
     bet: Bet,
     *,
-    actions: list[NextAction] | None = None,
     owners: dict[int, Member] | None = None,
 ) -> dict:
     ideas = list(
@@ -89,7 +87,8 @@ def entry(
     )
     owner = (owners if owners is not None else PostHogIdentity().members({bet.owner_id})).get(bet.owner_id)
     money = totals(bet.team_id, bet)
-    actions = next_actions(bet) if actions is None else actions
+    measured = goal_metric(team, user, bet)
+    state = bet_state(bet, measured.current)
     return {
         **{field: getattr(bet, field) for field in BET_FIELDS},
         "repositories": bet.repos,
@@ -99,11 +98,12 @@ def entry(
             "email": owner.email if owner else "",
         },
         "money": money,
-        "metric": goal_metric(team, user, bet),
+        "metric": measured,
         "spend_pending": money.reserved_cents > 0,
         "ideas_tried": sum(1 for outcome in ideas if outcome and outcome != IdeaOutcome.DROPPED),
         "ideas_won": sum(1 for outcome in ideas if outcome == IdeaOutcome.WON),
-        "needs_you": bool(actions),
+        "needs_you": state.needs_you,
+        "state": state,
     }
 
 
@@ -208,9 +208,10 @@ def detail(team: Team, user: User, bet: Bet) -> dict:
         (item for item in signals.scouts_for_source(bet.team_id, "bets", f"{bet.id}:v{bet.goal_version}")),
         None,
     )
-    actions = sorted(next_actions(bet), key=lambda item: item["priority"])
+    row = entry(team, user, bet)
+    actions = row["state"].actions
     return {
-        **entry(team, user, bet),
+        **row,
         "goal_version": bet.goal_version,
         "goal_met_since": bet.goal_met_since,
         "work": work_entries(bet, user),
@@ -235,11 +236,13 @@ def overview(team: Team, user: User) -> dict:
     settings = get_settings(team_id)
     allocated = totals(team_id).allocated_cents
     bets = list(Bet.objects.for_team(team_id).using(WRITER_DB).order_by("-created_at")[:200])
-    actions = {bet.id: next_actions(bet) for bet in bets}
     owners = PostHogIdentity().members({bet.owner_id for bet in bets})
+    entries = [entry(team, user, bet, owners=owners) for bet in bets]
     return {
-        "bets": [entry(team, user, bet, actions=actions[bet.id], owners=owners) for bet in bets],
-        "next_actions": sorted([item for bet in bets for item in actions[bet.id]], key=lambda item: item["priority"]),
+        "bets": entries,
+        "next_actions": sorted(
+            [item for row in entries for item in row["state"].actions], key=lambda item: item["priority"]
+        ),
         "north_star": metric(team, user, settings.north_star_insight, complete=True),
         "settings": settings_entry(settings, user),
         "allocated_cents": allocated,

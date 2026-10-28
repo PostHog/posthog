@@ -7,11 +7,11 @@ from products.notifications.backend.facade.api import (
 
 from ..db import WRITER_DB
 from ..models import Bet
-from .next_actions import next_actions
+from .state import bet_state
 
 
 def notify_owner(bet: Bet) -> None:
-    actions = next_actions(bet)
+    actions = bet_state(bet).actions
     current = [item["id"] for item in actions]
     for item in actions:
         if item["id"] in bet.notified_actions:

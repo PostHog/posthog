@@ -16,6 +16,44 @@ class BetStatus(LabeledStrEnum):
     CLOSED = "closed"
 
 
+class BetPhase(LabeledStrEnum):
+    SETTING_UP = "setting_up", "Setting up"
+    CHECKING_MEASURE = "checking_measure", "Checking the measure"
+    FINDING_IDEAS = "finding_ideas", "Finding ideas"
+    CHECKING_IDEAS = "checking_ideas", "Checking ideas"
+    CHOOSING = "choosing"
+    BUILDING = "building"
+    REVIEWING = "reviewing"
+    TESTING = "testing"
+    CONFIRMING_GOAL = "confirming_goal", "Confirming the goal"
+    WAITING = "waiting"
+    PAUSED = "paused"
+    ENDED = "ended"
+
+
+class BetActionKind(LabeledStrEnum):
+    IDEAS = "ideas"
+    EDIT = "edit"
+    PULL_REQUEST = "pull_request", "Pull request"
+    WORK = "work"
+    BUDGET = "budget"
+    SETTINGS = "settings"
+
+
+class BetTile(LabeledStrEnum):
+    TRACKING = "tracking"
+    MEASURE = "measure"
+    SCOUT = "scout"
+    IDEA = "idea"
+    EXPERIMENT = "experiment"
+    PULL_REQUEST = "pull_request", "Pull request"
+    PROBLEM = "problem"
+    IDLE = "idle"
+    PAUSED = "paused"
+    REACHED = "reached"
+    ENDED = "ended"
+
+
 class BetStatusChange(LabeledStrEnum):
     RUNNING = "running", "Start or resume"
     PAUSED = "paused", "Pause"

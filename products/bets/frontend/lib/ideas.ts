@@ -93,39 +93,12 @@ export function waitingIdeas(bet: BetWork): BetsWorkApi[] {
         .map(({ item }) => item)
 }
 
-export function isChecking(item: BetsWorkApi): boolean {
-    return item.source === 'owner' && !item.report_id
-}
-
-export function readyIdeas(bet: BetWork): BetsWorkApi[] {
-    return waitingIdeas(bet).filter((item) => !isChecking(item))
-}
-
 export function dismissedIdeas(bet: BetWork): BetsWorkApi[] {
     return bet.work.filter((item) => isCurrentIdea(item, bet) && item.stage === 'dismissed')
 }
 
 export function ideaInProgress(bet: BetWork): BetsWorkApi | null {
     return bet.work.find((item) => isCurrentIdea(item, bet) && isOpen(item)) ?? null
-}
-
-export function buildDisabledReason(bet: BetsDetailApi): string | null {
-    if (ideaInProgress(bet)) {
-        return "Wait for the current idea's result."
-    }
-    if (bet.status === 'paused') {
-        return 'Resume the bet to build an idea.'
-    }
-    if (bet.status === 'setting_up') {
-        return 'The bet is still setting up.'
-    }
-    if (bet.status === 'spent' || (bet.status === 'running' && bet.money.available_cents <= 0)) {
-        return 'The budget is used. Back this bet to add budget.'
-    }
-    if (bet.status !== 'running') {
-        return 'Ideas can only be built while the bet runs.'
-    }
-    return null
 }
 
 const IN_PROGRESS_LABELS: Record<string, string> = {
@@ -141,8 +114,4 @@ export function inProgressLabel(item: BetsWorkApi): string {
 
 export function laterLabel(count: number): string {
     return `${count} other ${count === 1 ? 'idea waits' : 'ideas wait'} in Later`
-}
-
-export function ideasCount(count: number): string {
-    return `${count} ${count === 1 ? 'idea' : 'ideas'} ready`
 }

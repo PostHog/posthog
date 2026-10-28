@@ -8,7 +8,7 @@ import { TodayRow } from 'scenes/project-homepage/today/TodayRow'
 import { urls } from 'scenes/urls'
 
 import type { BetsDetailApi } from '../generated/api.schemas'
-import { IDEA_ICON_COLOR, inProgressLabel, laterLabel, readyIdeas } from '../lib/ideas'
+import { IDEA_ICON_COLOR, inProgressLabel, laterLabel } from '../lib/ideas'
 import { betLogic } from '../logics/betLogic'
 import { BetAddIdeaForm } from './BetAddIdeaForm'
 import { BetBuildDialog } from './BetBuildDialog'
@@ -28,24 +28,18 @@ export function BetIdeas({ bet }: { bet: BetsDetailApi }): JSX.Element | null {
         buildDisabledReason,
     } = useValues(betLogic({ id: bet.id }))
     const { setAddingIdea, setLaterOpen, setDismissedOpen, setExpandedWork } = useActions(betLogic({ id: bet.id }))
-    const canAdd = bet.is_owner && bet.status !== 'closed'
+    const canAdd = bet.is_owner && bet.state.can_add_idea
     const scoutRunning = !!bet.scout?.running
     if (!waitingIdeas.length && !dismissedIdeas.length && !canAdd && !scoutRunning && !ideaInProgress) {
         return null
     }
     const listOpen = !ideaInProgress || laterOpen
-    const ready = readyIdeas(bet).length
+    const ready = bet.state.ready_ideas
     const summary = ready
         ? `${ready} ${ready === 1 ? 'idea waits' : 'ideas wait'} for your choice.`
-        : waitingIdeas.length
-          ? 'The Scout checks your ideas against your data before you choose.'
-          : scoutRunning
-            ? ''
-            : bet.status === 'closed'
-              ? 'No ideas wait for a choice.'
-              : bet.next_action?.id.endsWith(':scout-empty')
-                ? bet.next_action.description.split('\n\n')[0]
-                : 'No ideas wait for a choice. The Scout looks for new ideas on its next run.'
+        : scoutRunning
+          ? ''
+          : bet.state.scout.reason
     const blocked = bet.is_owner && waitingIdeas.length > 0 ? buildDisabledReason : null
     return (
         <section id="bet-ideas" className="flex min-w-0 flex-col gap-2 pb-2" aria-label="Ideas">

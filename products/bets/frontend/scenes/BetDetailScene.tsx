@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useLayoutEffect, useRef } from 'react'
 
-import { Avatar, AvatarFallback, Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Avatar, AvatarFallback, Badge, Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -17,6 +17,7 @@ import { BetHeaderStatus } from '../components/BetHeaderStatus'
 import { BetIdeas } from '../components/BetIdeas'
 import { BetProgress } from '../components/BetProgress'
 import { BetsSkeletonLine } from '../components/BetsSkeletonLine'
+import { BET_STATUS_BADGES, BET_STATUS_LABELS } from '../lib/betStatus'
 import { betLogic } from '../logics/betLogic'
 
 export const scene: SceneExport<{ id: string }> = {
@@ -53,6 +54,7 @@ export function BetDetailScene({ id }: { id: string }): JSX.Element {
                     <BetsSkeletonLine className="Bets__skeleton pointer-events-none select-none" width="w-80" />
                 ))
             }
+            titleAddon={bet && <Badge variant={BET_STATUS_BADGES[bet.status]}>{BET_STATUS_LABELS[bet.status]}</Badge>}
             breadcrumbs={breadcrumbs}
             actions={
                 bet && (

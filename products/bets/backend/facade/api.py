@@ -10,16 +10,15 @@ from posthog.models import Integration, Team, User
 
 from ..db import WRITER_DB
 from ..facade.contracts import Metric
-from ..facade.enums import BetStatus
 from ..logic import access, bets, loop, read
 from ..logic.activity import ActivityEntry, recent_activity
 from ..logic.metrics import metric, refresh_metrics, validate_goal
 from ..logic.spend import bet_for_run
+from ..logic.stages import LIVE
+from ..logic.state import takes_ideas
 from ..logic.usage import track
 from ..logic.workspace import get_settings, project_id
 from ..models import Bet
-
-LIVE = (BetStatus.SETTING_UP, BetStatus.RUNNING)
 
 
 def wake(bet: Bet) -> None:
@@ -121,7 +120,7 @@ def work(
 def add_idea(team: Team, user: User, bet_id: str | UUID, title: str) -> dict:
     bet = _bet(team, bet_id)
     access.require_owner(team, user, bet.owner_id)
-    if bet.status in (BetStatus.CLOSED, BetStatus.REACHED):
+    if not takes_ideas(bet):
         raise ValidationError("This bet does not take new ideas.")
     loop.add_owner_idea(bet, title)
     track(team, user, "bet owner idea added", {"bet_id": str(bet.id)})

@@ -11,6 +11,18 @@ export const BET_STATUS_LABELS: Record<BetsEntryApi['status'], string> = {
     closed: 'Closed',
 }
 
+export const BET_STATUS_BADGES: Record<
+    BetsEntryApi['status'],
+    'default' | 'success' | 'warning' | 'completed' | 'destructive'
+> = {
+    setting_up: 'default',
+    running: 'success',
+    paused: 'warning',
+    reached: 'completed',
+    spent: 'warning',
+    closed: 'default',
+}
+
 export function betGlyph(bet: Pick<BetsEntryApi, 'status' | 'needs_you'>): TodaySessionDot {
     if (bet.needs_you) {
         return { mark: 'solid', faint: false, label: 'Needs you' }

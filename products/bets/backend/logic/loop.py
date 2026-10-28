@@ -57,9 +57,10 @@ from .plan import (
     plan as make_plan,
 )
 from .prompts import instructions
-from .scout import scout_body, scout_failure, scout_job
+from .scout import scout_body, scout_job
 from .spend import reconcile_spend, spend_pending
-from .stages import ACTIVE, OPEN
+from .stages import ACTIVE, LIVE, OPEN
+from .state import NO_ACCESS, build_refusal, failure_note, goal_confirm_at
 from .step_models import run_settings
 from .usage import track_from_task
 from .verdict import Verdict, verdict
@@ -450,21 +451,14 @@ def goal_reached(team: Team, user: User, bet: Bet) -> bool:
     return current <= float(bet.target) if bet.direction == "decrease" else current >= float(bet.target)
 
 
-def goal_check(team: Team, user: User, bet: Bet, idea_open: bool) -> tuple[bool, str]:
+def goal_check(team: Team, user: User, bet: Bet, idea_open: bool) -> bool:
     met = goal_reached(team, user, bet)
     since = (bet.goal_met_since or timezone.now()) if met else None
     if since != bet.goal_met_since:
         bet.goal_met_since = since
         bet.save(using=WRITER_DB, update_fields=["goal_met_since", "updated_at"])
-    if since is None:
-        return (False, "")
-    confirm = timedelta(hours=get_settings(bet.team_id).goal_confirm_hours)
-    if timezone.now() - since < confirm:
-        hours = int(confirm.total_seconds() // 3600)
-        return (False, f"The goal is at the target. Bets confirms it for {hours} hours.")
-    if idea_open:
-        return (False, "The goal is at the target. The bet ends when the current idea has a result.")
-    return (True, "")
+    confirm_at = goal_confirm_at(bet)
+    return confirm_at is not None and timezone.now() >= confirm_at and not idea_open
 
 
 def clean_title(title: str) -> str:
@@ -579,7 +573,7 @@ def set_scout(bet: Bet, enabled: bool) -> None:
         signals.update_scout_for_source(bet.team_id, "bets", str(bet.scout_config_id), enabled=enabled)
 
 
-def run_scout(team: Team, user: User, bet: Bet, reason: str) -> str:
+def run_scout(team: Team, user: User, bet: Bet) -> str:
     try:
         model = run_settings(get_settings(bet.team_id), user, ModelStep.SCOUT).get("model")
     except ValueError:
@@ -620,7 +614,7 @@ def run_scout(team: Team, user: User, bet: Bet, reason: str) -> str:
             return f"The Scout cannot run: {error.rejection.detail}"
     except ValueError as error:
         return f"The Scout cannot run: {error}"
-    return reason
+    return ""
 
 
 def dispatch(bet: Bet, user: User) -> str:
@@ -639,14 +633,14 @@ def dispatch_lane(bet: Bet, user: User, kinds: list[WorkKind]) -> str:
         return ""
     if work.attempts >= MAX_ATTEMPTS:
         move(work, WorkStage.STUCK, work.note or "The task did not finish after three attempts.")
-        return "This step needs attention."
+        return ""
     if spend_pending(bet, work):
         return "Waiting for task usage to settle."
     if task_run_usage_limited(user, bet.team_id):
         return "The project's task usage limit is reached."
     amount = min(RUN_BUDGET_CENTS, totals(bet.team_id, bet).available_cents)
     if amount <= 0:
-        return "The budget is used up. Add budget to continue."
+        return ""
     settings = get_settings(bet.team_id)
     try:
         model = run_settings(settings, user, ModelStep.IDEA if work.kind == WorkKind.IDEA else ModelStep.TRACKING)
@@ -687,10 +681,7 @@ def dispatch_lane(bet: Bet, user: User, kinds: list[WorkKind]) -> str:
         return reason
     work.task_run_id = result.run_id
     work.save(using=WRITER_DB, update_fields=["task_run_id", "updated_at"])
-    return {
-        WorkKind.IDEA.value: "Building the pull request and the experiment.",
-        WorkKind.CLEANUP.value: "Removing the flag from the code.",
-    }.get(work.kind, "Checking the tracking code.")
+    return ""
 
 
 def guard_runs(bet: Bet) -> None:
@@ -734,7 +725,7 @@ def stop_run(bet: Bet, work: WorkItem, run: TaskRunDTO, now: datetime) -> bool:
         return False
     building = work.stage == WorkStage.WORKING and not work.pr_url
     return (
-        bet.status not in (BetStatus.SETTING_UP, BetStatus.RUNNING)
+        bet.status not in LIVE
         or work.goal_version != bet.goal_version
         or work.stage in (WorkStage.DROPPED, WorkStage.STUCK)
         or building
@@ -745,7 +736,7 @@ def stop_run(bet: Bet, work: WorkItem, run: TaskRunDTO, now: datetime) -> bool:
 def step(team: Team, user: User, bet: Bet) -> str:
     reconcile_spend(bet)
     guard_runs(bet)
-    if bet.status not in (BetStatus.SETTING_UP, BetStatus.RUNNING):
+    if bet.status not in LIVE:
         set_scout(bet, False)
         if bet.status in ENDED:
             return_unused(bet)
@@ -772,9 +763,7 @@ def step(team: Team, user: User, bet: Bet) -> str:
             title="Check how the goal is measured",
             note="Checking the tracking code.",
         )
-        if tracking.stage == WorkStage.DONE and bet.target is None:
-            note = "Bets found the insight. Check it and set the target in Edit bet."
-        elif tracking.stage == WorkStage.DONE:
+        if tracking.stage == WorkStage.DONE and bet.target is not None:
             facts = baseline(team, user, bet, since=tracking.merged_at)
             note = facts.note
             if facts.ready:
@@ -785,28 +774,15 @@ def step(team: Team, user: User, bet: Bet) -> str:
     if bet.status == BetStatus.RUNNING:
         ingest(bet)
         idea_open = items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).exists()
-        money = totals(bet.team_id, bet)
-        confirmed, goal_note = goal_check(team, user, bet, idea_open)
-        if confirmed:
+        if goal_check(team, user, bet, idea_open):
             return stop(bet, BetStatus.REACHED, team, user)
-        if not idea_open and used_up(money):
+        if not idea_open and used_up(totals(bet.team_id, bet)):
             return stop(bet, BetStatus.SPENT, team, user)
-        job, reason = scout_job(bet)
-        failure = scout_failure(bet) if job else None
-        if failure and failure.paused:
-            set_scout(bet, False)
-            note = failure.note
-        elif job:
-            started = run_scout(team, user, bet, reason)
-            note = failure.note if failure and failure.note else started
+        if scout_job(bet).mode:
+            note = run_scout(team, user, bet)
         else:
             set_scout(bet, False)
-            note = goal_note or reason
-    dispatched = dispatch(bet, user)
-    current = (
-        items(bet).filter(stage__in=OPEN, kind__in=[WorkKind.IDEA, WorkKind.TRACKING]).order_by("created_at").first()
-    )
-    return dispatched or (current.note if current else "") or note
+    return dispatch(bet, user) or note
 
 
 ENDED = (BetStatus.REACHED, BetStatus.SPENT, BetStatus.CLOSED)
@@ -874,20 +850,19 @@ def reconcile(team_id: int, bet_id: UUID) -> None:
         user = User.objects.filter(id=bet.owner_id, is_active=True).first()
         try:
             if user is None or not access.bets_enabled(team):
-                raise PermissionDenied("The bet owner no longer has access.")
+                raise PermissionDenied(NO_ACCESS)
             access.require(team, user, write=True)
-        except PermissionDenied as error:
+        except PermissionDenied:
             set_scout(bet, False)
-            note = str(error.detail)
+            note = NO_ACCESS
         else:
             note = step(team, user, bet)
             notify_owner(bet)
         Bet.objects.for_team(team_id).using(WRITER_DB).filter(id=bet_id, lease=token).update(note=note[:2000])
     except Exception as error:
         logger.exception("bets.reconcile_failed", team_id=team_id, bet_id=str(bet_id))
-        Bet.objects.for_team(team_id).using(WRITER_DB).filter(id=bet_id, lease=token).update(
-            note=f"Bets will retry: {str(error)[:300]}"
-        )
+        rows = Bet.objects.for_team(team_id).using(WRITER_DB).filter(id=bet_id, lease=token)
+        rows.update(note=failure_note(rows.values_list("note", flat=True).first() or "", error))
         raise
     finally:
         Bet.objects.for_team(team_id).using(WRITER_DB).filter(id=bet_id, lease=token).update(
@@ -904,12 +879,8 @@ def act(
     if work is None:
         raise ValidationError("This work does not belong to the bet's current goal.")
     if action == "build" and work.stage == WorkStage.PROPOSED:
-        if items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).exists():
-            raise ValidationError("Another idea is in progress. Wait for its result.")
-        if bet.status != BetStatus.RUNNING:
-            raise ValidationError("The bet is not running.")
-        if totals(bet.team_id, bet).available_cents <= 0:
-            raise ValidationError("The budget is used. Add budget to build an idea.")
+        if refusal := build_refusal(bet, items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).exists()):
+            raise ValidationError(refusal)
         owner = User.objects.get(id=bet.owner_id)
         number = (
             WorkItem.objects.for_team(bet.team_id)
@@ -934,7 +905,10 @@ def act(
             raise ValidationError("Add a reason, so the Scout can learn from it.")
         move(work, WorkStage.DISMISSED, "Dismissed by the owner.", dismissed_reason=reason.strip()[:1000])
     elif action == "retry" and work.stage == WorkStage.STUCK:
-        if work.kind == WorkKind.IDEA and items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).exists():
+        if (
+            work.kind == WorkKind.IDEA
+            and items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).exclude(id=work.id).exists()
+        ):
             raise ValidationError("Another idea is in progress. Wait for its result.")
         resume = WorkStage.LIVE if work.merged_at else WorkStage.REVIEW if work.pr_url else WorkStage.WORKING
         move(work, resume, work.note, attempts=0, task_run_id=None)

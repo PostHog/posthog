@@ -4,10 +4,13 @@ from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from ..facade.enums import (
+    BetActionKind,
     BetActivityResource,
     BetDirection,
+    BetPhase,
     BetStatus,
     BetStatusChange,
+    BetTile,
     BetWorkAction,
     EvidenceKind,
     IdeaAssessment,
@@ -219,6 +222,54 @@ class BetsWorkSerializer(serializers.Serializer):
     plan = BetsPlanSerializer(help_text="Experiment plan for an idea.")
 
 
+class BetsNextActionSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Stable identifier.")
+    bet_id = serializers.UUIDField(help_text="Bet requiring attention.")
+    bet_title = serializers.CharField(help_text="Name of the bet.")
+    title = serializers.CharField(help_text="What needs attention.")
+    description = serializers.CharField(allow_blank=True, help_text="What to do next.")
+    label = serializers.CharField(help_text="Why this needs attention.")  # type: ignore[assignment]
+    work_id = serializers.UUIDField(allow_null=True, help_text="Related work item.")
+    url = serializers.CharField(allow_blank=True, help_text="Pull request or other place to act.")
+
+
+class BetsStateActionSerializer(serializers.Serializer):
+    label = serializers.CharField(help_text="Button text.")  # type: ignore[assignment]
+    kind = serializers.ChoiceField(choices=BetActionKind.choices, help_text="What the button opens or does.")
+    primary = serializers.BooleanField(help_text="Whether the owner must act, rather than an optional step.")
+    work_id = serializers.UUIDField(allow_null=True, help_text="Work item the button opens or acts on.")
+    work_action = serializers.ChoiceField(
+        choices=BetWorkAction.choices,
+        allow_null=True,
+        help_text="Work action the button runs on the work item, or empty to open it.",
+    )
+    url = serializers.CharField(allow_blank=True, help_text="Pull request to open.")
+
+
+class BetsScoutStateSerializer(serializers.Serializer):
+    label = serializers.CharField(help_text="What the Scout does now, in a few words.")  # type: ignore[assignment]
+    reason = serializers.CharField(help_text="Why the Scout does this, in one or two sentences.")
+
+
+class BetsStateSerializer(serializers.Serializer):
+    phase = serializers.ChoiceField(choices=BetPhase.choices, help_text="What the bet is doing now.")
+    tile = serializers.ChoiceField(choices=BetTile.choices, help_text="Which part of Bets the status line is about.")
+    headline = serializers.CharField(help_text="Main status line.")
+    detail = serializers.CharField(allow_blank=True, help_text="Second status line.")
+    subject = serializers.CharField(allow_blank=True, help_text="Title of the idea the status line is about.")
+    work_id = serializers.UUIDField(allow_null=True, help_text="Work item the status line is about.")
+    working = serializers.BooleanField(help_text="Whether Bets works on this step now.")
+    action = BetsStateActionSerializer(allow_null=True, help_text="The owner's next step for this status.")
+    alternative = BetsStateActionSerializer(allow_null=True, help_text="A second choice next to the action.")
+    scout = BetsScoutStateSerializer(help_text="What the Scout does now.")
+    ready_ideas = serializers.IntegerField(help_text="Ideas ready for the owner to choose.")
+    checking_ideas = serializers.IntegerField(help_text="Owner ideas that wait for the Scout's check.")
+    build_blocked = serializers.CharField(allow_blank=True, help_text="Why no idea can be built now, or empty.")
+    can_add_idea = serializers.BooleanField(help_text="Whether the bet takes new owner ideas.")
+    needs_you = serializers.BooleanField(help_text="Whether the bet waits for the owner.")
+    actions = BetsNextActionSerializer(many=True, help_text="Everything the owner must do, most urgent first.")
+
+
 class BetsOwnerSerializer(serializers.Serializer):
     user_id = serializers.IntegerField(help_text="User who owns the bet.")
     name = serializers.CharField(help_text="Display name.")
@@ -249,7 +300,6 @@ class BetsEntrySerializer(serializers.Serializer):
     direction = serializers.ChoiceField(choices=BetDirection.choices, help_text="Whether higher or lower is better.")
     unit = serializers.CharField(allow_blank=True, help_text="Primary metric unit.")
     status = serializers.ChoiceField(choices=BetStatus.choices, help_text="Bet lifecycle state.")
-    note = serializers.CharField(allow_blank=True, help_text="What the bet is doing now.")
     baseline_value = serializers.FloatField(allow_null=True, help_text="Primary metric when the bet started running.")
     baseline_at = serializers.DateTimeField(allow_null=True, help_text="When the baseline was recorded.")
     money = BetsMoneySerializer(help_text="Budget accounting.")
@@ -260,6 +310,7 @@ class BetsEntrySerializer(serializers.Serializer):
     needs_you = serializers.BooleanField(
         help_text="Whether the bet waits for the owner, for example to choose an idea."
     )
+    state = BetsStateSerializer(help_text="What the bet does now and what it needs from the owner.")
     updated_at = serializers.DateTimeField(help_text="Latest change.")
 
 
@@ -268,17 +319,6 @@ class BetsScoutSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Native Scout name.")
     enabled = serializers.BooleanField(help_text="Whether the Scout may run.")
     running = serializers.BooleanField(help_text="Whether the Scout is searching for an idea right now.")
-
-
-class BetsNextActionSerializer(serializers.Serializer):
-    id = serializers.CharField(help_text="Stable identifier.")
-    bet_id = serializers.UUIDField(help_text="Bet requiring attention.")
-    bet_title = serializers.CharField(help_text="Name of the bet.")
-    title = serializers.CharField(help_text="What needs attention.")
-    description = serializers.CharField(allow_blank=True, help_text="What to do next.")
-    label = serializers.CharField(help_text="Why this needs attention.")  # type: ignore[assignment]
-    work_id = serializers.UUIDField(allow_null=True, help_text="Related work item.")
-    url = serializers.CharField(allow_blank=True, help_text="Pull request or other place to act.")
 
 
 class BetsSpendPointSerializer(serializers.Serializer):

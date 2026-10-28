@@ -1,14 +1,12 @@
 import { urls } from 'scenes/urls'
 
 import type { BetsDetailApi } from '../generated/api.schemas'
-import { isChecking, readyIdeas, waitingIdeas } from '../lib/ideas'
-import { isOpen } from '../lib/workStatus'
 import { BetResourceLink } from './BetResourceLink'
 
 export function BetConfiguration({
     bet,
 }: {
-    bet: Pick<BetsDetailApi, 'repository' | 'work' | 'goal_version' | 'scout' | 'status'>
+    bet: Pick<BetsDetailApi, 'repository' | 'work' | 'goal_version' | 'scout' | 'state'>
 }): JSX.Element {
     const experiments = bet.work.filter((item) => item.experiment_id !== null && item.goal_version === bet.goal_version)
     return (
@@ -30,21 +28,7 @@ export function BetConfiguration({
                         kind="scout"
                         title="Scout"
                         href={urls.inboxScout(bet.scout.name)}
-                        detail={
-                            waitingIdeas(bet).some(isChecking)
-                                ? 'Checking your ideas'
-                                : bet.scout.running
-                                  ? 'Looking for the next idea'
-                                  : bet.work.some((item) => item.kind === 'idea' && isOpen(item))
-                                    ? 'Paused while an idea is tested'
-                                    : readyIdeas(bet).length
-                                      ? 'Waiting for you to choose an idea'
-                                      : bet.scout.enabled
-                                        ? 'Ready for the next search'
-                                        : bet.status === 'running'
-                                          ? 'Not searching right now'
-                                          : 'Paused'
-                        }
+                        detail={bet.state.scout.label}
                     />
                 )}
                 {experiments.map((item) => (

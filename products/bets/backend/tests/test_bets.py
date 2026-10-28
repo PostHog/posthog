@@ -22,9 +22,9 @@ from products.bets.backend.facade.enums import IdeaOutcome, LedgerKind
 from products.bets.backend.logic.ledger import append, totals
 from products.bets.backend.logic.loop import reconcile
 from products.bets.backend.logic.metrics import unfinished
-from products.bets.backend.logic.next_actions import next_actions
 from products.bets.backend.logic.scout import DISMISS_LIMIT, scout_context, scout_job
 from products.bets.backend.logic.spend import reconcile_spend, spend_pending
+from products.bets.backend.logic.state import bet_state
 from products.bets.backend.logic.verdict import MIN_SAMPLES_PER_VARIANT, verdict
 from products.bets.backend.logic.workspace import get_settings
 from products.bets.backend.models import Bet, LedgerEntry, WorkItem
@@ -312,9 +312,13 @@ class TestBetLoop(APIBaseTest):
             )
         )
 
-    def running(self, **overrides: object) -> Bet:
+    def fresh(self, **overrides: object) -> Bet:
         bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=self.create(**overrides)["id"])
         self.tick(bet)
+        return bet
+
+    def running(self, **overrides: object) -> Bet:
+        bet = self.fresh(**overrides)
         self.world.finish(self.only(bet, "tracking"))
         self.tick(bet)
         assert bet.status == "running"
@@ -373,17 +377,14 @@ class TestBetLoop(APIBaseTest):
         assert cleanup.stage == "dropped"
         assert totals(self.team.id, bet).available_cents == 0
 
-    def test_described_goal_gets_its_insight_from_tracking_and_waits_for_the_target(self) -> None:
+    def described(self) -> Bet:
         self.patch("products.bets.backend.logic.loop.validate_goal")
         repositories = ["posthog/example-app", "posthog/example-docs"]
-        created = self.create(
+        bet = self.fresh(
             goal_insight="", goal_description="Share rate after upload", target=None, repositories=repositories
         )
-        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=created["id"])
-        self.tick(bet)
-        tracking = self.only(bet, "tracking")
         assert self.world.created[-1]["repositories"] == repositories
-        self.world.finish(tracking)
+        self.world.finish(self.only(bet, "tracking"))
         self.tick(bet)
         assert bet.goal_insight == "" and self.only(bet, "tracking").stage == "working"
         self.tick(bet)
@@ -391,7 +392,132 @@ class TestBetLoop(APIBaseTest):
         self.world.finish(self.only(bet, "tracking"))
         self.tick(bet)
         assert bet.goal_insight == "abc12345" and bet.status == "setting_up"
-        assert [item["title"] for item in next_actions(bet)] == ["Set the target"]
+        return bet
+
+    def stuck(self) -> Bet:
+        bet = self.running()
+        self.build_next(bet)
+        for _ in range(4):
+            self.tick(bet)
+            idea = self.only(bet, "idea")
+            if idea.task_run_id:
+                self.world.finish(idea)
+        self.tick(bet)
+        assert self.only(bet, "idea").stage == "stuck"
+        return bet
+
+    def reviewing(self) -> tuple[Bet, WorkItem]:
+        bet = self.running()
+        idea = self.build_next(bet)
+        self.world.finish(idea, pr="https://github.com/posthog/example-app/pull/9", flag=idea.flag_key)
+        self.tick(bet)
+        return bet, idea
+
+    def drive(self, name: str) -> Bet:
+        if name == "setting_up":
+            return self.fresh()
+        if name == "checking_measure":
+            return self.described()
+        if name == "setting_up_without_budget":
+            return self.fresh(budget_cents=0)
+        if name in ("finding_ideas", "checking_ideas"):
+            return self.running(ideas=["Show upload progress"] if name == "checking_ideas" else [])
+        if name == "choosing":
+            bet = self.running()
+            self.new_report()
+            self.tick(bet)
+            return bet
+        if name == "building":
+            bet = self.running()
+            self.build_next(bet)
+            return bet
+        if name in ("reviewing", "testing"):
+            bet, idea = self.reviewing()
+            if name == "testing":
+                self.world.pr_state(idea, "merged")
+                self.world.results = evidence([0.05, 0.2], days=1)
+                self.tick(bet)
+            return bet
+        if name in ("confirming_goal", "reached"):
+            if name == "confirming_goal":
+                get_settings(self.team.id).__class__.objects.for_team(self.team.id).using(WRITER_DB).update(
+                    goal_confirm_hours=72
+                )
+            bet = self.running()
+            self.world.metric_values = [0.31, 0.32, 0.33]
+            self.tick(bet)
+            return bet
+        if name == "stuck":
+            return self.stuck()
+        if name == "dismissed":
+            bet = self.running()
+            for number in range(DISMISS_LIMIT):
+                self.new_report(f"Idea {number}")
+                self.tick(bet)
+                proposed = WorkItem.objects.for_team(self.team.id).using(WRITER_DB).get(bet=bet, stage="proposed")
+                assert self.work(bet, proposed, "dismiss", "Not for now").status_code == 200
+            return bet
+        bet = self.running()
+        if name == "paused":
+            self.client.post(f"/api/projects/{self.team.id}/bets/{bet.id}/status/", {"status": "paused"}, format="json")
+        else:
+            append(
+                get_settings(self.team.id),
+                bet,
+                LedgerKind.DEALLOCATE,
+                totals(self.team.id, bet).available_cents,
+                "drain",
+            )
+            self.tick(bet)
+        return bet
+
+    def state(self, bet: Bet) -> dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/bets/{bet.id}/")
+        assert response.status_code == 200, response.content
+        return response.json()["state"]
+
+    @parameterized.expand(
+        [
+            ("setting_up", "setting_up", "Checking how the goal is measured", None, False),
+            ("checking_measure", "checking_measure", "Set the target to start", "edit", True),
+            ("setting_up_without_budget", "waiting", "The budget is used up", "budget", True),
+            ("finding_ideas", "finding_ideas", "Finding ideas", None, False),
+            ("checking_ideas", "checking_ideas", "Checking your ideas", None, False),
+            ("choosing", "choosing", "Choose an idea to build", "ideas", True),
+            ("building", "building", "Building an idea", None, False),
+            ("reviewing", "reviewing", "Review the pull request", "pull_request", True),
+            ("testing", "testing", "Testing an idea", None, False),
+            ("confirming_goal", "confirming_goal", "The goal is at the target", None, False),
+            ("stuck", "waiting", "Building stopped", "work", True),
+            ("dismissed", "waiting", f"You dismissed the last {DISMISS_LIMIT} ideas", "ideas", True),
+            ("paused", "paused", "The bet is paused", None, False),
+            ("reached", "ended", "Share rate after upload reached the target of 0.3", None, True),
+            ("spent", "ended", "The budget is used", None, True),
+        ]
+    )
+    def test_bet_state_names_one_phase_and_one_owner_action(
+        self, name: str, phase: str, headline: str, kind: str | None, needs_you: bool
+    ) -> None:
+        state = self.state(self.drive(name))
+        assert (state["phase"], state["headline"], (state["action"] or {}).get("kind"), state["needs_you"]) == (
+            phase,
+            headline,
+            kind,
+            needs_you,
+        ), state
+
+    def test_raising_the_target_of_a_reached_bet_keeps_the_goal_and_asks_for_budget(self) -> None:
+        bet = self.drive("reached")
+        assert bet.status == "reached" and bet.goal_met_since is not None
+        response = self.client.patch(f"/api/projects/{self.team.id}/bets/{bet.id}/", {"target": "0.5"}, format="json")
+        assert response.status_code == 200, response.content
+        bet.refresh_from_db(using=WRITER_DB)
+        assert (bet.status, bet.goal_version, bet.goal_met_since is None) == ("running", 1, True)
+        assert WorkItem.objects.for_team(self.team.id).using(WRITER_DB).filter(bet=bet, kind="tracking").count() == 1
+        assert (response.json()["state"]["action"] or {}).get("kind") == "budget"
+
+    def test_described_goal_gets_its_insight_from_tracking_and_waits_for_the_target(self) -> None:
+        bet = self.described()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/bets/{bet.id}/", {"goal_insight": "abc12345", "target": "0.4"}, format="json"
         )
@@ -428,7 +554,9 @@ class TestBetLoop(APIBaseTest):
         assert self.work(bet, second, "build").status_code == 400
         first.refresh_from_db(using=WRITER_DB)
         assert first.stage == "working" and first.flag_key == f"bet-{bet.reference}-1"
-        changed = self.client.patch(f"/api/projects/{self.team.id}/bets/{bet.id}/", {"target": "0.9"}, format="json")
+        changed = self.client.patch(
+            f"/api/projects/{self.team.id}/bets/{bet.id}/", {"goal_insight": "def45678"}, format="json"
+        )
         assert changed.status_code == 200
         self.tick(bet)
         self.world.finish(self.only(bet, "tracking"))
@@ -454,8 +582,8 @@ class TestBetLoop(APIBaseTest):
         bet = self.running(ideas=["Show upload progress as a percent"])
         owner = WorkItem.objects.for_team(self.team.id).using(WRITER_DB).get(bet=bet, source="owner")
         assert owner.stage == "proposed" and owner.assessment == "pending"
-        assert scout_job(bet) == ("find", "Checking your ideas.")
-        assert "Choose an idea to build" not in [item["title"] for item in next_actions(bet)]
+        assert scout_job(bet).mode == "find"
+        assert "Choose an idea to build" not in [item["title"] for item in bet_state(bet).actions]
         self.new_report("Owner idea 1: Show upload progress as a percent", summary, status)
         self.tick(bet)
         owner.refresh_from_db(using=WRITER_DB)
@@ -464,25 +592,24 @@ class TestBetLoop(APIBaseTest):
 
     def test_scout_job_follows_the_bet_state(self) -> None:
         bet = self.running()
-        assert scout_job(bet)[0] == "find"
+        assert scout_job(bet).mode == "find"
         self.patch(
             "products.signals.backend.facade.api.empty_scout_run_summaries",
             return_value=["Checked the upload funnel over 31 days.", "Checked paths."],
         )
-        [empty] = next_actions(bet)
+        [empty] = bet_state(bet).actions
         assert empty["title"] == "The Scout found no new ideas"
         assert "Checked the upload funnel over 31 days." in empty["description"]
         self.new_report()
         self.tick(bet)
-        assert scout_job(bet) == ("", "Choose an idea to build.")
-        assert [item["title"] for item in next_actions(bet)] == ["Choose an idea to build"]
+        assert scout_job(bet).mode == ""
         assert self.work(bet, self.only(bet, "idea"), "build").status_code == 200
-        assert scout_job(bet) == ("", "The bet is already testing an idea.")
+        assert scout_job(bet).mode == ""
         response = self.client.post(
             f"/api/projects/{self.team.id}/bets/{bet.id}/ideas/", {"title": "Copy the link after upload"}, format="json"
         )
         assert response.status_code == 200
-        assert scout_job(bet)[0] == "check"
+        assert scout_job(bet).mode == "check"
         assert "Do not file ideas of your own" in scout_context(self.team.id, f"{bet.id}:v{bet.goal_version}")
 
     def test_dismiss_needs_a_reason_and_the_scout_reads_it(self) -> None:
@@ -494,12 +621,12 @@ class TestBetLoop(APIBaseTest):
         assert self.work(bet, idea, "dismiss", "Too risky for checkout").status_code == 200
         assert "Reason: Too risky for checkout" in scout_context(self.team.id, f"{bet.id}:v{bet.goal_version}")
         for number in range(DISMISS_LIMIT - 1):
-            assert scout_job(bet)[0] == "find"
+            assert scout_job(bet).mode == "find"
             self.new_report(f"Idea {number}")
             self.tick(bet)
             proposed = WorkItem.objects.for_team(self.team.id).using(WRITER_DB).get(bet=bet, stage="proposed")
             assert self.work(bet, proposed, "dismiss", "Not for now").status_code == 200
-        assert scout_job(bet)[0] == ""
+        assert scout_job(bet).mode == ""
         assert (
             self.client.post(
                 f"/api/projects/{self.team.id}/bets/{bet.id}/ideas/",
@@ -508,13 +635,10 @@ class TestBetLoop(APIBaseTest):
             ).status_code
             == 200
         )
-        assert scout_job(bet)[0] == "find"
+        assert scout_job(bet).mode == "find"
 
     def test_used_budget_stops_the_bet_and_more_budget_resumes_it(self) -> None:
-        bet = self.running()
-        settings = get_settings(self.team.id)
-        append(settings, bet, LedgerKind.DEALLOCATE, totals(self.team.id, bet).available_cents, "drain")
-        self.tick(bet)
+        bet = self.drive("spent")
         assert bet.status == "spent"
         response = self.client.patch(
             f"/api/projects/{self.team.id}/bets/{bet.id}/",
@@ -540,26 +664,15 @@ class TestBetLoop(APIBaseTest):
         assert self.build_next(bet).id != idea.id
 
     def test_task_that_never_finishes_its_work_gets_stuck_after_three_attempts(self) -> None:
-        bet = Bet.objects.for_team(self.team.id).using(WRITER_DB).get(id=self.create()["id"])
-        self.tick(bet)
-        self.world.finish(self.only(bet, "tracking"))
-        self.tick(bet)
-        self.build_next(bet)
-        for _ in range(4):
-            self.tick(bet)
-            idea = self.only(bet, "idea")
-            if idea.task_run_id:
-                self.world.finish(idea)
-        self.tick(bet)
+        bet = self.stuck()
         stuck = self.only(bet, "idea")
-        assert stuck.stage == "stuck"
         self.new_report("Copy the link after upload")
         self.tick(bet)
-        assert "Choose an idea to build" not in [item["title"] for item in next_actions(bet)]
+        assert "Choose an idea to build" not in [item["title"] for item in bet_state(bet).actions]
         assert self.work(bet, stuck, "drop").status_code == 200
         stuck.refresh_from_db(using=WRITER_DB)
         assert stuck.stage == "dropped"
-        assert "Choose an idea to build" in [item["title"] for item in next_actions(bet)]
+        assert "Choose an idea to build" in [item["title"] for item in bet_state(bet).actions]
 
     def test_create_retry_keeps_one_bet_and_one_allocation(self) -> None:
         operation_id = str(uuid4())

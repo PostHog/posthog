@@ -21,9 +21,8 @@ from .workspace import get_settings, project_id
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
-GOAL_FIELDS = frozenset(
-    {"goal_insight", "goal_description", "goal_metric", "target", "direction", "secondary_metrics", "repositories"}
-)
+GOAL_FIELDS = frozenset({"goal_insight", "goal_description", "goal_metric", "secondary_metrics", "repositories"})
+TARGET_FIELDS = frozenset({"target", "direction"})
 
 
 def validate_insights(team: Team, user: User, data: dict) -> None:
@@ -84,13 +83,14 @@ def update_bet(team: Team, user: User, bet_id: UUID, data: dict) -> Bet:
             and bet.goal_insight
             and payload.get("goal_insight", bet.goal_insight) == bet.goal_insight
         )
-        goal_changed = any(
-            key in payload and payload[key] != getattr(bet, key)
-            for key in GOAL_FIELDS
-            if not (first_target and key in ("target", "goal_metric", "direction"))
-        )
+        changed = {key for key in GOAL_FIELDS | TARGET_FIELDS if key in payload and payload[key] != getattr(bet, key)}
+        goal_changed = bool(changed - TARGET_FIELDS - ({"goal_metric"} if first_target else set()))
         for field, value in payload.items():
             setattr(bet, field, value)
+        if changed & TARGET_FIELDS and not goal_changed:
+            bet.goal_met_since = None
+            if bet.status == BetStatus.REACHED:
+                bet.status = BetStatus.RUNNING if bet.baseline_at else BetStatus.SETTING_UP
         if goal_changed:
             ended = list(
                 WorkItem.objects.for_team(team_id)

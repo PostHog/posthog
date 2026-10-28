@@ -39,7 +39,7 @@ export function BetsSidebarHoverCard({ bet }: { bet: BetsEntryApi }): JSX.Elemen
             <div className="flex min-w-0 flex-col">
                 <span className="text-xs leading-4 font-semibold wrap-anywhere">{bet.title}</span>
                 <Text size="xs" variant="muted" render={<span />} className="truncate">
-                    {[BET_STATUS_LABELS[bet.status], bet.note].filter(Boolean).join(' · ')}
+                    {[BET_STATUS_LABELS[bet.status], bet.state.headline].filter(Boolean).join(' · ')}
                 </Text>
             </div>
             <section aria-label="Goal" className="flex min-w-0 flex-col gap-1">

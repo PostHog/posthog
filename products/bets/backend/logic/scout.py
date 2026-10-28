@@ -1,4 +1,5 @@
 import math
+from dataclasses import replace
 from datetime import datetime, timedelta
 from uuid import UUID
 
@@ -68,27 +69,66 @@ EMPTY_PAUSE = timedelta(minutes=30)
 EMPTY_PAUSE_MAX = timedelta(hours=24)
 
 
-def scout_job(bet: Bet) -> tuple[str, str]:
+@frozen
+class ScoutJob:
+    mode: str
+    label: str
+    reason: str
+    problem: str = ""
+    ask: str = ""
+
+
+IDLE = {
+    BetStatus.SETTING_UP: "The Scout starts when the bet runs.",
+    BetStatus.PAUSED: "The Scout starts again when you resume the bet.",
+}
+
+
+def scout_job(bet: Bet) -> ScoutJob:
     if bet.status != BetStatus.RUNNING:
-        return ("", "The bet is not running.")
+        return ScoutJob(mode="", label="Paused", reason=IDLE.get(BetStatus(bet.status), "No ideas wait for a choice."))
     if totals(bet.team_id, bet).available_cents <= 0:
-        return ("", "The bet has no budget left.")
+        return ScoutJob(mode="", label="Waiting for budget", reason="The bet has no budget left.")
     ideas = WorkItem.objects.for_team(bet.team_id).using(WRITER_DB).filter(bet=bet, goal_version=bet.goal_version)
     unchecked = ideas.filter(source=IdeaSource.OWNER, stage=WorkStage.PROPOSED, report_id=None).exists()
-    if ideas.filter(kind=WorkKind.IDEA, stage__in=OPEN).exists():
-        if unchecked:
-            return (CHECK, "Checking your idea while the current idea is tested.")
-        return ("", "The bet is already testing an idea.")
-    if ideas.filter(stage=WorkStage.PROPOSED).exists() and not unchecked:
-        return ("", "Choose an idea to build.")
     latest = list(
         ideas.filter(kind=WorkKind.IDEA).order_by("-created_at").values_list("stage", flat=True)[:DISMISS_LIMIT]
     )
-    if len(latest) == DISMISS_LIMIT and all(stage == WorkStage.DISMISSED for stage in latest):
-        return ("", f"You dismissed the last {DISMISS_LIMIT} ideas. Add your own idea to restart the Scout.")
-    if wait := empty_runs_wait(bet, ideas):
-        return ("", wait)
-    return (FIND, "Checking your ideas." if unchecked else "Looking for ideas.")
+    if ideas.filter(kind=WorkKind.IDEA, stage__in=OPEN).exists():
+        if not unchecked:
+            return ScoutJob(mode="", label="Paused while an idea is tested", reason="New ideas come after its result.")
+        job = ScoutJob(
+            mode=CHECK,
+            label="Checking your ideas",
+            reason="The Scout checks your ideas while the current idea is tested.",
+        )
+    elif ideas.filter(stage=WorkStage.PROPOSED).exists() and not unchecked:
+        return ScoutJob(mode="", label="Waiting for you to choose an idea", reason="Choose an idea to build.")
+    elif len(latest) == DISMISS_LIMIT and all(stage == WorkStage.DISMISSED for stage in latest):
+        return ScoutJob(
+            mode="",
+            label="Waiting for your idea",
+            reason=f"You dismissed the last {DISMISS_LIMIT} ideas. Add your own idea to restart the Scout.",
+            ask="scout-dismissed",
+        )
+    elif wait := empty_runs_wait(bet, ideas):
+        return ScoutJob(mode="", label="Not searching right now", reason=wait)
+    elif unchecked:
+        job = ScoutJob(
+            mode=FIND,
+            label="Checking your ideas",
+            reason="The Scout checks your ideas against your data before you choose.",
+        )
+    else:
+        job = ScoutJob(
+            mode=FIND,
+            label="Looking for the next idea",
+            reason="No ideas wait for a choice. The Scout looks for new ideas on its next run.",
+        )
+    failure = scout_failure(bet)
+    if failure.paused:
+        return ScoutJob(mode="", label="Paused after failed runs", reason=failure.note, ask="scout-failing")
+    return replace(job, problem=failure.note)
 
 
 def empty_runs_wait(bet: Bet, ideas: QuerySet[WorkItem]) -> str:
@@ -114,8 +154,8 @@ def scout_refusal(team_id: int, source_id: str) -> str | None:
     bet = source_bet(team_id, source_id)
     if bet is None:
         return "The bet is not running."
-    job, reason = scout_job(bet)
-    return None if job else reason
+    job = scout_job(bet)
+    return None if job.mode else job.reason
 
 
 def live_flag(bet: Bet) -> str:
@@ -159,7 +199,7 @@ def scout_context(team_id: int, source_id: str) -> str:
     return (
         f"{bet_context(bet)}\n\nBaseline: {bet.baseline_value}\n\n## What we tried\n{history(bet)}"
         f"\n\n## Owner ideas to check\n{owner_ideas(bet)}\n\n## Ideas already waiting for the owner\n{waiting_ideas(bet)}"
-        f"\n\n{CHECK_RULES.format(flag=live_flag(bet)) if scout_job(bet)[0] == CHECK else RUN_RULES}"
+        f"\n\n{CHECK_RULES.format(flag=live_flag(bet)) if scout_job(bet).mode == CHECK else RUN_RULES}"
     )[:24000]
 
 

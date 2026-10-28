@@ -240,33 +240,6 @@
         line-height: 1.6;
     }
 
-    .Bets__status {
-        grid-template-columns: auto minmax(0, 1fr) auto;
-        padding: 12px 16px;
-        background: var(--today-card);
-        border: 1px solid var(--today-line);
-        border-radius: var(--radius-lg);
-    }
-
-    .Bets__statusAction {
-        grid-row: 1;
-        grid-column: 3;
-        align-self: center;
-
-        &[data-tall] {
-            grid-row: 1 / span 2;
-        }
-    }
-
-    .Bets__statusIdea {
-        color: var(--today-ink);
-
-        &:hover {
-            text-decoration: underline;
-            text-underline-offset: 4px;
-        }
-    }
-
     .Bets__goal {
         border-block: 1px solid var(--today-line);
     }

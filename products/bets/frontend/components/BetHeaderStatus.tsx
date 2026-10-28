@@ -1,127 +1,135 @@
 import { useActions, useValues } from 'kea'
 
-import { Badge, Button, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import {
+    IconArchive,
+    IconCheck,
+    IconCode,
+    IconFlask,
+    IconLightBulb,
+    IconPause,
+    IconPullRequest,
+    IconTelescope,
+    IconWarning,
+} from '@posthog/icons'
+import { Button, IconStack, IconStackItem, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import type { BetsDetailApi } from '../generated/api.schemas'
-import { BET_STATUS_LABELS } from '../lib/betStatus'
-import { ideasCount, isChecking, readyIdeas, waitingIdeas } from '../lib/ideas'
-import { isOpen } from '../lib/workStatus'
-import { betLogic } from '../logics/betLogic'
+import { getIconColor } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { TodayObjectIcon } from '~/layout/today/TodayObjectIcon'
 
-const STATUS_BADGE: Record<BetsDetailApi['status'], 'default' | 'success' | 'warning' | 'completed' | 'destructive'> = {
-    setting_up: 'default',
-    running: 'success',
-    paused: 'warning',
-    reached: 'completed',
-    spent: 'warning',
-    closed: 'default',
+import type { BetsDetailApi, BetsStateActionApi, BetTileEnumApi } from '../generated/api.schemas'
+import { IDEA_ICON_COLOR } from '../lib/ideas'
+import { betLogic } from '../logics/betLogic'
+import { BetWorkStatusIcon } from './BetWorkStatusIcon'
+
+const MUTED = 'var(--muted-foreground)'
+
+const TILES: Record<Exclude<BetTileEnumApi, 'measure'>, { color: string; glyph: JSX.Element }> = {
+    tracking: { color: getIconColor('task')[0], glyph: <IconCode /> },
+    scout: { color: 'var(--color-product-self-driving-light)', glyph: <IconTelescope /> },
+    idea: { color: IDEA_ICON_COLOR, glyph: <IconLightBulb /> },
+    experiment: { color: getIconColor('experiment')[0], glyph: <IconFlask /> },
+    pull_request: { color: getIconColor('task')[0], glyph: <IconPullRequest /> },
+    problem: { color: 'var(--warning-foreground)', glyph: <IconWarning /> },
+    idle: { color: MUTED, glyph: <IconLightBulb /> },
+    paused: { color: MUTED, glyph: <IconPause /> },
+    reached: { color: 'var(--completed-foreground)', glyph: <IconCheck /> },
+    ended: { color: MUTED, glyph: <IconArchive /> },
+}
+
+const ACTION_ATTRS: Partial<Record<BetsStateActionApi['kind'], string>> = {
+    edit: 'bets-header-set-target',
+    ideas: 'bets-header-choose-idea',
+}
+
+function StatusTile({ tile }: { tile: BetTileEnumApi }): JSX.Element {
+    if (tile === 'measure') {
+        return <TodayObjectIcon type="insight" className="[--icon-stack-size:32px] shrink-0" />
+    }
+    return (
+        <IconStack className="[--icon-stack-size:32px] shrink-0">
+            <IconStackItem color={TILES[tile].color}>{TILES[tile].glyph}</IconStackItem>
+        </IconStack>
+    )
+}
+
+function StatusAction({ bet, action }: { bet: BetsDetailApi; action: BetsStateActionApi }): JSX.Element {
+    const { runStateAction } = useActions(betLogic({ id: bet.id }))
+    const { busy, busyOperation } = useValues(betLogic({ id: bet.id }))
+    const link =
+        action.kind === 'pull_request' ? (
+            <LinkPrimitive to={action.url} target="_blank" />
+        ) : action.kind === 'settings' ? (
+            <LinkPrimitive to={urls.betsSettings()} />
+        ) : ['edit', 'budget'].includes(action.kind) ? (
+            <LinkPrimitive to={urls.betEdit(bet.id)} />
+        ) : undefined
+    return (
+        <Button
+            variant={action.primary ? 'primary' : 'outline'}
+            size="sm"
+            disabled={!link && busy}
+            loading={busyOperation === `work:${action.work_id}:${action.work_action}`}
+            render={link}
+            onClick={link ? undefined : () => runStateAction(action)}
+            data-attr={ACTION_ATTRS[action.kind] ?? `bets-header-${action.kind}`}
+        >
+            {action.label}
+        </Button>
+    )
 }
 
 export function BetHeaderStatus({ bet }: { bet: BetsDetailApi }): JSX.Element {
     const { setExpandedWork } = useActions(betLogic({ id: bet.id }))
-    const { goalConfirmAt } = useValues(betLogic({ id: bet.id }))
-    const live = ['setting_up', 'running'].includes(bet.status)
-    const current = bet.work.find(
-        (item) => item.goal_version === bet.goal_version && item.kind !== 'cleanup' && isOpen(item)
-    )
-    const testing = live && current?.kind === 'idea' ? current : null
-    const target = live && bet.next_action?.id.endsWith(':target') ? bet.next_action : null
-    const step = !live
-        ? ''
-        : target
-          ? 'Check the measure'
-          : current?.kind === 'tracking'
-            ? 'Checking how the goal is measured'
-            : waitingIdeas(bet).some(isChecking)
-              ? 'Checking your ideas'
-              : bet.scout?.running
-                ? 'Finding the next idea'
-                : ''
-    const goalMet = bet.status === 'running' && !current && !!bet.goal_met_since
-    const waiting = live && !current && !goalMet ? readyIdeas(bet).length : 0
-    const trimmed = (target ? target.description.split('. ')[0] : bet.note).replace(/\.$/, '')
-    const note = live && !waiting && !(goalMet && goalConfirmAt) && trimmed !== step ? trimmed : ''
+    const { state } = bet
+    const actions = bet.is_owner ? [state.action, state.alternative].filter((item) => item !== null) : []
     return (
-        <div className="Bets__status grid min-w-0 items-center gap-x-2.5 gap-y-1" data-attr="bets-coordination-status">
-            <Badge variant={STATUS_BADGE[bet.status]}>{BET_STATUS_LABELS[bet.status]}</Badge>
-            {testing ? (
-                <Text size="sm" render={<span />} className="flex min-w-0 items-baseline gap-1 whitespace-nowrap">
-                    <span className="shrink-0">Testing</span>
-                    <Tooltip>
-                        <TooltipTrigger
-                            delay={400}
-                            render={
-                                <Button
-                                    size="inline"
-                                    variant="link-muted"
-                                    className="Bets__statusIdea max-w-full min-w-0 shrink overflow-hidden font-medium"
-                                    onClick={() => setExpandedWork(testing.id)}
-                                    data-attr="bets-header-current-idea"
-                                />
-                            }
-                        >
-                            <span className="truncate">{testing.title}</span>
-                        </TooltipTrigger>
-                        <TooltipContent>{testing.title}</TooltipContent>
-                    </Tooltip>
+        <div className="mb-1 flex min-w-0 items-center gap-3" data-attr="bets-coordination-status">
+            <StatusTile tile={state.tile} />
+            <div className="flex max-w-180 min-w-0 flex-1 flex-col gap-0.5">
+                <Text size="sm" weight="medium" render={<p className="m-0" />}>
+                    {state.headline}
                 </Text>
-            ) : goalMet ? (
-                <Text size="sm" render={<span />} className="flex min-w-0 items-baseline gap-1 whitespace-nowrap">
-                    <span className="shrink-0">The goal is at the target</span>
-                    {goalConfirmAt && (
-                        <Text size="sm" variant="muted" render={<span className="ms-1 flex gap-1" />}>
-                            <span>Bets confirms it</span>
-                            <TZLabel time={goalConfirmAt} />
-                        </Text>
-                    )}
-                </Text>
-            ) : waiting ? (
-                <Text size="sm" render={<span />} className="flex min-w-0 items-baseline gap-1 whitespace-nowrap">
-                    <span className="min-w-0 truncate">Choose an idea to build</span>
-                    <Text size="sm" variant="muted" render={<span />} className="ms-1">
-                        {ideasCount(waiting)}
-                    </Text>
-                </Text>
-            ) : (
-                step && (
-                    <Text size="sm" render={<span />} className="flex min-w-0 items-baseline gap-1 whitespace-nowrap">
-                        {step}
-                    </Text>
-                )
-            )}
-            {note && (
-                <Text size="sm" variant="muted" render={<p />} className="col-start-2 m-0">
-                    {note}
-                </Text>
-            )}
-            {target ? (
-                <Button
-                    variant="primary"
-                    size="sm"
-                    className="Bets__statusAction"
-                    data-tall={note ? true : undefined}
-                    render={<LinkPrimitive to={urls.betEdit(bet.id)} />}
-                    data-attr="bets-header-set-target"
+                <Text
+                    size="xs"
+                    variant="muted"
+                    render={<p className="m-0" />}
+                    className="flex min-w-0 flex-wrap items-center gap-x-1.5"
                 >
-                    Set the target
-                </Button>
-            ) : (
-                waiting > 0 && (
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="Bets__statusAction"
-                        data-tall={note ? true : undefined}
-                        onClick={() => document.getElementById('bet-ideas')?.scrollIntoView({ behavior: 'smooth' })}
-                        data-attr="bets-header-choose-idea"
-                    >
-                        See the ideas
-                    </Button>
-                )
+                    {state.working && <BetWorkStatusIcon status={{ label: 'Working', mark: 'spinner' }} />}
+                    {state.subject && state.work_id && (
+                        <span className="flex max-w-max min-w-0 flex-[1_1_15rem] items-center gap-1.5">
+                            <Tooltip>
+                                <TooltipTrigger
+                                    delay={400}
+                                    render={
+                                        <Button
+                                            size="inline"
+                                            variant="link-muted"
+                                            className="min-w-0 shrink overflow-hidden"
+                                            onClick={() => setExpandedWork(state.work_id)}
+                                            data-attr="bets-header-current-idea"
+                                        />
+                                    }
+                                >
+                                    <span className="truncate">{state.subject}</span>
+                                </TooltipTrigger>
+                                <TooltipContent>{state.subject}</TooltipContent>
+                            </Tooltip>
+                            {state.detail && <span className="shrink-0">·</span>}
+                        </span>
+                    )}
+                    {state.detail && <span className="min-w-0">{state.detail}</span>}
+                </Text>
+            </div>
+            {actions.length > 0 && (
+                <div className="ms-auto flex shrink-0 items-center gap-2">
+                    {actions.map((action) => (
+                        <StatusAction key={action.label} bet={bet} action={action} />
+                    ))}
+                </div>
             )}
         </div>
     )
