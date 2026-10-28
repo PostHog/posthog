@@ -7,9 +7,9 @@
     "created_by": null,
     "updated_at": "2026-10-27T00:00:00Z",
     "trigger": {
-        "type": "event",
+        "type": "internal-event",
         "filters": {
-            "source": "events",
+            "source": "internal-events",
             "events": [
                 {
                     "id": "$conversation_message_sent",
@@ -63,9 +63,9 @@
             "filters": null,
             "type": "trigger",
             "config": {
-                "type": "event",
+                "type": "internal-event",
                 "filters": {
-                    "source": "events",
+                    "source": "internal-events",
                     "events": [
                         {
                             "id": "$conversation_message_sent",
