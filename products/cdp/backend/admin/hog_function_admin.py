@@ -32,7 +32,10 @@ REPLAY_TEMPLATE = "admin/cdp/hogfunction/replay_failed_invocations.html"
 
 REPLAY_FIELD_GROUPS = (
     ("What failed", ("window_start", "window_end", "error_message_contains", "error_kinds")),
-    ("Scope", ("team_ids", "template_ids", "exclude_template_ids", "latest_per_person_template_ids")),
+    (
+        "Scope",
+        ("include_workflows", "team_ids", "template_ids", "exclude_template_ids", "latest_per_person_template_ids"),
+    ),
     ("Safety checks", ("require_success_since_window", "skip_already_rerun", "skip_failing_before_window")),
 )
 
@@ -69,9 +72,21 @@ class ReplayFailedInvocationsForm(forms.Form):
         required=False,
         help_text="Comma-separated, for example http_4xx. Set this or the error text, or both.",
     )
+    include_workflows = forms.BooleanField(
+        required=False,
+        label="Include workflows",
+        help_text=(
+            "Also replay workflow runs that stopped on a failed step. Each run continues from that step, "
+            "so steps that already ran are not sent again."
+        ),
+    )
     team_ids = forms.CharField(required=False, help_text="Comma-separated. Leave empty for every team.")
     template_ids = forms.CharField(
-        required=False, help_text="Comma-separated. Leave empty for every template, custom functions included."
+        required=False,
+        help_text=(
+            "Comma-separated. Leave empty for every template, custom functions included. "
+            "A workflow matches when one of its steps uses the template."
+        ),
     )
     exclude_template_ids = forms.CharField(
         required=False,
@@ -137,6 +152,7 @@ class ReplayFailedInvocationsForm(forms.Form):
             require_success_since_window=bool(data.get("require_success_since_window")),
             skip_already_rerun=bool(data.get("skip_already_rerun")),
             skip_failing_before_window=bool(data.get("skip_failing_before_window")),
+            include_workflows=bool(data.get("include_workflows")),
         )
 
 

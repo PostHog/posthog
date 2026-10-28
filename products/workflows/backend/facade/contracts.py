@@ -181,6 +181,20 @@ class ProcessedSchedules:
     failed: list[str]
 
 
+@frozen
+class WorkflowReplayTarget:
+    """What staff tooling needs to decide whether a workflow's failed runs can be replayed."""
+
+    id: str
+    team_id: int
+    name: str
+    status: str
+    # Templates of the workflow's function steps, so template filters can match a workflow.
+    template_ids: tuple[str, ...]
+    # The rerun worker skips runs of these workflows, because their message data was not stored.
+    sends_sensitive_email: bool
+
+
 @dataclass(frozen=True)
 class HogFlowReference:
     id: str

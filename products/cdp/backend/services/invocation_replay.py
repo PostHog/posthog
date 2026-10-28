@@ -1,4 +1,4 @@
-"""Plan and run a replay of destination invocations that failed during an incident.
+"""Plan and run a replay of destination and workflow invocations that failed during an incident.
 
 The rerun endpoint replays whatever matches a filter. That is too blunt after an
 incident, because some failed invocations must not be sent again:
@@ -34,6 +34,7 @@ from urllib3.exceptions import NewConnectionError
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
+from posthog.models.team.team import Team
 from posthog.plugins.plugin_server_api import rerun_hog_invocations
 
 from products.cdp.backend.models.hog_functions.hog_function import TYPES_THAT_CAN_RERUN, HogFunction
@@ -41,6 +42,7 @@ from products.cdp.backend.presentation.hog_invocations.rerun import (
     HOG_INVOCATION_RERUN_MAX_COUNT,
     RERUN_MAX_WINDOW_DAYS,
 )
+from products.workflows.backend.facade.workflows import get_workflow_replay_targets
 
 logger = structlog.get_logger(__name__)
 
@@ -56,8 +58,11 @@ REPLAY_STATE_TTL_SECONDS = 7 * 24 * 60 * 60
 FUNCTION_RESERVATION_SECONDS = 60 * 60
 STALLED_AFTER = timedelta(minutes=15)
 
+FunctionKind = Literal["hog_function", "hog_flow"]
+
 SkipReason = Literal[
     "function_not_replayable",
+    "sends_sensitive_email",
     "already_rerun",
     "already_delivered",
     "superseded_by_later_success",
@@ -67,7 +72,8 @@ SkipReason = Literal[
 ]
 
 SKIP_REASON_LABELS: dict[SkipReason, str] = {
-    "function_not_replayable": "Function is disabled, deleted, or of a type that cannot be re-run",
+    "function_not_replayable": "Disabled, deleted, or of a type that cannot be re-run",
+    "sends_sensitive_email": "Workflow sends sensitive email, whose message data is not stored",
     "already_rerun": "Already re-run once",
     "already_delivered": "The same event was delivered by a later run",
     "superseded_by_later_success": "A later run for the same person succeeded",
@@ -87,7 +93,7 @@ BASELINE_LOOKBACK = timedelta(days=1)
 _CANDIDATE_FUNCTIONS_QUERY = """
 SELECT DISTINCT team_id, function_id
 FROM hog_invocation_results
-WHERE function_kind = 'hog_function'
+WHERE function_kind = %(function_kind)s
     AND scheduled_at >= %(window_start)s
     AND scheduled_at < %(window_end)s
     AND status = 'failed'
@@ -118,14 +124,14 @@ SELECT
     min(first_scheduled_at) AS original_scheduled_at,
     max(is_retry) AS was_rerun
 FROM hog_invocation_results
-WHERE function_kind = 'hog_function'
+WHERE function_kind = %(function_kind)s
     AND team_id IN %(team_ids)s
     AND function_id IN %(function_ids)s
     AND scheduled_at >= %(window_start)s
     AND invocation_id IN (
         SELECT invocation_id
         FROM hog_invocation_results
-        WHERE function_kind = 'hog_function'
+        WHERE function_kind = %(function_kind)s
             AND team_id IN %(team_ids)s
             AND function_id IN %(function_ids)s
             AND scheduled_at >= %(window_start)s
@@ -159,7 +165,7 @@ FROM (
         argMax(event_uuid, version) AS latest_event_uuid,
         min(first_scheduled_at) AS original_scheduled_at
     FROM hog_invocation_results
-    WHERE function_kind = 'hog_function'
+    WHERE function_kind = %(function_kind)s
         AND team_id IN %(team_ids)s
         AND function_id IN %(function_ids)s
         AND scheduled_at >= %(window_start)s
@@ -179,7 +185,7 @@ FROM (
 _FUNCTIONS_FAILING_BEFORE_QUERY = """
 SELECT DISTINCT function_id
 FROM hog_invocation_results
-WHERE function_kind = 'hog_function'
+WHERE function_kind = %(function_kind)s
     AND team_id IN %(team_ids)s
     AND function_id IN %(function_ids)s
     AND scheduled_at >= %(baseline_start)s
@@ -192,7 +198,7 @@ WHERE function_kind = 'hog_function'
 _FUNCTIONS_WITH_SUCCESS_SINCE_QUERY = """
 SELECT DISTINCT function_id
 FROM hog_invocation_results
-WHERE function_kind = 'hog_function'
+WHERE function_kind = %(function_kind)s
     AND team_id IN %(team_ids)s
     AND function_id IN %(function_ids)s
     AND scheduled_at >= %(since)s
@@ -214,6 +220,7 @@ class ReplayCriteria:
     require_success_since_window: bool
     skip_already_rerun: bool
     skip_failing_before_window: bool
+    include_workflows: bool
 
     def __post_init__(self) -> None:
         if self.window_start.tzinfo is None or self.window_end.tzinfo is None:
@@ -240,6 +247,7 @@ class ReplayCriteria:
             "require_success_since_window": self.require_success_since_window,
             "skip_already_rerun": self.skip_already_rerun,
             "skip_failing_before_window": self.skip_failing_before_window,
+            "include_workflows": self.include_workflows,
         }
 
     @classmethod
@@ -256,6 +264,8 @@ class ReplayCriteria:
             require_success_since_window=payload["require_success_since_window"],
             skip_already_rerun=payload["skip_already_rerun"],
             skip_failing_before_window=payload["skip_failing_before_window"],
+            # A task queued before workflows could be replayed carries no such key.
+            include_workflows=payload.get("include_workflows", False),
         )
 
 
@@ -264,8 +274,10 @@ class FunctionReplay:
     team_id: int
     team_name: str
     organization_name: str
+    function_kind: FunctionKind
     function_id: str
     function_name: str
+    # Empty for a workflow, whose steps can use several templates.
     template_id: str
     invocation_ids: tuple[str, ...]
     skipped: dict[SkipReason, int]
@@ -312,7 +324,7 @@ class ReplayPlan:
     def invocations_by_template(self) -> dict[str, int]:
         counts: Counter[str] = Counter()
         for f in self.functions:
-            counts[f.template_id] += len(f.invocation_ids)
+            counts["(workflows)" if f.function_kind == "hog_flow" else f.template_id] += len(f.invocation_ids)
         return dict(counts.most_common())
 
     @property
@@ -345,10 +357,26 @@ class ReplayPlan:
 @frozen
 class FunctionReplayResult:
     team_id: int
+    function_kind: FunctionKind
     function_id: str
     invocation_count: int
     status_code: int
     detail: str
+
+
+@frozen
+class _Target:
+    """A destination or a workflow with failures in the window."""
+
+    team_id: int
+    team_name: str
+    organization_name: str
+    function_kind: FunctionKind
+    function_id: str
+    function_name: str
+    template_id: str
+    not_replayable: SkipReason | None
+    latest_per_person: bool
 
 
 @frozen
@@ -394,8 +422,12 @@ def _error_clauses(criteria: ReplayCriteria, *, column: str, params: dict[str, A
     return _ErrorClauses(kind=kind, message=message)
 
 
-def _find_candidate_functions(criteria: ReplayCriteria) -> list[tuple[int, str]]:
-    params: dict[str, Any] = {"window_start": criteria.window_start, "window_end": criteria.window_end}
+def _find_candidate_functions(criteria: ReplayCriteria, kind: FunctionKind) -> list[tuple[int, str]]:
+    params: dict[str, Any] = {
+        "function_kind": kind,
+        "window_start": criteria.window_start,
+        "window_end": criteria.window_end,
+    }
     team_clause = ""
     if criteria.team_ids:
         team_clause = "AND team_id IN %(team_ids)s"
@@ -435,7 +467,7 @@ def _load_related_successes(criteria: ReplayCriteria, scope: dict[str, Any]) -> 
 
 
 def _plan_function(
-    function: HogFunction,
+    target: _Target,
     failures: list[_Failure],
     successes: list[_Success],
     *,
@@ -445,15 +477,15 @@ def _plan_function(
 ) -> FunctionReplay:
     skipped: Counter[SkipReason] = Counter()
 
-    if not function.enabled or function.deleted or function.type not in TYPES_THAT_CAN_RERUN:
-        skipped["function_not_replayable"] = len(failures)
-        return _function_replay(function, (), skipped)
+    if target.not_replayable:
+        skipped[target.not_replayable] = len(failures)
+        return _function_replay(target, (), skipped)
     if criteria.skip_failing_before_window and failing_before_window:
         skipped["failing_before_window"] = len(failures)
-        return _function_replay(function, (), skipped)
+        return _function_replay(target, (), skipped)
     if criteria.require_success_since_window and not succeeded_since_window:
         skipped["no_success_since_window"] = len(failures)
-        return _function_replay(function, (), skipped)
+        return _function_replay(target, (), skipped)
 
     delivered_events = {s.event_uuid for s in successes if s.event_uuid}
     last_success_by_person: dict[str, datetime] = {}
@@ -463,7 +495,7 @@ def _plan_function(
                 success.scheduled_at, last_success_by_person.get(success.person_id, success.scheduled_at)
             )
 
-    latest_per_person = (function.template_id or "") in criteria.latest_per_person_template_ids
+    latest_per_person = target.latest_per_person
     latest_failure_by_person: dict[str, str] = {}
     for failure in sorted(failures, key=lambda f: f.scheduled_at):
         if failure.person_id:
@@ -486,34 +518,24 @@ def _plan_function(
         else:
             replay.append(failure.invocation_id)
 
-    return _function_replay(function, tuple(sorted(replay)), skipped)
+    return _function_replay(target, tuple(sorted(replay)), skipped)
 
 
-def _function_replay(
-    function: HogFunction, invocation_ids: tuple[str, ...], skipped: Counter[SkipReason]
-) -> FunctionReplay:
+def _function_replay(target: _Target, invocation_ids: tuple[str, ...], skipped: Counter[SkipReason]) -> FunctionReplay:
     return FunctionReplay(
-        team_id=function.team_id,
-        team_name=function.team.name,
-        organization_name=function.team.organization.name,
-        function_id=str(function.id),
-        function_name=function.name or "",
-        template_id=function.template_id or "",
+        team_id=target.team_id,
+        team_name=target.team_name,
+        organization_name=target.organization_name,
+        function_kind=target.function_kind,
+        function_id=target.function_id,
+        function_name=target.function_name,
+        template_id=target.template_id,
         invocation_ids=invocation_ids,
         skipped=dict(skipped),
     )
 
 
-def plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
-    with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.DEBUG_QUERY):
-        return _plan_replay(criteria)
-
-
-def _plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
-    candidates = _find_candidate_functions(criteria)
-    if not candidates:
-        return ReplayPlan(criteria=criteria, functions=())
-
+def _destination_targets(criteria: ReplayCriteria, candidates: list[tuple[int, str]]) -> list[_Target]:
     # nosemgrep: idor-lookup-without-team -- staff-only incident tooling that spans teams by design; each id is paired with the team ClickHouse reported for it
     queryset = HogFunction.objects.select_related("team", "team__organization").filter(
         id__in=[function_id for _, function_id in candidates],
@@ -523,30 +545,111 @@ def _plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
         queryset = queryset.filter(template_id__in=criteria.template_ids)
     if criteria.exclude_template_ids:
         queryset = queryset.exclude(template_id__in=criteria.exclude_template_ids)
-    functions = list(queryset)
-    if not functions:
-        return ReplayPlan(criteria=criteria, functions=())
+    return [
+        _Target(
+            team_id=function.team_id,
+            team_name=function.team.name,
+            organization_name=function.team.organization.name,
+            function_kind="hog_function",
+            function_id=str(function.id),
+            function_name=function.name or "",
+            template_id=function.template_id or "",
+            not_replayable=(
+                "function_not_replayable"
+                if not function.enabled or function.deleted or function.type not in TYPES_THAT_CAN_RERUN
+                else None
+            ),
+            latest_per_person=(function.template_id or "") in criteria.latest_per_person_template_ids,
+        )
+        for function in queryset
+    ]
+
+
+def _workflow_targets(criteria: ReplayCriteria, candidates: list[tuple[int, str]]) -> list[_Target]:
+    workflows = get_workflow_replay_targets(
+        team_ids=sorted({team_id for team_id, _ in candidates}),
+        workflow_ids=[workflow_id for _, workflow_id in candidates],
+    )
+    # A workflow matches a template filter when one of its steps uses the template.
+    if criteria.template_ids:
+        workflows = [w for w in workflows if set(w.template_ids) & set(criteria.template_ids)]
+    if criteria.exclude_template_ids:
+        workflows = [w for w in workflows if not set(w.template_ids) & set(criteria.exclude_template_ids)]
+    teams = {
+        team.id: team
+        for team in Team.objects.select_related("organization").filter(id__in={w.team_id for w in workflows})
+    }
+    targets = []
+    for workflow in workflows:
+        not_replayable: SkipReason | None = None
+        if workflow.status != "active":
+            not_replayable = "function_not_replayable"
+        elif workflow.sends_sensitive_email:
+            not_replayable = "sends_sensitive_email"
+        team = teams[workflow.team_id]
+        targets.append(
+            _Target(
+                team_id=workflow.team_id,
+                team_name=team.name,
+                organization_name=team.organization.name,
+                function_kind="hog_flow",
+                function_id=workflow.id,
+                function_name=workflow.name,
+                template_id="",
+                not_replayable=not_replayable,
+                # A workflow run can send messages too, so a later run does not make an earlier one redundant.
+                latest_per_person=False,
+            )
+        )
+    return targets
+
+
+def plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
+    kinds: list[FunctionKind] = ["hog_function", "hog_flow"] if criteria.include_workflows else ["hog_function"]
+    with tags_context(product=Product.PIPELINE_DESTINATIONS, feature=Feature.DEBUG_QUERY):
+        replays = [replay for kind in kinds for replay in _plan_kind(criteria, kind)]
+    replays.sort(key=lambda f: (-len(f.invocation_ids), f.team_id, f.function_id))
+    return ReplayPlan(criteria=criteria, functions=tuple(replays))
+
+
+def _plan_kind(criteria: ReplayCriteria, kind: FunctionKind) -> list[FunctionReplay]:
+    candidates = _find_candidate_functions(criteria, kind)
+    if not candidates:
+        return []
+    if kind == "hog_function":
+        targets = _destination_targets(criteria, candidates)
+    else:
+        targets = _workflow_targets(criteria, candidates)
+    if not targets:
+        return []
 
     scope: dict[str, Any] = {
-        "team_ids": sorted({f.team_id for f in functions}),
-        "function_ids": [str(f.id) for f in functions],
+        "function_kind": kind,
+        "team_ids": sorted({t.team_id for t in targets}),
+        "function_ids": [t.function_id for t in targets],
         "window_start": criteria.window_start,
     }
     failures = _load_failures(criteria, scope)
     if not failures:
-        return ReplayPlan(criteria=criteria, functions=())
+        return []
     successes = _load_related_successes(criteria, scope)
     succeeded_since_window = {
         row[0]
         for row in sync_execute(
             _FUNCTIONS_WITH_SUCCESS_SINCE_QUERY,
-            {"team_ids": scope["team_ids"], "function_ids": scope["function_ids"], "since": criteria.window_end},
+            {
+                "function_kind": kind,
+                "team_ids": scope["team_ids"],
+                "function_ids": scope["function_ids"],
+                "since": criteria.window_end,
+            },
         )
     }
 
     failing_before_window: set[str] = set()
     if criteria.skip_failing_before_window:
         params: dict[str, Any] = {
+            "function_kind": kind,
             "team_ids": scope["team_ids"],
             "function_ids": scope["function_ids"],
             "baseline_start": criteria.window_start - BASELINE_LOOKBACK,
@@ -562,20 +665,18 @@ def _plan_replay(criteria: ReplayCriteria) -> ReplayPlan:
     for success in successes:
         successes_by_function.setdefault(success.function_id, []).append(success)
 
-    replays = [
+    return [
         _plan_function(
-            function,
-            failures_by_function[str(function.id)],
-            successes_by_function.get(str(function.id), []),
-            succeeded_since_window=str(function.id) in succeeded_since_window,
-            failing_before_window=str(function.id) in failing_before_window,
+            target,
+            failures_by_function[target.function_id],
+            successes_by_function.get(target.function_id, []),
+            succeeded_since_window=target.function_id in succeeded_since_window,
+            failing_before_window=target.function_id in failing_before_window,
             criteria=criteria,
         )
-        for function in functions
-        if str(function.id) in failures_by_function
+        for target in targets
+        if target.function_id in failures_by_function
     ]
-    replays.sort(key=lambda f: (-len(f.invocation_ids), f.team_id, f.function_id))
-    return ReplayPlan(criteria=criteria, functions=tuple(replays))
 
 
 # Claims and state coordinate concurrent senders, so every read must see the latest write.
@@ -626,7 +727,7 @@ def claim_replay(plan: ReplayPlan, *, actor: str) -> str | None:
                 _function_reservation_key(function.function_id), fingerprint, timeout=REPLAY_STATE_TTL_SECONDS
             ):
                 raise ReplayOverlapError(
-                    f"Another replay still holds destination {function.function_id}. "
+                    f"Another replay still holds {function.function_id}. "
                     "Wait for its runs to finish, or release it on its status page, then preview again."
                 )
             reserved.append(function.function_id)
@@ -783,7 +884,7 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                 try:
                     response = rerun_hog_invocations(
                         team_id=function.team_id,
-                        function_kind="hog_function",
+                        function_kind=function.function_kind,
                         function_id=function.function_id,
                         payload={
                             "filter": {
@@ -812,6 +913,7 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                     possibly_queued.add(function.function_id)
                 result = FunctionReplayResult(
                     team_id=function.team_id,
+                    function_kind=function.function_kind,
                     function_id=function.function_id,
                     invocation_count=len(chunk),
                     status_code=status_code,
@@ -823,6 +925,7 @@ def execute_replay(plan: ReplayPlan, *, actor: str) -> list[FunctionReplayResult
                     results=[
                         {
                             "team_id": r.team_id,
+                            "function_kind": r.function_kind,
                             "function_id": r.function_id,
                             "invocation_count": r.invocation_count,
                             "status_code": r.status_code,
