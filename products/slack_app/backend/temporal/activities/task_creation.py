@@ -607,10 +607,14 @@ def create_posthog_code_task_for_repo_activity(
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import dispatch_task_processing_workflow
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "team__organization")
+        .get(
+            id=inputs.integration_id,
+            kind="slack",
+            integration_id=inputs.slack_team_id,
+        )
     )
     slack = SlackIntegration(integration)
 
@@ -989,10 +993,14 @@ def forward_posthog_code_followup_activity(
 
     task_run = mapping.task_run
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "team__organization")
+        .get(
+            id=inputs.integration_id,
+            kind="slack",
+            integration_id=inputs.slack_team_id,
+        )
     )
     slack = SlackIntegration(integration)
 

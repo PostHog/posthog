@@ -69,7 +69,7 @@ def _replace_actions_with_context(blocks: list[dict], action_ids: set[str], text
 
 
 def _has_team_github(team_id: int) -> bool:
-    return Integration.objects.filter(team_id=team_id, kind="github").exists()
+    return Integration.objects.with_auth(Integration.AuthType.APP).filter(team_id=team_id, kind="github").exists()
 
 
 def _has_personal_github(user_id: int) -> bool:

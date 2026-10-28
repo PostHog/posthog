@@ -101,7 +101,8 @@ def _link_failed(
 
 def _load_workspace_integration(posthog_team_id: int, slack_team_id: str) -> Integration | None:
     return (
-        Integration.objects.filter(team_id=posthog_team_id, kind="slack", integration_id=slack_team_id)
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(team_id=posthog_team_id, kind="slack", integration_id=slack_team_id)
         .select_related("team", "team__organization")
         .first()
     )

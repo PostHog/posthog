@@ -23,11 +23,13 @@ def resolve_posthog_code_slack_command_user_activity(
         return None
 
     candidates = list(
-        Integration.objects.filter(
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(
             id__in=inputs.integration_ids,
             kind="slack",
             integration_id=inputs.slack_team_id,
-        ).select_related("team", "team__organization")
+        )
+        .select_related("team", "team__organization")
     )
     if not candidates:
         return None

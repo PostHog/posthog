@@ -280,7 +280,7 @@ def classify_posthog_code_task_needs_repo_activity(
     if inputs is None:
         return classify_task_needs_repo(event_text, thread_messages)
 
-    integration = Integration.objects.get(
+    integration = Integration.objects.with_auth(Integration.AuthType.OAUTH).get(
         id=inputs.integration_id,
         kind="slack",
         integration_id=inputs.slack_team_id,
@@ -601,10 +601,14 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     if not input.event_text.strip():
         return None
 
-    integration = Integration.objects.select_related("team").get(
-        id=input.integration_id,
-        kind="slack",
-        integration_id=input.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team")
+        .get(
+            id=input.integration_id,
+            kind="slack",
+            integration_id=input.slack_team_id,
+        )
     )
     choices = available_model_choices()
     if not choices:
@@ -742,13 +746,22 @@ def classify_slack_app_project_route_activity(input: SlackAppProjectRouteInput) 
     # Cheapest gate first, and the one that answers most workspaces. Everything below is
     # two queries and an access scan, and a workspace connected to one project has
     # nothing to route between however they come out.
-    if Integration.objects.filter(kind="slack", integration_id=input.slack_team_id).count() < 2:
+    if (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(kind="slack", integration_id=input.slack_team_id)
+        .count()
+        < 2
+    ):
         return None
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=input.integration_id,
-        kind="slack",
-        integration_id=input.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "team__organization")
+        .get(
+            id=input.integration_id,
+            kind="slack",
+            integration_id=input.slack_team_id,
+        )
     )
     user = User.objects.filter(id=input.user_id).first()
     if user is None:

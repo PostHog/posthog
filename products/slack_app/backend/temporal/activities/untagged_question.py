@@ -141,10 +141,14 @@ def classify_untagged_question(
 
 
 def _load_integration(inputs: PostHogCodeSlackMentionWorkflowInputs) -> Integration:
-    return Integration.objects.select_related("team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
+    return (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team__organization")
+        .get(
+            id=inputs.integration_id,
+            kind="slack",
+            integration_id=inputs.slack_team_id,
+        )
     )
 
 

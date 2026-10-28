@@ -139,10 +139,14 @@ def classify_slack_app_model_router_activity(input: SlackAppModelRouterInput) ->
     if not resolve_auto_model_choice(input.slack_team_id, input.slack_user_id):
         return override
 
-    integration = Integration.objects.select_related("team").get(
-        id=input.integration_id,
-        kind="slack",
-        integration_id=input.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team")
+        .get(
+            id=input.integration_id,
+            kind="slack",
+            integration_id=input.slack_team_id,
+        )
     )
     user = User.objects.filter(id=input.user_id).first()
     if user is None:

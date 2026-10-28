@@ -29,10 +29,14 @@ def create_posthog_code_routing_rule_activity(
     from products.slack_app.backend.api import _extract_explicit_repo, _get_full_repo_names
     from products.slack_app.backend.services.commands import reject_invalid_rule_text
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "team__organization")
+        .get(
+            id=inputs.integration_id,
+            kind="slack",
+            integration_id=inputs.slack_team_id,
+        )
     )
     slack = SlackIntegration(integration)
 

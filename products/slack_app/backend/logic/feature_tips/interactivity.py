@@ -73,11 +73,15 @@ def handle_feature_tip_action(payload: dict[str, Any]) -> HttpResponse:
         post_response_url(response_url, {"delete_original": True})
         return HttpResponse(status=200)
     value = found.value
-    integration = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-        kind="slack",
-        integration_id=slack_team_id,
-    ).first()
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)  # nosemgrep: idor-lookup-without-team
+        .filter(
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind="slack",
+            integration_id=slack_team_id,
+        )
+        .first()
+    )
     if integration is None or value.get("feature") not in SlackFeature:
         post_response_url(response_url, {"delete_original": True})
         return HttpResponse(status=200)

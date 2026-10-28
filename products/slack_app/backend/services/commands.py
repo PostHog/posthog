@@ -367,7 +367,8 @@ def _handle_project_set(
         target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
     else:
         target = (
-            Integration.objects.filter(
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .filter(
                 kind="slack",
                 integration_id=slack_workspace_id,
                 team_id=target_team_id,
@@ -450,7 +451,8 @@ def _handle_project_set_workspace(
         target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
     else:
         target = (
-            Integration.objects.filter(
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .filter(
                 kind="slack",
                 integration_id=slack_workspace_id,
                 team_id=target_team_id,

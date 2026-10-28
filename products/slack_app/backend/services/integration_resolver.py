@@ -289,7 +289,8 @@ def load_integrations(
     from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
 
     candidates = list(
-        Integration.objects.filter(kind__in=kinds, integration_id=slack_team_id)
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(kind__in=kinds, integration_id=slack_team_id)
         .select_related("team", "team__organization", "created_by")
         .order_by("id")
     )
@@ -323,7 +324,9 @@ def multiple_accessible_projects(*, slack_team_id: str, user: User) -> bool:
     there is anything to tell apart should not pay an ``auth.test`` per candidate.
     ``routable_projects`` asks the stricter question of where a run may actually be sent.
     """
-    installs = Integration.objects.filter(kind="slack", integration_id=slack_team_id)
+    installs = Integration.objects.with_auth(Integration.AuthType.OAUTH).filter(
+        kind="slack", integration_id=slack_team_id
+    )
     # Accessible is a subset of installed, so one install settles it without the
     # membership scan — on a count, which reads an index rather than hydrating and
     # decrypting every row.

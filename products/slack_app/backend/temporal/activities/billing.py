@@ -26,10 +26,14 @@ def enforce_posthog_code_billing_quota_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
-    integration = Integration.objects.select_related("team").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team")
+        .get(
+            id=inputs.integration_id,
+            kind="slack",
+            integration_id=inputs.slack_team_id,
+        )
     )
     slack = SlackIntegration(integration)
     # An untagged reply or an untagged channel question has asked PostHog for nothing

@@ -17,10 +17,14 @@ def collect_posthog_code_thread_messages_activity(
 
     from products.slack_app.backend.services.slack_messages import collect_thread_messages
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "team__organization")
+        .get(
+            id=inputs.integration_id,
+            kind="slack",
+            integration_id=inputs.slack_team_id,
+        )
     )
     slack = SlackIntegration(integration)
     auth_response = slack.client.auth_test()

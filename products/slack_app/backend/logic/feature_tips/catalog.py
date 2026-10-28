@@ -62,15 +62,17 @@ class TipContext:
 
     @cached_property
     def team_has_github(self) -> bool:
-        return Integration.objects.filter(team_id=self.team_id, kind="github").exists()
+        return (
+            Integration.objects.with_auth(Integration.AuthType.APP).filter(team_id=self.team_id, kind="github").exists()
+        )
 
     @cached_property
     def workspace_has_several_projects(self) -> bool:
         # Every PostHog project connected to this Slack workspace has its own Slack integration row.
         return (
-            Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-                kind="slack", integration_id=self.integration.integration_id
-            ).count()
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)  # nosemgrep: idor-lookup-without-team
+            .filter(kind="slack", integration_id=self.integration.integration_id)
+            .count()
             > 1
         )
 

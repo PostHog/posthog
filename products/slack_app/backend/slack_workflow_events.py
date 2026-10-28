@@ -92,7 +92,9 @@ def emit_slack_message_event(
         # Projects with nothing listening are discarded by the CDP consumer, which is cheaper than
         # asking Postgres here.
         integrations = list(
-            Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list("team_id", "id")
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .filter(kind="slack", integration_id=slack_team_id)
+            .values_list("team_id", "id")
         )
     except Exception:
         # Stay put on a lookup failure: handing the workspace over would turn a local database blip

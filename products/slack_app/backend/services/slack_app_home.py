@@ -2707,7 +2707,8 @@ def _github_account_from_row(row: UserIntegration) -> GitHubAccount:
 def _workspace_integrations(slack_team_id: str) -> list[Integration]:
     """Every PostHog project this Slack workspace is connected to."""
     return list(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id)
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(kind="slack", integration_id=slack_team_id)
         .select_related("team", "team__organization")
         .order_by("id")
     )
@@ -2851,7 +2852,8 @@ def _apply_project_pick(
     except (TypeError, ValueError):
         return
     target = (
-        Integration.objects.filter(kind="slack", integration_id=integration.integration_id, team_id=team_id)
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(kind="slack", integration_id=integration.integration_id, team_id=team_id)
         .select_related("team", "team__organization")
         .first()
     )
@@ -2898,9 +2900,9 @@ def _unlink_user_account(integration: Integration, slack_user_id: str) -> None:
 
 def _workspace_org_ids(slack_team_id: str) -> set:
     return set(
-        Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list(
-            "team__organization_id", flat=True
-        )
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(kind="slack", integration_id=slack_team_id)
+        .values_list("team__organization_id", flat=True)
     )
 
 

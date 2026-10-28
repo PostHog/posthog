@@ -746,7 +746,8 @@ def _project_name(team_id: int, *, integration_id: int | None, created_by_id: in
         # rather than off the message, and all this reads from the row is the Slack
         # workspace it belongs to.
         integration = (
-            Integration.objects.filter(pk=integration_id)  # nosemgrep: idor-lookup-without-team
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)  # nosemgrep: idor-lookup-without-team
+            .filter(pk=integration_id)
             .only("integration_id")
             .first()
         )

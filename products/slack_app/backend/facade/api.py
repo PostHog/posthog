@@ -94,9 +94,8 @@ def invalidate_slack_integration_auth_state(integration_id: int) -> None:
     # Cache invalidation on the caller's own row, id straight from core's OAuth completion
     # path rather than user input; only the Slack workspace id is read off it.
     slack_team_id = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-            id=integration_id, kind="slack"
-        )
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)  # nosemgrep: idor-lookup-without-team
+        .filter(id=integration_id, kind="slack")
         .values_list("integration_id", flat=True)
         .first()
     )
@@ -147,7 +146,8 @@ def record_slack_feature_used(integration_id: int, slack_user_id: str | None, fe
     """Never raises, so a caller can record use from inside the feature's own code path."""
     try:
         slack_workspace_id = (
-            Integration.objects.filter(id=integration_id, kind="slack")  # nosemgrep: idor-lookup-without-team
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)  # nosemgrep: idor-lookup-without-team
+            .filter(id=integration_id, kind="slack")
             .values_list("integration_id", flat=True)
             .first()
         )

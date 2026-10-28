@@ -54,7 +54,8 @@ def _capture_install(integration: Integration, *, has_inbox_scopes: bool) -> Non
         posthog_user=integration.created_by,
         has_inbox_scopes=has_inbox_scopes,
         # Only a workspace's first project connection is a new workspace adopting the app.
-        workspace_already_linked=Integration.objects.filter(kind="slack", integration_id=integration.integration_id)
+        workspace_already_linked=Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .filter(kind="slack", integration_id=integration.integration_id)
         .exclude(id=integration.id)
         .exists(),
     )

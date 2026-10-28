@@ -150,7 +150,8 @@ def _local_integration(integration_id: Any, slack_team_id: str | None) -> Integr
     if not slack_team_id or not isinstance(integration_id, int):
         return None
     return (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)  # nosemgrep: idor-lookup-without-team
+        .filter(
             id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,

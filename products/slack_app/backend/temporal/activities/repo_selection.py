@@ -52,10 +52,14 @@ def cascade_posthog_code_repository_activity(
 
     from products.slack_app.backend.api import _get_full_repo_names
 
-    integration = Integration.objects.select_related("team", "team__organization").get(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
+    integration = (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "team__organization")
+        .get(
+            id=inputs.integration_id,
+            kind="slack",
+            integration_id=inputs.slack_team_id,
+        )
     )
     all_repos = _get_full_repo_names(integration, user_id=user_id)
 
@@ -139,10 +143,14 @@ async def discover_posthog_code_repository_via_agent_activity(
 
     user_message_ts = event.get("ts")
 
-    integration = await Integration.objects.select_related("team", "team__organization").aget(
-        id=inputs.integration_id,
-        kind="slack",
-        integration_id=inputs.slack_team_id,
+    integration = (
+        await Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team", "team__organization")
+        .aget(
+            id=inputs.integration_id,
+            kind="slack",
+            integration_id=inputs.slack_team_id,
+        )
     )
 
     # Best-effort searching reaction so the user sees we're working before

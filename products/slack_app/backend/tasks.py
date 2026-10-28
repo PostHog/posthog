@@ -67,7 +67,12 @@ def refresh_user_github_repository_cache(*, user_integration_id: str) -> None:
 
 
 def _load_integration(integration_id: int, team_id: int) -> Integration | None:
-    return Integration.objects.select_related("team__organization").filter(id=integration_id, team_id=team_id).first()
+    return (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)
+        .select_related("team__organization")
+        .filter(id=integration_id, team_id=team_id)
+        .first()
+    )
 
 
 @shared_task(ignore_result=True)

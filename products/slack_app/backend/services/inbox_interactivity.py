@@ -83,11 +83,15 @@ def _inbox_integration_from_payload(payload: dict) -> Integration | None:
     slack_team_id = payload.get("team", {}).get("id")
     if not integration_id or not slack_team_id:
         return None
-    return Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
-        id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
-        kind=SLACK_INTEGRATION_KIND,
-        integration_id=slack_team_id,
-    ).first()
+    return (
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)  # nosemgrep: idor-lookup-without-team
+        .filter(
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .first()
+    )
 
 
 def _reconnect_hint() -> str:

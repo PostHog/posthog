@@ -19,8 +19,10 @@ def run_posthog_slack_inbox_onboarding(integration_id: int) -> None:
     from products.slack_app.backend.onboarding import run_install_onboarding
 
     try:
-        integration = Integration.objects.select_related("team", "team__organization").get(
-            id=integration_id, kind="slack"
+        integration = (
+            Integration.objects.with_auth(Integration.AuthType.OAUTH)
+            .select_related("team", "team__organization")
+            .get(id=integration_id, kind="slack")
         )
     except Integration.DoesNotExist:
         logger.info("slack_app_inbox_onboarding_integration_gone", integration_id=integration_id)

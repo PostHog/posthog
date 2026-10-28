@@ -360,7 +360,8 @@ def handle_interview_action(payload: dict[str, Any]) -> HttpResponse:
         return HttpResponse(status=200)
     value = clicked.value
     integration = (
-        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+        Integration.objects.with_auth(Integration.AuthType.OAUTH)  # nosemgrep: idor-lookup-without-team
+        .filter(
             id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
             kind="slack",
             integration_id=slack_team_id,
