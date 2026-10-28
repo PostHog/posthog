@@ -24,6 +24,7 @@ export default defineCommand({
             group: groupSlug(tool.group),
             kind: toolKind(tool),
             idempotent: tool.idempotent,
+            requiresAiConsent: tool.requiresAiConsent,
             requiredScopes: tool.requiredScopes,
             missingScopes: granted ? library.missingScopes(granted, tool.requiredScopes) : null,
             input: schema,
@@ -37,6 +38,9 @@ export default defineCommand({
         out.line(`Group: ${result.group}`)
         out.line(`Kind: ${result.kind}${result.kind === 'destructive' ? ', needs --confirm' : ''}`)
         out.line(`Scopes: ${result.requiredScopes.join(', ') || 'none'}`)
+        if (result.requiresAiConsent) {
+            out.line('Sends data to an AI provider, so the organization must allow AI data processing.')
+        }
         if (result.missingScopes?.length) {
             out.line(out.style(`Missing scopes: ${result.missingScopes.join(', ')}`, 'red'))
         }

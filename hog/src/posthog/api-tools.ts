@@ -99,10 +99,12 @@ export async function apiConnection(
     scope: { projectId?: string | undefined; organizationId?: string | undefined } = {}
 ): Promise<ApiConnection> {
     const credentials = await ctx.credentials()
+    // The saved project can belong to another organization, so an organization override drops it.
+    const projectId = scope.projectId ?? (scope.organizationId ? undefined : credentials.projectId)
     return {
         apiKey: credentials.apiKey,
         host: credentials.host,
-        projectId: scope.projectId ?? credentials.projectId,
+        ...(projectId ? { projectId } : {}),
         ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
         clientName: 'hog',
         clientVersion: VERSION,
@@ -132,6 +134,12 @@ export function toHogError(error: ApiToolError, tool?: string): HogError {
             )
         case 'needs_confirmation':
             return new HogError(error.code, error.message, 'Run it again with --confirm.')
+        case 'ai_consent_required':
+            return new HogError(
+                error.code,
+                error.message,
+                'An organization admin can allow AI data processing in PostHog under Organization settings.'
+            )
         case 'rate_limited':
             return new ApiError(429, undefined, error.code, error.message, 'Wait a minute, then run it again.')
         case 'unreachable':
@@ -156,7 +164,9 @@ export function unwrap<T>(result: ApiToolResult<T>, tool?: string): T {
     return result.value
 }
 
-// The key's scopes, or undefined without credentials.
+const SCOPE_LOOKUP_MS = 10_000
+
+// Undefined when the scopes are unknown, so browsing still works on a failed or stalled lookup.
 export async function grantedScopes(ctx: Context, library: ApiToolLibrary): Promise<string[] | undefined> {
     let connection: ApiConnection
     try {
@@ -167,5 +177,14 @@ export async function grantedScopes(ctx: Context, library: ApiToolLibrary): Prom
         }
         throw error
     }
-    return unwrap(await library.keyAccess(connection)).scopes
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const stalled = new Promise<undefined>((resolve) => {
+        timer = setTimeout(() => resolve(undefined), SCOPE_LOOKUP_MS)
+    })
+    const lookup = library.keyAccess(connection).then((result) => (result.ok ? result.value.scopes : undefined))
+    try {
+        return await Promise.race([lookup, stalled])
+    } finally {
+        clearTimeout(timer)
+    }
 }

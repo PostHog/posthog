@@ -5,6 +5,7 @@ import { dirname } from 'node:path'
 
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
+import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
 
 export type Env = Readonly<Record<string, string | undefined>>
@@ -112,8 +113,19 @@ export function processRuntime(): Runtime {
         },
         prompts: clackPrompts(),
         loadApiTools: async () => {
-            const { createApiToolLibrary } = await import('@posthog/mcp/dist/cli-library.mjs')
-            return createApiToolLibrary()
+            try {
+                const { createApiToolLibrary } = await import('@posthog/mcp/dist/cli-library.mjs')
+                return createApiToolLibrary()
+            } catch (error) {
+                if ((error as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') {
+                    throw new HogError(
+                        'api_tools_missing',
+                        "hog couldn't find the API tool catalog.",
+                        'Run `pnpm --filter @posthog/hog build:mcp`, then run the command again.'
+                    )
+                }
+                throw error
+            }
         },
     }
 }
