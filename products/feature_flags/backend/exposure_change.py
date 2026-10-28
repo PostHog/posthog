@@ -175,7 +175,8 @@ def _gives_another_value(old_condition: ReleaseCondition, new: _Side, served_aft
     # A person that `old_condition` no longer serves gets the value of a later condition that matches them, which can
     # differ from the value `old_condition` gave them. Positions are not compared, so a served condition anywhere in
     # the flag counts, which errs toward a raise.
-    return bool(served_after - {_value(old_condition, new)})
+    old_value = _value(old_condition, new)
+    return any(value != old_value for value in served_after)
 
 
 def _needs_bucketing_hash(condition: ReleaseCondition, side: _Side) -> bool:
