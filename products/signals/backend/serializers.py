@@ -1497,12 +1497,38 @@ class ReportStartupFailureSerializer(serializers.Serializer):
     message = serializers.CharField(help_text="Safe explanation and suggested next action.")
 
 
+class ReportResearchMode(TextChoices):
+    CODE = "code", "Code context"
+    DATA_ONLY = "data_only", "Project data"
+
+
+class ReportRepositoryStatus(TextChoices):
+    AVAILABLE = "available", "Available"
+    NO_INTEGRATION = "no_integration", "Not connected"
+    NO_REPOSITORIES = "no_repositories", "No repositories"
+    SELECTION_UNRESOLVED = "selection_unresolved", "No repository selected"
+    GITHUB_UNAVAILABLE = "github_unavailable", "GitHub unavailable"
+
+
+class ReportResearchContextSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=ReportResearchMode.choices, help_text="Whether research had access to a repository."
+    )
+    repository_status = serializers.ChoiceField(
+        choices=ReportRepositoryStatus.choices,
+        help_text="Code availability when the report was researched; not a live integration health check.",
+    )
+
+
 class SignalReportSerializer(serializers.ModelSerializer):
     startup_failure = ReportStartupFailureSerializer(
         read_only=True,
         allow_null=True,
         required=False,
         help_text="Startup failure from the latest failed research attempt, when available.",
+    )
+    research_context = serializers.SerializerMethodField(
+        help_text="Evidence available to the latest research pass. Null for legacy reports."
     )
     reviewer_assignment = serializers.SerializerMethodField(
         help_text="Reviewer control and state token for preparing an automatic proposal."
@@ -1735,6 +1761,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "suppression_explanation",
             "repo_slug",
             "is_self_improvement_report",
+            "research_context",
             "is_suggested_reviewer",
             "source_products",
             "scout_name",
@@ -1981,6 +2008,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("repository")
         return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(ReportResearchContextSerializer(allow_null=True))
+    def get_research_context(self, obj: SignalReport) -> dict[str, str] | None:
+        data = self._get_repo_selection_artefact_data(obj)
+        context = data.get("research_context") if data else None
+        if not isinstance(context, dict):
+            return None
+        serializer = ReportResearchContextSerializer(data=context)
+        return dict(serializer.validated_data) if serializer.is_valid() else None
 
     @extend_schema_field(ReportRankingSerializer)
     def get_ranking(self, obj: SignalReport) -> dict:
