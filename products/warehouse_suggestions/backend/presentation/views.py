@@ -30,6 +30,7 @@ from ..facade.contracts import (
     AcceptFailedError,
     AcceptOptionRefusedError,
     AcceptOptions,
+    AssigneeCannotActError,
     CatalogEditAccessRequiredError,
     SubjectAlreadyCertifiedError,
     SubjectEditAccessRequiredError,
@@ -37,6 +38,7 @@ from ..facade.contracts import (
     Suggestion,
     SuggestionAlreadyDecidedError,
     SuggestionNotFoundError,
+    SuggestionNotOpenError,
     SuggestionOutdatedError,
     SuggestionPage,
     SuggestionSubjectGoneError,
@@ -44,6 +46,7 @@ from ..facade.contracts import (
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
 from .serializers import (
     AcceptWarehouseSuggestionSerializer,
+    AssignWarehouseSuggestionSerializer,
     DismissWarehouseSuggestionSerializer,
     WarehouseSuggestionListQuerySerializer,
     WarehouseSuggestionSerializer,
@@ -66,6 +69,11 @@ ALREADY_CERTIFIED = {
     WarehouseSuggestionSubjectKind.TABLE: "This table already has a certification.",
 }
 CATALOG_EDIT_ACCESS_REQUIRED = "You need edit access to the data catalog to accept this suggestion."
+ASSIGNEE_CANNOT_ACT = (
+    "This person can't accept this suggestion. Pick someone with edit access to the view or table, "
+    "and to the data catalog for certify and deprecate suggestions."
+)
+ONLY_OPEN_ASSIGNABLE = "Only open suggestions can be assigned."
 ACCEPT_SCOPES = ["data_catalog_approval:write", "warehouse_view:write"]
 ScopeLevel = Literal["read", "write"]
 SUBJECT_SCOPE_OBJECTS = {
@@ -96,7 +104,7 @@ class ProjectAccessPermission(BasePermission):
 class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "warehouse_objects"
     scope_object_read_actions = ["list", "retrieve", "status"]
-    scope_object_write_actions = ["accept", "dismiss", "resume"]
+    scope_object_write_actions = ["accept", "assign", "dismiss", "resume"]
     pagination_class = SuggestionPagination
     lookup_value_regex = UUID_REGEX
 
@@ -153,6 +161,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 kind=WarehouseSuggestionKind(kind) if kind else None,
                 status=WarehouseSuggestionStatus(status) if status else None,
                 subject_id=request.validated_query_data.get("subject_id"),
+                assignee_id=request.validated_query_data.get("assignee_id"),
                 subject_kinds=self._subject_kinds,
                 limit=limit,
                 offset=offset,
@@ -208,6 +217,23 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             )
         )
 
+    @validated_request(
+        request_serializer=AssignWarehouseSuggestionSerializer,
+        responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
+    )
+    @action(detail=True, methods=["post"])
+    def assign(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        return self._respond(
+            lambda: api.assign_suggestion(
+                self.team,
+                self.user_access_control,
+                UUID(pk),
+                user=cast(User, request.user),
+                assignee_id=request.validated_data["assignee_id"],
+                subject_kinds=self._subject_kinds,
+            )
+        )
+
     @extend_schema(request=None, responses={200: WarehouseSuggestionSerializer})
     @action(detail=True, methods=["post"])
     def resume(self, request: Request, pk: str, **kwargs: Any) -> Response:
@@ -242,3 +268,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise Conflict(str(error))
         except AcceptFailedError as error:
             raise APIException(str(error))
+        except AssigneeCannotActError:
+            raise ValidationError({"assignee_id": ASSIGNEE_CANNOT_ACT})
+        except SuggestionNotOpenError:
+            raise Conflict(ONLY_OPEN_ASSIGNABLE)

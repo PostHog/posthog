@@ -402,8 +402,8 @@ class LoginPrecheckThrottle(IPThrottle):
     """
     Rate limit login precheck requests by IP.
 
-    The response reveals which sign-in methods a passwordless account has, so cap it per-IP to make
-    bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
+    The response reveals whether an account exists and which sign-in methods it has, so cap it
+    per-IP to make bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
     different email on every request.
     """
 

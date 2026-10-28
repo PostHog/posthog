@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 
-import numpy as np
 from asgiref.sync import async_to_sync
 from confluent_kafka import KafkaException
 from parameterized import parameterized
@@ -19,13 +18,14 @@ from products.replay_vision.backend.embeddings import (
     OBSERVATION_EMBEDDING_MODEL,
 )
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
+from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-from products.replay_vision.backend.tests.helpers import snapshot_for
+from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankRequest
 from products.replay_vision.backend.watch_rank_consumer import WatchRankConsumer, parse_rank_request
 
 _WATCH_RANK = "products.replay_vision.backend.watch_rank"
-_CURRENT_RANK = {"category": "struggle", "contrast": 0.2, "duplicate_of": None, "anchor_version": ANCHOR_VERSION}
+_CURRENT_RANK = {"category": "struggle", "contrast": 0.2, "anchor_version": ANCHOR_VERSION, "group": "g1"}
 _CONSUMER = "products.replay_vision.backend.watch_rank_consumer"
 
 
@@ -80,12 +80,7 @@ class TestParseRankRequest(SimpleTestCase):
 
 
 class TestWatchRankConsumer(BaseTest):
-    _ANCHORS = {
-        "failure": np.array([[1.0, 0.0, 0.0]]),
-        "struggle": np.array([[0.0, 1.0, 0.0]]),
-        "revenue": np.array([[0.0, -1.0, 0.0]]),
-        "routine": np.array([[0.0, 0.0, 1.0]]),
-    }
+    _ANCHORS = axis_anchors()
 
     def _observation(self, scanner: ReplayScanner, session_id: str, **overrides: Any) -> ReplayObservation:
         return ReplayObservation.objects.create(
@@ -99,14 +94,8 @@ class TestWatchRankConsumer(BaseTest):
 
     @parameterized.expand(
         [
-            (
-                "duplicate_points_at_the_group_root",
-                None,
-                None,
-                "ranked",
-                {"category": "failure", "duplicate_of": "root-id"},
-            ),
-            ("ranking_failure_leaves_no_rank", None, RuntimeError("clickhouse down"), "failed", None),
+            ("issue_row_gets_a_rank_and_a_feed_group", None, None, "ranked", {"category": "failure"}),
+            ("ranking_failure_leaves_no_rank", None, RuntimeError("cache down"), "failed", None),
             ("redelivery_keeps_the_current_rank", _CURRENT_RANK, None, "already_ranked", _CURRENT_RANK),
             ("deleted_observation_is_skipped", None, None, "missing", None),
         ]
@@ -115,7 +104,7 @@ class TestWatchRankConsumer(BaseTest):
         self,
         _name: str,
         existing_rank: dict[str, Any] | None,
-        nearest_error: Exception | None,
+        anchor_error: Exception | None,
         outcome: str,
         expected_rank: dict[str, Any] | None,
     ) -> None:
@@ -126,21 +115,18 @@ class TestWatchRankConsumer(BaseTest):
             scanner_config={"prompt": "p"},
             model=ScannerModel.GEMINI_3_8_FLASH,
         )
-        neighbour = self._observation(scanner, "sess-earlier", watch_rank={"duplicate_of": "root-id"})
         observation = self._observation(scanner, "sess-new", watch_rank=existing_rank)
-        nearest = MagicMock(side_effect=nearest_error, return_value=(str(neighbour.id), 0.05))
         message = _result_message(team_id=self.team.id, observation_id=str(observation.id), scanner_id=str(scanner.id))
         if outcome == "missing":
             observation.delete()
 
         with (
-            patch(f"{_WATCH_RANK}.anchor_vectors", AsyncMock(return_value=self._ANCHORS)),
-            patch(f"{_WATCH_RANK}.nearest_earlier_observation", nearest),
+            patch(f"{_WATCH_RANK}.anchor_vectors", AsyncMock(side_effect=anchor_error, return_value=self._ANCHORS)),
             patch(f"{_CONSUMER}._RETRY_WINDOW_S", 0),
             # It would close the connection that holds the test transaction.
             patch(f"{_CONSUMER}.close_old_connections"),
         ):
-            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, 0.0, math.inf) == outcome
+            assert async_to_sync(WatchRankConsumer(MagicMock()).handle)(message, math.inf) == outcome
 
         if outcome == "missing":
             return
@@ -150,6 +136,11 @@ class TestWatchRankConsumer(BaseTest):
         else:
             assert observation.watch_rank is not None
             assert expected_rank.items() <= observation.watch_rank.items()
+            assert observation.watch_rank.get("group")
+            # A redelivery returns before ranking, so only a fresh rank writes the similarity row.
+            assert ReplayObservationAnchorSimilarity.objects.for_team(self.team.id).filter(
+                observation=observation
+            ).exists() == (outcome == "ranked")
 
     @parameterized.expand(
         [
@@ -193,4 +184,4 @@ class TestWatchRankConsumer(BaseTest):
             patch(f"{_CONSUMER}.close_old_connections"),
         ):
             for _ in range(2):
-                assert async_to_sync(consumer.handle)(message, 0.0, time.monotonic()) == "deferred"
+                assert async_to_sync(consumer.handle)(message, time.monotonic()) == "deferred"
