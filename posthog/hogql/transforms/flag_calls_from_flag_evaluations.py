@@ -106,7 +106,11 @@ def can_read_flag_evaluations(node: ast.SelectQuery, now: datetime, timezone: Zo
 
 def rewrite_flag_calls_to_flag_evaluations(node: _T_AST, context: HogQLContext) -> _T_AST | None:
     """A clone of `node` whose qualifying `events` scans read `posthog.flag_evaluations`, or None when none qualifies."""
-    if context.database is None or not context.database.read_flag_calls_from_flag_evaluations:
+    if (
+        not context.rewrite_flag_calls_to_flag_evaluations
+        or context.database is None
+        or not context.database.read_flag_calls_from_flag_evaluations
+    ):
         return None
     finder = _FlagCalledConstantFinder()
     finder.visit(node)
@@ -191,7 +195,6 @@ class _EventsScan:
         """The keys `expr` pins `$feature_flag` to, or None when it does not pin it."""
         values = _pinned_values(expr, self._reads_flag_key, _is_flag_key)
         if values is not None:
-            # _is_flag_key accepts only string constants.
             return [value.value for value in values if isinstance(value, ast.Constant)]
         if isinstance(expr, ast.Or) and expr.exprs:
             branches = [self._flag_keys_in(branch) for branch in expr.exprs]

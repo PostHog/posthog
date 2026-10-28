@@ -703,7 +703,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("number_as_string", "100"),
             ("number", 100),
             ("boolean", True),
-            # flag_key holds the key's JSON text with its escapes, and JSONExtractString decodes them.
             (
                 "quoted_flag_key_read_through_json_extract_string",
                 "variant-a",

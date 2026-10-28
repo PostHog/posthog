@@ -397,8 +397,6 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
 
         assert self._can_read(_bounded_by(bound), placeholders, timezone) is expected
 
-    # At this time coverage starts on Monday 2026-07-27. toMonday returns that Monday as a Date, which the comparison
-    # reads at midnight UTC, so the hour subtracted after the rounding moves the bound before coverage.
     @time_machine.travel(datetime(2026, 10, 24, 12, 0, tzinfo=UTC), tick=False)
     def test_refuses_a_date_rounding_shifted_before_coverage_in_a_zone_behind_utc(self):
         bound = "toMonday(toDateTime('2026-08-02 22:00:00')) - INTERVAL 1 HOUR"
