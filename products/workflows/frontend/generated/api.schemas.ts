@@ -2703,9 +2703,9 @@ export type WorkflowImportRequestApiLayouts = { [key: string]: string }
 /**
  * * `customerio` - Customer.io
  */
-export type WorkflowImportSourceEnumApi = (typeof WorkflowImportSourceEnumApi)[keyof typeof WorkflowImportSourceEnumApi]
+export type ImportProviderKeyEnumApi = (typeof ImportProviderKeyEnumApi)[keyof typeof ImportProviderKeyEnumApi]
 
-export const WorkflowImportSourceEnumApi = {
+export const ImportProviderKeyEnumApi = {
     Customerio: 'customerio',
 } as const
 
@@ -2747,7 +2747,7 @@ export interface WorkflowImportRequestApi {
     /** The tool the automations come from.
      *
      * * `customerio` - Customer.io */
-    source: WorkflowImportSourceEnumApi
+    source: ImportProviderKeyEnumApi
     /** The automations to import, at most 50. People are never read from these objects. */
     campaigns: CustomerioCampaignApi[]
     /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
