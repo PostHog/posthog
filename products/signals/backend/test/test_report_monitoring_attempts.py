@@ -586,6 +586,8 @@ class TestReportMonitoringAttempts(BaseTest):
         check.status = SignalReportCheck.Status.CANCELLED
         check.save(update_fields=["status"])
         replacement = self._check()
+        replacement.monitoring_dispatch_after = self.now + timedelta(days=1)
+        replacement.save(update_fields=["monitoring_dispatch_after"])
         retry = complete_implementation(
             team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now - timedelta(minutes=1)
         )
@@ -613,6 +615,8 @@ class TestReportMonitoringAttempts(BaseTest):
         assert second is not None
         assert second.id != first.id
         assert second.check_versions == {str(replacement.id): check_definition_version(replacement)}
+        replacement.refresh_from_db()
+        self.assertIsNone(replacement.monitoring_dispatch_after)
         first.refresh_from_db()
         assert first.check_versions == original_versions
 

@@ -32,6 +32,7 @@ import type {
     PatchedDesignPatchApi,
     PatchedMessageCategoryApi,
     PatchedMessageTemplateApi,
+    PatchedSupabaseAuthEmailSettingsUpdateApi,
     PreferencesLinkApi,
     ProviderImportRunApi,
     RemoveOptOutRequestApi,
@@ -39,6 +40,7 @@ import type {
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
     StartProviderImportApi,
+    SupabaseAuthEmailSettingsApi,
     WebhookUrlApi,
 } from './api.schemas'
 
@@ -622,6 +624,84 @@ export const messagingProviderImportsProvidersList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getMessagingSupabaseAuthEmailsSettingsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_supabase_auth_emails/settings/`
+}
+
+/**
+ * Send a Supabase project's auth emails through transactional email templates.
+ * @summary Get the Supabase auth email settings
+ */
+export const messagingSupabaseAuthEmailsSettingsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SupabaseAuthEmailSettingsApi> => {
+    return apiMutator<SupabaseAuthEmailSettingsApi>(getMessagingSupabaseAuthEmailsSettingsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getMessagingSupabaseAuthEmailsSettingsPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_supabase_auth_emails/settings/`
+}
+
+/**
+ * Send a Supabase project's auth emails through transactional email templates.
+ * @summary Update the Supabase auth email settings
+ */
+export const messagingSupabaseAuthEmailsSettingsPartialUpdate = async (
+    projectId: string,
+    patchedSupabaseAuthEmailSettingsUpdateApi?: PatchedSupabaseAuthEmailSettingsUpdateApi,
+    options?: RequestInit
+): Promise<SupabaseAuthEmailSettingsApi> => {
+    return apiMutator<SupabaseAuthEmailSettingsApi>(getMessagingSupabaseAuthEmailsSettingsPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedSupabaseAuthEmailSettingsUpdateApi),
+    })
+}
+
+export const getMessagingSupabaseAuthEmailsSettingsDestroyUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_supabase_auth_emails/settings/`
+}
+
+/**
+ * Remove the project URL, hook secret and template mappings. The hook then refuses every call, so turn off the Send Email hook in Supabase first. The templates themselves stay.
+ * @summary Disconnect the Supabase project
+ */
+export const messagingSupabaseAuthEmailsSettingsDestroy = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SupabaseAuthEmailSettingsApi> => {
+    return apiMutator<SupabaseAuthEmailSettingsApi>(getMessagingSupabaseAuthEmailsSettingsDestroyUrl(projectId), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getMessagingSupabaseAuthEmailsStarterTemplatesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_supabase_auth_emails/starter_templates/`
+}
+
+/**
+ * Create a transactional template for each core Supabase auth email that has no template yet, and map it. Needs a verified email sender.
+ * @summary Create starter templates for the Supabase auth emails
+ */
+export const messagingSupabaseAuthEmailsStarterTemplatesCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SupabaseAuthEmailSettingsApi> => {
+    return apiMutator<SupabaseAuthEmailSettingsApi>(
+        getMessagingSupabaseAuthEmailsStarterTemplatesCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getMessagingSuppressionsAddSuppressionCreateUrl = (projectId: string) => {

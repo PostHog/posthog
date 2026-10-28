@@ -4,6 +4,10 @@ import type { ChannelType } from './MessageChannels'
 
 // pinned: integration kinds, also sent as the `kind` property of the channel setup event - renaming breaks dashboards
 export const CATALOG_CHANNELS: ChannelType[] = ['email', 'slack', 'twilio', 'firebase', 'apns']
+
+// Shared with the auth email catalog, so both sections on the Channels tab lay out the same way.
+export const CATALOG_GRID_CLASS =
+    'grid gap-2 grid-cols-1 @min-[44rem]/main-content:grid-cols-2 @min-[72rem]/main-content:grid-cols-3'
 export const PUSH_CHANNELS: ChannelType[] = ['firebase', 'apns']
 
 // pinned: analytics property values of the channel setup event - renaming breaks dashboards
