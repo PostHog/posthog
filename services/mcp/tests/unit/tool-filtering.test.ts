@@ -1128,6 +1128,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
+            'mcp-session-recording-console-logs',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and
