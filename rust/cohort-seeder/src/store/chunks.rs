@@ -258,8 +258,10 @@ impl PgChunkStore {
                   -- A trailing day is scanned only once it has ended and its run is `trailing`.
                   -- Claimed while the run still seeds, it would lose its lease when the
                   -- reconciling CAS fires, because the heartbeat joins the same run statuses.
-                  -- The newest-day index depends on this too: readiness does not wait for a
-                  -- trailing day, so it must not be recorded while a readiness day still sends.
+                  -- The newest-day index depends on this too. Readiness does not wait for a
+                  -- trailing day. A trailing day scanned while a historical chunk still sends
+                  -- would make that chunk skip its tiles, and readiness could finish before the
+                  -- trailing day's tile lands.
                   AND (c.claimable_after IS NULL
                        OR (c.claimable_after <= now() AND r.status = 'trailing'))
                   AND ((c.status = $7 AND c.attempts < $4)
@@ -389,7 +391,7 @@ impl PgChunkStore {
 
     /// The mark for both paths: every seed is already enqueued, so only the count sent crosses the
     /// `scanning`→`produced` CAS.
-    pub async fn mark_produced_streamed(
+    pub async fn mark_produced(
         &self,
         chunk: StreamedChunk,
     ) -> Result<EnqueuedChunk, Halted<StreamedChunk, ChunkStoreError>> {

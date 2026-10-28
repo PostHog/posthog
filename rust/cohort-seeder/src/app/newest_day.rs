@@ -5,12 +5,13 @@
 //! The state is process-local, like the run breakers. Losing an index, on a restart or when an idle
 //! run drops out of one refresh's eligible set, only sends more tiles.
 
-use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::Arc;
 
+use dashmap::mapref::entry::Entry;
+use dashmap::DashMap;
 use metrics::gauge;
 use uuid::Uuid;
 
@@ -18,10 +19,6 @@ use crate::domain::{ConditionSlot, DayIdx, NewestDayConditions, PinnedRun, RunId
 use crate::observability::metrics::NEWEST_DAY_INDEX_ENTRIES;
 
 use super::prepare::PreparedRun;
-
-/// Enough that the concurrent chunk tasks of a run rarely contend, and each shard's table grows in
-/// small steps instead of one large reallocation.
-const SHARDS: usize = 64;
 
 type Key = (Uuid, ConditionSlot);
 
@@ -43,7 +40,7 @@ impl NewestDayIndexes {
     }
 
     /// Built on the run's first claim. A run's frozen catalog only loses leaves after the run is
-    /// created, so a policy built early can miss a skip but never allow a wrong one.
+    /// created, so a `NewestDayConditions` built then can miss a skip but never allow a wrong one.
     pub(super) fn for_run(&mut self, run: &PinnedRun) -> Arc<NewestDayIndex> {
         let budget = &self.budget;
         self.by_run
@@ -71,7 +68,7 @@ impl NewestDayIndexes {
 /// tile that only another run sends.
 pub(super) struct NewestDayIndex {
     conditions: NewestDayConditions,
-    shards: Box<[Mutex<HashMap<Key, DayIdx>>]>,
+    newest: DashMap<Key, DayIdx>,
     budget: IndexBudget,
 }
 
@@ -79,7 +76,7 @@ impl NewestDayIndex {
     fn new(conditions: NewestDayConditions, budget: IndexBudget) -> Self {
         Self {
             conditions,
-            shards: (0..SHARDS).map(|_| Mutex::default()).collect(),
+            newest: DashMap::new(),
             budget,
         }
     }
@@ -91,8 +88,7 @@ impl NewestDayIndex {
             let Some(key) = self.key(tile) else {
                 continue;
             };
-            let mut shard = self.shard(key);
-            match shard.entry(key) {
+            match self.newest.entry(key) {
                 Entry::Occupied(mut newest) => {
                     let newest = newest.get_mut();
                     *newest = (*newest).max(tile.day_idx());
@@ -111,7 +107,7 @@ impl NewestDayIndex {
     /// remove the pair.
     pub(super) fn has_newer_day(&self, tile: &SeedTile) -> bool {
         self.key(tile).is_some_and(|key| {
-            self.shard(key)
+            self.newest
                 .get(&key)
                 .is_some_and(|newest| *newest > tile.day_idx())
         })
@@ -122,31 +118,14 @@ impl NewestDayIndex {
             .slot(tile.condition_hash())
             .map(|slot| (tile.person_id(), slot))
     }
-
-    /// Callers are sync, so no guard is held across an `.await`. A poisoned shard is still a valid
-    /// max map, because each write is one store of a whole day.
-    fn shard(&self, (person, _): Key) -> MutexGuard<'_, HashMap<Key, DayIdx>> {
-        let (_, low) = person.as_u64_pair();
-        self.shards[(low % SHARDS as u64) as usize]
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-    }
 }
 
 /// Gives this index's entries back, so a finished run frees its share of the budget.
 impl Drop for NewestDayIndex {
     fn drop(&mut self) {
-        let entries = self
-            .shards
-            .iter_mut()
-            .map(|shard| {
-                shard
-                    .get_mut()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .len()
-            })
-            .sum();
-        self.budget.used.fetch_sub(entries, Ordering::Relaxed);
+        self.budget
+            .used
+            .fetch_sub(self.newest.len(), Ordering::Relaxed);
     }
 }
 
@@ -171,11 +150,15 @@ impl IndexBudget {
 mod tests {
     use std::num::NonZeroU32;
 
+    use chrono_tz::UTC;
     use cohort_core::filters::{CohortId, TeamId};
 
     use super::*;
     use crate::domain::row_filter::test_catalog::{catalog, event_is, hash, Leaf};
-    use crate::domain::{ClaimEpoch, Lookback, PinnedCondition, SChunkMs};
+    use crate::domain::{
+        Boundary, ClaimEpoch, EventNameSet, Lookback, PinnedCondition, SChunkMs, TriggerKind,
+        UtcMillis,
+    };
 
     const SLIDING: &str = "aaaaaaaaaaaaaaaa";
     /// Pinned, but absent from the frozen catalog, so it does not qualify.
@@ -188,20 +171,34 @@ mod tests {
         }
     }
 
+    fn run(id: u128) -> PinnedRun {
+        PinnedRun {
+            run_id: RunId(Uuid::from_u128(id)),
+            team_id: TeamId(2),
+            trigger: TriggerKind::TeamEnablement,
+            tz: UTC,
+            boundary: Boundary::new(UtcMillis::new(0), UTC),
+            conditions: [SLIDING, UNCATALOGUED]
+                .map(|value| PinnedCondition {
+                    cohort_id: CohortId(1),
+                    hash: hash(value),
+                    event_name: "$pageview".to_owned(),
+                    lookback: Lookback::SlidingDays(7),
+                })
+                .to_vec(),
+            event_names: EventNameSet::new(["$pageview".to_owned()]),
+            filters: catalog(&[Leaf {
+                cohort: 1,
+                key: "$pageview",
+                hash: SLIDING,
+                body: event_is("$pageview"),
+            }]),
+        }
+    }
+
     fn index(budget: &IndexBudget) -> NewestDayIndex {
-        let filters = catalog(&[Leaf {
-            cohort: 1,
-            key: "$pageview",
-            hash: SLIDING,
-            body: event_is("$pageview"),
-        }]);
-        let conditions = [SLIDING, UNCATALOGUED].map(|value| PinnedCondition {
-            cohort_id: CohortId(1),
-            hash: hash(value),
-            event_name: "$pageview".to_owned(),
-            lookback: Lookback::SlidingDays(7),
-        });
-        let conditions = NewestDayConditions::of(&conditions, &filters);
+        let run = run(0);
+        let conditions = NewestDayConditions::of(&run.conditions, &run.filters);
         NewestDayIndex::new(conditions, budget.clone())
     }
 
@@ -222,6 +219,7 @@ mod tests {
     fn only_a_strictly_newer_day_for_the_same_person_and_condition_skips_a_tile() {
         let index = index(&budget(10));
         index.record(&[tile(1, SLIDING, 10), tile(1, UNCATALOGUED, 10)]);
+        index.record(&[tile(1, SLIDING, 9)]);
 
         for (case, tile, skipped) in [
             ("the recorded day", tile(1, SLIDING, 10), false),
@@ -262,25 +260,29 @@ mod tests {
     }
 
     #[test]
-    fn a_refresh_keeps_an_index_a_chunk_task_holds_and_releases_an_idle_one() {
+    fn a_run_keeps_one_index_until_it_drops_out_and_no_chunk_task_holds_it() {
         let mut indexes = NewestDayIndexes::new(NonZeroUsize::MIN);
-        let (held, idle) = (RunId(Uuid::from_u128(1)), RunId(Uuid::from_u128(2)));
-        for run in [held, idle] {
-            indexes.by_run.insert(run, Arc::new(index(&indexes.budget)));
-        }
-        let task = Arc::clone(&indexes.by_run[&held]);
+        let (held, idle) = (run(1), run(2));
+        let task = indexes.for_run(&held);
+        task.record(&[tile(1, SLIDING, 10)]);
+        assert!(
+            indexes.for_run(&held).has_newer_day(&tile(1, SLIDING, 9)),
+            "a run's next claim got a new index"
+        );
+        let idle_index = Arc::downgrade(&indexes.for_run(&idle));
+        assert!(
+            !indexes.for_run(&idle).has_newer_day(&tile(1, SLIDING, 9)),
+            "another run's day skipped a tile"
+        );
 
         // A discovery error yields an empty eligible set.
         indexes.release_idle(&HashMap::new());
         assert!(
-            indexes
-                .by_run
-                .get(&held)
-                .is_some_and(|kept| Arc::ptr_eq(kept, &task)),
+            Arc::ptr_eq(&indexes.for_run(&held), &task),
             "a held index was released, so the run's next chunk gets a second one"
         );
         assert!(
-            !indexes.by_run.contains_key(&idle),
+            idle_index.upgrade().is_none(),
             "an idle index outlived its run and kept its budget"
         );
     }

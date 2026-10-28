@@ -311,7 +311,7 @@ impl std::fmt::Debug for ScannedChunk {
     }
 }
 
-/// The `scanning`→`produced` CAS has committed; minted only by `store.mark_produced_streamed`.
+/// The `scanning`→`produced` CAS has committed; minted only by `store.mark_produced`.
 #[derive(Debug)]
 pub struct EnqueuedChunk {
     spec: ChunkSpec,

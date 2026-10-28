@@ -151,6 +151,10 @@ mod tests {
             "explicit_datetime": "2026-01-01",
             "explicit_datetime_to": "2026-02-01",
         }));
+        let open_ended = leaf(json!({
+            "value": "performed_event",
+            "explicit_datetime": "2026-01-01",
+        }));
         for (case, leaves, expected) in [
             ("sliding leaves only", vec![sliding(7), sliding(30)], true),
             ("plus a count leaf", vec![sliding(7), count], false),
@@ -158,6 +162,11 @@ mod tests {
                 "plus an explicit upper bound",
                 vec![sliding(7), bounded],
                 false,
+            ),
+            (
+                "plus an explicit range with no upper bound",
+                vec![sliding(7), open_ended],
+                true,
             ),
         ] {
             assert_eq!(qualifies(&leaves), expected, "{case}");

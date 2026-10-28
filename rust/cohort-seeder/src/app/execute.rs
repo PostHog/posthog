@@ -1,7 +1,7 @@
 //! App layer: one chunk's `scan → record → enqueue → mark → await → confirm` pipeline and the single
 //! recovery resolver. Depends on `clickhouse`, `kafka`, `store`, `domain`, and its `app` siblings.
 //!
-//! The store's `mark_produced_streamed` sits between the two deliver phases: deliver owns Kafka,
+//! The store's `mark_produced` sits between the two deliver phases: deliver owns Kafka,
 //! execute owns the store gating. Every halt funnels through [`resolve_halt`], which applies the
 //! exact recovery matrix — a pre-mark halt during shutdown unclaims (no attempt spent); everything
 //! else fails for retry — encoded once in [`FailureDisposition::resolve`] and pinned by its unit
@@ -103,7 +103,7 @@ pub(super) async fn execute_chunk(
         Err(halt) => return resolve_halt(&store, halt, &shutdown, retry_backoff).await,
     };
     // PreMark: CAS `scanning`→`produced` — the row is still `scanning` on failure.
-    let enqueued = match store.mark_produced_streamed(streamed).await {
+    let enqueued = match store.mark_produced(streamed).await {
         Ok(enqueued) => enqueued,
         Err(halt) => {
             return resolve_halt(&store, mark_produced_halt(halt), &shutdown, retry_backoff).await

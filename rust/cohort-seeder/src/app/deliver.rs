@@ -1,7 +1,7 @@
 //! App layer, Kafka produce sequencing: the two-phase enqueue/await split. Depends on `domain`,
 //! `kafka`, `store`, and `app::settings`; never imported by a lower layer.
 //!
-//! The sequence `enqueue_tiles → store.mark_produced_streamed → await_deliveries` (composed by
+//! The sequence `enqueue_tiles → store.mark_produced → await_deliveries` (composed by
 //! `execute`) enqueues every tile its run has no newer day for, honoring the in-flight bound and
 //! draining overflow acks before the mark, then drains the remaining acks after it, folding all
 //! delivery high-water marks into one accumulator carried across the mark by [`InFlight`].
@@ -115,8 +115,9 @@ pub(super) async fn enqueue_tiles(
     let mut inflight = InFlight::new(settings.max_inflight.get());
     let mut sent = 0;
     for tile in chunk.tiles() {
-        // Checked before the pacer, so a newer day recorded while this chunk waits still prunes
-        // its queue. A skipped tile takes no pacer token, so the task budget makes it yield.
+        // Checked before the pacer, so a newer day another chunk records while this one waits
+        // still skips this chunk's remaining tiles for that person. A skipped tile takes no pacer
+        // token, so the task budget makes it yield.
         if newest_day.has_newer_day(tile) {
             tokio::task::coop::consume_budget().await;
             continue;
