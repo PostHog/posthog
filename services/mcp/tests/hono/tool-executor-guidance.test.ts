@@ -17,7 +17,6 @@ vi.mock('@/lib/posthog', async () => {
     return { getPostHogClient: () => client }
 })
 
-import type { RedisLike } from '@/hono/cache/RedisCache'
 import { GuidanceEngine } from '@/hono/guidance/engine'
 import { MCP_GUIDANCE_REPLAY_VISION_FLAG, MCP_GUIDANCE_SQL_SCHEMA_FLAG } from '@/hono/guidance/rules'
 import { InstructionsBuilder } from '@/hono/instructions'
@@ -26,27 +25,7 @@ import { ToolExecutor } from '@/hono/tool-executor'
 import { getPostHogClient } from '@/lib/posthog'
 
 import { makeToolExecutorState } from '../shared/test-utils'
-
-function makeRedis(): RedisLike {
-    const store = new Map<string, string>()
-    return {
-        get: async (key) => store.get(key) ?? null,
-        set: async (key, value) => {
-            store.set(key, value)
-            return 'OK'
-        },
-        del: async (...keys) => keys.filter((key) => store.delete(key)).length,
-        scan: async () => ['0', []],
-        incr: async (key) => {
-            const next = Number(store.get(key) ?? 0) + 1
-            store.set(key, String(next))
-            return next
-        },
-        expire: async () => 1,
-        ttl: async () => -1,
-        eval: async () => null,
-    }
-}
+import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
 
 function makeTool(name: string, handler: (args: unknown) => unknown): any {
     return {
@@ -95,7 +74,7 @@ describe('ToolExecutor guidance notices', () => {
             catalog,
             new InstructionsBuilder(''),
             undefined,
-            new GuidanceEngine(makeRedis())
+            new GuidanceEngine(makeGuidanceRedis())
         )
         const state = makeToolExecutorState([sql, vision, schema], {
             useSingleExec: mode === 'exec',

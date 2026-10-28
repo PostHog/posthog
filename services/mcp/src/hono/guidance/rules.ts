@@ -73,8 +73,9 @@ const RULES: GuidanceRule[] = [
         requiresTool: ['read-data-schema'],
         text: [
             'Three SQL queries in this session have failed.',
-            'Before another attempt, call `read-data-schema` to get the tables and columns this project has,',
-            'then rewrite the query against that schema.',
+            'Before another attempt, check the schema: query `system.information_schema.tables` and',
+            '`system.information_schema.columns` for table and column names, or call `read-data-schema` for',
+            'event and property names. Then rewrite the query against that schema.',
         ].join(' '),
     },
     {

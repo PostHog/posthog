@@ -80,6 +80,30 @@ function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): 
     )
 }
 
+// One script per rule, so a concurrent batch cannot reserve the same notice twice.
+const RULE_STATE_SCRIPT = `
+local ttl = tonumber(ARGV[1])
+if ARGV[4] == 'suppress' then
+    redis.call('SET', KEYS[2], '1', 'EX', ttl)
+    redis.call('EXPIRE', KEYS[1], ttl)
+    redis.call('EXPIRE', KEYS[3], ttl)
+    return 0
+end
+local matched = redis.call('INCR', KEYS[1])
+redis.call('EXPIRE', KEYS[1], ttl)
+redis.call('EXPIRE', KEYS[2], ttl)
+redis.call('EXPIRE', KEYS[3], ttl)
+if ARGV[5] ~= '1' or matched < tonumber(ARGV[2]) or redis.call('EXISTS', KEYS[2]) == 1 then
+    return 0
+end
+local shown = redis.call('INCR', KEYS[3])
+redis.call('EXPIRE', KEYS[3], ttl)
+if shown > tonumber(ARGV[3]) then
+    return 0
+end
+return 1
+`
+
 export class GuidanceEngine {
     constructor(
         private readonly redis: RedisLike,
@@ -98,15 +122,19 @@ export class GuidanceEngine {
         }
         const sessionKey = resolveSessionKey(state.requestContext)
         const ttl = sessionKey ? SESSION_TTL_SECONDS : CALLER_TTL_SECONDS
-        const scope = `mcp:guidance:${hashKey(sessionKey ?? `caller:${state.distinctId}`)}`
+        // The braces are a cluster hash tag, so the script can touch a rule's three keys together.
+        const scope = `mcp:guidance:{${hashKey(`${state.distinctId}|${sessionKey ?? ''}`)}}`
 
         try {
-            const candidates = await Promise.all(rules.map((rule) => this.evaluateRule(rule, scope, ttl, call)))
-            const winner = candidates.find((candidate) => candidate !== undefined)
+            let winner: GuidanceRule | undefined
+            for (const rule of rules) {
+                if (await this.touchRule(rule, scope, ttl, call, winner === undefined)) {
+                    winner = rule
+                }
+            }
             if (!winner) {
                 return undefined
             }
-            await this.recordShown(winner.id, scope, ttl)
             guidanceNoticesTotal.inc({ rule: winner.id })
             return { ruleId: winner.id, text: winner.text }
         } catch {
@@ -114,36 +142,31 @@ export class GuidanceEngine {
         }
     }
 
-    private async evaluateRule(
+    private async touchRule(
         rule: GuidanceRule,
         scope: string,
         ttl: number,
-        call: GuidanceCall
-    ): Promise<GuidanceRule | undefined> {
+        call: GuidanceCall,
+        canFire: boolean
+    ): Promise<boolean> {
+        const suppressing = rule.suppressIfCalled.some((pattern) => matchesToolPattern(pattern, call.toolName))
+        if (!suppressing && !triggerMatches(rule, call)) {
+            return false
+        }
         const key = (suffix: string): string => `${scope}:${rule.id}:${suffix}`
-        if (rule.suppressIfCalled.some((pattern) => matchesToolPattern(pattern, call.toolName))) {
-            await this.redis.set(key('suppressed'), '1', 'EX', ttl)
-            return undefined
-        }
-        if (!triggerMatches(rule, call)) {
-            return undefined
-        }
-        const [matched, suppressed, shown] = await Promise.all([
-            this.redis.incr(key('matched')),
-            this.redis.get(key('suppressed')),
-            this.redis.get(key('shown')),
-        ])
-        await this.redis.expire(key('matched'), ttl)
-        if (suppressed !== null || matched < rule.threshold || Number(shown ?? 0) >= rule.maxPerSession) {
-            return undefined
-        }
-        return rule
-    }
-
-    private async recordShown(ruleId: string, scope: string, ttl: number): Promise<void> {
-        const key = `${scope}:${ruleId}:shown`
-        await this.redis.incr(key)
-        await this.redis.expire(key, ttl)
+        const fired = await this.redis.eval(
+            RULE_STATE_SCRIPT,
+            3,
+            key('matched'),
+            key('suppressed'),
+            key('shown'),
+            ttl,
+            rule.threshold,
+            rule.maxPerSession,
+            suppressing ? 'suppress' : 'match',
+            canFire ? '1' : '0'
+        )
+        return Number(fired) === 1
     }
 }
 

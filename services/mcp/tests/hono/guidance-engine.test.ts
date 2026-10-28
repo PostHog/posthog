@@ -1,38 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import type { RedisLike } from '@/hono/cache/RedisCache'
 import { GuidanceEngine, type GuidanceCall } from '@/hono/guidance/engine'
 import { GUIDANCE_RULES, type GuidanceRule } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 
 import { makeToolExecutorState } from '../shared/test-utils'
-
-function makeRedis(failing = false): RedisLike {
-    const store = new Map<string, string>()
-    const guard = async <T>(value: T): Promise<T> => {
-        if (failing) {
-            throw new Error('redis down')
-        }
-        return value
-    }
-    return {
-        get: (key) => guard(store.get(key) ?? null),
-        set: (key, value) => {
-            store.set(key, value)
-            return guard('OK')
-        },
-        del: async (...keys) => keys.filter((key) => store.delete(key)).length,
-        scan: async () => ['0', []],
-        incr: (key) => {
-            const next = Number(store.get(key) ?? 0) + 1
-            store.set(key, String(next))
-            return guard(next)
-        },
-        expire: () => guard(1),
-        ttl: () => guard(-1),
-        eval: () => guard(null),
-    }
-}
+import { makeGuidanceRedis } from './helpers/guidance-redis-stubs'
 
 const rule: GuidanceRule = {
     id: 'test-rule',
@@ -81,7 +54,7 @@ async function run(
 
 describe('GuidanceEngine', () => {
     it('shows the notice once the session reaches the threshold, and only once', async () => {
-        const engine = new GuidanceEngine(makeRedis(), [rule])
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
         await expect(run(engine, makeState(), [replayQuery, otherQuery, replayQuery, replayQuery])).resolves.toEqual([
             undefined,
             undefined,
@@ -91,7 +64,7 @@ describe('GuidanceEngine', () => {
     })
 
     it('stays silent once the session has called a suppressing tool', async () => {
-        const engine = new GuidanceEngine(makeRedis(), [rule])
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
         await expect(run(engine, makeState(), [visionCall, replayQuery, replayQuery])).resolves.toEqual([
             undefined,
             undefined,
@@ -99,12 +72,39 @@ describe('GuidanceEngine', () => {
         ])
     })
 
-    it('keeps sessions apart', async () => {
-        const engine = new GuidanceEngine(makeRedis(), [rule])
-        const first = makeState()
-        const second = makeState({ requestContext: { ...first.requestContext, mcpSessionId: 'sess-2' } })
+    it.each([
+        [
+            'sessions',
+            (first: ResolvedState): Partial<ResolvedState> => ({
+                requestContext: { ...first.requestContext, mcpSessionId: 'sess-2' },
+            }),
+        ],
+        ['callers echoing the same session handle', (): Partial<ResolvedState> => ({ distinctId: 'other-caller' })],
+    ])('keeps %s apart', async (_label, overrides) => {
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
+        const first = makeState({ requestContext: { ...makeState().requestContext, mcpSessionId: 'sess-1' } })
+        const second = makeState({ ...first, ...overrides(first) })
         await run(engine, first, [replayQuery])
         await expect(run(engine, second, [replayQuery, replayQuery])).resolves.toEqual([undefined, 'test-rule'])
+    })
+
+    it('reserves the allowance once when matching calls run concurrently', async () => {
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
+        const state = makeState()
+        await engine.evaluate(state, replayQuery)
+        const shown = await Promise.all([engine.evaluate(state, replayQuery), engine.evaluate(state, replayQuery)])
+        expect(shown.filter(Boolean)).toHaveLength(1)
+    })
+
+    it('lets a later rule keep its allowance when an earlier rule fires on the same call', async () => {
+        const second: GuidanceRule = { ...rule, id: 'second-rule', flag: 'mcp-guidance-second' }
+        const redis = makeGuidanceRedis()
+        const engine = new GuidanceEngine(redis, [rule, second])
+        const state = makeState({ toolFeatureFlags: { [rule.flag]: true, [second.flag]: true } })
+        await run(engine, state, [replayQuery, replayQuery])
+        expect([...redis.store.keys()].filter((key) => key.endsWith(':shown'))).toEqual([
+            expect.stringContaining(':test-rule:shown'),
+        ])
     })
 
     it.each([
@@ -115,7 +115,7 @@ describe('GuidanceEngine', () => {
         ['scout token', { apiKeyScopes: ['signal_scout_internal:write'] }],
         ['suggested tool not in roster', { allTools: [{ name: 'execute-sql' }] as ResolvedState['allTools'] }],
     ])('shows nothing for %s', async (_label, overrides) => {
-        const engine = new GuidanceEngine(makeRedis(), [rule])
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
         await expect(run(engine, makeState(overrides), [replayQuery, replayQuery])).resolves.toEqual([
             undefined,
             undefined,
@@ -124,7 +124,7 @@ describe('GuidanceEngine', () => {
 
     it('matches only the configured outcome', async () => {
         const errorRule: GuidanceRule = { ...rule, trigger: { ...rule.trigger, outcome: 'error' }, threshold: 1 }
-        const engine = new GuidanceEngine(makeRedis(), [errorRule])
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [errorRule])
         await expect(run(engine, makeState(), [replayQuery, { ...replayQuery, isError: true }])).resolves.toEqual([
             undefined,
             'test-rule',
@@ -132,7 +132,7 @@ describe('GuidanceEngine', () => {
     })
 
     it('shows nothing when Redis fails', async () => {
-        const engine = new GuidanceEngine(makeRedis(true), [{ ...rule, threshold: 1 }])
+        const engine = new GuidanceEngine(makeGuidanceRedis(true), [{ ...rule, threshold: 1 }])
         await expect(engine.evaluate(makeState(), replayQuery)).resolves.toBeUndefined()
     })
 
