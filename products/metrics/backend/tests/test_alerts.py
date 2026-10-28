@@ -16,6 +16,7 @@ from rest_framework import status
 
 from posthog.models.scoping import team_scope
 
+from products.alerts.backend.facade.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import create_configuration, record_outcomes, slot_of
 from products.alerts_platform.backend.facade.contracts import (
@@ -24,8 +25,12 @@ from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
     PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
+    SourceBatchEvaluation,
     SourceKind,
 )
+from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.templates.fixtures import template_slack
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.metrics.backend.alerts.checkpoint import evaluation_time
 from products.metrics.backend.alerts.evaluation import evaluate_metrics_alert_batch
 from products.metrics.backend.alerts.source_config import MetricsAlertConfig
@@ -108,6 +113,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.cutoff = timezone.now().replace(second=0, microsecond=0) + timedelta(minutes=5)
+        self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
         self.snuffle = MagicMock()
         self.enterContext(patch("products.metrics.backend.promql.snuffle_request", self.snuffle))
         self.checkpoint = self.enterContext(
@@ -135,10 +141,12 @@ class TestMetricsAlertEvaluation(APIBaseTest):
     def due_at(self) -> datetime:
         return self.cutoff - timedelta(minutes=1)
 
-    def _evaluate(self) -> PlatformAlertOutcome:
+    def _evaluate_batch(self) -> SourceBatchEvaluation:
         with team_scope(self.team.id):
-            evaluation = evaluate_metrics_alert_batch(self.team.id, slot_of(self.due_at, self.cutoff), self.cutoff)
-        (outcome,) = evaluation.outcomes
+            return evaluate_metrics_alert_batch(self.team.id, slot_of(self.due_at, self.cutoff), self.cutoff)
+
+    def _evaluate(self) -> PlatformAlertOutcome:
+        (outcome,) = self._evaluate_batch().outcomes
         return outcome
 
     def _next_check(self, outcome: PlatformAlertOutcome) -> None:
@@ -187,3 +195,46 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             UUID(str(self.configuration_id)),
             consecutive_failures,
         )
+
+    def test_a_slack_destination_receives_the_firing_and_goes_with_the_alert(self) -> None:
+        sync_template_to_db(template_slack)
+        destinations_url = f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/"
+        added = self.client.post(
+            destinations_url,
+            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"},
+            format="json",
+        )
+        assert added.status_code == status.HTTP_201_CREATED, added.json()
+        hog_function_ids = added.json()["hog_function_ids"]
+        (listed,) = self.client.get(destinations_url).json()
+        assert (listed["slack_channel_id"], sorted(listed["hog_function_ids"])) == ("C123", sorted(hog_function_ids))
+
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        (delivery,) = self._evaluate_batch().deliveries
+        (routed,) = list_alert_destination_groups(
+            team_id=self.team.id,
+            alert_id=delivery.destination_alert_id,
+            allowed_event_ids=[delivery.event_ids_by_kind[AlertEventKind.FIRING.value]],
+        )
+        assert routed.data["slack_channel_id"] == "C123"
+
+        deleted = self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/")
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
+
+    @parameterized.expand(
+        [
+            ("alert_only", ["alert:read"], status.HTTP_403_FORBIDDEN),
+            ("metrics_only", ["metrics:read"], status.HTTP_403_FORBIDDEN),
+            ("alert_and_metrics", ["alert:read", "metrics:read"], status.HTTP_200_OK),
+        ]
+    )
+    def test_reading_destinations_needs_both_alert_and_metrics_scopes(
+        self, _name: str, scopes: list[str], expected: int
+    ) -> None:
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(scopes)}")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/")
+
+        assert response.status_code == expected, response.json()

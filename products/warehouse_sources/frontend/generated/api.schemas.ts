@@ -14703,10 +14703,9 @@ export interface SourceConfigMapResponseApi {
  * * `discord` - discord
  * * `pagerduty` - pagerduty
  */
-export type WarehouseAlertDestinationTypeEnumApi =
-    (typeof WarehouseAlertDestinationTypeEnumApi)[keyof typeof WarehouseAlertDestinationTypeEnumApi]
+export type AlertDestinationTypeEnumApi = (typeof AlertDestinationTypeEnumApi)[keyof typeof AlertDestinationTypeEnumApi]
 
-export const WarehouseAlertDestinationTypeEnumApi = {
+export const AlertDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
     Teams: 'teams',
@@ -14750,7 +14749,7 @@ export interface WarehouseAlertDestinationApi {
      * * `teams` - teams
      * * `discord` - discord
      * * `pagerduty` - pagerduty */
-    type: WarehouseAlertDestinationTypeEnumApi
+    type: AlertDestinationTypeEnumApi
     /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
     enabled: boolean
     /** Integration ID of the Slack workspace. Set when type=slack. */
@@ -14785,7 +14784,7 @@ export interface WarehouseAlertCreateDestinationApi {
      * * `teams` - teams
      * * `discord` - discord
      * * `pagerduty` - pagerduty */
-    type: WarehouseAlertDestinationTypeEnumApi
+    type: AlertDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */

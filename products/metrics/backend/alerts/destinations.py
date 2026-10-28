@@ -10,8 +10,17 @@ from typing import Final, Literal
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationAction,
     AlertEventKind,
+    DestinationType,
     EventKindSpec,
     IncidentAction,
+)
+
+METRICS_ALERT_DESTINATION_TYPES: Final = (
+    DestinationType.SLACK,
+    DestinationType.WEBHOOK,
+    DestinationType.TEAMS,
+    DestinationType.DISCORD,
+    DestinationType.PAGERDUTY,
 )
 
 EventKind = Literal["firing", "resolved", "errored", "broken", "incident_opened", "incident_closed"]
