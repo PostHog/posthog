@@ -232,6 +232,7 @@ class TestHttpSampleCapture:
             # bodies to HTTP samples. Everything carrying customer PII, payment data, redeemable
             # secrets, or bearer URLs the scrubbers can't recognise must stay out of captured samples.
             ("products", True),
+            ("plans", True),
             ("multiplans", True),
             ("addons", True),
             ("addon_list_category", True),
@@ -244,6 +245,7 @@ class TestHttpSampleCapture:
             ("transactions", False),
             ("licenses", False),
             ("coupons", False),
+            ("commissions", False),
         ]
     )
     def test_capture_enabled_only_for_catalog_metadata_endpoints(

@@ -8,8 +8,8 @@ import requests
 from requests_oauthlib import OAuth1
 
 from posthog.dataclasses import frozen
-from posthog.models.integration.model import Integration
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -85,7 +85,7 @@ def _error_detail(response: requests.Response) -> str:
 
 
 class TwitterAdsClient:
-    def __init__(self, integration: Integration, api_version: str = API_VERSION) -> None:
+    def __init__(self, integration: IntegrationRecord, api_version: str = API_VERSION) -> None:
         if api_version != API_VERSION:
             raise ValueError("Unsupported X Ads API version")
         if integration.kind != "twitter-ads":
@@ -219,8 +219,13 @@ class TwitterAdsClient:
                         {
                             "entity": STATS_TABLES[table],
                             "entity_ids": ",".join(entity_ids[batch_start : batch_start + 20]),
-                            "start_time": start_time.isoformat().replace("+00:00", "Z"),
-                            "end_time": end_time.isoformat().replace("+00:00", "Z"),
+                            # A bare date tells X to resolve midnight-to-midnight in the account's
+                            # own timezone itself. An account on a half-hour-offset timezone (e.g.
+                            # IST) never lands on a whole UTC hour, so sending our own UTC
+                            # conversion here gets a 400 ("whole hours" requirement) that this
+                            # sidesteps entirely.
+                            "start_time": start.isoformat(),
+                            "end_time": window_end.isoformat(),
                             "granularity": "DAY",
                             "placement": placement,
                             "metric_groups": "ENGAGEMENT,BILLING",

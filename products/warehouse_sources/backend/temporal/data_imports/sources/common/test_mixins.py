@@ -13,9 +13,9 @@ from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
 from posthog.temporal.common.errors import NonReportableError
 
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
     MISSING_INTEGRATION_MESSAGE,
     Any_Source_Errors,
@@ -679,7 +679,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         get = mock.Mock(side_effect=[OperationalError(message), OperationalError(message), integration])
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections") as close,
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -698,7 +698,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         integration = object()
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", return_value=integration),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", return_value=integration),
             patch(f"{_MIXINS_MODULE}.close_old_connections") as close,
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -712,7 +712,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -725,10 +725,10 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=Integration.DoesNotExist())
+        get = mock.Mock(side_effect=IntegrationNotFound())
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -741,12 +741,12 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         sleep.assert_not_called()
 
     def test_deletion_during_retry_is_surfaced_as_not_found(self):
-        # The row vanishes after a transient failure: the retry must convert DoesNotExist into the
-        # stable non-retryable ValueError rather than letting raw DoesNotExist escape and be retried.
-        get = mock.Mock(side_effect=[OperationalError("query_wait_timeout"), Integration.DoesNotExist()])
+        # The row vanishes after a transient failure: the retry must convert IntegrationNotFound into the
+        # stable non-retryable ValueError rather than letting the raw error escape and be retried.
+        get = mock.Mock(side_effect=[OperationalError("query_wait_timeout"), IntegrationNotFound()])
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep"),
         ):
@@ -757,7 +757,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("deleted_integration", Integration.DoesNotExist(), 4212),
+            ("deleted_integration", IntegrationNotFound(), 4212),
             ("unset_integration_id", None, 0),
         ]
     )
@@ -770,7 +770,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         get = mock.Mock(side_effect=side_effect)
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep"),
         ):

@@ -30,10 +30,11 @@ import pyarrow as pa
 from psycopg import sql
 from psycopg.errors import InsufficientPrivilege
 
-from posthog.models.integration import Integration, RedshiftIntegration
+from posthog.models.integration import RedshiftIntegration
 
 from products.batch_exports.backend.facade.destinations.postgres import Fields, PostgreSQLClient
 from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -135,7 +136,7 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
         with self._configuration_errors():
             await super().abort_run(ctx)
 
-    def _client_from_integration(self, integration: Integration) -> PostgreSQLClient:
+    def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
         return RedshiftClient.from_inputs(RedshiftIntegration(integration), database=self._database)
 
     def _column_type(self, arrow_type: pa.DataType) -> str:

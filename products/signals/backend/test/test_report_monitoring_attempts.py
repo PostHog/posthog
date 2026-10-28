@@ -478,11 +478,20 @@ class TestReportMonitoringAttempts(BaseTest):
             report=self.report, type=SignalReportArtefact.ArtefactType.CHECK_EXPIRED
         ).exists()
 
-    @parameterized.expand([("disabled", False), ("unavailable", RuntimeError("flag service unavailable"))])
+    @parameterized.expand(
+        [
+            ("disabled", False),
+            ("unavailable", RuntimeError("flag service unavailable")),
+            ("archived_disabled", False, True),
+            ("archived_unavailable", RuntimeError("flag service unavailable"), True),
+        ]
+    )
     def test_disabled_or_unavailable_flag_resolves_without_creating_an_attempt(
-        self, _name: str, flag_result: bool | Exception
+        self, _name: str, flag_result: bool | Exception, archived: bool = False
     ) -> None:
         check = self._check()
+        if archived:
+            self.report.save(update_fields=self.report.transition_to(SignalReport.Status.SUPPRESSED))
         if isinstance(flag_result, Exception):
             self.flag.side_effect = flag_result
         else:
@@ -577,6 +586,8 @@ class TestReportMonitoringAttempts(BaseTest):
         check.status = SignalReportCheck.Status.CANCELLED
         check.save(update_fields=["status"])
         replacement = self._check()
+        replacement.monitoring_dispatch_after = self.now + timedelta(days=1)
+        replacement.save(update_fields=["monitoring_dispatch_after"])
         retry = complete_implementation(
             team_id=self.team.id, report_id=self.report.id, monitoring_started_at=self.now - timedelta(minutes=1)
         )
@@ -604,6 +615,8 @@ class TestReportMonitoringAttempts(BaseTest):
         assert second is not None
         assert second.id != first.id
         assert second.check_versions == {str(replacement.id): check_definition_version(replacement)}
+        replacement.refresh_from_db()
+        self.assertIsNone(replacement.monitoring_dispatch_after)
         first.refresh_from_db()
         assert first.check_versions == original_versions
 

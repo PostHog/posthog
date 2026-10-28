@@ -16,6 +16,7 @@ import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
 import submitFeedback from './feedback/submit'
 // Generated tools (from definitions/*.yaml)
 import { GENERATED_TOOL_MAP } from './generated'
+import explainChart from './insights/explainChart'
 // Insights
 import queryInsight from './insights/query'
 import insightTrustCheck from './insights/trustCheck'
@@ -49,6 +50,7 @@ import {
 import { createConnectionCallTool } from './posthogConnections/call'
 // Projects
 import createEventDefinition from './projects/createEventDefinition'
+import getEventDefinition from './projects/getEventDefinition'
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
@@ -85,6 +87,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-create': createEventDefinition,
+    'event-definition-get': getEventDefinition,
     'event-definition-update': updateEventDefinition,
     'property-definition-update': updatePropertyDefinition,
 
@@ -100,6 +103,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Insights
     'insight-query': queryInsight,
     'insight-trust-check': insightTrustCheck,
+    'explain-chart': explainChart,
 
     // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
     'generate-app-url': generateAppUrl,

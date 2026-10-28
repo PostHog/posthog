@@ -8,9 +8,10 @@ from enum import StrEnum
 import psycopg
 from psycopg import errors as pg_errors
 
-from posthog.models.integration import Integration, PostgreSQLIntegration
+from posthog.models.integration import PostgreSQLIntegration
 from posthog.models.integration.postgres import MISSING_CERT_PATH
 
+from products.integrations.backend.facade.api import IntegrationRecord
 from products.warehouse_sources.backend.facade.source_management import HostNotAllowedError, pinned_host_kwargs
 
 CONNECT_TIMEOUT_SECONDS = 5
@@ -89,7 +90,7 @@ def _query_deadline(connection: psycopg.Connection, timeout_seconds: float) -> I
         timer.join()
 
 
-def check_postgres_destination(integration: Integration, config: dict[str, str] | None) -> None:
+def check_postgres_destination(integration: IntegrationRecord, config: dict[str, str] | None) -> None:
     """Connect to the destination with a short timeout and check that a writer can create tables.
 
     Raises `DestinationConnectionCheckError`. The writer runs `CREATE SCHEMA IF NOT EXISTS`, so a

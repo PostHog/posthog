@@ -1,9 +1,14 @@
 """Dual write and shadow read of source connection fields, behind a per-team flag.
 
 While `job_inputs` stays the source of truth, `SourceInputsStore` copies the connection fields of each
-write to the credentials row of the source, and compares the row with `job_inputs` on some reads. Both
-steps only count and log what they find: they never change what the store saves or returns, and they
-never raise.
+write to the credentials row of the source, and compares the row with `job_inputs` on some reads.
+
+The source points at its row with `CREDENTIALS_REFERENCE_KEY` in its inputs. The first copy creates the
+row and adds the reference to the inputs that the store saves. Later copies update the row. A source with
+an OAuth connection has no typed-in row, so the copy does nothing for it.
+
+Both steps count and log what they find. They never change the fields that the store saves or returns,
+and they never raise, except when the API asks for a confirmation of an edit of a shared row.
 """
 
 import time
@@ -18,7 +23,15 @@ from django.db import transaction
 import structlog
 from prometheus_client import Counter
 
+from products.warehouse_sources.backend.facade.contracts import (
+    CREDENTIALS_REFERENCE_KEY,
+    SharedCredentialsEdit,
+    SharedCredentialsError,
+    UnusableCredentialsReferenceError,
+)
+from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
 from products.warehouse_sources.backend.logic.source_credentials import (
+    CredentialsNotFoundError,
     CredentialsUnreadable,
     CredentialsUnreadableError,
     WarehouseSourceCredentialsStore,
@@ -114,32 +127,74 @@ def reset_caches() -> None:
     _compare_schedule.clear()
 
 
-def mirror_connection_fields(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
+def mirror_connection_fields(
+    source: ExternalDataSource,
+    inputs: Mapping[str, Any],
+    *,
+    shared_credentials: SharedCredentialsEdit = SharedCredentialsEdit.SKIP,
+) -> dict[str, Any]:
     """Copy the connection fields of ``inputs`` to the credentials row of the source, when the flag is on.
 
-    A failure is counted and logged, and the caller continues with its `job_inputs` write.
+    Returns the inputs to stage: ``inputs``, with the reference to the row that now holds the fields. A
+    failure is counted and logged, and the caller continues with its `job_inputs` write. An edit of a row
+    that other objects also use follows ``shared_credentials``.
     """
+    staged = dict(inputs)
     if _in_event_loop():
         # A query here raises SynchronousOnlyOperation. Async callers use `asave`, which runs in a thread.
         DUAL_WRITE_COUNTER.labels(outcome="skipped_event_loop").inc()
         logger.warning("warehouse_source_credentials.mirror_skipped_in_event_loop", **_log_context(source))
-        return
+        return staged
     try:
-        if not dual_write_enabled(source.team_id):
-            return
+        if not dual_write_enabled(source.team_id) or not has_typed_in_credentials(str(source.source_type)):
+            return staged
         connection = _connection_fields(source.source_type, inputs)
     except Exception:
         DUAL_WRITE_COUNTER.labels(outcome="split_error").inc()
         logger.exception("warehouse_source_credentials.split_failed", **_log_context(source))
-        return
+        return staged
+    if not connection:
+        # An OAuth connection, for example a select set to its OAuth option. The OAuth row holds the secret.
+        return staged
     try:
-        # `update_or_create` runs in its own savepoint, so a failed copy leaves a caller's transaction usable.
-        WarehouseSourceCredentialsStore.upsert(source, connection)
+        # A savepoint, so a failed copy leaves a caller's transaction usable. The source row is locked before
+        # the credentials row, in the order that `soft_delete` takes them, so a concurrent delete cannot deadlock.
+        with transaction.atomic():
+            ExternalDataSource._base_manager.select_for_update().filter(
+                pk=source.pk, team_id=source.team_id
+            ).values_list("pk").first()
+            outcome, pk = _write_row(source, staged.get(CREDENTIALS_REFERENCE_KEY), connection, shared_credentials)
+    except SharedCredentialsError:
+        if shared_credentials == SharedCredentialsEdit.REFUSE:
+            raise
+        DUAL_WRITE_COUNTER.labels(outcome="shared_skip").inc()
+        logger.info("warehouse_source_credentials.shared_row_skipped", **_log_context(source))
+        return staged
     except Exception:
         DUAL_WRITE_COUNTER.labels(outcome="upsert_error").inc()
         logger.exception("warehouse_source_credentials.upsert_failed", **_log_context(source))
-        return
-    DUAL_WRITE_COUNTER.labels(outcome="success").inc()
+        return staged
+    staged[CREDENTIALS_REFERENCE_KEY] = pk
+    DUAL_WRITE_COUNTER.labels(outcome=outcome).inc()
+    return staged
+
+
+def _write_row(
+    source: ExternalDataSource,
+    ref: Any,
+    connection: Mapping[str, Any],
+    shared_credentials: SharedCredentialsEdit,
+) -> tuple[str, int]:
+    """Create or update the row of the source. Returns the counter outcome and the pk of the row."""
+    if ref is None:
+        return "success", WarehouseSourceCredentialsStore.create(source, connection)
+    try:
+        return "success", WarehouseSourceCredentialsStore.update(
+            source, ref, connection, allow_shared=shared_credentials == SharedCredentialsEdit.CONFIRMED
+        )
+    except CredentialsNotFoundError:
+        # The reference points at no usable row. A new row keeps the copy complete.
+        return "missing_row_recreated", WarehouseSourceCredentialsStore.create(source, connection)
 
 
 def shadow_compare(source: ExternalDataSource, inputs: Mapping[str, Any]) -> None:
@@ -147,36 +202,55 @@ def shadow_compare(source: ExternalDataSource, inputs: Mapping[str, Any]) -> Non
     try:
         if not _due_for_compare(source):
             return
+        connection = _typed_in_connection(source, inputs)
+        if connection is None:
+            return
         try:
             # A savepoint: a failed query (for example a statement timeout) must not abort a transaction
             # of the caller, such as a password rotation that loads the source inside `atomic`.
             with transaction.atomic():
-                stored: dict[str, Any] | CredentialsUnreadable | None = WarehouseSourceCredentialsStore.get(source)
+                stored: dict[str, Any] | CredentialsUnreadable | None = WarehouseSourceCredentialsStore.get(
+                    source, inputs.get(CREDENTIALS_REFERENCE_KEY)
+                )
         except CredentialsUnreadableError:
             stored = CredentialsUnreadable()
-        _count_compare(source, inputs, stored)
+        _count_compare(source, connection, stored)
     except Exception:
         _count_compare_error(source)
 
 
 def shadow_compare_many(sources: Iterable[ExternalDataSource], loaded: Mapping[UUID, Mapping[str, Any]]) -> None:
-    """`shadow_compare` for a list of sources, with one credentials query per team."""
-    due: list[ExternalDataSource] = []
+    """`shadow_compare` for a list of sources, with one credentials query per team and source type."""
+    due: list[tuple[ExternalDataSource, dict[str, Any]]] = []
     try:
-        due = [source for source in sources if source.id in loaded and _due_for_compare(source)]
+        for source in sources:
+            if source.id not in loaded or not _due_for_compare(source):
+                continue
+            connection = _typed_in_connection(source, loaded[source.id])
+            if connection is not None:
+                due.append((source, connection))
         if not due:
             return
         with transaction.atomic():  # A savepoint, as in `shadow_compare`.
-            stored = WarehouseSourceCredentialsStore.get_many(due)
+            stored = WarehouseSourceCredentialsStore.get_many(
+                (source, loaded[source.id].get(CREDENTIALS_REFERENCE_KEY)) for source, _ in due
+            )
     except Exception:
-        for source in due:
+        for source, _ in due:
             _count_compare_error(source)
         return
-    for source in due:
+    for source, connection in due:
         try:
-            _count_compare(source, loaded[source.id], stored.get(source.id))
+            _count_compare(source, connection, stored.get(source.id))
         except Exception:
             _count_compare_error(source)
+
+
+def _typed_in_connection(source: ExternalDataSource, inputs: Mapping[str, Any]) -> dict[str, Any] | None:
+    """The connection fields that the row of the source must hold, or None when the source has no typed-in row."""
+    if not has_typed_in_credentials(str(source.source_type)):
+        return None
+    return _connection_fields(source.source_type, inputs) or None
 
 
 def _due_for_compare(source: ExternalDataSource) -> bool:
@@ -192,14 +266,14 @@ def _due_for_compare(source: ExternalDataSource) -> bool:
 
 def _count_compare(
     source: ExternalDataSource,
-    inputs: Mapping[str, Any],
+    connection: Mapping[str, Any],
     stored: dict[str, Any] | CredentialsUnreadable | None,
 ) -> None:
     if stored is None:
         result = "missing_row"
     elif isinstance(stored, CredentialsUnreadable):
         result = "unreadable"
-    elif _comparable(_connection_fields(source.source_type, inputs)) != _comparable(stored):
+    elif _comparable(connection) != _comparable(stored):
         result = "field_mismatch"
     else:
         result = "match"
@@ -245,3 +319,21 @@ def _in_event_loop() -> bool:
 
 def _log_context(source: ExternalDataSource) -> dict[str, Any]:
     return {"source_id": str(source.id), "team_id": source.team_id, "source_type": str(source.source_type)}
+
+
+def requested_credentials_reference(
+    source: ExternalDataSource, existing_inputs: Mapping[str, Any], incoming_inputs: Mapping[str, Any]
+) -> Any | None:
+    """The credentials reference that an API edit of the source sets, or None to keep the stored one.
+
+    A client may point the source at another row only when the source can use that row: a warehouse
+    source row of the source's team and kind, with the source's auth type. Raises
+    `UnusableCredentialsReferenceError` for any other row, so a client cannot attach another team's
+    credentials.
+    """
+    requested = incoming_inputs.get(CREDENTIALS_REFERENCE_KEY)
+    if requested in (None, "") or str(requested) == str(existing_inputs.get(CREDENTIALS_REFERENCE_KEY)):
+        return None
+    if not WarehouseSourceCredentialsStore.usable_by(source, requested):
+        raise UnusableCredentialsReferenceError(f"Source {source.id} cannot use credentials {requested!r}")
+    return requested

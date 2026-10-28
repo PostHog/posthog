@@ -15,7 +15,6 @@ from sshtunnel import BaseSSHTunnelForwarderError, SSHTunnelForwarder
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
 from posthog.psycopg_helpers import (
     is_resolvable_hostname,
     is_temporary_resolution_failure,
@@ -26,6 +25,8 @@ from posthog.security.oob_domains import matched_oob_domain
 from posthog.temporal.common.errors import NonReportableError
 from posthog.utils import get_instance_region
 
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.util import _is_safe_public_ip
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
@@ -1004,7 +1005,7 @@ def _integration_fetch_backoff_sleep(attempt: int) -> None:
 class OAuthMixin:
     """Mixin for OAuth-based sources"""
 
-    def get_oauth_integration(self, integration_id: int, team_id: int) -> Integration:
+    def get_oauth_integration(self, integration_id: int, team_id: int) -> IntegrationRecord:
         """Get OAuth integration from integration ID.
 
         Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
@@ -1023,8 +1024,8 @@ class OAuthMixin:
         attempt = 0
         while True:
             try:
-                return Integration.objects.get(id=integration_id, team_id=team_id)
-            except Integration.DoesNotExist:
+                return IntegrationManager.any.get(team_id, integration_id)
+            except IntegrationNotFound:
                 raise ValueError(f"Integration not found: {integration_id}") from None
             except OperationalError:
                 attempt += 1

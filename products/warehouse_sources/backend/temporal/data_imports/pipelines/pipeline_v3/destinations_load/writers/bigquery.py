@@ -208,9 +208,13 @@ class BigQueryDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
+        from products.integrations.backend.facade.api import (
+            IntegrationManager,  # noqa: PLC0415 — avoids a model import cycle
+        )
 
-        integration = Integration.objects.get(id=self._ctx.integration_id, team_id=self._ctx.team_id)
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(
+            self._ctx.team_id, self._ctx.integration_id
+        )
         google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
         if not google_cloud_integration.has_key():
             # Keyless means PostHog impersonates the team's service account instead of holding

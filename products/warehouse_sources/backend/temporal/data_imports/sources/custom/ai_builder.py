@@ -25,9 +25,9 @@ from typing import Literal
 
 import requests
 import structlog
-from openai import OpenAI
+from anthropic import Anthropic
 
-from posthog.llm.gateway_client import Product, get_llm_client
+from posthog.llm.gateway_client import Product, build_anthropic_client, team_distinct_id
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
@@ -195,8 +195,8 @@ def _collapse_untrusted(text: str) -> str:
 def extract_manifest_json(content: str) -> dict | None:
     """Parse the model's reply into a manifest dict, tolerating fences or surrounding prose.
 
-    ``response_format={"type": "json_object"}`` isn't reliably honoured through the gateway's
-    Anthropic route, so the reply can arrive fenced or with leading text. Try the whole string,
+    The Anthropic Messages API has no JSON mode, so the reply can arrive fenced or with leading
+    text. Try the whole string,
     then a fenced block, then the outermost ``{…}`` span. Returns the dict, or None if nothing
     parses to a JSON object.
     """
@@ -323,22 +323,19 @@ def _validate_manifest(manifest: dict, *, team_id: int) -> tuple[list[str], str 
     return [schema.name for schema in schemas], None
 
 
-def _call_model(*, client: OpenAI, team_id: int, system_prompt: str, user_prompt: str) -> str:
+def _call_model(*, client: Anthropic, team_id: int, system_prompt: str, user_prompt: str) -> str:
     # Bound each call: the SDK defaults to a 600s timeout and automatic retries, so without this one
     # synchronous draft request could pin a web worker for many minutes. Fail fast and let the draft
     # loop / caller surface the error instead. (A Temporal-backed async path is the longer-term fix.)
-    response = client.with_options(timeout=90.0, max_retries=0).chat.completions.create(
+    response = client.with_options(timeout=90.0, max_retries=0).messages.create(
         model=CUSTOM_SOURCE_BUILDER_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_prompt}],
         # No `temperature`: it's deprecated/rejected for claude-opus-4-8 (the model fixes it).
         max_tokens=MAX_OUTPUT_TOKENS,
-        response_format={"type": "json_object"},
-        user=f"team-{team_id}",
+        metadata={"user_id": team_distinct_id(team_id)},
     )
-    return response.choices[0].message.content or ""
+    return "".join(block.text for block in response.content if block.type == "text")
 
 
 def draft_manifest_sync(
@@ -347,7 +344,7 @@ def draft_manifest_sync(
     source_name: str,
     docs_text: str,
     max_attempts: int = MAX_DRAFT_ATTEMPTS,
-    client: OpenAI | None = None,
+    client: Anthropic | None = None,
     reference_text: str | None = None,
 ) -> ManifestDraftResult:
     """Draft and validate a manifest, repairing against validation errors up to ``max_attempts``.
@@ -356,7 +353,16 @@ def draft_manifest_sync(
     AI-data-processing opt-in before calling: this ships the docs text to the LLM gateway.
     """
     reference_text = reference_text if reference_text is not None else load_skill_reference()
-    client = client if client is not None else get_llm_client(product=CUSTOM_SOURCE_BUILDER_PRODUCT, team_id=team_id)
+    client = (
+        client
+        if client is not None
+        else build_anthropic_client(
+            product=CUSTOM_SOURCE_BUILDER_PRODUCT,
+            ai_product=CUSTOM_SOURCE_BUILDER_PRODUCT,
+            distinct_id=team_distinct_id(team_id),
+            team_id=team_id,
+        )
+    )
 
     system_prompt = build_system_prompt(reference_text)
     docs = _bounded_docs(docs_text)
