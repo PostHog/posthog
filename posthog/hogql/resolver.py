@@ -1,4 +1,5 @@
 import string
+from collections import defaultdict
 from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any, Optional, cast
@@ -418,6 +419,45 @@ class FieldCollector(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         self.fields.append(node)
         return node
+
+
+MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS: int = 3
+
+
+def _collect_field_root_names(node: ast.AST | None) -> set[str]:
+    if node is None:
+        return set()
+    collector = FieldCollector()
+    collector.visit(node)
+    return {str(f.chain[0]) for f in collector.fields if f.chain}
+
+
+def _collect_join_constraint_field_roots(join_expr: ast.JoinExpr | None) -> set[str]:
+    roots: set[str] = set()
+    current = join_expr
+    while current:
+        if current.constraint and current.constraint.expr:
+            roots.update(_collect_field_root_names(current.constraint.expr))
+        if current.table_args:
+            for arg in current.table_args:
+                roots.update(_collect_field_root_names(arg))
+        if isinstance(current.table, ast.JoinExpr):
+            roots.update(_collect_join_constraint_field_roots(current.table))
+        current = current.next_join
+    return roots
+
+
+def _expand_cte_dependencies(roots: set[str], pending_ctes: dict[str, ast.CTE]) -> set[str]:
+    candidates: set[str] = set()
+    queue = list(roots)
+    while queue:
+        name = queue.pop()
+        if name in pending_ctes and name not in candidates:
+            candidates.add(name)
+            for dep in _collect_field_root_names(pending_ctes[name].expr):
+                if dep in pending_ctes and dep not in candidates:
+                    queue.append(dep)
+    return candidates
 
 
 # Marker for "name absent from self.ctes" in the staged-alias journal, distinct from a
@@ -957,7 +997,16 @@ class Resolver(CloningVisitor):
         """Visit each SELECT query or subquery."""
         # Each SELECT level gets its own frame of deferred scalar WITH aliases, so joins inside
         # a subquery can never resolve (or consume) an outer level's pending aliases.
-        self._pending_scalar_ctes.append({"pending": {}, "staged": {}, "published": []})
+        self._pending_scalar_ctes.append(
+            {
+                "pending": {},
+                "staged": {},
+                "published": [],
+                "attempts": defaultdict(int),
+                "failed_table_sets": defaultdict(set),
+                "relevant_for_joins": set(),
+            }
+        )
         try:
             with self.context.entering_select(node.view_name):
                 return self._resolve_select_query(node)
@@ -1012,6 +1061,14 @@ class Resolver(CloningVisitor):
             ctes=current_level_ctes,
             # "select" needs a default value, so [] it is
             select=[],
+        )
+
+        # Compute which pending scalar WITH aliases are actually referenced (directly or
+        # transitively) by join constraints or table args in the join tree. Only those CTEs
+        # will be speculatively attempted during join traversal.
+        self._pending_scalar_ctes[-1]["relevant_for_joins"] = _expand_cte_dependencies(
+            _collect_join_constraint_field_roots(node.select_from),
+            self._pending_scalar_ctes[-1]["pending"],
         )
 
         # Visit the FROM clauses first. This resolves all table aliases onto self.scopes[-1].
@@ -1925,12 +1982,32 @@ class Resolver(CloningVisitor):
         if not self._pending_scalar_ctes:
             return 0
         frame = self._pending_scalar_ctes[-1]
-        for name, cte in list(frame["pending"].items()):
+        relevant: set[str] = frame.get("relevant_for_joins", set())
+        if not relevant or not frame["pending"]:
+            return len(frame["published"])
+
+        scope = self.scopes[-1] if self.scopes else None
+        visible_tables = (
+            frozenset(scope.tables.keys()) if scope else frozenset(),
+            len(scope.anonymous_tables) if scope else 0,
+        )
+
+        for name in list(frame["pending"].keys()):
+            if name not in relevant:
+                continue
+            if frame["attempts"][name] >= MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS:
+                continue
+            if visible_tables in frame["failed_table_sets"][name]:
+                continue
+
+            frame["attempts"][name] += 1
+            cte = frame["pending"][name]
             shadowed = self.ctes.get(name, _MISSING_CTE)
             resolved_cte = self._try_resolve_scalar_cte(cte)
             if resolved_cte is None:
                 # Needs a table that is not in scope yet; a later join (or the post-FROM
                 # resolution) will try again.
+                frame["failed_table_sets"][name].add(visible_tables)
                 continue
             frame["staged"][name] = resolved_cte
             del frame["pending"][name]

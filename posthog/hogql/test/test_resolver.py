@@ -34,7 +34,7 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
-from posthog.hogql.resolver import ResolutionError, resolve_types
+from posthog.hogql.resolver import MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS, ResolutionError, Resolver, resolve_types
 from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_by_name
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
@@ -715,6 +715,57 @@ class TestResolver(BaseTest):
                 dialect="clickhouse",
             )
         self.assertIn("Unable to resolve field: pdate", str(e.exception))
+
+    def test_ctes_speculative_resolution_attempt_cap_on_joins(self):
+        attempts: dict[str, int] = {}
+        orig_try = Resolver._try_resolve_scalar_cte
+
+        def mock_try(resolver_self, cte):
+            attempts[cte.name] = attempts.get(cte.name, 0) + 1
+            return orig_try(resolver_self, cte)
+
+        with patch.object(Resolver, "_try_resolve_scalar_cte", mock_try):
+            # A scalar CTE not referenced in join constraints is never speculatively attempted during joins
+            self._print_hogql(
+                """
+                with toStartOfDay(timestamp) as day
+                select day
+                from events e
+                join numbers(1) n1 on 1=1
+                join numbers(1) n2 on 1=1
+                join numbers(1) n3 on 1=1
+                join numbers(1) n4 on 1=1
+                join numbers(1) n5 on 1=1
+                """
+            )
+            # Exactly 1 eager attempt before FROM; zero speculative attempts during the 5 joins
+            self.assertEqual(attempts.get("day"), 1)
+
+            # A scalar CTE in join constraints is capped at MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS during joins
+            attempts.clear()
+            with self.assertRaises(QueryError) as e:
+                resolve_types(
+                    self._select(
+                        """
+                        with non_existent_table.col as bad_alias
+                        select 1
+                        from events e
+                        join numbers(1) n1 on 1=1 and bad_alias = 1
+                        join numbers(1) n2 on 1=1 and bad_alias = 1
+                        join numbers(1) n3 on 1=1 and bad_alias = 1
+                        join numbers(1) n4 on 1=1 and bad_alias = 1
+                        join numbers(1) n5 on 1=1 and bad_alias = 1
+                        """
+                    ),
+                    self.context,
+                    dialect="clickhouse",
+                )
+            self.assertIn("Unable to resolve field: bad_alias", str(e.exception))
+            # 1 eager attempt before FROM + at most MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS during joins = 4
+            self.assertEqual(
+                attempts.get("bad_alias"),
+                1 + MAX_SPECULATIVE_SCALAR_CTE_ATTEMPTS,
+            )
 
     def test_ctes_subqueries(self):
         self.assertEqual(
