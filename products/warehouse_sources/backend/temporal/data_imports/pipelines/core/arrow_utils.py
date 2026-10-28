@@ -470,6 +470,9 @@ def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.
     debug_info = f'{{"load_id": {load_id}}}'
 
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
+    # Source data can already carry `_ph_debug`, e.g. files written by an earlier PostHog sync.
+    if "_ph_debug" in table.column_names:
+        return table.set_column(table.schema.get_field_index("_ph_debug"), "_ph_debug", column)
     return table.append_column("_ph_debug", column)
 
 

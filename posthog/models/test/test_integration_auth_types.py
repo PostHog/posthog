@@ -4,6 +4,7 @@ from typing import Any
 from posthog.test.base import BaseTest
 
 from django.db import models
+from django.db.migrations.state import ModelState
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -105,9 +106,20 @@ ROWS: dict[str, tuple[str, dict]] = {
     "slack_oauth": ("slack", {}),
     "slack_token": ("slack", {"auth_type": "token"}),
     "postgres": ("postgresql", {}),
+    "postgres_source": ("postgresql", {"warehouse_source_type": "Postgres"}),
     "unknown_kind": ("acme-crm", {}),
 }
-DEFAULT_ROWS = {"github_oauth", "github_oauth_explicit", "github_null", "slack_oauth", "postgres", "unknown_kind"}
+DEFAULT_ROWS = {
+    "github_oauth",
+    "github_oauth_explicit",
+    "github_null",
+    "slack_oauth",
+    "postgres",
+    "postgres_source",
+    "unknown_kind",
+}
+# An unqualified query also skips warehouse source rows, whose config has another shape.
+IMPLICIT_ROWS = DEFAULT_ROWS - {"postgres_source"}
 GITHUB_OAUTH_ROWS = {"github_oauth", "github_oauth_explicit", "github_null"}
 
 
@@ -140,7 +152,7 @@ class TestIntegrationWithAuth(BaseTest):
             (
                 "credentials_with_the_unknown_kind_default",
                 lambda: Integration.objects._with_auth(AuthType.CREDENTIALS),
-                {"postgres", "unknown_kind"},
+                {"postgres", "postgres_source", "unknown_kind"},
             ),
             (
                 "oauth_with_kind",
@@ -150,8 +162,14 @@ class TestIntegrationWithAuth(BaseTest):
             ("default_selector", lambda: Integration.objects._with_auth(DEFAULT), DEFAULT_ROWS),
             ("default_and_token", lambda: Integration.objects._with_auth(DEFAULT, AuthType.TOKEN), set(ROWS)),
             ("any", lambda: Integration.objects._with_auth(ANY), set(ROWS)),
-            ("unqualified_query", lambda: Integration.objects.all(), DEFAULT_ROWS),
+            ("unqualified_query", lambda: Integration.objects.all(), IMPLICIT_ROWS),
             ("unqualified_filter", lambda: Integration.objects.filter(kind="github"), GITHUB_OAUTH_ROWS),
+            (
+                "unqualified_filter_skips_source_rows",
+                lambda: Integration.objects.filter(kind="postgresql"),
+                {"postgres"},
+            ),
+            ("default_manager", lambda: Integration._default_manager.all(), set(ROWS)),
             (
                 "narrowed_twice",
                 lambda: Integration.objects._with_auth(ANY)._with_auth(AuthType.TOKEN),
@@ -175,6 +193,7 @@ class TestIntegrationWithAuth(BaseTest):
             "slack_oauth": "oauth",
             "slack_token": "token",
             "postgres": "credentials",
+            "postgres_source": "credentials",
             "unknown_kind": "credentials",
         }
 
@@ -265,6 +284,12 @@ class TestIntegrationWithAuth(BaseTest):
         assert {row.integration_id for row in prefetched_team.integration_set.all()} == set(ROWS)
         assert self._names(Integration._base_manager.all()) == set(ROWS)
         assert self._names(self.team.integration_set._with_auth(AuthType.TOKEN)) == {"github_token", "slack_token"}
+
+    def test_the_unfiltered_default_manager_does_not_change_the_migration_state(self) -> None:
+        # A default manager that is not named `objects` would need a migration.
+        assert (Integration._default_manager.name, ModelState.from_model(Integration).managers) == ("objects", [])
+        assert Integration.objects is not Integration._default_manager
+        assert self._names(Integration._default_manager._with_auth(AuthType.TOKEN)) == {"github_token", "slack_token"}
 
     def test_deleting_the_creator_reaches_non_default_rows(self) -> None:
         creator = User.objects.create_and_join(self.organization, "creator@example.com", None)

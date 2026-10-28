@@ -38,7 +38,7 @@ from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import constant_integer
 from posthog.hogql.transforms.trino.limits import MAX_TRINO_SQL_LENGTH
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 from posthog.exchange_rate_constants import EXCHANGE_RATE_DECIMAL_PRECISION
@@ -262,6 +262,21 @@ def _escape_regex_class_brackets(pattern: str) -> str:
 class _BinaryArguments:
     left: str
     right: str
+
+
+class _JoinByTypeFinder(TraversingVisitor):
+    def __init__(self, table_type: ast.ColumnAliasedTableType) -> None:
+        super().__init__()
+        self.table_type = table_type
+        self.found: ast.JoinExpr | None = None
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if self.found is not None:
+            return
+        if node.type is self.table_type:
+            self.found = node
+            return
+        super().visit_join_expr(node)
 
 
 class TrinoPrinter(PostgresPrinter):
@@ -762,7 +777,7 @@ class TrinoPrinter(PostgresPrinter):
             return self._visit_lambda_array_call(node, "any_match" if name == "arrayexists" else "all_match")
         if name == "intdiv":
             binary_args = self._visit_binary_args(node)
-            if not all(isinstance(self._resolve_type(arg), ast.IntegerType) for arg in node.args):
+            if not all(self._is_integer_operand(arg) for arg in node.args):
                 self._unsupported(
                     "TRINO_INT_DIV_TYPE_UNSUPPORTED", "intDiv requires integer operands in Trino mode.", node
                 )
@@ -1522,7 +1537,13 @@ class TrinoPrinter(PostgresPrinter):
                 self._is_dynamic_property(arg) for arg in node.args
             ):
                 return ast.BooleanType()
+        if isinstance(node, ast.ArrayAccess) and isinstance(node.type, ast.UnknownType):
+            # The resolver types an element read off a CTE column as unknown, though the printer can see the array.
+            array_type = self._resolve_type(node.array)
+            if isinstance(array_type, ast.ArrayType) and not isinstance(array_type.item_type, ast.UnknownType):
+                return array_type.item_type
         value_type = node.type
+        merged_type: ast.ConstantType | None = None
         seen: set[int] = set()
         while value_type is not None and id(value_type) not in seen:
             seen.add(id(value_type))
@@ -1533,10 +1554,17 @@ class TrinoPrinter(PostgresPrinter):
                 table_type = value_type.table_type
                 if isinstance(table_type, ast.CTETableAliasType):
                     table_type = table_type.cte_table_type
-                if isinstance(table_type, ast.CTETableType) and isinstance(
-                    table_type.select_query_type, ast.SelectQueryType
-                ):
-                    column_type = table_type.select_query_type.columns.get(value_type.name)
+                select_type: ast.Type | None = None
+                if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
+                    select_type = table_type.select_query_type
+                elif isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
+                    select_type = table_type
+                while isinstance(select_type, ast.SelectSetQueryType) and select_type.types:
+                    if merged_type is None and value_type.name in select_type.columns:
+                        merged_type = select_type.columns[value_type.name].resolve_constant_type(self.context)
+                    select_type = select_type.types[0]
+                if isinstance(select_type, ast.SelectQueryType):
+                    column_type = select_type.columns.get(value_type.name)
                     if column_type is not None:
                         value_type = column_type
                         continue
@@ -1552,6 +1580,20 @@ class TrinoPrinter(PostgresPrinter):
             if isinstance(value_type, ast.FieldType) and self._is_text_backed_warehouse_column(value_type):
                 return ast.StringType(nullable=True)
             return ast.ArrayType(item_type=ast.StringType(), nullable=resolved.nullable)
+        # A set query merges branch column types, which turns a curated string array into a plain array.
+        if (
+            isinstance(resolved, ast.ArrayType)
+            and isinstance(value_type, ast.FieldType)
+            and self._is_text_backed_warehouse_column(value_type)
+        ):
+            return ast.StringType(nullable=True)
+        # Branches of different types are promoted, e.g. Date with DateTime, so the first branch is not the column type.
+        if (
+            merged_type is not None
+            and not isinstance(merged_type, ast.UnknownType)
+            and type(merged_type) is not type(resolved)
+        ):
+            return merged_type
         return resolved
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
@@ -1582,13 +1624,15 @@ class TrinoPrinter(PostgresPrinter):
             table_type = current.table_type
             if isinstance(table_type, ast.CTETableAliasType):
                 table_type = table_type.cte_table_type
+            select_type: ast.Type | None = table_type
             if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
                 select_type = table_type.select_query_type
-                current = (
-                    select_type.columns.get(current.name) if isinstance(select_type, ast.SelectQueryType) else None
-                )
-                continue
-            return current
+            elif not isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
+                return current
+            # A set query's columns take their names from the first branch.
+            while isinstance(select_type, ast.SelectSetQueryType) and select_type.types:
+                select_type = select_type.types[0]
+            current = select_type.columns.get(current.name) if isinstance(select_type, ast.SelectQueryType) else None
         return None
 
     def _unnest_column_type(self, table_type: ast.ColumnAliasedTableType, column: str) -> ast.ConstantType | None:
@@ -1597,25 +1641,52 @@ class TrinoPrinter(PostgresPrinter):
             table_type.table_type.table, TrinoUnnestTable
         ):
             return None
+        join = self._unnest_join(table_type)
+        if join is None or not join.table_args or not join.column_aliases or column not in join.column_aliases:
+            return None
+        rows_expr = join.table_args[0]
+        rows = self._resolve_type(rows_expr)
+        index = join.column_aliases.index(column)
+        if (
+            isinstance(rows, ast.ArrayType)
+            and isinstance(rows.item_type, ast.TupleType)
+            and index < len(rows.item_type.item_types)
+        ):
+            item_type = rows.item_type.item_types[index]
+            if not isinstance(item_type, ast.UnknownType):
+                return item_type
+        # `arrayJoin(arr)` lowers to `arrayMap(v -> tuple(v), arr)`, typed before a CTE source column was known.
+        if (
+            index == 0
+            and isinstance(rows_expr, ast.Call)
+            and rows_expr.name == "arrayMap"
+            and len(rows_expr.args) == 2
+            and isinstance(rows_expr.args[0], ast.Lambda)
+            and isinstance(rows_expr.args[0].expr, ast.Tuple)
+            and len(rows_expr.args[0].expr.exprs) == 1
+            and isinstance(rows_expr.args[0].expr.exprs[0], ast.Field)
+            and rows_expr.args[0].expr.exprs[0].chain == list(rows_expr.args[0].args)
+        ):
+            source = self._resolve_type(rows_expr.args[1])
+            if isinstance(source, ast.ArrayType) and not isinstance(source.item_type, ast.UnknownType):
+                return source.item_type
+        return None
+
+    def _unnest_join(self, table_type: ast.ColumnAliasedTableType) -> ast.JoinExpr | None:
         for scope in reversed(self.stack):
             if not isinstance(scope, ast.SelectQuery):
                 continue
             join = scope.select_from
             while join is not None:
                 if join.alias == table_type.alias and join.table_args and join.column_aliases:
-                    if column not in join.column_aliases:
-                        return None
-                    rows = self._resolve_type(join.table_args[0])
-                    index = join.column_aliases.index(column)
-                    if (
-                        isinstance(rows, ast.ArrayType)
-                        and isinstance(rows.item_type, ast.TupleType)
-                        and index < len(rows.item_type.item_types)
-                    ):
-                        return rows.item_type.item_types[index]
-                    return None
+                    return join
                 join = join.next_join
-        return None
+        # A column read through a CTE or subquery points at an UNNEST outside the current scope chain.
+        if not self.stack:
+            return None
+        finder = _JoinByTypeFinder(table_type)
+        finder.visit(self.stack[0])
+        return finder.found
 
     def _subquery_scalar_type(self, node: ast.SelectQuery | ast.SelectSetQuery) -> ast.ConstantType | None:
         query = node
@@ -1647,6 +1718,22 @@ class TrinoPrinter(PostgresPrinter):
         while isinstance(node, ast.Alias):
             node = node.expr
         return isinstance(node, ast.PropertyAccess)
+
+    def _is_integer_operand(self, node: ast.Expr) -> bool:
+        while isinstance(node, ast.Alias):
+            node = node.expr
+        if isinstance(self._resolve_type(node), ast.IntegerType):
+            return True
+        # The resolver loses array columns of derived tables, but these always return an integer in ClickHouse.
+        if isinstance(node, ast.Call) and node.name.lower() in {"length", "lengthutf8", "empty", "notempty"}:
+            return True
+        if isinstance(node, ast.ArithmeticOperation) and node.op in {
+            ast.ArithmeticOperationOp.Add,
+            ast.ArithmeticOperationOp.Sub,
+            ast.ArithmeticOperationOp.Mult,
+        }:
+            return self._is_integer_operand(node.left) and self._is_integer_operand(node.right)
+        return False
 
     def _is_numeric(self, node: ast.Expr) -> bool:
         return isinstance(self._resolve_type(node), (ast.IntegerType, ast.FloatType, ast.DecimalType))
@@ -2411,9 +2498,45 @@ class TrinoPrinter(PostgresPrinter):
                 f"IF(cardinality({left}) = cardinality({right}), {mapped}, "
                 "fail('arrayMap requires equal-length arrays'))"
             )
-        if len(node.args) != 2 or not isinstance(node.args[0], ast.Lambda):
+        predicate = target in {"filter", "any_match", "all_match"}
+        lambda_node = node.args[0] if node.args else None
+        if predicate and len(node.args) == 3 and isinstance(lambda_node, ast.Lambda) and len(lambda_node.args) == 2:
+            return self._visit_zipped_predicate_call(node, lambda_node, target)
+        if len(node.args) != 2 or not isinstance(lambda_node, ast.Lambda):
             self._invalid_function_arguments(node, f"{node.name} expects a lambda and array in Trino mode.")
-        return f"{target}({self.visit(node.args[1])}, {self.visit(node.args[0])})"
+        rendered_lambda = self._visit_predicate_lambda(lambda_node) if predicate else self.visit(lambda_node)
+        return f"{target}({self.visit(node.args[1])}, {rendered_lambda})"
+
+    def _visit_predicate_lambda(self, node: ast.Lambda) -> str:
+        # ClickHouse treats any non-zero lambda result as true, while Trino's filter needs a boolean.
+        identifiers = [self._print_identifier(arg) for arg in node.args]
+        arguments = identifiers[0] if len(identifiers) == 1 else f"({', '.join(identifiers)})"
+        return f"{arguments} -> {self._visit_predicate(self._lambda_body(node))}"
+
+    def _visit_zipped_predicate_call(self, node: ast.Call, lambda_node: ast.Lambda, target: str) -> str:
+        left = self.visit(node.args[1])
+        right = self.visit(node.args[2])
+        if target == "filter":
+            # Keep each left item with its verdict, because the lambda sees the item pair but returns the left item.
+            first = self._print_identifier(lambda_node.args[0])
+            rows = f"zip_with({left}, {right}, {self._visit_zip_row_lambda(lambda_node, first)})"
+            result = f"transform(filter({rows}, __hogql_row -> __hogql_row[2]), __hogql_row -> __hogql_row[1])"
+        else:
+            verdicts = f"zip_with({left}, {right}, {self._visit_predicate_lambda(lambda_node)})"
+            result = f"{target}({verdicts}, __hogql_verdict -> __hogql_verdict)"
+        return (
+            f"IF(cardinality({left}) = cardinality({right}), {result}, "
+            f"fail('{node.name} requires equal-length arrays'))"
+        )
+
+    def _visit_zip_row_lambda(self, node: ast.Lambda, first: str) -> str:
+        identifiers = [self._print_identifier(arg) for arg in node.args]
+        return f"({', '.join(identifiers)}) -> ROW({first}, {self._visit_predicate(self._lambda_body(node))})"
+
+    def _lambda_body(self, node: ast.Lambda) -> ast.Expr:
+        if isinstance(node.expr, ast.Block):
+            self._unsupported("TRINO_LAMBDA_BLOCK_UNSUPPORTED", "Lambda blocks are not supported in Trino mode.", node)
+        return node.expr
 
     def _visit_array_sort_key(self, node: ast.Call) -> str:
         key = node.args[0]

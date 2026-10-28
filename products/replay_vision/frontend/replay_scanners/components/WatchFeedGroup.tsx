@@ -81,7 +81,7 @@ function WatchFeedGroupMember({
     )
 }
 
-/** Opens the other sessions in a card's duplicate group under the card, so a reader can see who else hit it. */
+/** Opens the other sessions in a card's feed group under the card, so a reader can see who else hit it. */
 export function WatchFeedGroupToggle({ similarCount, cardContext, ...logicProps }: WatchFeedGroupProps): JSX.Element {
     const { expanded } = useValues(watchFeedGroupLogic(logicProps))
     const { toggleExpanded } = useActions(watchFeedGroupLogic(logicProps))

@@ -126,7 +126,7 @@ describe('inboxFiltersLogic', () => {
                     scope: 'teammate:not-a-uuid',
                     source: 'error_tracking,bogus_source',
                     priority: 'P9,P1',
-                    state: 'monitoring,bogus-state',
+                    state: 'monitoring,closed,bogus-state',
                     // priority:desc has a valid field and direction but is not one of the offered sort options.
                     sort: 'priority:desc',
                 })

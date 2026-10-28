@@ -11,10 +11,10 @@ from collections.abc import Mapping
 from posthog.models.integration.auth_types import register_kind_auth_types
 
 from products.integrations.backend.facade.catalogue import KINDS
-from products.integrations.backend.facade.contracts import KindSpec
+from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY, KindSpec
 from products.integrations.backend.facade.enums import AuthType
 
-SOURCE_MARKER_CONFIG_KEY = "warehouse_source_type"
+__all__ = ["SOURCE_MARKER_CONFIG_KEY", "is_source_kind", "register_source_kinds"]
 
 _lock = threading.Lock()
 _source_kinds: set[str] = set()

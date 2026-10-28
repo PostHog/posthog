@@ -380,6 +380,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'billing:read',
     'replay_scanner:write',
     'session_recording:read',
+    'hog_flow:read',
     'hog_flow:write',
 ] as const
 
