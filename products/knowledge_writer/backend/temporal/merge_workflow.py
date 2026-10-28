@@ -35,7 +35,7 @@ MERGE_CHECK_RETRYABLE_ERRORS = (
 )
 
 
-@dataclass
+@dataclass(frozen=True)
 class MergeCheckInputs:
     commit_sha: str
     team_id: int
