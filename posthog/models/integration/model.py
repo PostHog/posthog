@@ -447,7 +447,7 @@ class Integration(models.Model):
 setattr(Integration, "objects", ManagerDescriptor(Integration._implicit_default_auth_objects))  # noqa: B010
 
 
-def defer_repository_cache_fields(queryset: models.QuerySet[Integration]) -> models.QuerySet[Integration]:
+def defer_repository_cache_fields[QuerySetT: models.QuerySet[Integration]](queryset: QuerySetT) -> QuerySetT:
     return queryset.defer("repository_cache", "repository_cache_updated_at")
 
 

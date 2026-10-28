@@ -5,6 +5,7 @@
     IntegrationManager.github.oauth.get(team_id, integration_id)  # one kind, one auth type: reads and writes
     IntegrationManager.stripe.any.list(team_id)                   # one kind, every auth type: reads and deletes
     IntegrationManager.any.get(team_id, integration_id)           # every kind: reads and deletes
+    IntegrationManager.any.with_source_rows().delete(team_id, id) # every kind, warehouse source rows too
     IntegrationManager.source("ab-tasty").token.create(...)       # warehouse source rows of a registered kind
 
 A kind class has an attribute only for the auth types that the kind supports, so mypy rejects

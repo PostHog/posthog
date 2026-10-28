@@ -6,7 +6,7 @@ from typing import Any, Literal
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
-from rest_framework.fields import get_attribute
+from rest_framework.fields import empty, get_attribute
 from rest_framework.relations import PKOnlyObject
 
 from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
@@ -19,8 +19,8 @@ class IntegrationReferenceField(serializers.Field):
     """An integration id of the request's team. Use it instead of a `PrimaryKeyRelatedField` on `Integration`.
 
     It reads the team from the serializer context (`team_id`, or `get_team`), so a row of another team
-    is "does not exist". Pass `kinds` to accept only rows of these catalogue kinds. A field with `kinds`
-    also refuses warehouse source rows, because their config does not have the shape of the kind.
+    is "does not exist". Pass `kinds` to accept only rows of these catalogue kinds. The field refuses
+    warehouse source rows, the same as `IntegrationManager.any` and `IntegrationManager.kinds(...)`.
 
     With `kinds`, `auth_types` selects the auth types the field accepts. The default (None) accepts only
     the default auth type of each kind, because code that reads a kind expects its usual config shape.
@@ -58,6 +58,12 @@ class IntegrationReferenceField(serializers.Field):
         if team_id is None:
             self.fail("no_team")
         return int(team_id)
+
+    def run_validation(self, data: object = empty) -> object:
+        # Same as DRF's `RelatedField`: an empty string means no row, so `allow_null` and `required` decide.
+        if data == "":
+            data = None
+        return super().run_validation(data)
 
     def to_internal_value(self, data: object) -> IntegrationRecord:
         if isinstance(data, bool) or not isinstance(data, int | str):

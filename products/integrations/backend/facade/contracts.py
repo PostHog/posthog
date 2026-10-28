@@ -11,7 +11,7 @@ from products.integrations.backend.facade.enums import AuthType
 ConfigValue = str | int | float | bool | None
 
 # A row that holds the typed-in credentials of a warehouse source stores the source type under this
-# config key. Only `IntegrationManager.source(kind)` and `IntegrationManager.any` read these rows.
+# config key. Only `IntegrationManager.source(kind)` and a reader from `with_source_rows()` read these rows.
 SOURCE_MARKER_CONFIG_KEY = "warehouse_source_type"
 
 
