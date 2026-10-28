@@ -11,7 +11,6 @@ import { urls } from 'scenes/urls'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SourceFormComponent } from 'products/data_warehouse/frontend/shared/components/forms/SourceForm'
-import { CDCEngineApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
 import { buildKeaFormDefaultFromSourceDetails } from '../../NewSourceScene/sourceWizardLogic'
@@ -152,7 +151,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
                     </AccessControlAction>
                 </div>
             </Form>
-            {sourceFieldConfig.cdcEngine === CDCEngineApi.Postgres && <CDCSection source={source} />}
+            <CDCSection source={source} />
         </>
     )
 }

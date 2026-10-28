@@ -150,7 +150,11 @@ function confirmThen(opts: {
 
 export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { sourceFieldConfig } = useValues(sourceSettingsLogic)
 
+    if (!sourceFieldConfig?.cdcEngine) {
+        return null
+    }
     if (source.access_method !== 'warehouse') {
         return null
     }
