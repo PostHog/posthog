@@ -211,6 +211,13 @@ class MSSQLSource(
             # view definition, so retrying replays the identical 245. Match the stable error text,
             # not the volatile value / data type that follow it.
             "Conversion failed when converting": "A value in one of the tables or views you're syncing can't be converted to the type its query expects (SQL Server error 245) — for example a text value where a number is required. This usually comes from a view definition or computed column that casts or compares mismatched types. Fix the conversion at the source (correct the data or the view), then re-enable the sync.",
+            # SQL Server error 1105 — a filegroup (most often tempdb, spilling the sort our
+            # incremental query's ORDER BY needs) ran out of storage space. This is the server's
+            # own disk/file-size capacity, which SQL Server's own message says to fix by freeing
+            # space, adding files, or turning on autogrowth; retrying runs the identical sort
+            # against the identical shortage. Match the stable wording after the filegroup name,
+            # not the object/database/filegroup names that vary around it.
+            "filegroup is full due to lack of storage space": "Your SQL Server ran out of storage space (SQL Server error 1105), often in tempdb while sorting rows for a sync. Free up disk space, add files to the filegroup, or enable autogrowth on your SQL Server, then re-enable the sync.",
             # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
             # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
             # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. This

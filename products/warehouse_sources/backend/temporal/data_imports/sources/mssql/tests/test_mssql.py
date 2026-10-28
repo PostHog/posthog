@@ -627,6 +627,23 @@ class TestMSSQLSourceNonRetryableErrors:
         non_retryable = MSSQLSource().get_non_retryable_errors()
         assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql shape for SQL Server error 1105 during an ORDER BY sort spill.
+            "(1105, b\"Could not allocate space for object 'dbo.SORT temporary run storage:  "
+            "140760200970240' in database 'tempdb' because the 'PRIMARY' filegroup is full due to "
+            'lack of storage space or database files reaching the maximum allowed size.")',
+            # Different object/database/filegroup names must still match the stable substring.
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'mydb' because the "
+            "'SECONDARY' filegroup is full due to lack of storage space or database files reaching "
+            "the maximum allowed size.",
+        ],
+    )
+    def test_filegroup_storage_exhausted_is_non_retryable(self, error_msg):
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
     def test_table_not_found_is_non_retryable(self, impl, cursor):
         # Drive the real raise site so the message and the rule can't drift apart: a table dropped
         # after schema discovery yields no columns from INFORMATION_SCHEMA and must stop retrying.
