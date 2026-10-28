@@ -2,6 +2,7 @@ import time
 import asyncio
 import decimal
 import datetime
+import functools
 import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import TYPE_CHECKING, Any, Generic
@@ -66,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.r
     DurableProgress,
     HandoffGate,
     RideOutConfig,
+    activity_execution_age_seconds,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
     PipelineSafePointHandler,
@@ -75,6 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.s
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
+    drop_internal_columns,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_column_name,
@@ -200,6 +203,8 @@ class PipelineV3(Generic[ResumableData]):
     _ride_out: RideOutConfig | None = None
     _progress: DurableProgress | None = None
     _handoff_gate: HandoffGate | None = None
+    # The grace of the run's `ShutdownMonitor`. The age checks of a hand-off leave it out.
+    _shutdown_grace_seconds: float = 0.0
     _resumed_incremental_run_uuid: str | None = None
     _sent_resumed_run_finalization: bool = False
     _writes_staged_repartition_scheme: bool = False
@@ -230,11 +235,13 @@ class PipelineV3(Generic[ResumableData]):
         continued_job_ids: tuple[str, ...] = (),
         ride_out: RideOutConfig | None = None,
         progress: DurableProgress | None = None,
+        shutdown_grace_seconds: float = 0.0,
     ) -> None:
         self._resource = source_response
         self._kept_rows_synced = kept_rows_synced
         self._ride_out = ride_out
         self._progress = progress
+        self._shutdown_grace_seconds = shutdown_grace_seconds
         self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
 
@@ -686,7 +693,7 @@ class PipelineV3(Generic[ResumableData]):
         carry_over_enabled = self._preemption is not None and self._preemption.watermark_carry_over_enabled
         if checkpoint is not None and not checkpoint.is_void and carry_over_enabled:
             return PreemptionDecision(eligible=True, reason="watermark_carry_over")
-        if is_young_first_attempt():
+        if is_young_first_attempt(self._shutdown_grace_seconds):
             return PreemptionDecision(eligible=True, reason="young_first_attempt")
         if checkpoint is not None and not checkpoint.is_void:
             return PreemptionDecision(
@@ -719,10 +726,17 @@ class PipelineV3(Generic[ResumableData]):
             # A hand-off retires a laned run's companion jobs, so that run keeps the legacy rule.
             config=None if self._resource.lanes else self._ride_out,
             legacy_wants_handoff=lambda: should_check_shutdown(
-                self._schema, self._resource, self._reset_pipeline, self._resumable_source_manager is not None
+                self._schema,
+                self._resource,
+                self._reset_pipeline,
+                self._resumable_source_manager is not None,
+                shutdown_grace_seconds=self._shutdown_grace_seconds,
             ),
             restarts_from_scratch=self._restarts_from_scratch,
             logger=self._logger,
+            execution_age_seconds=functools.partial(
+                activity_execution_age_seconds, shutdown_grace_seconds=self._shutdown_grace_seconds
+            ),
         )
         return self._handoff_gate
 
@@ -1078,8 +1092,13 @@ class PipelineV3(Generic[ResumableData]):
                 chunk_index += 1
             await self._finalize(row_count=row_count)
 
-            if activity.in_activity() and self._shutdown_monitor.is_worker_shutdown():
-                get_import_finished_during_shutdown_metric(source_type, handoff_gate.rode_out).add(1)
+            # The signal, not the monitor: an import that finished inside the shutdown grace counts too.
+            if activity.in_activity() and activity.is_worker_shutdown():
+                get_import_finished_during_shutdown_metric(
+                    source_type,
+                    handoff_gate.rode_out,
+                    within_grace=not self._shutdown_monitor.is_worker_shutdown(),
+                ).add(1)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
@@ -1143,7 +1162,7 @@ class PipelineV3(Generic[ResumableData]):
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
-        pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        pa_table = _append_debug_column_to_pyarrows_table(drop_internal_columns(pa_table), self._load_id)
         if not self._resource.preserve_column_names:
             pa_table = normalize_table_column_names(pa_table)
 

@@ -10,6 +10,7 @@ import {
     buildSections,
     emptyRemoteSlots,
     pickDisplayedQuery,
+    resultsSettled,
 } from './commandKSections'
 import { RESULTS_LIMIT } from './commandKSources'
 
@@ -52,6 +53,7 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     viewAll: null,
     stale: false,
     personsFirst: false,
+    settingsInResults: false,
     ...overrides,
 })
 
@@ -207,16 +209,16 @@ describe('buildSections', () => {
             ['results', 'events', 'ask-ai', 'persons'],
         ],
         [
-            'only a loading row below Results while persons that go first load',
+            'only result skeletons while persons that go first load',
             { events: [dashboard('e', '8')] },
             true,
-            ['results', 'loading-more'],
+            ['results'],
         ],
         [
-            'persons right below Results when they go first',
+            'persons above filter-only Results when they go first',
             { persons: [dashboard('p', '9')] },
             true,
-            ['results', 'persons', 'loading-more'],
+            ['persons', 'results', 'loading-more'],
         ],
     ])('reveals %s', (_, loaded, personsFirst, expectedKeys) => {
         const remote = emptyRemoteSlots()
@@ -233,6 +235,108 @@ describe('buildSections', () => {
             })
         )
         expect(sections.map((section) => section.key)).toEqual(expectedKeys)
+    })
+
+    it('ranks a person who matches every word of an email search above results that match fewer', () => {
+        const person: SearchItem = {
+            id: 'person-1',
+            name: 'ada.l@example.com',
+            displayName: 'ada.l@example.com',
+            category: 'persons',
+            record: { type: 'person', ref: '1' },
+        }
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: { 'ada.l@': [{ ...dashboard('a', '1'), name: 'Ada', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }] },
+        }
+        remote.persons = { cache: { 'ada.l@': [person] } }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'ada.l@', persons: 'ada.l@' },
+                localQuery: 'ada.l@',
+                personsFirst: true,
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(['best-matches'])
+        expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
+    })
+
+    test.each(['results', 'accounts'] as const)('waits for both ranked sources when %s loads first', (firstSource) => {
+        const account: SearchItem = {
+            id: 'account-1',
+            name: 'Test organization',
+            category: 'accounts',
+            href: '/customer_analytics/accounts/account-1',
+        }
+        const remote = emptyRemoteSlots()
+        const current = query({
+            remoteQueries: { results: 'atlas.example.org', accounts: 'atlas.example.org' },
+            localQuery: 'atlas.example.org',
+        })
+        const shown = query({ remoteQueries: { results: 'old' }, localQuery: 'old' })
+        remote.results.cache.old = []
+        remote[firstSource].cache['atlas.example.org'] = firstSource === 'accounts' ? [account] : []
+        const sectionsInput = input('search', { remote, ...current })
+
+        expect(sectionKinds(buildSections(sectionsInput))).toEqual([['results', ['skeleton', 'skeleton', 'skeleton']]])
+        expect(resultsSettled(current, remote)).toBe(false)
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: shown, stale: true })
+
+        remote.results.cache['atlas.example.org'] = []
+        remote.accounts.cache['atlas.example.org'] = [account]
+        const sections = buildSections(sectionsInput)
+        expect(resultsSettled(current, remote)).toBe(true)
+        expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: current, stale: false })
+        expect(sections.map((section) => section.key)).toEqual(['best-matches'])
+        expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'accounts', item: account }])
+    })
+
+    it('shows saved objects when the Accounts request settles empty', () => {
+        const remote = emptyRemoteSlots()
+        remote.results.cache.billing = [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }]
+        remote.accounts.cache.billing = []
+        const current = query({ remoteQueries: { results: 'billing', accounts: 'billing' }, localQuery: 'billing' })
+
+        expect(resultsSettled(current, remote)).toBe(true)
+        expect(sectionKinds(buildSections(input('search', { remote, ...current })))).toEqual([
+            ['best-matches', ['item']],
+        ])
+    })
+
+    test.each([
+        ['off', false, 'Personal API keys', ['best-matches', 'settings'], 'Ada board'],
+        ['on', true, 'Personal API keys', ['best-matches'], 'Personal API keys'],
+        ['on, but a product has its name', true, 'API keys', ['best-matches', 'settings'], 'API keys'],
+    ])('ranks an exact-match setting with the results: flag %s', (_, settingsInResults, settingName, keys, first) => {
+        const setting: SearchItem = {
+            id: 'settings-api-keys',
+            name: `User: ${settingName} (api keys)`,
+            displayName: settingName,
+            category: 'settings',
+        }
+        const products: SearchItem[] =
+            settingName === 'API keys' ? [{ id: 'product-api-keys', name: 'API keys', category: 'products' }] : []
+        const remote = emptyRemoteSlots()
+        remote.results = {
+            cache: {
+                'api keys': [{ ...dashboard('a', '1'), name: 'Ada board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+            },
+        }
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings: [setting], products },
+                remote,
+                remoteQueries: { results: 'api keys' },
+                localQuery: 'api keys',
+                settingsInResults,
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(keys)
+        const firstItem = sections[0].rows[0]
+        expect(firstItem.kind === 'item' ? String(firstItem.item.displayName || firstItem.item.name) : null).toBe(first)
     })
 
     it('says which words were dropped when a filter is active', () => {

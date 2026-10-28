@@ -6,6 +6,7 @@ import time_machine
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -102,8 +103,17 @@ class TestInsights:
 
         assert ids == ["start=1777075200:end=1777161600:entity_id=cmpn_1"] * 2
 
+    @parameterized.expand(
+        [
+            ("recent_watermark", datetime(2026, 7, 1, tzinfo=UTC), "2026-07-01"),
+            ("first_sync", None, "2025-07-22"),
+            ("watermark_older_than_reporting_history", datetime(2024, 3, 1, tzinfo=UTC), "2025-07-22"),
+        ]
+    )
     @time_machine.travel("2026-07-21", tick=False)
-    def test_checkpoint_pins_the_window_alongside_the_cursor(self) -> None:
+    def test_checkpoint_pins_the_window_alongside_the_cursor(
+        self, _name: str, watermark: datetime | None, expected_since: str
+    ) -> None:
         result = _driver().run(
             "campaign_insights",
             [
@@ -111,12 +121,12 @@ class TestInsights:
                 _page([{"id": "b1", "start_time": 1, "end_time": 2}], has_more=True, last_id="b1"),
                 _page([{"id": "b2", "start_time": 2, "end_time": 3}], has_more=False, last_id="b2"),
             ],
-            db_incremental_field_last_value=datetime(2026, 7, 1, tzinfo=UTC),
+            db_incremental_field_last_value=watermark,
             should_use_incremental_field=True,
         )
 
         assert result.raised is None
-        assert result.saved_states == [OpenAIAdsResumeConfig(cursor="b1", since="2026-07-01", until="2026-07-21")]
+        assert result.saved_states == [OpenAIAdsResumeConfig(cursor="b1", since=expected_since, until="2026-07-21")]
 
     @time_machine.travel("2026-07-21", tick=False)
     def test_resume_reuses_the_pinned_window_with_the_saved_cursor(self) -> None:
@@ -140,6 +150,29 @@ class TestInsights:
         assert isinstance(result.raised, ValueError)
         assert "account currency" in str(result.raised)
         assert result.paths == ["/v1/ad_account"]
+
+
+class TestForbiddenResponses:
+    @parameterized.expand(
+        [
+            ("entity_list", "campaigns", "server_error", False),
+            ("fan_out", "ads", "server_error", False),
+            ("insights_currency_lookup", "campaign_insights", "server_error", False),
+            ("permission_code", "campaigns", "permission_denied", True),
+            ("no_error_code", "ads", None, True),
+        ]
+    )
+    def test_403_disables_the_schema_only_without_a_server_error_code(
+        self, _name: str, endpoint: str, code: str | None, disables: bool
+    ) -> None:
+        source = OpenAIAdsSource()
+        body = {"error": {"code": code}} if code is not None else {}
+        result = _driver().run(endpoint, always(ScriptedResponse(status=403, json=body)))
+
+        assert result.raised is not None
+        error = str(result.raised)
+        assert error_message_matches(error, source.get_non_retryable_errors()) is disables
+        assert error_message_matches(error, source.get_retryable_errors()) is not disables
 
 
 class TestValidateCredentials:

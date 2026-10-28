@@ -111,7 +111,7 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
-    /// Set only by `get_match_v2`; the v3 record is built from it.
+    /// Set only by `get_match_v2`; the v4 record is built from it.
     pub evaluation_v2: Option<EvaluationDetail>,
 }
 
@@ -567,6 +567,12 @@ fn record_persons_db_deadline_exceeded<T>(operation: &'static str, result: &Resu
     with_canonical_log(|log| {
         log.persons_db_deadline_exceeded.get_or_insert(operation);
     });
+}
+
+/// The one place a failed flag is built, so the request outcome sees every failure.
+fn failed_flag_details(flag: &FeatureFlag, error: &FlagError) -> FlagDetails {
+    with_canonical_log(|log| log.outcome_marks.mark_flag_failed(error));
+    FlagDetails::create_error(flag, error, None)
 }
 
 impl FeatureFlagMatcher {
@@ -1134,10 +1140,7 @@ impl FeatureFlagMatcher {
                 continue;
             }
             if let Err(error) = flag.filters.require_supported() {
-                evaluated_flags_map.insert(
-                    flag.key.clone(),
-                    FlagDetails::create_error(flag, &error, None),
-                );
+                evaluated_flags_map.insert(flag.key.clone(), failed_flag_details(flag, &error));
                 unsupported_flag_ids.push(flag.id);
             }
         }
@@ -1161,10 +1164,8 @@ impl FeatureFlagMatcher {
                     && flag.filters.is_v1()
                     && flag.ensure_experience_continuity.unwrap_or(false)
             }) {
-                evaluated_flags_map.insert(
-                    flag.key.clone(),
-                    FlagDetails::create_error(flag, &hash_key_error, None),
-                );
+                evaluated_flags_map
+                    .insert(flag.key.clone(), failed_flag_details(flag, &hash_key_error));
             }
         }
 
@@ -1250,6 +1251,7 @@ impl FeatureFlagMatcher {
             self.flag_evaluation_state.skip_person_properties();
             return false;
         }
+        with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
 
         match self
             .prepare_flag_evaluation_state(flags_requiring_db_preparation.as_slice())
@@ -1274,12 +1276,11 @@ impl FeatureFlagMatcher {
         error: &FlagError,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
     ) {
-        evaluated_flags_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
-            (
-                flag.key.clone(),
-                FlagDetails::create_error(flag, error, None),
-            )
-        }));
+        evaluated_flags_map.extend(
+            flags_requiring_db_preparation
+                .iter()
+                .map(|flag| (flag.key.clone(), failed_flag_details(flag, error))),
+        );
 
         error!(
             "Error preparing flag evaluation state for team {} distinct_id {}: {:?}",
@@ -1486,8 +1487,7 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason)],
                     1,
                 );
-                level_evaluated_flags_map
-                    .insert(flag.key.clone(), FlagDetails::create_error(flag, e, None));
+                level_evaluated_flags_map.insert(flag.key.clone(), failed_flag_details(flag, e));
             }
         }
     }
@@ -2103,7 +2103,7 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        // `/flags?v=2` reports these v1 reasons; `/flags?v=3` reports the evaluator's own code.
+        // `/flags?v=2` reports these v1 reasons; `/flags?v=4` reports the evaluator's own code.
         let reason = match evaluation {
             Evaluation::TargetingMatch { .. } | Evaluation::ExperimentSplit { .. } => {
                 FeatureFlagMatchReason::ConditionMatch
@@ -3138,6 +3138,7 @@ impl FeatureFlagMatcher {
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
+                with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
@@ -3242,6 +3243,7 @@ impl FeatureFlagMatcher {
         if !has_type_indexes {
             return false;
         }
+        with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
 
         let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
         let mut errors_while_computing_flags = false;

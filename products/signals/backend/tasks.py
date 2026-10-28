@@ -12,7 +12,9 @@ from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
+from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -38,8 +40,9 @@ from products.signals.backend.implementation_dispatch_tasks import (
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.implementation_pr_cache import refresh_implementation_pr_cache_for_links
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
-from products.signals.backend.inbox_summary import sync_pull_request_participants
+from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
@@ -53,13 +56,14 @@ from products.signals.backend.models import (
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
-from products.signals.backend.pull_requests import update_pull_request_review_decision
+from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
-from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
+from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
+from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
@@ -78,15 +82,56 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_report_to_slack,
     slack_api_error_code,
 )
+from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.support_writeback import (
+    post_pull_request_to_tickets,
+    task_can_write_support_ticket_update,
+)
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def refresh_report_implementation_pr_cache(
+    team_id: int,
+    report_ids: list[str] | None = None,
+    pull_request_ids: list[str] | None = None,
+    task_ids: list[str] | None = None,
+) -> None:
+    """Retry a cached PR flag refresh that failed after its link write committed."""
+    refresh_implementation_pr_cache_for_links(
+        team_id=team_id,
+        report_ids=report_ids or [],
+        pull_request_ids=pull_request_ids or [],
+        task_ids=task_ids or [],
+    )
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+    if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
+        return
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+    signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
+    post_pull_request_to_tickets(team, report_id, pr_url, signals)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
 @with_team_scope()
 def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
     from products.signals.backend.onboarding_activation import (
@@ -115,6 +160,24 @@ def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
         return
     if pending:
         reconcile_inbox_onboarding.apply_async(args=[team_id], countdown=60)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=10,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@with_team_scope(canonical=True)
+def settle_scout_spend(team_id: int, run_id: str) -> None:
+    from products.signals.backend.spend import (
+        complete_task_spend,  # noqa: PLC0415 - keeps spend accounting off the task registration import path
+    )
+
+    complete_task_spend(team_id=team_id, run_id=run_id)
 
 
 @shared_task(
@@ -162,6 +225,14 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
     )
     if github is None:
         return
+    if pr.state == SignalReportPullRequest.State.MERGED and pr.merged_at is None:
+        details = github.get_pull_request(pr.repository, pr.number)
+        merged_at = github_datetime(details.get("merged_at"))
+        if not details.get("success") or details.get("merged") is not True or merged_at is None:
+            raise GitHubIntegrationError("Could not verify the pull request merge time")
+        update_pull_request_state(
+            team_id=team_id, repository=pr.repository, number=pr.number, state="merged", merged_at=merged_at
+        )
     snapshot = github.get_pull_request_snapshot(pr.url)
     if not snapshot.get("success"):
         logger.warning(
@@ -725,20 +796,43 @@ def send_reviewer_added_slack_notifications(
     )
 
 
+# Bounded recovery for a transient GitHub failure on the first shared assignment: 1m, 2m, 4m, 8m,
+# 15m, about half an hour in total. A later pull request event still queues a fresh attempt, so an
+# exhausted retry is final only for this attempt and never sweeps other reports.
+_FIRST_ASSIGNMENT_MAX_RETRIES = 5
+_FIRST_ASSIGNMENT_RETRY_BASE_SECONDS = 60
+_FIRST_ASSIGNMENT_RETRY_MAX_SECONDS = 900
+
+
 @shared_task(
     name="products.signals.backend.tasks.assign_reviewers_on_implementation_pr",
     ignore_result=True,
-    max_retries=0,
+    bind=True,
+    max_retries=_FIRST_ASSIGNMENT_MAX_RETRIES,
 )
 @with_team_scope()
-def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
-    """Put a report's opted-in reviewers, or else one DRI, on its implementation PR as GitHub assignees.
+def assign_reviewers_on_implementation_pr(self, team_id: int, report_id: str, pr_url: str) -> None:
+    """Assign an owner to the implementation PR and request a review.
 
     Runs on a worker because the GitHub calls (integration probe, PR read, assign) must not hold up
-    the claim, sync, or reviewer edit that queued it. Best-effort end to end, so the assigner
-    reports its own failures and this never retries: the next pull request event queues it again.
+    the claim, sync, or reviewer edit that queued it. Every attempt re-reads the accepted list,
+    corrections, access, delivery flags, and GitHub state, so a retry respects anything that changed
+    in between and finds a write that did land as an existing assignment. A skipped attempt, such as
+    one a disabled flag suppressed, is a decision and is never retried or replayed.
     """
-    assign_reviewers_to_pull_request(team_id=team_id, report_id=report_id, pr_url=pr_url)
+    outcome = deliver_pull_request_assignment(team_id=team_id, report_id=report_id, pr_url=pr_url)
+    if not outcome.retryable:
+        return
+    log = logger.bind(team_id=team_id, report_id=report_id, status=outcome.status, reason=outcome.reason)
+    if self.request.retries >= self.max_retries:
+        log.warning("signals.reviewer_pr_assignment.recovery_exhausted", attempts=self.request.retries + 1)
+        return
+    countdown = min(
+        _FIRST_ASSIGNMENT_RETRY_BASE_SECONDS * (2**self.request.retries), _FIRST_ASSIGNMENT_RETRY_MAX_SECONDS
+    )
+    countdown = max(countdown, outcome.retry_after or 0)
+    log.info("signals.reviewer_pr_assignment.recovery_scheduled", attempt=self.request.retries + 1, countdown=countdown)
+    raise self.retry(countdown=countdown)
 
 
 @shared_task(
@@ -1168,6 +1262,24 @@ def refresh_signal_scout_background_bands() -> None:
     """
     outcome = refresh_background_bands()
     logger.info("signals_scout background bands refreshed", written=outcome.written, removed=outcome.removed)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.reconcile_report_inbox_state_cache",
+    ignore_result=True,
+    max_retries=0,
+)
+@skip_team_scope_audit
+def reconcile_report_inbox_state_cache() -> None:
+    """Daily: correct cached implementation PR flags that drifted from the link tables, and count the drift."""
+    corrected = failed = 0
+    for team_id in teams_with_reports():
+        try:
+            corrected += reconcile_report_inbox_state(team_id)
+        except Exception as error:
+            failed += 1
+            capture_exception(error, {"team_id": team_id})
+    logger.info("signals report inbox state reconciled", implementation_pr=corrected, failed_teams=failed)
 
 
 @shared_task(

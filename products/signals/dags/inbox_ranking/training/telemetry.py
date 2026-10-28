@@ -19,6 +19,7 @@ from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
 from products.signals.dags.inbox_ranking.common import RunContext, snapshot_bounds
+from products.signals.dags.inbox_ranking.training.families import PAIR_GRAIN
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
@@ -38,6 +39,7 @@ UNSEEN_CALIBRATION_EVENT = "inbox_ranking_unseen_calibration"
 HOLDOUT_CALIBRATION_EVENT = "inbox_ranking_holdout_calibration"
 SERVING_MANIFEST_PUBLISHED_EVENT = "inbox_ranking_serving_manifest_published"
 EXPERIMENT_COMPARED_EVENT = "inbox_ranking_experiment_compared"
+ENGAGEMENT_EXPORT_PUBLISHED_EVENT = "inbox_ranking_engagement_export_published"
 
 # Candidate metadata copied onto every per-head event so a chart can filter or break down on it.
 _CANDIDATE_CONTEXT_KEYS = (
@@ -140,11 +142,53 @@ def promotion_event(
     )
 
 
+_DELTA_KEYS = ("paired_seeds", "mean_delta_auc", "min_delta_auc", "max_delta_auc", "wins")
+
+
+def _pair_comparison_events(block: Mapping[str, Any], context: Mapping[str, Any]) -> list[TrainingEvent]:
+    """One event per head, scope and slice of a pair experiment's `vs_baseline` block, so a chart
+    filters to one slice (such as `non_dogfood` users with 10 or more prior views) and reads its
+    within-user deltas against the baseline and the reference."""
+    events: list[TrainingEvent] = []
+    for head, grade in (block.get("heads") or {}).items():
+        for scope, slices in (grade.get("scopes") or {}).items():
+            for slice_name, cell in slices.items():
+                properties: dict[str, Any] = {
+                    **context,
+                    "grain": block.get("grain"),
+                    "baseline_model_name": block.get("baseline"),
+                    "reference_model_name": block.get("reference"),
+                    "seeds": len(block.get("seeds", [])),
+                    "head": head,
+                    **{key: grade.get(key) for key in ("train_rows", "holdout_rows", "holdout_positives")},
+                    "scope": scope,
+                    "slice": slice_name,
+                    **{f"slice_{key}": cell.get(key) for key in ("rows", "positives", "users", "teams")},
+                }
+                for comparison in ("vs_baseline", "vs_reference"):
+                    deltas = cell.get(comparison) or {}
+                    for read in ("macro", "pooled"):
+                        properties |= {
+                            f"{comparison}_within_user_{read}_{key}": (deltas.get(read) or {}).get(key)
+                            for key in _DELTA_KEYS
+                        }
+                    interval = deltas.get("macro_team_interval") or {}
+                    properties |= {
+                        f"{comparison}_within_user_macro_interval_{key}": interval.get(key)
+                        for key in ("low", "high", "teams")
+                    }
+                events.append(TrainingEvent(event=EXPERIMENT_COMPARED_EVENT, properties=properties))
+    return events
+
+
 def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
-    stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps."""
+    stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps.
+    A pair experiment's block gives one event per head, scope and slice instead."""
     block = metadata.get("vs_baseline") or {}
     context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
+    if block.get("grain") == PAIR_GRAIN:
+        return _pair_comparison_events(block, context)
     return [
         TrainingEvent(
             event=EXPERIMENT_COMPARED_EVENT,
@@ -217,6 +261,32 @@ def serving_manifest_event(
         if mirror.skip_reason is not None:
             properties["mirror_skip_reason"] = mirror.skip_reason
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
+
+
+def engagement_export_event(
+    *,
+    written: bool,
+    skip_reason: str | None,
+    rows: int,
+    excluded_rows: int,
+    local_share: float | None,
+    bytes_written: int,
+    schema_version: int,
+) -> TrainingEvent:
+    """What the day's engagement export sent to the mirror store. It carries counts only, never a
+    report id or a team id."""
+    return TrainingEvent(
+        event=ENGAGEMENT_EXPORT_PUBLISHED_EVENT,
+        properties={
+            "written": written,
+            "skip_reason": skip_reason,
+            "rows": rows,
+            "excluded_rows": excluded_rows,
+            "local_share": local_share,
+            "bytes": bytes_written,
+            "schema_version": schema_version,
+        },
+    )
 
 
 def unseen_head_graded_events(*, run_id: str, grades: Sequence[HeadGrade]) -> list[TrainingEvent]:

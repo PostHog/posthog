@@ -19,13 +19,12 @@ Both feed capacity planning, so pick the workload on purpose.
 
 Answer in order and stop at the first yes.
 
-| Question                                                                        | Workload             |
-| ------------------------------------------------------------------------------- | -------------------- |
-| Does the query read a table that exists only on the logs cluster?               | `LOGS`               |
-| Does the query execute an Endpoints (the product) request?                      | `ENDPOINTS`          |
-| Does the query target the native events schema cluster?                         | `NEW_EVENTS_CLUSTER` |
-| Does a person wait on screen for this result (an app request, a Max chat turn)? | `ONLINE`             |
-| Anything else: scheduled, batch, export, backfill, recompute, eval, digest      | `OFFLINE`            |
+| Question                                                                        | Workload    |
+| ------------------------------------------------------------------------------- | ----------- |
+| Does the query read a table that exists only on the logs cluster?               | `LOGS`      |
+| Does the query execute an Endpoints (the product) request?                      | `ENDPOINTS` |
+| Does a person wait on screen for this result (an app request, a Max chat turn)? | `ONLINE`    |
+| Anything else: scheduled, batch, export, backfill, recompute, eval, digest      | `OFFLINE`   |
 
 `ONLINE` is for latency a person feels.
 A background job does not get faster with `ONLINE`.
@@ -54,7 +53,7 @@ The host comes from the environment of the pod that runs the code, in [`get_kwar
 
 - `ONLINE` connects to `CLICKHOUSE_HOST`.
 - `OFFLINE` connects to `CLICKHOUSE_OFFLINE_CLUSTER_HOST` when the deployment sets it, and to `CLICKHOUSE_HOST` when it does not.
-- `LOGS`, `ENDPOINTS`, and `NEW_EVENTS_CLUSTER` connect to their own hosts.
+- `LOGS` and `ENDPOINTS` connect to their own hosts.
 
 A background worker deployment can point `CLICKHOUSE_HOST` at the offline replicas and set `CLICKHOUSE_DEFAULT_WORKLOAD=OFFLINE`.
 Then `ONLINE` and `OFFLINE` from those pods both run on the offline replicas.

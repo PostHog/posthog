@@ -724,7 +724,7 @@ class TestExperimentExposurePreaggregation(ExperimentQueryRunnerBaseTest):
         INSERT-specific overrides like readonly, max_execution_time,
         insert_quorum, and load_balancing."""
         hogql_settings = get_default_hogql_global_settings(team_id=self.team.id).model_dump(exclude_none=True)
-        insert_settings = _get_insert_settings(self.team.id)
+        insert_settings = _get_insert_settings(self.team.id, LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED)
 
         # These are intentionally different for INSERTs
         intentional_overrides = {"readonly", "max_execution_time", "insert_quorum", "load_balancing"}
