@@ -24,10 +24,11 @@ from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ON
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
 from products.signals.dags.inbox_ranking.training.calibration import CalibrationBucket
+from products.signals.dags.inbox_ranking.training.families import ModelFamily
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
-from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, holdout_grade
-from products.signals.dags.inbox_ranking.training.unseen import ModelFamily
+from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, _auc, holdout_grade
+from products.signals.dags.inbox_ranking.training.within_team import within_team_auc
 
 HOLDOUT_MODEL_FILE = "model.holdout.onnx"
 
@@ -81,8 +82,8 @@ def candidate_metadata(
 ) -> dict[str, Any]:
     """The `metadata.json` of a `family` candidate, in the layout of the per-head families.
 
-    The heads carry the same metric fields as a booster's (`train_head` and this trainer both fill
-    `HeadMetrics`), so the promotion rule, the events and the manifest read every family alike.
+    The heads carry the metric fields of `HeadMetrics`, the fields the per-head booster families
+    wrote, so the promotion rule, the events and the manifest read every family alike.
     """
     feature_set = family.feature_set
     metadata = {
@@ -160,3 +161,57 @@ def champion_grades(
             continue
         grades[name] = holdout_grade(table.labels[rows, index].astype(int), probabilities[name][rows])
     return grades
+
+
+def _paired(experiment_aucs: Sequence[float | None], baseline_aucs: Sequence[float | None]) -> dict[str, Any]:
+    deltas = [
+        experiment - base
+        for experiment, base in zip(experiment_aucs, baseline_aucs)
+        if experiment is not None and base is not None
+    ]
+    return {
+        "experiment_aucs": list(experiment_aucs),
+        "baseline_aucs": list(baseline_aucs),
+        "paired_seeds": len(deltas),
+        "mean_delta_auc": float(np.mean(deltas)) if deltas else None,
+        "min_delta_auc": min(deltas) if deltas else None,
+        "max_delta_auc": max(deltas) if deltas else None,
+        "wins": sum(1 for delta in deltas if delta > 0),
+    }
+
+
+def vs_baseline_block(
+    table: ExampleTable,
+    *,
+    baseline: str,
+    seeds: Sequence[int],
+    experiment_scores: Sequence[np.ndarray],
+    baseline_scores: Sequence[np.ndarray],
+) -> dict[str, Any]:
+    """The experiment against its baseline, per head, on the same holdout rows.
+
+    Each seed fits both arms on the same train rows, so the two AUCs of one seed form a pair. One
+    seed's gap can be noise from the network's initialization alone, so the block keeps the range
+    of the gaps across seeds. `within_team` is the read the inbox order depends on, and `pooled` is
+    there for reference. A seed where either arm has no AUC drops out of the pairs.
+    """
+    train_rows = table.network_train_rows()
+    heads: dict[str, dict[str, Any]] = {}
+    for index, name in enumerate(NN_HEAD_NAMES):
+        rows = table.head_rows(index, holdout=True)
+        y = table.labels[rows, index].astype(int)
+        team_ids = table.team_ids(rows)
+        heads[name] = {
+            "train_rows": int((~np.isnan(table.labels[train_rows, index])).sum()),
+            "holdout_rows": len(rows),
+            "holdout_positives": int(y.sum()),
+            "within_team": _paired(
+                [within_team_auc(y, scores[rows, index], team_ids).auc for scores in experiment_scores],
+                [within_team_auc(y, scores[rows, index], team_ids).auc for scores in baseline_scores],
+            ),
+            "pooled": _paired(
+                [_auc(y, scores[rows, index]) for scores in experiment_scores],
+                [_auc(y, scores[rows, index]) for scores in baseline_scores],
+            ),
+        }
+    return {"baseline": baseline, "seeds": list(seeds), "heads": heads}

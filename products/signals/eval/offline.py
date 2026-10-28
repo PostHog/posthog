@@ -135,4 +135,5 @@ class SignalsEvalRecorder:
             self._report(f"upload failed: {reason}. Results were not saved for retry.")
             return None
         self._report(f"uploaded: {url}")
+        await self.publisher.tag(upload)
         return url

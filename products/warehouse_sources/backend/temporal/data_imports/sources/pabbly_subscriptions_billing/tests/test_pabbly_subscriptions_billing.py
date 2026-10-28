@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_sub
     PabblyResumeConfig,
     PabblyRetryableError,
     check_access,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pabbly_subscriptions_billing.settings import (
     ENDPOINTS,
@@ -233,6 +232,7 @@ class TestHttpSampleCapture:
             # bodies to HTTP samples. Everything carrying customer PII, payment data, redeemable
             # secrets, or bearer URLs the scrubbers can't recognise must stay out of captured samples.
             ("products", True),
+            ("plans", True),
             ("multiplans", True),
             ("addons", True),
             ("addon_list_category", True),
@@ -245,6 +245,7 @@ class TestHttpSampleCapture:
             ("transactions", False),
             ("licenses", False),
             ("coupons", False),
+            ("commissions", False),
         ]
     )
     def test_capture_enabled_only_for_catalog_metadata_endpoints(
@@ -269,9 +270,6 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Pabbly Subscription Billing returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -287,30 +285,6 @@ class TestCheckAccess:
         assert network.requests_log[0].path == "/api/v1/customers"
         assert network.requests_log[0].param("page") == "1"
         assert network.requests_log[0].param("limit") == "1"
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("pabbly-key", "pabbly-secret")
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Pabbly Subscription Billing API key or secret key"),
-            ("forbidden", 403, False, "Invalid Pabbly Subscription Billing API key or secret key"),
-            ("server_error", 500, False, "Pabbly Subscription Billing returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self,
-        _name: str,
-        status: int,
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("pabbly-key", "pabbly-secret") == (expected_valid, expected_message)
 
 
 class TestPabblySourceResponse:

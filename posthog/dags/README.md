@@ -24,7 +24,9 @@ Each individual product can also define their own DAGs on `products/<product>/da
 
 ### Cloud access for posthog employees
 
-Ask someone on the #team-infrastructure or #team-clickhouse to add you to Dagster Cloud. You might also want to join the #dagster-posthog slack channel.
+Production Dagster runs on Dagster+ at https://posthog.dagster.cloud, with one deployment per region: https://posthog.dagster.cloud/prod-us and https://posthog.dagster.cloud/prod-eu.
+
+Ask someone on the #team-infrastructure or #team-clickhouse to add you to Dagster+. You might also want to join the #dagster-posthog slack channel.
 
 ### Adding a New Team
 

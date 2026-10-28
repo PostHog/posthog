@@ -21,9 +21,11 @@ export const urls = {
         return `${baseUrl}${options ? `?${toParams(options)}` : ''}`
     },
     experiments: (): string => '/experiments',
-    featureFlag: (id: string | number): string => `/feature_flags/${id}`,
-    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
+    featureFlag: (id: string | number): string => `/feature-flags/${id}`,
+    featureFlags: (tab?: string): string => `/feature-flags${tab ? `?tab=${tab}` : ''}`,
     heatmap: (id: string | number): string => `/heatmaps/${id}`,
+    heatmaps: (params?: string): string =>
+        `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationBilling: (products?: string[]): string =>
         `/organization/billing${products && products.length ? `?products=${products.join(',')}` : ''}`,
     productTour: (id: string, params?: string): string =>

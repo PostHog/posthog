@@ -115,6 +115,21 @@ class TestCSPMiddleware(APIBaseTest):
         ).split()
         assert {"http://localhost:8234", "https://frontend--devbox--jane.coder.example.com"} <= set(script_src)
 
+    @parameterized.expand(
+        [
+            ("opted_in", True, True),
+            ("not_opted_in", False, False),
+        ]
+    )
+    def test_dev_policy_admits_the_code_inspector_only_when_opted_in(self, _name, opted_in, expected):
+        # The inspector server answers any origin, so the policy must not reach it unless the engineer asked for it.
+        with override_settings(DEBUG=True, DEV_CODE_INSPECTOR=opted_in):
+            response = self.client.get("/")
+        connect_src = next(
+            part for part in response["Content-Security-Policy"].split("; ") if part.startswith("connect-src ")
+        ).split()
+        assert ("http://localhost:5678" in connect_src) is expected
+
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.
         self.client.logout()

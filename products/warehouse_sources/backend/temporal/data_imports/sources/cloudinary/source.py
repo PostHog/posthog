@@ -119,7 +119,7 @@ Cloudinary limits Admin API calls per hour, 500 on free plans, so a first sync o
             iconPath="/static/services/cloudinary.png",
             docsUrl="https://posthog.com/docs/cdp/sources/cloudinary",
             keywords=["cloudinary.com", "media", "images", "cdn"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

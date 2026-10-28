@@ -421,6 +421,7 @@ class TestMetricSubjectAccess(BaseTest):
                 name="revenue",
                 description="Revenue",
                 definition={"kind": "HogQLQuery", "query": "SELECT 1 AS amount"},
+                overwrite=True,
             )
             if engine_fails:
                 raise RuntimeError("Query execution failed")

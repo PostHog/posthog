@@ -5,6 +5,7 @@ import { IconDocument, IconPullRequest, IconRocket, IconSearch, IconTerminal, Ic
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { AgentPromptButton } from 'lib/components/AgentPromptButton'
 import { cn } from 'lib/utils/css-classes'
 
 import { CheckList } from '../components/CheckList'
@@ -33,6 +34,7 @@ export function InstallationProgressContent({
     onViewReport,
     onDismiss,
     onRetryLocally,
+    onAgentPromptRun,
 }: {
     progress: InstallationProgress
     /** Tailors the connecting state (copy + upcoming-step preview) to where the run happens. */
@@ -49,8 +51,10 @@ export function InstallationProgressContent({
     /** When set, a failed run offers a "Run it yourself" button (switches the install step to the local
      * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
     onRetryLocally?: () => void
+    onAgentPromptRun?: (agentKey: string) => void
 }): JSX.Element {
     const { phase, steps, error, prUrl, prMerged } = progress
+    const usageLimited = error?.kind === 'usage_limit'
 
     // The PR is opened mid-run: while the run keeps going (keeping CI green), surface it as ready rather
     // than an indefinite "setting up". Terminal phases keep their own headline.
@@ -194,15 +198,41 @@ export function InstallationProgressContent({
             )}
 
             {phase === 'error' && (
-                // The cloud run failed — offer self-serve recovery so the user isn't stuck: run the wizard
-                // themselves (switches the install step to the local command) or follow the manual docs.
+                // Self-serve recovery so the user isn't stuck. A usage-limited run skips the rerun, which
+                // stops at the same AI gateway limit, and hands the setup to the user's own coding agent.
                 <div className="flex flex-wrap gap-2">
-                    {onRetryLocally && (
-                        <LemonButton type="primary" onClick={onRetryLocally} icon={<IconTerminal />}>
-                            Run it yourself
-                        </LemonButton>
+                    {usageLimited ? (
+                        <AgentPromptButton
+                            actions={[
+                                {
+                                    key: 'finish-setup',
+                                    label: 'setup prompt',
+                                    buildPrompt: () =>
+                                        `Set up PostHog in this project. Follow the instructions at ${docsUrl}`,
+                                },
+                            ]}
+                            pinnedAgentKey="clipboard"
+                            // PostHog AI cannot edit the user's codebase, so it cannot finish an SDK install.
+                            excludeAgentKeys={['posthog-ai']}
+                            appearance="lemon"
+                            lemonType="primary"
+                            onRun={({ agentKey }) => onAgentPromptRun?.(agentKey)}
+                            data-attr="wizard-usage-limit-agent-prompt"
+                        />
+                    ) : (
+                        onRetryLocally && (
+                            <LemonButton type="primary" onClick={onRetryLocally} icon={<IconTerminal />}>
+                                Run it yourself
+                            </LemonButton>
+                        )
                     )}
-                    <LemonButton type={onRetryLocally ? 'secondary' : 'primary'} to={docsUrl} targetBlank>
+                    <LemonButton
+                        type={usageLimited || onRetryLocally ? 'secondary' : 'primary'}
+                        // The Lemon agent button only comes in small.
+                        size={usageLimited ? 'small' : undefined}
+                        to={docsUrl}
+                        targetBlank
+                    >
                         Read the docs
                     </LemonButton>
                 </div>

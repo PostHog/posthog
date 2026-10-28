@@ -55,6 +55,7 @@ from posthog.hogql.functions.with_icon import with_icon
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import (
+    available_fields_suffix,
     expand_hogqlx_query,
     lookup_field_by_name,
     lookup_table_by_name,
@@ -1970,6 +1971,14 @@ class Resolver(CloningVisitor):
                 node.type = ast.FloatType()
         elif isinstance(left_type, ast.DateTimeType) or isinstance(right_type, ast.DateTimeType):
             node.type = ast.DateTimeType()
+        elif (
+            self.dialect == "trino"
+            and node.op in (ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub)
+            and isinstance(left_type, ast.DateType)
+            and isinstance(right_type, ast.IntegerType)
+        ):
+            # ClickHouse reads `Date ± Int` as a day offset; the Trino printer lowers it to date_add by this type.
+            node.type = ast.DateType()
         elif isinstance(left_type, ast.DecimalType) or isinstance(right_type, ast.DecimalType):
             # ClickHouse widens Decimal combined with a Float to Float; Decimal combined with a
             # Decimal or Integer stays Decimal. Anything else (e.g. Decimal + String) is unknown.
@@ -2517,7 +2526,11 @@ class Resolver(CloningVisitor):
                 return ast.Constant(value=value, type=global_type)
 
             suggestions = suggest_field_names(scope, name, self.context)
-            suggestion_suffix = f". Did you mean: {', '.join(suggestions)}?" if suggestions else ""
+            suggestion_suffix = (
+                f". Did you mean: {', '.join(suggestions)}?"
+                if suggestions
+                else available_fields_suffix(scope, node, self.context)
+            )
             # The message lists every close match, but a quick fix can only substitute one, so it
             # offers the best of them. `get_close_matches` returns them in descending similarity.
             fix = suggested_field_fix(node, suggestions[0]) if suggestions else None

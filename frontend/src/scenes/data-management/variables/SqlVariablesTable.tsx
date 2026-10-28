@@ -2,9 +2,12 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTag, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -17,6 +20,7 @@ import { sqlVariablesLogic } from './sqlVariablesLogic'
 export function SqlVariablesTable(): JSX.Element {
     const { filteredVariables, variablesLoading, searchTerm } = useValues(sqlVariablesLogic)
     const { deleteVariable, setSearchTerm } = useActions(sqlVariablesLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const handleDelete = (variable: Variable): void => {
         LemonDialog.open({
@@ -108,9 +112,15 @@ export function SqlVariablesTable(): JSX.Element {
                 description="Create reusable variables for your SQL queries. Use variables to parameterize your queries and make them dynamic."
                 resourceType={{ type: 'variable' }}
                 actions={
-                    <LemonButton type="primary" size="small" to={urls.variableEdit('new')}>
-                        New variable
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="primary" render={<LinkPrimitive to={urls.variableEdit('new')} />}>
+                            New variable
+                        </Button>
+                    ) : (
+                        <LemonButton type="primary" size="small" to={urls.variableEdit('new')}>
+                            New variable
+                        </LemonButton>
+                    )
                 }
             />
             <div className="flex flex-row items-center gap-2 justify-start mb-4">

@@ -66,6 +66,7 @@ class OfflineEvalDelivery:
             await self._report_failed(job, reason)
         else:
             await self._reporter.record_posthog_offline_result(job.upload.experiment_name, "uploaded", url=url)
+            await job.publisher.tag(job.upload)
 
     def _finished(self, task: asyncio.Task[None]) -> None:
         self._tasks.pop(task, None)

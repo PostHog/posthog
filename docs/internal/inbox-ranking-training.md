@@ -6,19 +6,19 @@ The artefact's team/report IDs, creation timestamp, and actor attribution identi
 Selecting the current priority adds no correction. These records are available for future priority learning; they do not introduce a new ranking label or training head.
 Research already running when a priority is edited preserves that correction; a later research run can reassess it.
 
-The report-embedding ranking family uses one example per report per head, from the report's birth-day snapshot.
+The `nn` ranking families use one example per report per head, from the report's birth-day snapshot.
 This prevents long-lived reports from receiving more weight in training because they appear in more daily snapshots.
 Birth days use the UTC interval returned by `snapshot_bounds`, including the start and excluding the end.
 The label comes from the snapshot `horizon_days` later, including outcomes already present on the birth day.
 
 The families train only the heads the inbox reads: `open`, `action` and `fixed`.
 The dataset still snapshots the label columns of other outcomes, so a head can come back without a labels backfill.
+Manual resolutions with reason `no_action_needed` count as reasoned resolutions for the `action` head but do not count toward the `fixed` head. They record that the report was accepted without claiming an implementation or a PR merge.
 
-The examples asset records `reports_missing_birth_snapshot` for observed reports born inside the lookback whose birth-day partition is missing.
+`reports_missing_birth_snapshot` counts the observed reports born inside the lookback whose birth-day partition is missing.
 These reports produce no birth-grain example; reports born before the lookback do not contribute to this count.
 A missing horizon snapshot also prevents an example because its label is unknown.
 Point-in-time state, label provenance, and embedding availability checks still apply.
-Each embedding family reads its own rendering's snapshot, so a report missing from one snapshot is an example for the other family only.
 
 Every training series resets on the first partition after deploy.
 Before and after holdout numbers are not comparable because the example population changes.
@@ -43,7 +43,7 @@ Each head in `metadata.json` records `cohort` (`everyone`) and `horizon_days`.
 ## Row budget
 
 A feature set can limit the rows one head keeps (`max_examples_per_head`).
-The report-embedding family sets it to 100,000.
+The report-embedding sets set it to 250,000.
 The budget limits history, not the rows inside a day:
 
 - The head's examples are grouped by report-creation day, newest first.
@@ -55,7 +55,7 @@ The scores stay calibrated to that population, and the holdout stays a clean tim
 A recency cut drops old positives with old negatives, so the budget must stay large enough to keep the rare heads fed.
 
 Each head in `metadata.json` records `example_window_start`, the earliest report-creation day kept, and `example_cap_bound`, whether the budget dropped any day.
-`inbox_ranking_examples_built` carries both fields, so a chart shows when the budget starts to bind.
+`inbox_ranking_candidate_trained` carries both fields per head, so a chart shows when the budget starts to bind.
 
 ## Promotion
 
@@ -127,7 +127,7 @@ They answer two questions: of the reports a head flags, how many have the outcom
 
 A head predicts positive when `score >= classification_threshold`.
 A score equal to the threshold is a positive prediction.
-The threshold is the positive rate of the rows the booster was fit on.
+The threshold is the positive rate of the rows the model was fit on.
 It means "at least as likely as the average fitting example", not a 50% probability.
 
 - **Holdout:** the threshold is the positive rate of the train-only rows. It is fixed before the holdout outcomes are read.

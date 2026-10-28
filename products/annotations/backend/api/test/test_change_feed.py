@@ -58,7 +58,7 @@ class TestChangeFeed(APIBaseTest):
             scope=Annotation.Scope.PROJECT,
         )
 
-    def _list(self, headers: dict[str, str] | None = None, **params: str) -> dict:
+    def _list(self, headers: dict[str, str] | None = None, **params: str | list[str]) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/change_feed/", params, headers=headers or {})
         assert response.status_code == 200, response.json()
         return response.json()
@@ -130,10 +130,35 @@ class TestChangeFeed(APIBaseTest):
 
         assert [change["kind"] for change in feed["results"]] == expected_kinds
 
-    def test_rejects_a_window_that_ends_before_it_starts(self) -> None:
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/change_feed/",
-            {"date_from": NOW.isoformat(), "date_to": (NOW - timedelta(hours=1)).isoformat()},
-        )
+    @parameterized.expand(
+        [
+            ("repeated_keys", ["feature_flag", "experiment"]),
+            ("json_encoded_array", '["feature_flag", "experiment"]'),
+            ("comma_separated", "feature_flag,experiment"),
+        ]
+    )
+    @time_machine.travel(NOW, tick=False)
+    def test_kinds_returns_only_those_kinds(self, _name: str, kinds: list[str] | str) -> None:
+        self._log_activity(at=NOW - timedelta(hours=2))
+        self._log_activity(at=NOW - timedelta(minutes=100), scope="Experiment", item_id="7", name="Checkout test")
+        with time_machine.travel(NOW - timedelta(hours=1), tick=False):
+            create_release(team_id=self.team.id, hash_id="checkout-1.4.0", version="1.4.0", project="checkout")
+        self._create_annotation(at=NOW - timedelta(minutes=30))
+
+        feed = self._list(kinds=kinds)
+
+        assert [change["kind"] for change in feed["results"]] == ["experiment", "feature_flag"]
+
+    @parameterized.expand(
+        [
+            (
+                "window_ends_before_it_starts",
+                {"date_from": NOW.isoformat(), "date_to": (NOW - timedelta(hours=1)).isoformat()},
+            ),
+            ("unknown_kind", {"kinds": "deploy"}),
+        ]
+    )
+    def test_rejects_invalid_query(self, _name: str, params: dict[str, str]) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/change_feed/", params)
 
         assert response.status_code == 400

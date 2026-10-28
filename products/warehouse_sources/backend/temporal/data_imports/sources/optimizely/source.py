@@ -112,10 +112,10 @@ class OptimizelySource(SimpleSource[OptimizelySourceConfig]):
             label="Optimizely",
             caption="""Enter your Optimizely personal access token to pull your experimentation data into the PostHog Data warehouse.
 
-An admin can generate a personal access token in Optimizely under Account Settings > API Access. Tokens are non-expiring. Project-scoped data (experiments, audiences, events, pages, campaigns) is synced across all projects the token can access.""",
+An admin can generate a personal access token in Optimizely under Account Settings > API Access. Tokens are non-expiring. Project-scoped data (experiments and their results, audiences, attributes, events, pages, campaigns and their results) is synced across all projects the token can access.""",
             iconPath="/static/services/optimizely.com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/optimizely",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

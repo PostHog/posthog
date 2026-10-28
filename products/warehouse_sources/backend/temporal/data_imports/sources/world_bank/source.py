@@ -57,7 +57,7 @@ class WorldBankSource(ResumableSource[WorldBankSourceConfig, WorldBankResumeConf
             name=ExternalDataSourceType.WORLDBANK,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="World Bank Open Data",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["world bank", "indicators", "gdp", "economic data"],
             caption="""Pull country-level development statistics from the [World Bank Indicators API](https://datahelpdesk.worldbank.org/knowledgebase/topics/125589-developer-information) into the PostHog Data warehouse.
 
@@ -79,6 +79,7 @@ The API has no "changed since" filter, and the World Bank revises historical val
                 [
                     SourceFieldInputConfig(
                         name="indicator_codes",
+                        sync_setting=True,
                         label="Indicator codes",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

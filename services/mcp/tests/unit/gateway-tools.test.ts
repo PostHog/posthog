@@ -94,6 +94,18 @@ describe('gateway tools', () => {
         expect(request).not.toHaveBeenCalled()
     })
 
+    it('hides and refuses a connected tool outside the held set', async () => {
+        const request = vi.fn()
+        const { exec } = createExec(buildGatewayTools(payload(), mockContext(request), '1'), undefined, {
+            heldTools: new Set(['feature-flag-create']),
+        })
+        expect(await exec.handler(mockContext(), { command: 'search create' })).not.toContain('linear__create_issue')
+        await expect(
+            exec.handler(mockContext(), { command: 'call --confirm linear__create_issue {"title":"Example"}' })
+        ).rejects.toMatchObject({ reason: 'tool_not_granted' })
+        expect(request).not.toHaveBeenCalled()
+    })
+
     it('allows explicitly selected connected tools', async () => {
         const request = vi.fn().mockResolvedValue({ ok: true })
         const { exec } = createExec(buildGatewayTools(payload(), mockContext(request), '1'), undefined, {

@@ -11,6 +11,7 @@ from posthog.models.integration import Integration
 from posthog.models.scoping import with_team_scope
 
 from products.workflows.backend.facade.contracts import (
+    TRANSACTIONAL_EMAIL_ACTION_ID,
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
     TransactionalEmailSenderUnavailable,
@@ -21,8 +22,6 @@ from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.hog_flow_writes import create_workflow, update_workflow
 
 TRIGGER_ACTION_ID = "trigger_node"
-# Engagement tracking and message assets key on this id, so it stays stable across versions.
-EMAIL_ACTION_ID = "transactional_email"
 EXIT_ACTION_ID = "exit_node"
 
 # The send endpoint passes the recipient as an event property. Liquid output is never parsed again, so an
@@ -41,7 +40,7 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
             "config": {"type": "api"},
         },
         {
-            "id": EMAIL_ACTION_ID,
+            "id": TRANSACTIONAL_EMAIL_ACTION_ID,
             "name": content.name,
             "description": "",
             "type": "function_email",
@@ -54,13 +53,18 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
                 "message_category_id": str(content.message_category_id) if content.message_category_id else None,
                 # Puts the send on the email queue's fast lane and skips marketing opt-outs.
                 "message_category_type": "transactional",
+                "sensitive": content.sensitive,
                 "inputs": {
                     "email": {
                         "templating": "liquid",
                         "value": {
                             "to": {"email": RECIPIENT_EXPRESSION, "name": ""},
-                            "from": {"integrationId": from_integration_id},
-                            "replyTo": "",
+                            "from": {
+                                "integrationId": from_integration_id,
+                                **({"email": content.from_email} if content.from_email else {}),
+                                **({"name": content.from_name} if content.from_name else {}),
+                            },
+                            "replyTo": content.reply_to,
                             "cc": "",
                             "bcc": "",
                             "subject": content.subject,
@@ -90,8 +94,8 @@ def _content_fields(content: TransactionalEmailContent, from_integration_id: int
         "name": content.name,
         "actions": actions,
         "edges": [
-            {"from": TRIGGER_ACTION_ID, "to": EMAIL_ACTION_ID, "type": "continue"},
-            {"from": EMAIL_ACTION_ID, "to": EXIT_ACTION_ID, "type": "continue"},
+            {"from": TRIGGER_ACTION_ID, "to": TRANSACTIONAL_EMAIL_ACTION_ID, "type": "continue"},
+            {"from": TRANSACTIONAL_EMAIL_ACTION_ID, "to": EXIT_ACTION_ID, "type": "continue"},
         ],
         # The API serializer derives these two from the actions on every save.
         "trigger": actions[0]["config"],
@@ -99,7 +103,8 @@ def _content_fields(content: TransactionalEmailContent, from_integration_id: int
     }
 
 
-def _verified_sender(team_id: int, requested_id: int | None) -> int:
+def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -> int:
+    """The requested sender, or the project's default when none is requested. Raise when it isn't verified."""
     sender_id = requested_id or (
         TeamWorkflowsConfig.objects.filter(team_id=team_id)
         .values_list("default_email_integration_id", flat=True)
@@ -113,7 +118,7 @@ def _verified_sender(team_id: int, requested_id: int | None) -> int:
 
 def _current_sender(flow: HogFlow) -> int | None:
     # The email step is missing when someone edited the workflow directly. The update writes it back.
-    email = next((action for action in flow.actions if action.get("id") == EMAIL_ACTION_ID), None)
+    email = next((action for action in flow.actions if action.get("id") == TRANSACTIONAL_EMAIL_ACTION_ID), None)
     if email is None:
         return None
     return email["config"]["inputs"]["email"]["value"]["from"].get("integrationId")
@@ -124,7 +129,7 @@ def _current_sender(flow: HogFlow) -> int | None:
 def create_transactional_email_workflow(
     *, team_id: int, user_id: Optional[int], content: TransactionalEmailContent
 ) -> UUID:
-    from_integration_id = _verified_sender(team_id, content.from_integration_id)
+    from_integration_id = resolve_transactional_email_sender(team_id, content.from_integration_id)
     result = create_workflow(
         team_id=team_id,
         user_id=user_id,
@@ -153,9 +158,9 @@ def update_transactional_email_workflow(
         if flow is None:
             raise WorkflowNotFound()
         if content.from_integration_id:
-            from_integration_id = _verified_sender(team_id, content.from_integration_id)
+            from_integration_id = resolve_transactional_email_sender(team_id, content.from_integration_id)
         else:
-            from_integration_id = _current_sender(flow) or _verified_sender(team_id, None)
+            from_integration_id = _current_sender(flow) or resolve_transactional_email_sender(team_id, None)
         update_workflow(
             team_id=team_id,
             user_id=user_id,
@@ -166,4 +171,5 @@ def update_transactional_email_workflow(
             base_live_updated_at=None,
             includes_staged_draft=False,
             validated_status=flow.status,
+            keeps_live_sensitivity=False,
         )

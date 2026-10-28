@@ -187,6 +187,25 @@ _BASE_METRIC_SETS: dict[str, MetricSetEndpoint] = {
     ),
 }
 
+_MEMORY_PERCENTILES = ("P50", "P75", "P90", "P95", "P99")
+
+_MEMORY_METRIC_SETS: dict[str, MetricSetEndpoint] = {
+    "bitmap_memory_usage": MetricSetEndpoint(
+        name="bitmap_memory_usage",
+        resource="bitmapMemoryUsageMetricSet",
+        metrics=(*(f"bitmapMemoryUsage{percentile}" for percentile in _MEMORY_PERCENTILES), "distinctUsers"),
+        dimensions=_VERSION_CODE,
+        description="Daily bitmap memory usage percentiles, broken out by app version.",
+    ),
+    "anon_rss_and_swap_memory_usage": MetricSetEndpoint(
+        name="anon_rss_and_swap_memory_usage",
+        resource="anonRssAndSwapMemoryUsageMetricSet",
+        metrics=(*(f"anonRssAndSwapMemoryUsage{percentile}" for percentile in _MEMORY_PERCENTILES), "distinctUsers"),
+        dimensions=_VERSION_CODE,
+        description="Daily anonymous RSS and swap memory usage percentiles, broken out by app version.",
+    ),
+}
+
 _VITALS_RATE_METRIC_SETS: tuple[str, ...] = tuple(name for name in _BASE_METRIC_SETS if name != "error_counts")
 
 BREAKDOWN_TABLES: dict[str, tuple[str, str]] = {
@@ -222,6 +241,7 @@ def _breakdown_endpoint(name: str, base: MetricSetEndpoint, dimension: str) -> M
 
 METRIC_SETS: dict[str, MetricSetEndpoint] = {
     **_BASE_METRIC_SETS,
+    **_MEMORY_METRIC_SETS,
     **{
         name: _breakdown_endpoint(name, _BASE_METRIC_SETS[base], dimension)
         for name, (base, dimension) in BREAKDOWN_TABLES.items()
@@ -268,13 +288,18 @@ LIST_ENDPOINTS: dict[str, ListEndpoint] = {
     ),
 }
 
-ENDPOINTS: tuple[str, ...] = (*METRIC_SETS, *LIST_ENDPOINTS)
+# One GET per app, flattened to a row per version code so the vitals tables can join on
+# `versionCode` to get the release and track it shipped in.
+RELEASE_FILTER_OPTIONS = "release_filter_options"
+
+ENDPOINTS: tuple[str, ...] = (*METRIC_SETS, *LIST_ENDPOINTS, RELEASE_FILTER_OPTIONS)
 
 PRIMARY_KEYS: dict[str, list[str]] = {
     # A metric row is identified by the app, the day, and the slice it aggregates — the
     # package name is part of the key because one source syncs every app the account can see.
     **{name: ["app", "date", *endpoint.dimensions] for name, endpoint in METRIC_SETS.items()},
     **{name: list(endpoint.primary_key) for name, endpoint in LIST_ENDPOINTS.items()},
+    RELEASE_FILTER_OPTIONS: ["app", "track", "release", "versionCode"],
 }
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
@@ -285,6 +310,7 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
 DESCRIPTIONS: dict[str, str] = {
     **{name: endpoint.description for name, endpoint in METRIC_SETS.items()},
     **{name: endpoint.description for name, endpoint in LIST_ENDPOINTS.items()},
+    RELEASE_FILTER_OPTIONS: "Releases currently serving on each track, one row per version code they contain.",
 }
 
 SHOULD_SYNC_DEFAULT: dict[str, bool] = {name: endpoint.should_sync_default for name, endpoint in METRIC_SETS.items()}

@@ -1,1 +1,1 @@
-0007_messagetemplate_draft_content
+0010_supabase_auth_email_config

@@ -400,6 +400,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "campaign.maximize_conversion_value.target_roas",
             "campaign.name",
             "campaign.percent_cpc.enhanced_cpc_enabled",
+            "campaign.labels",
             "campaign.serving_status",
             "campaign.start_date_time",
             "campaign.status",
@@ -525,8 +526,26 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.year",
         ],
     },
+    "campaign_impression_share_stats": {
+        "resource_name": "campaign",
+        "primary_key": ["campaign.id", "customer.id", "segments.date"],
+        "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "should_sync_default": False,
+        "description": "Daily campaign impression share for Search and Display, without click-type segmentation.",
+        "field_names": [
+            "campaign.id",
+            "campaign.name",
+            "campaign.advertising_channel_type",
+            "customer.id",
+            "segments.date",
+            "metrics.impressions",
+            "metrics.search_impression_share",
+            "metrics.content_impression_share",
+        ],
+    },
     "keyword": {
         "resource_name": "keyword_view",
+        "removed_filter": "ad_group_criterion.status != 'REMOVED' AND ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED'",
         "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
         "field_names": [
             "ad_group_criterion.criterion_id",
@@ -653,6 +672,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
     },
     "ad_group_criterion": {
         "resource_name": "ad_group_criterion",
+        "removed_filter": "ad_group_criterion.status != 'REMOVED' AND ad_group.status != 'REMOVED' AND campaign.status != 'REMOVED'",
         "primary_key": ["ad_group_criterion.criterion_id", "ad_group.id", "campaign.id", "customer.id"],
         "should_sync_default": False,
         "description": "Every targeting criterion at ad group level, including negative keywords and other exclusions. Unlike the keyword table (which is backed by keyword_view and only returns positive, servable keywords), this reaches negative and non-keyword criteria. Filter on ad_group_criterion.negative to isolate exclusions.",
@@ -876,6 +896,30 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "segments.date",
         ],
     },
+    "performance_max_search_term_stats": {
+        "resource_name": "campaign_search_term_view",
+        "primary_key": [
+            "campaign_search_term_view.search_term",
+            "campaign.id",
+            "customer.id",
+            "segments.date",
+        ],
+        "filter_field_names": [("segments.date", IncrementalFieldType.Date)],
+        "description": "Search terms that triggered Performance Max campaigns. Search campaign terms are in search_term_stats.",
+        # campaign_search_term_view also returns Search and Shopping campaigns, which search_term_stats already covers.
+        "extra_where": "campaign.advertising_channel_type = 'PERFORMANCE_MAX'",
+        "field_names": [
+            "campaign_search_term_view.search_term",
+            "campaign.id",
+            "customer.id",
+            "metrics.clicks",
+            "metrics.impressions",
+            "metrics.cost_micros",
+            "metrics.conversions",
+            "metrics.conversions_value",
+            "segments.date",
+        ],
+    },
     "geographic_stats": {
         "resource_name": "geographic_view",
         "primary_key": [
@@ -1067,6 +1111,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "label.id",
             "customer.id",
             "label.name",
+            "label.resource_name",
             "label.status",
             "label.text_label.background_color",
             "label.text_label.description",

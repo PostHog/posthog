@@ -446,6 +446,14 @@ export interface TaskSessionStorageAccess {
 export const COMMENT_SCOPES = ["task_artifact", "canvas", "task"] as const;
 export type CommentScope = (typeof COMMENT_SCOPES)[number];
 
+export type SuggestedReviewerEdit = {
+  action: Extract<
+    NonNullable<Schemas.SignalReportArtefactWrite["action"]>,
+    "add" | "remove"
+  >;
+  targets: NonNullable<Schemas.SignalReportArtefactWrite["targets"]>;
+};
+
 /** Named `Resource*` so it never collides with the DOM's global `Comment`.
  * Optimistic rows do not have a server version yet, while item_context is a
  * real JSON value despite the generated serializer's historically narrow type. */
@@ -1400,6 +1408,7 @@ type AnyArtefact =
 const DISMISSAL_REASONS = new Set<ReportStateReason>([
   ...DISMISSAL_REASON_OPTIONS.map((o) => o.value),
   ...RESOLVE_REASON_OPTIONS.map((o) => o.value),
+  "pr_merged",
 ]);
 
 const PRIORITY_VALUES = new Set(["P0", "P1", "P2", "P3", "P4"]);
@@ -1569,6 +1578,12 @@ function normalizeDismissalArtefact(
     type: "dismissal",
     ...artefactBase(value),
     content: {
+      state:
+        contentValue.state === "resolved" ||
+        contentValue.state === "suppressed" ||
+        contentValue.state === "potential"
+          ? contentValue.state
+          : null,
       reason,
       note: optionalString(contentValue.note) ?? "",
       user_id:
@@ -6130,6 +6145,7 @@ export class PostHogAPIClient {
     reportId: string,
     artefactId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const url = new URL(
@@ -6142,7 +6158,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 
@@ -6161,6 +6177,7 @@ export class PostHogAPIClient {
   async setSignalReportReviewers(
     reportId: string,
     content: SuggestedReviewerWriteEntry[],
+    edit: SuggestedReviewerEdit,
   ): Promise<SuggestedReviewersArtefact> {
     const teamId = await this.getTeamId();
     const path = `/api/projects/${teamId}/signals/reports/${reportId}/reviewers/`;
@@ -6170,7 +6187,7 @@ export class PostHogAPIClient {
       url,
       path,
       overrides: {
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({ content, ...edit }),
       },
     });
 

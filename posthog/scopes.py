@@ -121,6 +121,7 @@ APIScopeObject = Literal[
     "scout_experiment_internal",
     "signal_scout",
     "signal_scout_internal",
+    "signal_scout_monitoring",
     "signal_scout_report",
     "signal_scratchpad_internal",
     "slack_run",
@@ -156,6 +157,7 @@ APIScopeObject = Literal[
 # Server-only provenance markers hidden from user-controlled scope selectors.
 MCP_BUILT_IN_AGENT_SCOPE = "mcp_builtin_agent:read"
 SLACK_RUN_SCOPE = "slack_run:read"
+SCOUT_MONITORING_RESULT_SCOPE = "signal_scout_monitoring:write"
 
 APIScopeActions = Literal[
     "read",
@@ -203,6 +205,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
         "signal_scout_internal",
+        "signal_scout_monitoring",
         # Sandbox-only write for the scout report channel (emit_report / edit_report).
         # Split out from `signal_scout_internal` so it can be granted ONLY to scouts that
         # opted into the report tools (via the `signals_scout_reports` posture) — every
@@ -457,6 +460,30 @@ def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str
     `*` themselves, because APIScopePermission does not let `*` reach INTERNAL scope objects."""
     covered = _with_read_halves(frozenset(held_scopes))
     return [scope for scope in required_scopes if scope not in covered]
+
+
+# A new scope object split off a legacy one, mapped to that legacy object. While old keys and tokens
+# carry only the legacy scope, a held `<legacy>:<action>` satisfies a required `<new>:<action>`.
+# APIScopePermission applies this and records each use, so the entry can go when no caller needs it.
+# Project secret API key issuance does not apply it: a key must not get a scope on the strength of a
+# legacy one. `hogli build:projections` copies this map to the MCP server, which applies it in `hasScope`.
+LEGACY_SCOPE_FALLBACKS: dict[str, str] = {"inbox": "task"}
+
+
+def scopes_covered_by_legacy_fallback(held_scopes: Iterable[str], missing_scopes: Iterable[str]) -> dict[str, str]:
+    """The missing scopes that a legacy scope in LEGACY_SCOPE_FALLBACKS covers, each mapped to that
+    legacy scope. The legacy scope follows the same rule as `scopes_not_covered`: `:write` covers `:read`."""
+    held = frozenset(held_scopes)
+    covered: dict[str, str] = {}
+    for scope in missing_scopes:
+        scope_object, _, action = scope.partition(":")
+        legacy_object = LEGACY_SCOPE_FALLBACKS.get(scope_object)
+        if legacy_object is None:
+            continue
+        legacy_scope = f"{legacy_object}:{action}"
+        if not scopes_not_covered(held, [legacy_scope]):
+            covered[scope] = legacy_scope
+    return covered
 
 
 def scopes_within_ceiling(

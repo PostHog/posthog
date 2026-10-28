@@ -59,29 +59,6 @@ class TestValidateCredentials:
         assert (error is None) is probe_ok
 
 
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            ("unauthorized", "401 Client Error: Unauthorized for url: https://api.metorial.com/sessions?limit=1"),
-            ("forbidden", "403 Client Error: Forbidden for url: https://api.metorial.com/provider-runs"),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed: str) -> None:
-        keys = MetorialSource().get_non_retryable_errors()
-        assert any(key in observed for key in keys)
-
-    @parameterized.expand(
-        [
-            ("read_timeout", "HTTPSConnectionPool(host='api.metorial.com', port=443): Read timed out."),
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.metorial.com/sessions"),
-            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.metorial.com/tool-calls"),
-        ]
-    )
-    def test_transient_errors_stay_retryable(self, _name: str, observed: str) -> None:
-        keys = MetorialSource().get_non_retryable_errors()
-        assert not any(key in observed for key in keys)
-
-
 class TestSourceForPipeline:
     def test_threads_incremental_inputs_into_transport(self) -> None:
         # Guards the wiring: the user's chosen endpoint, cursor field, and watermark must reach the

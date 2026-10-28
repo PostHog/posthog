@@ -15,6 +15,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 
 from products.customer_analytics.backend.facade.temporal_contracts import (
+    DEFAULT_ACCOUNT_PROPERTY_SOURCE_CONCURRENCY,
     AccountPropertySegmentTelemetryInput,
     AccountPropertySourceSyncInput,
     AccountPropertySyncInput,
@@ -37,6 +38,7 @@ with workflow.unsafe.imports_passed_through():
 
     from products.customer_analytics.backend.logic.account_property_fanout_flags import (
         account_property_sync_fanout_enabled,
+        get_account_property_sync_source_concurrency,
     )
     from products.customer_analytics.backend.logic.account_property_runs import (
         AccountPropertySyncRunContext,
@@ -49,6 +51,7 @@ with workflow.unsafe.imports_passed_through():
         AccountPropertySourceRejectedError,
         AccountPropertySourceValueError,
         AccountPropertySyncSegment,
+        SourceSyncCheckpoint,
         complete_account_property_sync_segment,
         get_account_property_sync_source_ids,
         run_account_property_segment_sync,
@@ -69,7 +72,6 @@ ACCOUNT_PROPERTY_SYNC_FANOUT_WORKFLOW_NAME = "sync-warehouse-account-properties-
 ACCOUNT_PROPERTY_RUN_HISTORY_PATCH = "account-property-run-history-2026-08"
 ACCOUNT_PROPERTY_SEGMENT_TELEMETRY_PATCH = "account-property-segment-telemetry-2026-10"
 ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS = 5
-ACCOUNT_PROPERTY_SOURCE_CONCURRENCY = 3
 # Source IDs are UUID strings, so this keeps the discovery result far below the 256 KB field rule.
 ACCOUNT_PROPERTY_FANOUT_MAX_SOURCES = 2_000
 
@@ -293,6 +295,11 @@ async def dispatch_warehouse_account_property_sync_activity(input: DispatchAccou
     use_fanout = await database_sync_to_async_pool(account_property_sync_fanout_enabled)(input.team_id)
     workflow_name = ACCOUNT_PROPERTY_SYNC_FANOUT_WORKFLOW_NAME if use_fanout else ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME
     path: _SyncPath = "fanout" if use_fanout else "legacy"
+    source_concurrency = (
+        await database_sync_to_async_pool(get_account_property_sync_source_concurrency)(input.team_id)
+        if use_fanout
+        else DEFAULT_ACCOUNT_PROPERTY_SOURCE_CONCURRENCY
+    )
     client = await async_connect()
     for segment in ("tracked", "ignored"):
         try:
@@ -303,6 +310,7 @@ async def dispatch_warehouse_account_property_sync_activity(input: DispatchAccou
                     saved_query_id=input.saved_query_id,
                     job_id=input.job_id,
                     segment=segment,
+                    source_concurrency=source_concurrency,
                 ),
                 id=_segment_workflow_id(input.job_id, segment),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
@@ -333,6 +341,7 @@ async def dispatch_warehouse_account_property_sync_activity(input: DispatchAccou
             job_id=input.job_id,
             segment=segment,
             path=path,
+            source_concurrency=source_concurrency,
         )
 
 
@@ -450,7 +459,14 @@ async def sync_warehouse_account_property_source_activity(input: AccountProperty
             segment=segment,
             source_id=source_uuid,
         )
-        async with Heartbeater():
+        resume_from = SourceSyncCheckpoint.from_heartbeat_details(activity_info.heartbeat_details)
+        async with Heartbeater() as heartbeater:
+
+            def save_checkpoint(checkpoint: SourceSyncCheckpoint) -> None:
+                heartbeater.details = (checkpoint.to_heartbeat_details(),)
+
+            if resume_from is not None:
+                save_checkpoint(resume_from)
             result = await run_account_property_source_sync(
                 team_id=input.team_id,
                 binding=saved_query_binding(input.saved_query_id),
@@ -458,6 +474,8 @@ async def sync_warehouse_account_property_source_activity(input: AccountProperty
                 segment=segment,
                 source_id=input.source_id,
                 final_attempt=activity_info.attempt >= ACCOUNT_PROPERTY_ACTIVITY_MAX_ATTEMPTS,
+                resume_from=resume_from,
+                save_checkpoint=save_checkpoint,
             )
     except (AccountPropertySourceValueError, AccountPropertySourceRejectedError) as error:
         # A retry reads the same staged rows and source config, so it can't fix these errors.
@@ -698,7 +716,7 @@ class _SettledSources:
 
 
 async def _sync_sources(input: AccountPropertySyncInput, source_ids: list[str]) -> _SettledSources:
-    semaphore = asyncio.Semaphore(ACCOUNT_PROPERTY_SOURCE_CONCURRENCY)
+    semaphore = asyncio.Semaphore(input.source_concurrency)
 
     async def sync_source(source_id: str) -> dict[str, int]:
         async with semaphore:

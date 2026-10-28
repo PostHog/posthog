@@ -33,16 +33,29 @@ from products.signals.backend.quota import (
     notify_scout_quota_paused,
     self_driving_quota_gate,
 )
+from products.signals.backend.report_check_agent import _refuse_dispatch
+from products.signals.backend.report_check_final_agents import (
+    MonitoringScoutCheck,
+    bound_monitoring_scout_run,
+    build_monitoring_run_note,
+    finalize_monitoring_scout_run,
+    ready_monitoring_scout_check,
+)
+from products.signals.backend.report_monitoring_results import InvalidMonitoringResult
 from products.signals.backend.scout_harness.limits import (
     TRIAL_ACTIVITY_TIMEOUT_S,
     TRIGGERED_BY_CHECK,
     TRIGGERED_BY_MANUAL,
+    TRIGGERED_BY_MONITORING,
+    TRIGGERED_BY_ONBOARDING,
     TRIGGERED_BY_SCHEDULE,
     TRIGGERED_BY_WORKFLOW,
     WORKFLOW_HARD_CEILING_S,
 )
 from products.signals.backend.scout_harness.precheck import PRECHECK_TIMEOUT_S, evaluate_scout_precheck
+from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError
 from products.signals.backend.temporal import metrics
+from products.skills.backend.models.skills import LLMSkill
 
 if TYPE_CHECKING:
     # Type-only: importing the harness runner at module load would close the cycle
@@ -67,9 +80,11 @@ class RunSignalsScoutInput:
     # Set by a workflow step that parks until this run wakes it.
     workflow_origin_key: str | None = None
     workflow_managed_resume: bool = False
-    # One-off steering typed alongside a manual trigger. Never set on a scheduled dispatch,
-    # where standing steering is a scout note instead.
+    # One-off steering typed alongside a manual trigger, or rendered from the triggering event by a
+    # workflow step. Never set on a scheduled dispatch, where standing steering is a scout note instead.
     run_note: str | None = None
+    # The workflow whose "Run scout" step started a `workflow` run. Rendered in the run's prompt.
+    trigger_workflow_id: str | None = None
     trial_launch_id: str | None = None
     # The report check a `check` dispatch answers. Stamped on the run row so the check can name
     # its run and the run can record the check's verdict.
@@ -81,6 +96,7 @@ class RunSignalsScoutInput:
     # Seconds a coordinator dispatch sleeps before it starts work, to spread the run starts of one
     # tick. 0 for every other trigger, so those runs start at once.
     start_delay_seconds: int = 0
+    monitoring_check: MonitoringScoutCheck | None = None
 
 
 @frozen
@@ -162,12 +178,12 @@ async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) 
 
 def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
     """Whether the coordinator would still dispatch this scout: enabled, or paused by the failure
-    breaker, which the coordinator probes. A deleted project is never runnable."""
+    breaker, which the coordinator probes, and its skill still exists. A deleted project is never runnable."""
     try:
         configs = SignalScoutConfig.objects.for_team(team_id)
     except TeamScopeError:
         return False
-    return (
+    config_runnable = (
         configs.filter(skill_name=skill_name)
         .filter(
             Q(enabled=True)
@@ -177,6 +193,10 @@ def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
             )
         )
         .exists()
+    )
+    return (
+        config_runnable
+        and LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists()
     )
 
 
@@ -250,6 +270,61 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
     which run outside the run-row try/except — so a transient drop is reported as a failed
     run rather than escaping the activity and breaching the "never raises" contract.
     """
+    # Queued check workflows can outlive their dispatch, so retiring the coordinator lane alone
+    # cannot prevent them from starting paid scout work.
+    if input.check_id is not None or input.triggered_by == TRIGGERED_BY_CHECK:
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+            skip_reason="report_check_execution_disabled",
+        )
+
+    if input.monitoring_check is not None:
+        try:
+            check = await database_sync_to_async(ready_monitoring_scout_check, thread_sensitive=False)(
+                input.monitoring_check
+            )
+            if (
+                input.run_note is None
+                or input.triggered_by != TRIGGERED_BY_MONITORING
+                or (check.report.team.parent_team_id or check.team_id) != input.team_id
+                or input.run_note != build_monitoring_run_note(input.monitoring_check, check)
+            ):
+                raise InvalidMonitoringResult("The scout dispatch does not match the Monitoring check.")
+            prior = await database_sync_to_async(bound_monitoring_scout_run, thread_sensitive=False)(
+                input.team_id, input.run_note
+            )
+            if prior is not None:
+                return RunSignalsScoutOutput(
+                    run_id=str(prior.id),
+                    task_run_id=str(prior.task_run_id),
+                    status=prior.task_run.status,
+                    runtime_s=0,
+                    skill_name=prior.skill_name,
+                    skill_version=prior.skill_version,
+                )
+            refusal = await database_sync_to_async(_refuse_dispatch, thread_sensitive=False)(
+                input.skill_name, input.team_id
+            )
+            if refusal is not None:
+                raise InvalidMonitoringResult(refusal.reason)
+        except InvalidMonitoringResult:
+            return RunSignalsScoutOutput(
+                run_id=None,
+                task_run_id=None,
+                status=None,
+                runtime_s=0,
+                skill_name=input.skill_name,
+                skill_version=input.skill_version or 0,
+                skip_reason="monitoring_check_unavailable",
+            )
+    elif input.triggered_by == TRIGGERED_BY_MONITORING:
+        raise InvalidMonitoringResult("A Monitoring run needs an authored check binding.")
+
     # Skip the run when the team is over its self-driving credits quota or its daily report limit,
     # before any LLM work: a scout run exists to feed signals into the pipeline, and ingestion
     # drops them while either limit binds. The quota side reads `self_driving_quota_gate` rather
@@ -315,11 +390,29 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 repository=input.repository,
                 triggered_by=input.triggered_by,
                 run_note=input.run_note,
+                trigger_workflow_id=input.trigger_workflow_id,
                 trial_launch_id=input.trial_launch_id,
                 check_id=input.check_id,
                 precheck_rows=input.precheck_rows,
                 precheck_query_source=input.precheck_query_source,
             )
+    except SkillNotFoundError:
+        # A person deleted or renamed the skill after the run was dispatched. Nothing is left to run.
+        metrics.increment_scout_run("skill_missing")
+        logger.info(
+            "signals_scout: skill is gone, skipping the run",
+            team_id=input.team_id,
+            skill_name=input.skill_name,
+        )
+        return RunSignalsScoutOutput(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            runtime_s=0.0,
+            skill_name=input.skill_name,
+            skill_version=input.skill_version or 0,
+            skip_reason="skill_missing",
+        )
     except (OperationalError, InterfaceError):
         # Transient DB connection drop (pgbouncer pool recycle / failover / deploy). Stay
         # fail-safe and silent: report a failed run for this tick rather than raising. The
@@ -350,7 +443,24 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
         runtime_s=result.runtime_s,
         skip_reason=result.skip_reason,
     )
-    return _to_output(result, include_summary=input.trial_launch_id is None)
+    return _to_output(result, include_summary=input.trial_launch_id is None and input.monitoring_check is None)
+
+
+@temporalio.activity.defn
+@close_db_connections
+def finalize_monitoring_scout_run_activity(
+    input: RunSignalsScoutInput, run_id: str | None, failed: bool = False, execution_finished: bool = True
+) -> None:
+    if input.monitoring_check is not None and input.run_note is not None:
+        finalize_monitoring_scout_run(
+            input.monitoring_check,
+            canonical_team_id=input.team_id,
+            skill_name=input.skill_name,
+            run_note=input.run_note,
+            run_id=run_id,
+            failed=failed,
+            execution_finished=execution_finished,
+        )
 
 
 @temporalio.workflow.defn
@@ -406,6 +516,9 @@ class RunSignalsScoutWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=1),
             )
         except (ActivityError, asyncio.CancelledError) as error:
+            if input.monitoring_check is not None:
+                await asyncio.shield(self._finalize_monitoring_run(input, None, failed=True))
+
             if input.trial_launch_id is not None and temporalio.workflow.patched("cancel-failed-scout-trial"):
                 try:
                     await asyncio.shield(
@@ -434,9 +547,29 @@ class RunSignalsScoutWorkflow:
                 )
                 await asyncio.shield(self._resume_step(input, output))
             raise
+        if input.monitoring_check is not None and (
+            output.run_id is not None or output.status in {"failed", "cancelled"}
+        ):
+            await self._finalize_monitoring_run(
+                input,
+                output.run_id,
+                failed=output.status in {"failed", "cancelled"},
+                execution_finished=output.status in {"completed", "failed", "cancelled"},
+            )
         if managed_resume:
             await self._resume_step(input, output)
         return output
+
+    async def _finalize_monitoring_run(
+        self, input: RunSignalsScoutInput, run_id: str | None, *, failed: bool = False, execution_finished: bool = True
+    ) -> None:
+        await temporalio.workflow.execute_activity(
+            finalize_monitoring_scout_run_activity,
+            args=[input, run_id, failed, execution_finished],
+            start_to_close_timeout=timedelta(seconds=30),
+            schedule_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=5),
+        )
 
     async def _sleep_start_delay(self, input: RunSignalsScoutInput) -> bool:
         """Sleep the start delay, then return whether the config can still run.
@@ -516,6 +649,7 @@ async def _start_off_schedule_run(
     workflow_origin_key: str | None = None,
     run_note: str | None = None,
     check_id: str | None = None,
+    trigger_workflow_id: str | None = None,
 ) -> str:
     """Start one `RunSignalsScoutWorkflow` off-schedule under `workflow_id`; return the id.
 
@@ -538,6 +672,7 @@ async def _start_off_schedule_run(
             workflow_origin_key=workflow_origin_key,
             run_note=run_note,
             check_id=check_id,
+            trigger_workflow_id=trigger_workflow_id,
         ),
         id=workflow_id,
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
@@ -567,12 +702,16 @@ def start_manual_signals_scout_run(
 
 
 @async_to_sync
-async def start_onboarding_signals_scout_run(client: Client, *, team_id: int, skill_name: str) -> str:
+async def start_onboarding_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, run_note: str | None = None
+) -> str:
     workflow_id = _off_schedule_run_workflow_id("signals-scout-onboarding", team_id, skill_name)
     try:
         await client.start_workflow(
             RunSignalsScoutWorkflow.run,
-            RunSignalsScoutInput(team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_MANUAL),
+            RunSignalsScoutInput(
+                team_id=team_id, skill_name=skill_name, triggered_by=TRIGGERED_BY_ONBOARDING, run_note=run_note
+            ),
             id=workflow_id,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.REJECT_DUPLICATE,
@@ -640,7 +779,13 @@ def start_check_signals_scout_run(
 
 
 def start_workflow_signals_scout_run(
-    client: Client, *, team_id: int, skill_name: str, workflow_origin_key: str | None = None
+    client: Client,
+    *,
+    team_id: int,
+    skill_name: str,
+    workflow_origin_key: str | None = None,
+    run_note: str | None = None,
+    trigger_workflow_id: str | None = None,
 ) -> str:
     """Dispatch one workflow-triggered scout run on the signals task queue; return its workflow id.
 
@@ -648,6 +793,9 @@ def start_workflow_signals_scout_run(
     human testing a scout shouldn't 409 the automation, or vice versa. The overlap that matters
     (one live run per `(team, skill)`) is still caught by the runner's single-flight and the
     callers' in-flight pre-check, both source-agnostic.
+
+    `run_note` is the note the step rendered from its triggering event, for this run alone.
+    `trigger_workflow_id` is the workflow that fired, so the run can name it.
     """
     return _start_off_schedule_run(
         client,
@@ -656,4 +804,28 @@ def start_workflow_signals_scout_run(
         skill_name=skill_name,
         source=TRIGGERED_BY_WORKFLOW,
         workflow_origin_key=workflow_origin_key,
+        run_note=run_note,
+        trigger_workflow_id=trigger_workflow_id,
     )
+
+
+@async_to_sync
+async def start_monitoring_signals_scout_run(
+    client: Client, *, team_id: int, skill_name: str, run_note: str, binding: MonitoringScoutCheck
+) -> str:
+    workflow_id = _off_schedule_run_workflow_id("signals-scout-monitoring", team_id, skill_name)
+    await client.start_workflow(
+        RunSignalsScoutWorkflow.run,
+        RunSignalsScoutInput(
+            team_id=team_id,
+            skill_name=skill_name,
+            triggered_by=TRIGGERED_BY_MONITORING,
+            run_note=run_note,
+            monitoring_check=binding,
+        ),
+        id=workflow_id,
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.FAIL,
+    )
+    return workflow_id

@@ -17,7 +17,7 @@ The suite scores the model's likely events before the ingested-event check, so t
 do not change the result. It shows at most `MAX_MATCHES` events, like the picker.
 
 No CI job runs this suite. Run it by hand, with AI_GATEWAY_URL and AI_GATEWAY_API_KEY set for the decision
-model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_ANTHROPIC_API_KEY:
+model, and with the harness's own LLM_GATEWAY_ANTHROPIC_API_KEY:
     hogli evals eval_event_match
 Set EVENT_MATCH_PROMPT_VERSION to score an unpublished prompt version before moving its production label.
 Fetching a version needs POSTHOG_PERSONAL_API_KEY with read access to the PostHog project, and the suite fails without it.
@@ -35,7 +35,8 @@ from posthog.taxonomic_search_intent.event_match import EVENT_MATCH_MODEL, MAX_M
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.taxonomic_filter.scorers import EVENT_MATCH_KEY, EventMatchFound, NoWrongEventMatch
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -101,8 +102,13 @@ async def eval_event_match(ctx: EvalContext) -> None:
             "last_message": f"{case.prompt!r}: {suggested}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="taxonomic-filter-event-match",
+        offline_suite=offline_suite(
+            "taxonomic_filter/eval_event_match::eval_event_match",
+            metrics=["event_match_found", "no_wrong_event_match"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[*DESCRIBED_CASES, *NO_MATCH_CASES],
         scorers=[EventMatchFound(), NoWrongEventMatch()],
         task=task,

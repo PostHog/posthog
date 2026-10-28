@@ -42,8 +42,7 @@ impl<K, M> Group<K, M> {
 
 /// Demuxes one poll into groups. Push messages in delivery order: a keyed
 /// message joins its partition's group for that key, a keyless message opens
-/// a group of its own. Groups come out in first-seen order, and each group
-/// keeps its messages in submission order.
+/// a group of its own. Groups come out in first-seen order.
 #[derive(Debug)]
 pub struct Accumulator<K, M> {
     groups: Vec<Group<K, M>>,
@@ -103,6 +102,30 @@ impl<K: Hash + Eq + Clone, M> Accumulator<K, M> {
         self.message_count
     }
 
+    /// Returns how many messages it removed.
+    pub fn remove_partition(&mut self, partition: Partition) -> usize {
+        let before = self.message_count;
+        self.groups.retain(|group| {
+            if group.partition != partition {
+                return true;
+            }
+            self.message_count -= group.messages.len();
+            false
+        });
+        if before != self.message_count {
+            self.group_index_by_key.clear();
+            for (index, group) in self.groups.iter().enumerate() {
+                if let Some(key) = &group.key {
+                    self.group_index_by_key
+                        .entry(group.partition)
+                        .or_default()
+                        .insert(key.clone(), index);
+                }
+            }
+        }
+        before - self.message_count
+    }
+
     pub fn into_groups(self) -> Vec<Group<K, M>> {
         self.groups
     }
@@ -156,6 +179,34 @@ mod tests {
         );
         let bodies: Vec<i64> = groups[0].messages.iter().map(|m| m.message).collect();
         assert_eq!(bodies, vec![0, 2]);
+    }
+
+    #[test]
+    fn a_removed_partition_leaves_the_other_groups_open_for_their_keys() {
+        let mut acc = Accumulator::default();
+        push(&mut acc, 0, 0, Some("a"));
+        push(&mut acc, 1, 5, Some("a"));
+        push(&mut acc, 0, 1, None);
+        push(&mut acc, 1, 6, Some("b"));
+
+        assert_eq!(acc.remove_partition(Partition(0)), 2);
+        push(&mut acc, 1, 7, Some("a"));
+        push(&mut acc, 0, 2, Some("a"));
+
+        assert_eq!(acc.message_count(), 4);
+        let shapes: Vec<(Partition, Option<&str>, Vec<Offset>)> = acc
+            .into_groups()
+            .iter()
+            .map(|g| (g.partition, g.key, offsets(g)))
+            .collect();
+        assert_eq!(
+            shapes,
+            vec![
+                (Partition(1), Some("a"), vec![Offset(5), Offset(7)]),
+                (Partition(1), Some("b"), vec![Offset(6)]),
+                (Partition(0), Some("a"), vec![Offset(2)]),
+            ]
+        );
     }
 
     #[test]

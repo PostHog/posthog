@@ -133,7 +133,7 @@ export const BreakdownAndCompare: Story = {
 }
 
 // Full insight scene in edit mode — the steps funnel editor, and the funnels query kind's full data pipeline
-const sceneEditWaitForSelector = ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]', '.PayGateMini']
+const sceneEditWaitForSelector = ['[data-attr=funnel-steps-bar-chart] canvas[role="img"]']
 
 export const EditScene: Story = createInsightStory(funnelLeftToRightFixture as any, 'edit')
 EditScene.decorators = [insightSceneMswDecorator]
@@ -164,3 +164,26 @@ EditSceneViewports.parameters = {
     },
 }
 EditSceneViewports.play = waitForFunnelToStabilize
+
+export const AlertThresholds: Story = {
+    render: () => (
+        <StoryRender
+            insightFixture={{
+                ...funnelTopToBottomFixture,
+                query: {
+                    ...funnelTopToBottomFixture.query,
+                    source: {
+                        ...funnelTopToBottomFixture.query.source,
+                        funnelsFilter: {
+                            ...funnelTopToBottomFixture.query.source.funnelsFilter,
+                            goalLines: [
+                                { label: 'Upper threshold', value: 80, borderColor: '#d14343' },
+                                { label: 'Lower threshold', value: 20, borderColor: '#d14343' },
+                            ],
+                        },
+                    },
+                },
+            }}
+        />
+    ),
+}

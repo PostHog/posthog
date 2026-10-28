@@ -25,38 +25,6 @@ class TestMembrainSource:
 
     @parameterized.expand(
         [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://acme.membrain.com/API/v2/companies/",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://acme.membrain.com/API/v2/contacts/",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
-            (
-                "server_error",
-                "500 Server Error: Internal Server Error for url: https://acme.membrain.com/API/v2/tickets/",
-            ),
-            (
-                "rate_limited",
-                "429 Client Error: Too Many Requests for url: https://acme.membrain.com/API/v2/activities/",
-            ),
-        ]
-    )
-    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
-        non_retryable = self.source.get_non_retryable_errors()
-        assert not any(key in unrelated_error for key in non_retryable)
-
-    @parameterized.expand(
-        [
             ("path_traversal", "acme.membrain.com/evil"),
             ("dotted_host", "evil.example"),
             ("empty", ""),

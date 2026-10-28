@@ -5,6 +5,12 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { type BillingType, OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
 
 /**
+ * - `default`: product selection, then the chosen products' steps (`/onboarding/<product>`).
+ * - `simple`: the experiment arm's short install, MCP, plan and invite flow (`/onboarding/simple`).
+ */
+export type OnboardingFlowVariant = 'default' | 'simple'
+
+/**
  * A unit of work in an onboarding flow. Pure data — composes deterministically from
  * (selectedProducts, currentTeam, billing, ...) into a flat list rendered one at a
  * time. Replaces the old "JSX children of a per-product *Onboarding view" pattern.

@@ -1,6 +1,7 @@
 import { CSSProperties, ComponentType, HTMLProps } from 'react'
 
 import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
+import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
@@ -19,6 +20,12 @@ import { BIVisualizationNode } from './schema/schema-business-intelligence'
 
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
+    onSelectBIMark?: (record: Record<string, unknown>) => void
+    isBIMarkActiveFilter?: (record: Record<string, unknown>) => boolean
+    getBIMarkDashboardUrl?: (record: Record<string, unknown>) => string
+    dashboardResultMenu?: boolean
+    loadQueue?: TaskQueue
+
     /** Column templates for the DataTable */
     columns?: Record<string, QueryContextColumn>
     tableLayout?: 'auto' | 'fixed'
@@ -68,10 +75,15 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableMaxPaginationRows?: number
     /** Keep the Data Table toolbar fixed while its table content scrolls. */
     dataTableAllowContentScroll?: boolean
+    /** Virtualize rows in an embedded SQL result table with a bounded height. */
+    dataVisualizationTableVirtualized?: boolean
+    dataVisualizationTableVirtualizationCellThreshold?: number
     /** Keep the Data Table header row visible while the page scrolls. See `LemonTable`'s `stickyHeader`. */
     dataTableStickyHeader?: boolean
     /** Override the nouns used by Data Table counts and pagination. */
     dataTableNouns?: [string, string]
+    /** Expected total row count from another source. The footer shows "X of Y" when all rows are loaded and the counts differ. */
+    dataTableExpectedTotalRows?: number
     compactDataTableToolbar?: boolean
     hideRecordingButton?: boolean
     /** Custom expandable config for DataTable rows */

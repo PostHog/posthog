@@ -30,6 +30,9 @@ pub struct RequestContext {
     /// Client IP
     pub ip: IpAddr,
 
+    /// Host of the `Origin` header, or of `Referer` without one.
+    pub origin_host: Option<String>,
+
     /// HTTP headers
     pub headers: HeaderMap,
 
@@ -41,6 +44,9 @@ pub struct RequestContext {
 
     /// Request ID
     pub request_id: Uuid,
+
+    /// When the request arrived, before it waited for a concurrency permit.
+    pub request_entered_at: tokio::time::Instant,
 
     /// Side channel for body logging: when at least one team is opted into
     /// `BodyLogger`, the endpoint installs an `Arc<OnceLock<Bytes>>` here and
@@ -103,8 +109,8 @@ pub struct FeatureFlagEvaluationContext {
     pub detailed_analysis: bool,
     /// Whether to only use person properties from request payload, ignoring database properties.
     pub only_use_override_person_properties: bool,
-    /// Budget shared by all persons DB work in this evaluation. `None` disables the deadline.
-    pub persons_db_deadline: Option<std::time::Duration>,
+    /// Persons DB calls in this evaluation fail after this instant. `None` disables the deadline.
+    pub persons_db_deadline: Option<tokio::time::Instant>,
 }
 
 /// SDK type classification based on user-agent parsing.
@@ -129,6 +135,9 @@ pub enum Library {
     PosthogPython,
     /// posthog-python-mcp integration
     PosthogPythonMcp,
+    PosthogRsMcp,
+    PosthogGoMcp,
+    PosthogRubyMcp,
     /// posthog-php SDK
     PosthogPhp,
     /// posthog-ruby SDK
@@ -159,6 +168,8 @@ pub enum Library {
     PosthogKmp,
     /// posthog-unity SDK
     PosthogUnity,
+    PosthogGodot,
+    PosthogUnreal,
     /// posthog-server SDK (deprecated: users are migrating to posthog-java)
     PosthogServer,
     /// Unknown or unrecognized SDK
@@ -179,6 +190,9 @@ impl Library {
             Library::PosthogConvex => "posthog-convex",
             Library::PosthogPython => "posthog-python",
             Library::PosthogPythonMcp => "posthog-python-mcp",
+            Library::PosthogRsMcp => "posthog-rs-mcp",
+            Library::PosthogGoMcp => "posthog-go-mcp",
+            Library::PosthogRubyMcp => "posthog-ruby-mcp",
             Library::PosthogPhp => "posthog-php",
             Library::PosthogRuby => "posthog-ruby",
             Library::PosthogRails => "posthog-rails",
@@ -194,6 +208,8 @@ impl Library {
             Library::PosthogFlutter => "posthog-flutter",
             Library::PosthogKmp => "posthog-kmp",
             Library::PosthogUnity => "posthog-unity",
+            Library::PosthogGodot => "posthog-godot",
+            Library::PosthogUnreal => "posthog-unreal",
             Library::PosthogServer => "posthog-server",
             Library::Other => "other",
         }
@@ -210,6 +226,9 @@ impl Library {
         Library::PosthogConvex,
         Library::PosthogPython,
         Library::PosthogPythonMcp,
+        Library::PosthogRsMcp,
+        Library::PosthogGoMcp,
+        Library::PosthogRubyMcp,
         Library::PosthogPhp,
         Library::PosthogRuby,
         Library::PosthogRails,
@@ -225,6 +244,8 @@ impl Library {
         Library::PosthogFlutter,
         Library::PosthogKmp,
         Library::PosthogUnity,
+        Library::PosthogGodot,
+        Library::PosthogUnreal,
         Library::PosthogServer,
     ];
 }
@@ -290,7 +311,7 @@ impl Library {
     /// parsing and serialization.
     pub(crate) fn from_sdk_name(sdk_name: &str) -> Self {
         // posthog-js reports its library as "web" in request body properties.
-        if sdk_name == "web" {
+        if matches!(sdk_name, "web" | "js") {
             return Library::PosthogJs;
         }
 
@@ -343,6 +364,11 @@ mod tests {
     #[case("posthog-react-native/2.0.0", Library::PosthogReactNative)]
     #[case("posthog-flutter/2.0.0", Library::PosthogFlutter)]
     #[case("posthog-kmp/0.6.0", Library::PosthogKmp)]
+    #[case("posthog-rs-mcp/1.0.0", Library::PosthogRsMcp)]
+    #[case("posthog-go-mcp/1.0.0", Library::PosthogGoMcp)]
+    #[case("posthog-ruby-mcp/1.0.0", Library::PosthogRubyMcp)]
+    #[case("posthog-godot/1.0.0", Library::PosthogGodot)]
+    #[case("posthog-unreal/1.0.0", Library::PosthogUnreal)]
     #[case("posthog-unity/4.5.0", Library::PosthogUnity)]
     // Browser user-agents (detected as posthog-js)
     #[case("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", Library::PosthogJs)]
@@ -432,6 +458,11 @@ mod tests {
     #[case(Library::PosthogReactNative, "posthog-react-native")]
     #[case(Library::PosthogFlutter, "posthog-flutter")]
     #[case(Library::PosthogKmp, "posthog-kmp")]
+    #[case(Library::PosthogRsMcp, "posthog-rs-mcp")]
+    #[case(Library::PosthogGoMcp, "posthog-go-mcp")]
+    #[case(Library::PosthogRubyMcp, "posthog-ruby-mcp")]
+    #[case(Library::PosthogGodot, "posthog-godot")]
+    #[case(Library::PosthogUnreal, "posthog-unreal")]
     #[case(Library::PosthogUnity, "posthog-unity")]
     #[case(Library::PosthogServer, "posthog-server")]
     #[case(Library::Other, "other")]
@@ -461,6 +492,11 @@ mod tests {
     #[case(Library::PosthogReactNative, "\"posthog-react-native\"")]
     #[case(Library::PosthogFlutter, "\"posthog-flutter\"")]
     #[case(Library::PosthogKmp, "\"posthog-kmp\"")]
+    #[case(Library::PosthogRsMcp, "\"posthog-rs-mcp\"")]
+    #[case(Library::PosthogGoMcp, "\"posthog-go-mcp\"")]
+    #[case(Library::PosthogRubyMcp, "\"posthog-ruby-mcp\"")]
+    #[case(Library::PosthogGodot, "\"posthog-godot\"")]
+    #[case(Library::PosthogUnreal, "\"posthog-unreal\"")]
     #[case(Library::PosthogUnity, "\"posthog-unity\"")]
     #[case(Library::PosthogServer, "\"posthog-server\"")]
     #[case(Library::Other, "\"other\"")]
@@ -481,9 +517,11 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_from_sdk_name_maps_web_to_posthog_js() {
-        assert_eq!(Library::from_sdk_name("web"), Library::PosthogJs);
+    #[rstest]
+    #[case("web")]
+    #[case("js")]
+    fn test_from_sdk_name_maps_browser_aliases_to_posthog_js(#[case] sdk_name: &str) {
+        assert_eq!(Library::from_sdk_name(sdk_name), Library::PosthogJs);
     }
 
     #[test]

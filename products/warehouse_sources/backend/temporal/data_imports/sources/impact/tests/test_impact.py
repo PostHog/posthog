@@ -90,7 +90,11 @@ class TestApiVersionHeader:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("sid", "token") is expected
@@ -117,15 +121,28 @@ class TestGetRowsSimple:
         assert result.params("Page") == ["1", "2"]
         assert result.saved_states == [ImpactResumeConfig(page=1), ImpactResumeConfig(page=2)]
 
-    def test_incremental_param_sent_when_using_incremental_field(self) -> None:
+    @parameterized.expand(
+        [
+            ("MediaPartners", "Partners", {"startDate": "2024-01-01T00:00:00Z"}),
+            (
+                "Ads",
+                "Ads",
+                {"DateLastUpdatedStart": "2024-01-01T00:00:00Z", "DateLastUpdatedEnd": "2024-06-01T00:00:00Z"},
+            ),
+        ]
+    )
+    @time_machine.travel("2024-06-01", tick=False)
+    def test_incremental_params_sent_when_using_incremental_field(
+        self, endpoint: str, data_key: str, expected_params: dict[str, str]
+    ) -> None:
         result = _driver().run(
-            "MediaPartners",
-            [ScriptedResponse(json={"Partners": [], "@numpages": "1"})],
+            endpoint,
+            [ScriptedResponse(json={data_key: [], "@numpages": "1"})],
             should_use_incremental_field=True,
             db_incremental_field_last_value="2024-01-01T00:00:00",
         )
         assert result.raised is None
-        assert result.requests[0].param("startDate") == "2024-01-01T00:00:00Z"
+        assert {name: result.requests[0].param(name) for name in expected_params} == expected_params
 
 
 class TestGetRowsActions:

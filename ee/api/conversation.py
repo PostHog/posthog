@@ -122,6 +122,8 @@ class MessageSerializer(MessageMinimalSerializer):
 
     def validate(self, attrs):
         data = attrs
+        if isinstance(data.get("ui_context"), dict):
+            data["ui_context"].pop("voice_mode", None)
         if data["content"] is not None:
             try:
                 message = HumanMessage.model_validate(
@@ -166,6 +168,8 @@ class QueueMessageSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         data = attrs
+        if isinstance(data.get("ui_context"), dict):
+            data["ui_context"].pop("voice_mode", None)
         try:
             HumanMessage.model_validate(
                 {
