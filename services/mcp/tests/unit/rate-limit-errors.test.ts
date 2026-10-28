@@ -157,14 +157,14 @@ describe('outbound 429 handling', () => {
             const mockFetch = stubFetch(build429({ 'Retry-After': '10' }))
             const controller = new AbortController()
 
-            const resultPromise = buildClient()
+            const outcome = buildClient()
                 .query({ projectId: '1' })
                 .runQuery({ query: { kind: 'HogQLQuery', query: 'SELECT 1' }, signal: controller.signal })
-            const settled = await expect(resultPromise).rejects.toThrow()
+                .catch((error: unknown) => error)
             await vi.advanceTimersByTimeAsync(1000)
             controller.abort()
-            await vi.advanceTimersByTimeAsync(0)
-            await settled
+
+            await expect(outcome).resolves.toBeInstanceOf(Error)
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
