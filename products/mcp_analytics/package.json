@@ -10,6 +10,7 @@
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "kea": "catalog:",
+        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "posthog-js": "catalog:",
