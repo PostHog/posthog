@@ -28,7 +28,7 @@ import re
 import time
 import shutil
 import subprocess
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -279,7 +279,7 @@ def worktrees_clean(
     selected_sources = {s.lower() for s in sources} if sources else None
     if box_action:
         pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
-        _clean_boxes_of_removed_worktrees(pending, box_action, dry_run, yes)
+        _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
     protected = _protected_paths(repo_root)
 
     registry = _registered_worktrees(repo_root)
@@ -444,17 +444,24 @@ def _boxes_of_removed_worktrees(
     return boxes
 
 
-def _clean_boxes_of_removed_worktrees(boxes: list[WorktreeBox], box_action: str, dry_run: bool, yes: bool) -> None:
+def _clean_boxes_of_removed_worktrees(
+    boxes: list[WorktreeBox], box_action: str, cutoff: float, dry_run: bool, yes: bool
+) -> None:
+    """Act on the boxes of removed worktrees that have been idle since *cutoff*.
+
+    The worktree is gone, so the box's own last use stands in for its age.
+    """
     if not boxes:
         return
     click.echo(f"{len(boxes)} devbox(es) belong to worktrees that were already removed:")
     for box in boxes:
         click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
     if dry_run:
-        click.echo(f"[DRY-RUN] Would {box_action} them.\n")
+        which = "them" if cutoff == float("inf") else "the ones not used since the cutoff"
+        click.echo(f"[DRY-RUN] Would {box_action} {which}.\n")
         return
     if yes or click.confirm(f"{box_action.capitalize()} them now?", default=False):
-        _clean_worktree_boxes(boxes, box_action)
+        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff)
     click.echo()
 
 
@@ -496,7 +503,17 @@ def _stop_worktree_mirrors(boxes: list[WorktreeBox]) -> None:
             click.echo(f"  ⚠️  could not stop the sync mirror for {box.workspace}; its devbox copy may lose files.")
 
 
-def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str) -> None:
+def _box_last_used(workspace: Mapping[str, object]) -> float | None:
+    last_used = workspace.get("last_used_at")
+    if not isinstance(last_used, str):
+        return None
+    try:
+        return datetime.fromisoformat(last_used).timestamp()
+    except ValueError:
+        return None
+
+
+def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float = float("inf")) -> None:
     try:
         ensure_runtime_ready()
     except SystemExit:
@@ -519,6 +536,12 @@ def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str) -> None:
         if not box.record.owns(workspace):
             click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
             handled.append(box.worktree_path)
+            continue
+        last_used = _box_last_used(workspace)
+        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
+            click.echo(
+                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
+            )
             continue
         try:
             mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
