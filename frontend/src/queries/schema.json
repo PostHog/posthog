@@ -26043,6 +26043,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeExposureConfig"
                 }
             ]
         },
@@ -26050,8 +26053,15 @@
             "additionalProperties": false,
             "properties": {
                 "activation_config": {
-                    "$ref": "#/definitions/ExperimentExposureConfig",
-                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`."
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentEventExposureConfig"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ],
+                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native activation has no defined semantics yet, so only events and actions apply here."
                 },
                 "exposure_config": {
                     "$ref": "#/definitions/ExperimentExposureConfig"
@@ -26720,6 +26730,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeNode"
                 }
             ],
             "required": ["kind"],
@@ -27025,6 +27038,27 @@
             "required": ["metric_type", "numerator", "denominator"],
             "type": "object"
         },
+        "ExperimentRetentionCompletion": {
+            "$ref": "#/definitions/ExperimentRetentionCompletionUnion"
+        },
+        "ExperimentRetentionCompletionUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
         "ExperimentRetentionMetric": {
             "additionalProperties": false,
             "properties": {
@@ -27032,7 +27066,7 @@
                     "$ref": "#/definitions/BreakdownFilter"
                 },
                 "completion_event": {
-                    "$ref": "#/definitions/ExperimentMetricSource"
+                    "$ref": "#/definitions/ExperimentRetentionCompletion"
                 },
                 "conversion_window": {
                     "$ref": "#/definitions/integer"
@@ -27106,7 +27140,7 @@
             "additionalProperties": false,
             "properties": {
                 "completion_event": {
-                    "$ref": "#/definitions/ExperimentMetricSource"
+                    "$ref": "#/definitions/ExperimentRetentionCompletion"
                 },
                 "metric_type": {
                     "const": "retention",
@@ -27492,6 +27526,76 @@
                 }
             },
             "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeExposureConfig": {
+            "additionalProperties": false,
+            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection.",
+            "properties": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentWarehouseNativeExposureConfig",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling.",
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["connection_id", "kind", "query"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeMathType": {
+            "description": "The subset of `ExperimentMetricMathType` a warehouse-native source supports, with the same values.",
+            "enum": ["total", "sum"],
+            "type": "string"
+        },
+        "ExperimentWarehouseNativeNode": {
+            "additionalProperties": false,
+            "description": "Outcome rows that live in the customer's warehouse, read through a direct connection. PostHog joins them to the experiment's exposures and aggregates them inside the warehouse, so the SQL never mentions variants or exposures and only per-variant aggregates leave the warehouse. Distinct from `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. It does not extend `EntityNode`: property filters and the other event settings cannot apply to SQL PostHog does not parse, so the shape lists every supported field. Only mean and ratio metrics accept it.",
+            "properties": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentWarehouseNativeNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeMathType",
+                    "description": "How to aggregate the rows per entity. Defaults to `total` (row count)."
+                },
+                "math_property": {
+                    "description": "The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column.",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure.",
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["connection_id", "kind", "query"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -40351,10 +40455,12 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
+                "ExperimentWarehouseNativeExposureConfig",
                 "ExperimentActorsQuery",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
+                "ExperimentWarehouseNativeNode",
                 "ExperimentExposureNode",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
