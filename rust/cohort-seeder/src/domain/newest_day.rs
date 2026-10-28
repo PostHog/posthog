@@ -2,7 +2,7 @@
 //! stage-1 state, so an older day's tile can be skipped. Depends on `condition`, `ids`, and
 //! `cohort-core`.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use cohort_core::filters::{LeafStateMeta, TeamFilters};
 use cohort_core::{EvictionWindow, StateVariant};
@@ -24,18 +24,12 @@ impl NewestDayConditions {
     /// qualifies only when every leaf on it in this run's frozen catalog does. A live leaf outside
     /// the run gets every day from its own run.
     pub fn of(conditions: &[PinnedCondition], filters: &TeamFilters) -> Self {
-        let mut slots = HashMap::new();
-        for condition in conditions {
-            if slots.contains_key(&condition.hash)
-                || !every_leaf_keeps_only_newest_day(condition.hash, filters)
-            {
-                continue;
-            }
-            let slot = u32::try_from(slots.len())
-                .expect("a pinned catalog holds fewer than 2^32 conditions");
-            slots.insert(condition.hash, ConditionSlot(slot));
-        }
-        Self(slots)
+        let hashes: BTreeSet<ConditionHash> =
+            conditions.iter().map(|condition| condition.hash).collect();
+        let qualifying = hashes
+            .into_iter()
+            .filter(|hash| every_leaf_keeps_only_newest_day(*hash, filters));
+        Self(qualifying.zip((0..).map(ConditionSlot)).collect())
     }
 
     pub fn slot(&self, hash: ConditionHash) -> Option<ConditionSlot> {
