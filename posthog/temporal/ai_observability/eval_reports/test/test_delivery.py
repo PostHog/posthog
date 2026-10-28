@@ -1,3 +1,5 @@
+from contextlib import nullcontext
+
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -495,12 +497,15 @@ class TestDeliverReport(SimpleTestCase):
 
         self.assertEqual(run.delivery_status, "partial_failure")
 
-    @parameterized.expand([("retryable_raises_for_retry", True), ("config_error_does_not_raise", False)])
+    @parameterized.expand([("retryable_raises_for_retry", True), ("config_error_disables_report", False)])
+    @patch("posthog.temporal.ai_observability.eval_reports.delivery.disable_undeliverable_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReportRun.objects")
     @patch("products.ai_observability.backend.models.evaluation_reports.EvaluationReport.objects")
-    def test_all_slack_targets_failed(self, _name, retryable, mock_report_qs, mock_run_qs, mock_slack, _mock_email):
+    def test_all_slack_targets_failed(
+        self, _name, retryable, mock_report_qs, mock_run_qs, mock_slack, _mock_email, mock_disable
+    ):
         report = self._make_report([{"type": "slack", "integration_id": 1, "channel": "C0123|#reports"}])
         run = self._make_report_run()
 
@@ -508,14 +513,12 @@ class TestDeliverReport(SimpleTestCase):
         mock_run_qs.get.return_value = run
         mock_slack.return_value = [SlackDeliveryFailure(message="slack failed", retryable=retryable)]
 
-        if retryable:
-            with self.assertRaises(RuntimeError):
-                deliver_report("report-id", "run-id")
-        else:
+        with self.assertRaises(RuntimeError) if retryable else nullcontext():
             deliver_report("report-id", "run-id")
 
         self.assertEqual(run.delivery_status, "failed")
         self.assertEqual(run.delivery_errors, ["slack failed"])
+        self.assertEqual(mock_disable.called, not retryable)
 
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_email_report")
     @patch("posthog.temporal.ai_observability.eval_reports.delivery.deliver_slack_report")
@@ -671,16 +674,26 @@ class TestDeliverSlackReport(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("bot_not_in_channel", "not_in_channel", False, "Invite it to the channel"),
-            ("revoked_token", "token_revoked", False, "Reconnect Slack"),
-            ("rate_limited", "ratelimited", True, "ratelimited"),
+            ("bot_not_in_channel", True, "not_in_channel", False, "#evals: The PostHog app is not in this channel"),
+            ("revoked_token", True, "token_revoked", False, "Reconnect Slack"),
+            ("rate_limited", True, "ratelimited", True, "ratelimited"),
+            ("integration_deleted", False, None, False, "Reconnect Slack"),
         ]
     )
     @patch("posthog.models.integration.SlackIntegration")
     @patch("posthog.models.integration.Integration")
-    def test_slack_api_error_is_classified(
-        self, _name, slack_error, expected_retryable, expected_text, mock_integration, mock_slack_integration
+    def test_slack_failure_is_classified(
+        self,
+        _name,
+        integration_exists,
+        slack_error,
+        expected_retryable,
+        expected_text,
+        mock_integration,
+        mock_slack_integration,
     ):
+        if not integration_exists:
+            mock_integration.objects.select_related.return_value.filter.return_value.first.return_value = None
         client = MagicMock()
         client.chat_postMessage.side_effect = SlackApiError("failed", {"ok": False, "error": slack_error})
         mock_slack_integration.return_value.client = client

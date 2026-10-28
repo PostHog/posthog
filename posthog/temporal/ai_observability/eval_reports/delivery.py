@@ -17,6 +17,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.slack.formatting import channel_id_from_target
+from posthog.temporal.ai_observability.eval_reports.auto_disable import disable_undeliverable_report
 from posthog.temporal.ai_observability.eval_reports.report_agent.schema import (
     METRICS_UNAVAILABLE_MESSAGE,
     Citation,
@@ -40,25 +41,21 @@ _slack_converter = SlackMarkdownConverter()
 
 _INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=eval_report&utm_medium=slack"
 
-# Slack errors that no retry can fix. The user must change the channel or reconnect Slack.
-_SLACK_CONFIG_ERRORS = frozenset(
-    {
-        "not_in_channel",
-        "account_inactive",
-        "is_archived",
-        "channel_not_found",
-        "invalid_auth",
-        "token_revoked",
-        "missing_scope",
-        "not_allowed_token_type",
-    }
-)
-_SLACK_CONFIG_ERROR_HINTS = {
-    "not_in_channel": "The PostHog app is not in this channel. Invite it to the channel to get the next reports.",
-    "is_archived": "This channel is archived. Pick a different channel for this report.",
-    "channel_not_found": "Slack can't find this channel. Pick a different channel for this report.",
-}
 _SLACK_RECONNECT_HINT = "The Slack connection no longer works. Reconnect Slack in your project settings."
+# Slack errors that no retry can fix, each with the step the user must take.
+_SLACK_CONFIG_ERROR_HINTS = {
+    "not_in_channel": "The PostHog app is not in this channel. Invite it with /invite @PostHog.",
+    "is_archived": "This channel is archived. Pick a different channel for this report.",
+    # Slack also returns channel_not_found for a private channel that the app is not a member of.
+    "channel_not_found": (
+        "Slack can't find this channel. If the channel is private, invite the PostHog app with /invite @PostHog. "
+        "Otherwise, pick a different channel for this report."
+    ),
+    **dict.fromkeys(
+        ("account_inactive", "invalid_auth", "token_revoked", "missing_scope", "not_allowed_token_type"),
+        _SLACK_RECONNECT_HINT,
+    ),
+}
 
 # Inline styles for email-safe HTML (many clients strip <style> blocks)
 _EMAIL_TABLE_STYLE = 'style="border-collapse: collapse; width: 100%; margin: 8px 0; font-size: 14px;"'
@@ -366,6 +363,24 @@ class SlackDeliveryFailure:
     retryable: bool
 
 
+def _slack_channel_label(target_channel: str) -> str:
+    return target_channel.partition("|")[2] or target_channel
+
+
+def _slack_config_failure(target_channel: str, hint: str) -> SlackDeliveryFailure:
+    error_msg = f"Failed to send Slack message to {_slack_channel_label(target_channel)}: {hint}"
+    logger.warning(error_msg)
+    return SlackDeliveryFailure(message=error_msg, retryable=False)
+
+
+def _slack_delivery_failure(target_channel: str, error: Exception) -> SlackDeliveryFailure:
+    if isinstance(error, SlackApiError) and (hint := _SLACK_CONFIG_ERROR_HINTS.get(error.response.get("error"))):
+        return _slack_config_failure(target_channel, hint)
+    error_msg = f"Failed to send Slack message to {_slack_channel_label(target_channel)}: {error}"
+    logger.exception(error_msg)
+    return SlackDeliveryFailure(message=error_msg, retryable=True)
+
+
 def deliver_slack_report(
     report_run,
     targets: list[dict],
@@ -416,9 +431,15 @@ def deliver_slack_report(
         try:
             # The organization comes along because the follow-up invite below reads its AI consent
             # flag, and this query already runs once per target.
-            integration = Integration.objects.select_related("team__organization").get(
-                id=integration_id, team_id=team_id, kind="slack"
+            integration = (
+                Integration.objects.select_related("team__organization")
+                .filter(id=integration_id, team_id=team_id, kind="slack")
+                .first()
             )
+            # delivery_targets is a JSON field, so a deleted Slack integration leaves its id behind.
+            if integration is None:
+                failures.append(_slack_config_failure(channel, _SLACK_RECONNECT_HINT))
+                continue
             client = SlackIntegration(integration, source="eval_reports").client
 
             # Main message: header + context + metrics grid + first section (if any)
@@ -468,21 +489,8 @@ def deliver_slack_report(
                         text=mrkdwn_text[:3000],
                     )
 
-        except SlackApiError as e:
-            slack_error = e.response.get("error")
-            if slack_error in _SLACK_CONFIG_ERRORS:
-                hint = _SLACK_CONFIG_ERROR_HINTS.get(slack_error, _SLACK_RECONNECT_HINT)
-                error_msg = f"Failed to send Slack message to {channel}: {hint}"
-                logger.warning(error_msg, slack_error=slack_error)
-                failures.append(SlackDeliveryFailure(message=error_msg, retryable=False))
-            else:
-                error_msg = f"Failed to send Slack message to {channel}: {e}"
-                logger.exception(error_msg)
-                failures.append(SlackDeliveryFailure(message=error_msg, retryable=True))
         except Exception as e:
-            error_msg = f"Failed to send Slack message to {channel}: {e}"
-            logger.exception(error_msg)
-            failures.append(SlackDeliveryFailure(message=error_msg, retryable=True))
+            failures.append(_slack_delivery_failure(channel, e))
 
     return failures
 
@@ -493,8 +501,8 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
     Raises RuntimeError after persisting FAILED status if ALL delivery targets
     fail, so the Temporal activity surfaces the failure and the retry policy
     kicks in. Partial failures return normally (with delivery_status=partial_failure).
-    If every failure is a Slack configuration error, it also returns normally,
-    because a retry cannot fix it and the run already shows the errors.
+    If every failure is a Slack configuration error, a retry cannot fix it, so the
+    report is disabled and its creator notified instead.
     """
     from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 
@@ -571,7 +579,12 @@ def deliver_report(report_id: str, report_run_id: str) -> None:
         error_count=len(all_errors),
     )
 
+    if not all_failed:
+        return
+
     retryable = bool(email_errors) or any(failure.retryable for failure in slack_failures)
-    if all_failed and retryable:
+    if retryable:
         # Raise so the Temporal activity fails and retries fire per DELIVER_RETRY_POLICY.
         raise RuntimeError(f"All delivery targets failed for report run {report_run_id}: {'; '.join(all_errors)}")
+
+    disable_undeliverable_report(report, report_run)
