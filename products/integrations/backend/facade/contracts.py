@@ -10,6 +10,10 @@ from products.integrations.backend.facade.enums import AuthType
 # A value that `find`, `list` and `exists` can compare a config key with. Equality only.
 ConfigValue = str | int | float | bool | None
 
+# A row that holds the typed-in credentials of a warehouse source stores the source type under this
+# config key. Only `IntegrationManager.source(kind)` and `IntegrationManager.any` read these rows.
+SOURCE_MARKER_CONFIG_KEY = "warehouse_source_type"
+
 
 @frozen
 class KindSpec:
@@ -68,9 +72,11 @@ class UnsupportedAuthType(ValueError):
 
 
 class IntegrationConflict(ValueError):
-    """An `upsert` found a row with the same external id that the accessor cannot write.
+    """A write hit the unique key (team, kind, external id) of a row.
 
-    For example a row with another auth type, or a warehouse source row found through a named accessor.
+    `create` raises it for any row with the same key. `upsert` raises it for a row with the same key
+    that the accessor cannot write, for example a row with another auth type, or a warehouse source
+    row found through a named accessor.
     """
 
 

@@ -3230,6 +3230,9 @@ class TestIntegrationAPIKeyAccess:
         token_row = Integration.objects._with_auth(Integration.AuthType.TOKEN).create(
             team=self.team, kind="github", integration_id="typed-in", sensitive_config={"token": "secret"}
         )
+        source_row = Integration.objects._with_auth(Integration.AuthType.CREDENTIALS).create(
+            team=self.team, kind="postgresql", integration_id="source", config={"warehouse_source_type": "Postgres"}
+        )
         base_url = f"/api/environments/{self.team.pk}/integrations"
 
         with patch.object(GitHubIntegration, "ensure_account_name") as heal:
@@ -3241,7 +3244,10 @@ class TestIntegrationAPIKeyAccess:
             (self.github_integration.id, "oauth"),
             (self.twilio_integration.id, "token"),
             (token_row.id, "token"),
+            (source_row.id, "credentials"),
         }
+        # Code that does not state its auth types does not see the warehouse source row.
+        assert not Integration.objects.filter(team=self.team, kind="postgresql").exists()
         assert retrieved.status_code == status.HTTP_200_OK
         assert (retrieved.json()["auth_type"], retrieved.json()["installation_status"]) == ("token", None)
         assert repos.status_code == status.HTTP_404_NOT_FOUND

@@ -85,6 +85,16 @@ class TestIntegrationAccessors(BaseTest):
                 lambda: IntegrationManager.kinds("github", "slack"),
                 {"github_oauth", "github_token", "slack_oauth"},
             ),
+            (
+                "several_kinds_default_auth_type",
+                lambda: IntegrationManager.kinds("github", "stripe", "postgresql", auth_types="default"),
+                {"github_oauth", "stripe_oauth", "postgres"},
+            ),
+            (
+                "several_kinds_listed_auth_types",
+                lambda: IntegrationManager.kinds("github", "stripe", "postgresql", auth_types=[AuthType.TOKEN]),
+                {"github_token", "stripe_token"},
+            ),
         ]
     )
     def test_list_returns_only_rows_in_scope(
@@ -110,6 +120,18 @@ class TestIntegrationAccessors(BaseTest):
     def test_get_raises_for_a_bad_id(self, _name: str, row_id: Any) -> None:
         with self.assertRaises(IntegrationNotFound):
             IntegrationManager.any.get(self.team.id, row_id)
+
+    def test_a_stored_default_auth_type_reads_as_the_default(self) -> None:
+        row = self.rows["github_oauth"]
+        # `QuerySet.update()` skips `save()`, so it can store the default auth type of the kind.
+        Integration._base_manager.filter(id=row.id).update(config={"auth_type": "oauth"})
+
+        assert IntegrationManager.github.oauth.get(self.team.id, row.id).id == row.id
+        assert self._names(IntegrationManager.kinds("github", auth_types="default").list(self.team.id)) == {
+            "github_oauth"
+        }
+        with self.assertRaises(IntegrationNotFound):
+            IntegrationManager.github.token.get(self.team.id, row.id)
 
     def test_get_does_not_cross_teams(self) -> None:
         with self.assertRaises(IntegrationNotFound):
@@ -175,6 +197,19 @@ class TestIntegrationAccessors(BaseTest):
 
     @parameterized.expand(
         [
+            ("list_by_external_id", lambda: IntegrationManager.any.list_by_external_id("github_oauth")),
+            ("delete_by_external_id", lambda: IntegrationManager.any.delete_by_external_id("github_oauth")),
+        ]
+    )
+    def test_cross_team_operations_need_a_kind(self, _name: str, call: Callable[[], Any]) -> None:
+        with self.assertRaises(ValueError):
+            call()
+
+        assert Integration._base_manager.filter(integration_id="github_oauth").count() == 2
+        assert len(IntegrationManager.kinds("github").list_by_external_id("github_oauth")) == 2
+
+    @parameterized.expand(
+        [
             ("default_auth_type_stores_nothing", lambda: IntegrationManager.github.oauth, {}),
             ("non_default_auth_type_is_stored", lambda: IntegrationManager.github.token, {"auth_type": "token"}),
             (
@@ -226,6 +261,28 @@ class TestIntegrationAccessors(BaseTest):
     ) -> None:
         with self.assertRaises(error):
             accessor().create(self.team.id, external_id="new", config=config)
+
+    @parameterized.expand(
+        [
+            ("same_scope", lambda: IntegrationManager.github.oauth, "github_oauth", {}),
+            ("other_auth_type", lambda: IntegrationManager.github.token, "github_oauth", {}),
+            ("source_row_through_named_accessor", lambda: IntegrationManager.stripe.oauth, "stripe_source", {}),
+            (
+                "named_row_through_source_accessor",
+                lambda: IntegrationManager.source("stripe").token,
+                "stripe_token",
+                {MARKER: "Stripe"},
+            ),
+        ]
+    )
+    def test_create_raises_conflict_on_the_unique_key(
+        self, _name: str, accessor: Callable[[], Any], external_id: str, config: dict[str, Any]
+    ) -> None:
+        with self.assertRaises(IntegrationConflict):
+            accessor().create(self.team.id, external_id=external_id, config=config)
+
+        # The failed insert rolls back to a savepoint, so the transaction stays usable.
+        assert IntegrationManager.any.list(self.team.id, external_id=external_id) == [self.rows[external_id]]
 
     def test_upsert_creates_then_replaces_the_config(self) -> None:
         row, created = IntegrationManager.github.token.upsert(self.team.id, "new", config={"a": 1})
