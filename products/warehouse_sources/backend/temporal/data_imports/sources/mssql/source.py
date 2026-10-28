@@ -64,6 +64,21 @@ _CONNECTION_TIMED_OUT_ERROR = (
 
 _GENERIC_CONNECTION_ERROR = "Could not connect to MS SQL. Please check all connection details are valid."
 
+# SQL Server error 1105 against tempdb — most often the sort our incremental query's ORDER BY
+# needs spilling to disk. tempdb is shared across every session on the instance, and Microsoft
+# documents its allocations as temporary (https://learn.microsoft.com/en-us/sql/relational-databases/databases/tempdb-database),
+# so a concurrent workload that filled it can also release it. Match the stable phrasing around
+# "tempdb" (a fixed system database name, not customer data) and stop short of the filegroup name
+# that varies after it, so this stays scoped to tempdb and doesn't also catch a customer database
+# genuinely out of disk.
+_TEMPDB_ALLOCATION_FAILED_ERROR = "in database 'tempdb' because the '"
+_TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE = (
+    "Your SQL Server's tempdb ran out of space while sorting rows for this sync (SQL Server error "
+    "1105), and it was still out of space after every retry. tempdb is shared across all sessions on "
+    "your server, so another workload may be holding the space — check tempdb's free space and "
+    "autogrowth settings. This sync is still enabled and will run again on its next schedule."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -147,6 +162,13 @@ class MSSQLSource(
             # and then sent nothing, so the next attempt, which continues from the last
             # checkpoint where the read has one, can succeed.
             MSSQL_ROW_READ_TIMEOUT_ERROR,
+            # SQL Server error 1105 against tempdb — see `_TEMPDB_ALLOCATION_FAILED_ERROR`.
+            _TEMPDB_ALLOCATION_FAILED_ERROR,
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            _TEMPDB_ALLOCATION_FAILED_ERROR: _TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE,
         }
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -211,13 +233,6 @@ class MSSQLSource(
             # view definition, so retrying replays the identical 245. Match the stable error text,
             # not the volatile value / data type that follow it.
             "Conversion failed when converting": "A value in one of the tables or views you're syncing can't be converted to the type its query expects (SQL Server error 245) — for example a text value where a number is required. This usually comes from a view definition or computed column that casts or compares mismatched types. Fix the conversion at the source (correct the data or the view), then re-enable the sync.",
-            # SQL Server error 1105 — a filegroup (most often tempdb, spilling the sort our
-            # incremental query's ORDER BY needs) ran out of storage space. This is the server's
-            # own disk/file-size capacity, which SQL Server's own message says to fix by freeing
-            # space, adding files, or turning on autogrowth; retrying runs the identical sort
-            # against the identical shortage. Match the stable wording after the filegroup name,
-            # not the object/database/filegroup names that vary around it.
-            "filegroup is full due to lack of storage space": "Your SQL Server ran out of storage space (SQL Server error 1105), often in tempdb while sorting rows for a sync. Free up disk space, add files to the filegroup, or enable autogrowth on your SQL Server, then re-enable the sync.",
             # Raised by the `sshtunnel` library (via the shared `open_ssh_tunnel` helper) when the
             # SSH tunnel can't be brought up — the bastion host is unreachable, the host/port is
             # wrong, the SSH key/credentials are rejected, or a firewall blocks PostHog's IPs. This
