@@ -42,6 +42,7 @@ import {
     type NativeProblem,
 } from './native/package'
 import { sourceStep } from './native/sources'
+import { plistRelease } from './plist'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
 
@@ -49,6 +50,7 @@ export interface ErrorTrackingOptions {
     kind?: ArtifactKind
     mapId?: string
     release: ReleaseFields
+    infoPlist?: string
     releaseMode: ReleaseMode
     publicPathPrefix?: string
     force: boolean
@@ -112,12 +114,14 @@ export async function select(ctx: Context, paths: string[], options: ErrorTracki
     return { artifacts: discover(roots, cwd, { publicPathPrefix: options.publicPathPrefix }), roots, cwd }
 }
 
+// The flags first, then --info-plist, then posthog.json.
 export async function releaseFields(ctx: Context, options: ErrorTrackingOptions): Promise<ReleaseFields> {
     const configured = (await ctx.config())?.config.errorTracking?.release
+    const plist = options.infoPlist ? plistRelease(resolve(ctx.runtime.cwd(), options.infoPlist), ctx.runtime.env) : {}
     return {
-        name: options.release.name ?? configured?.name,
-        version: options.release.version ?? configured?.version,
-        build: options.release.build,
+        name: options.release.name ?? plist.name ?? configured?.name,
+        version: options.release.version ?? plist.version ?? configured?.version,
+        build: options.release.build ?? plist.build,
     }
 }
 

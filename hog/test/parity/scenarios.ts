@@ -5,6 +5,7 @@ import type { Scenario, StoredObject } from './fake-server'
 import { GIT_REPO, mappingOfSize, readTree, SMALL_MAPPING, write } from './fixtures'
 import { EXPO_BUILD, HERMES_BUILD, HERMES_BUNDLES } from './hermes-fixtures'
 import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEET_LOOKUP, STYLESHEETS } from './js-fixtures'
+import { INFO_PLIST_BINARY, INFO_PLIST_SETTINGS, INFO_PLIST_XML, XCODE_SETTINGS } from './plist-fixtures'
 import { decodeFile, type ParityResult } from './run'
 import { SYMBOL_SETS } from './symbol-set-fixtures'
 
@@ -30,6 +31,8 @@ export interface ParityScenario {
     setup?: () => void
     // Symbol sets the fake server stores for download.
     objects?: () => StoredObject[]
+    // Variables both CLIs get on top of the credentials, like the build settings Xcode exports.
+    env?: Record<string, string>
 }
 
 // The files posthog-cli left behind in another scenario: its inputs with the golden's changes.
@@ -136,6 +139,9 @@ SCENARIOS.push(
         before: [['inject', jsRelease]],
     }),
     js('inject-public-path', 'inject', () => PUBLIC_PATH, { args: ['--public-path-prefix', '/static/js'] }),
+    js('inject-info-plist', 'inject', () => ({ ...bundles(), 'Info.plist': INFO_PLIST_XML }), {
+        args: ['--info-plist', 'Info.plist'],
+    }),
     js('inject-file-root', 'inject', bundles, { path: 'esbuild-cjs/index.cjs' }),
     js('process-bundles', 'process', bundles, { args: jsRelease }),
     js('process-no-release', 'process', bundles),
@@ -373,6 +379,18 @@ SCENARIOS.push(
     releaseScenario('flags', ['--release-name', 'web', '--release-version', '2.1.0', '--build', '9']),
     releaseScenario('from-git', [], () => GIT_REPO),
     releaseScenario('none', []),
+    releaseScenario('info-plist-xml', ['--info-plist', 'Info.plist'], () => ({ 'Info.plist': INFO_PLIST_XML })),
+    releaseScenario('info-plist-binary', ['--info-plist', 'Info.plist'], () => ({ 'Info.plist': INFO_PLIST_BINARY })),
+    {
+        ...releaseScenario('info-plist-build-settings', ['--info-plist', 'Info.plist'], () => ({
+            'Info.plist': INFO_PLIST_SETTINGS,
+        })),
+        env: XCODE_SETTINGS,
+    },
+    releaseScenario('info-plist-flags-win', ['--info-plist', 'Info.plist', '--release-version', '9.9.9'], () => ({
+        'Info.plist': INFO_PLIST_XML,
+    })),
+    releaseScenario('info-plist-missing', ['--info-plist', 'Missing.plist']),
     ...Object.keys(SYMBOL_SETS).map(extract),
     download('by-ref', ['--ref', 'static/chunks/app.js.map'], ['static/chunks/app.js.map']),
     download('by-id', ['--id', '0192f0a0-0000-7000-8000-00000000000b'], ['0192f0a0-0000-7000-8000-00000000000b']),
