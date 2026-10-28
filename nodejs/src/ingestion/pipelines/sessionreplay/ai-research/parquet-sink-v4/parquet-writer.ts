@@ -9,7 +9,7 @@ import { parquetRecordsToBuffer } from './parquet-buffer'
 
 type SchemaDef = ConstructorParameters<typeof ParquetSchema>[0]
 
-const ZSTD_LEVEL = 3
+const ZSTD_LEVEL = 9
 const zstdCompressAsync = promisify(zstdCompress)
 const zstdDecompressAsync = promisify(zstdDecompress)
 
