@@ -1126,8 +1126,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/unleash.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/uppromote.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/upstash/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/uptimerobot/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/uptimerobot/uptimerobot.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/usersnap/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/usersnap/usersnap.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uservoice/settings.py
