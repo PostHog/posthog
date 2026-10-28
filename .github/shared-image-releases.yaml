@@ -67,6 +67,52 @@ filters:
         - bin/temporal-django-worker
         - manage.py
         - Dockerfile
+    alertsPlatformEvaluation:
+        - 'products/alerts_platform/backend/**'
+        - 'products/alerts/backend/**'
+        - 'products/logs/backend/**'
+        - 'products/billing_alerts/backend/**'
+        - products/warehouse_sources/backend/facade/temporal.py
+        - products/warehouse_sources/backend/temporal/sync_alert_evaluate.py
+        - 'products/warehouse_sources/backend/sync_alerts/**'
+        - 'products/warehouse_sources/backend/models/**'
+        - products/warehouse_sources/backend/presentation/views/external_data_source/helpers.py
+        - 'posthog/temporal/alerts/**'
+        - 'posthog/tasks/alerts/**'
+        - 'posthog/hogql*/**'
+        - 'posthog/clickhouse/**'
+        - 'posthog/caching/**'
+        - 'posthog/api/services/**'
+        - 'posthog/schema_migrations/**'
+        - 'products/product_analytics/backend/models/**'
+        - products/product_analytics/backend/facade/models.py
+        - 'products/cdp/backend/models/**'
+        - products/cdp/backend/facade/models.py
+        - products/cdp/backend/internal_events.py
+        - 'products/exports/backend/facade/**'
+        - 'products/exports/backend/models/**'
+        - products/exports/backend/tasks/failure_handler.py
+        - posthog/temporal/exports/workflows.py
+        - 'posthog/storage/**'
+        - 'ee/billing/**'
+        - posthog/cloud_utils.py
+        - posthog/redis.py
+        - posthog/sync.py
+        - posthog/errors.py
+        - 'common/hogvm/**'
+        - 'posthog/temporal/common/**'
+        - 'posthog/management/commands/start_temporal_worker.py'
+        - 'posthog/settings/temporal.py'
+        - posthog/schema.py
+        - 'posthog/models/**'
+        - 'posthog/migrations/**'
+        - 'products/*/backend/migrations/**'
+        - posthog/exceptions.py
+        - pyproject.toml
+        - uv.lock
+        - bin/temporal-django-worker
+        - manage.py
+        - Dockerfile
 
 images:
     posthog-cloud:
@@ -79,3 +125,7 @@ images:
                 repository: posthog-temporal-workers/data-warehouse-metadata
                 filter: dataWarehouseMetadata
                 bootstrapPolicyDigest: 49975342dfa3dce5f0c4767e2bc90c295a7ce12cfb5daaa99075026f20dd3620
+            alerts-platform-evaluation:
+                repository: posthog-temporal-workers/alerts-platform-evaluation
+                filter: alertsPlatformEvaluation
+                bootstrapPolicyDigest: 5b6b1f59bb71807abe2eea45564d84a0fac86851b14cb5faa561e0de27ce6fcf
