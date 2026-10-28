@@ -137,9 +137,6 @@ def rest_api_resources(
     return list(resources.values())
 
 
-_UNKNOWN: Any = object()
-
-
 class ParentPosition:
     """Where the parent listing of a resumable fan-out stands.
 
@@ -151,8 +148,8 @@ class ParentPosition:
     def __init__(self, start: Optional[dict[str, Any]]) -> None:
         self.start = start
         self._next: Optional[dict[str, Any]] = start
-        self._current: Any = _UNKNOWN
-        self._previous: Any = _UNKNOWN
+        self._current: Optional[dict[str, Any]] = start
+        self._previous: Optional[dict[str, Any]] = start
         self.tracked = True
 
     def on_page_state(self, next_state: Optional[dict[str, Any]], has_next_page: bool) -> None:
@@ -162,9 +159,7 @@ class ParentPosition:
             self.tracked = False
 
     def resume_state(self) -> Optional[dict[str, Any]]:
-        if self._previous is not _UNKNOWN:
-            return self._previous
-        return self.start if self._current is _UNKNOWN else self._current
+        return self._previous
 
 
 class _FinishedParents:
@@ -412,9 +407,12 @@ def create_resources(
     if dependent_resume_hook is not None:
         child_name, child_params = next((name, rp) for name, rp in resolved_param_map.items() if rp is not None)
         parent_name = child_params[0].resolve_config["resource"]
+        # A parent skipped through `on_parent_error` is retried only when a resume reads it again, and a
+        # resume that starts at the saved page never reaches the earlier pages.
         if (
             endpoint_resource_map[child_name].get("resume_parent_pagination")
             and endpoint_resource_map[parent_name].get("data_iterator") is None
+            and on_parent_error is None
         ):
             parent_position = ParentPosition((dependent_initial_state or {}).get("parent"))
             position_parent_name = parent_name
@@ -506,6 +504,13 @@ def create_resources(
 
         elif resolved_params is None:
             own_parent_position = parent_position if resource_name == position_parent_name else None
+            own_page_state_hook: Optional[Callable[[Optional[dict[str, Any]], bool], None]]
+            if own_parent_position is not None:
+                own_initial_state = own_parent_position.start
+                own_page_state_hook = own_parent_position.on_page_state
+            else:
+                own_initial_state = None if has_dependent_resource else initial_paginator_state
+                own_page_state_hook = page_checkpoints.defer_page_state if page_checkpoints is not None else None
 
             def paginate_resource(
                 method: HTTPMethodBasic,
@@ -520,15 +525,8 @@ def create_resources(
                 incremental_object: Optional[Incremental] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
-                page_checkpoints: Optional[PageCheckpoints] = page_checkpoints,
-                parent_position: Optional[ParentPosition] = own_parent_position,
-                initial_paginator_state: Optional[dict[str, Any]] = (
-                    own_parent_position.start
-                    if own_parent_position is not None
-                    else None
-                    if has_dependent_resource
-                    else initial_paginator_state
-                ),
+                page_state_hook: Optional[Callable[[Optional[dict[str, Any]], bool], None]] = own_page_state_hook,
+                initial_paginator_state: Optional[dict[str, Any]] = own_initial_state,
                 data_selector_required: bool = bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok: bool = bool(endpoint_config.get("data_selector_empty_ok")),
                 data_selector_malformed_retryable: bool = bool(
@@ -553,13 +551,7 @@ def create_resources(
                     paginator=paginator,
                     data_selector=data_selector,
                     hooks=hooks,
-                    page_state_hook=(
-                        page_checkpoints.defer_page_state
-                        if page_checkpoints is not None
-                        else parent_position.on_page_state
-                        if parent_position is not None
-                        else None
-                    ),
+                    page_state_hook=page_state_hook,
                     initial_paginator_state=initial_paginator_state,
                     data_selector_required=data_selector_required,
                     data_selector_empty_ok=data_selector_empty_ok,

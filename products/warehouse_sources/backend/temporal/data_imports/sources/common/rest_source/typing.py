@@ -365,6 +365,7 @@ class EndpointResourceBase(ResourceBase, total=False):
     # Set on a resumable fan-out child to save where the parent listing stands, so a resume starts
     # there instead of paging the parent from the start. Only for sources that store the fan-out
     # state they receive unchanged: the state gains a `parent` key and keeps two pages of `completed`.
+    # Ignored when the source passes `on_parent_error`.
     resume_parent_pagination: Optional[bool]
 
 

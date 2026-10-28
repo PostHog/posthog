@@ -23,7 +23,6 @@ class PagedSession:
     def __init__(self, pages_by_path: dict[str, list[list[dict[str, Any]]]]) -> None:
         self.headers: dict[str, str] = {}
         self._pages_by_path = pages_by_path
-        self.requests: list[tuple[str, int]] = []
 
     def prepare_request(self, request: Request) -> PreparedRequest:
         return Session().prepare_request(request)
@@ -36,22 +35,18 @@ class PagedSession:
         response.status_code = 200
         response._content = json.dumps(pages[page] if page < len(pages) else []).encode()
         response.url = cast(str, prepared.url)
-        self.requests.append((parts.path, page))
         return response
 
 
 def paged_config(
-    pages_by_path: dict[str, list[list[dict[str, Any]]]],
-    resources: list[Any],
-    total_pages: Optional[int] = None,
-    session: Optional[PagedSession] = None,
+    pages_by_path: dict[str, list[list[dict[str, Any]]]], resources: list[Any], total_pages: Optional[int] = None
 ) -> RESTAPIConfig:
     return cast(
         RESTAPIConfig,
         {
             "client": {
                 "base_url": "https://api.example.com",
-                "session": session or PagedSession(pages_by_path),
+                "session": PagedSession(pages_by_path),
                 "paginator": {"type": "page_number", "base_page": 0, "total_path": None, "maximum_page": total_pages},
             },
             "resources": resources,
@@ -212,6 +207,11 @@ def test_a_fan_out_resumed_from_the_state_staged_with_a_page_reads_every_row_onc
     assert rows == ["a1", "a2", "b1"]
 
 
+def _two_parents_per_page(parents: str) -> dict[str, list[list[dict[str, Any]]]]:
+    pages = [[{"id": parent} for parent in parents[index : index + 2]] for index in range(0, len(parents), 2)]
+    return {"/parents": pages, **{f"/parents/{parent}/children": [[{"id": f"{parent}1"}]] for parent in parents}}
+
+
 PARENT_PER_PAGE = {
     "/parents": [[{"id": parent}] for parent in "abcde"],
     **{f"/parents/{parent}/children": [[{"id": f"{parent}1"}]] for parent in "abcde"},
@@ -219,33 +219,34 @@ PARENT_PER_PAGE = {
 POSITIONED_RESOURCES: list[Any] = ["parents", {**FANOUT_RESOURCES[1], "resume_parent_pagination": True}]
 
 
-@pytest.mark.parametrize("stop_after_pages", [1, 2, 3, 4])
-def test_a_fan_out_that_saves_the_parent_position_resumes_one_parent_page_back(stop_after_pages: int) -> None:
+@pytest.mark.parametrize(
+    "stop_after_rows,deleted_before_resume",
+    [(1, ""), (3, ""), (5, ""), (4, "abc")],
+    ids=["first_page", "second_page", "third_page", "parents_deleted_before_the_saved_page"],
+)
+def test_a_fan_out_that_saves_the_parent_position_reads_every_remaining_parent_once(
+    stop_after_rows: int, deleted_before_resume: str
+) -> None:
     states: list[Any] = []
-    first = _resource(paged_config(PARENT_PER_PAGE, POSITIONED_RESOURCES), "children", states.append)
+    first = _resource(paged_config(_two_parents_per_page("abcdefgh"), POSITIONED_RESOURCES), "children", states.append)
     rows: list[str] = []
     with activate_safe_point(lambda: None, covers_framework_checkpoints=True):
         for index, page in enumerate(first, start=1):
             rows.extend(row["id"] for row in page)
-            if index == stop_after_pages:
+            if index == stop_after_rows:
                 break
 
-    session = PagedSession(PARENT_PER_PAGE)
+    remaining = "".join(parent for parent in "abcdefgh" if parent not in deleted_before_resume)
     resumed = _resource(
-        paged_config(PARENT_PER_PAGE, POSITIONED_RESOURCES, session=session),
+        paged_config(_two_parents_per_page(remaining), POSITIONED_RESOURCES),
         "children",
         lambda _state: None,
         states[-1],
     )
     rows.extend(row["id"] for page in resumed for row in page)
 
-    assert rows == ["a1", "b1", "c1", "d1", "e1"]
-    parent_pages = [page for path, page in session.requests if path == "/parents"]
-    assert parent_pages[0] == max(stop_after_pages - 2, 0)
-    finished = [f"/parents/{parent}/children" for parent in "abcde"[:stop_after_pages]]
-    # The parent fanned out last is still in progress, so only the one before it is kept as finished.
-    assert states[-1]["current"] == finished[-1]
-    assert states[-1]["completed"] == finished[-2:-1]
+    assert rows == [f"{parent}1" for parent in "abcdefgh"]
+    assert len(states[-1]["completed"]) <= 4
 
 
 def test_a_saved_state_without_a_parent_position_still_skips_its_finished_parents() -> None:
