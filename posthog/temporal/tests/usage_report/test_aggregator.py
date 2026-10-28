@@ -27,7 +27,7 @@ from posthog.tasks.usage_report import (
 from posthog.temporal.tests.usage_report.test_aggregate_activity import _instance_metadata
 from posthog.temporal.usage_report.aggregator import (
     add_pre_logs_distinct_patterns_patch_defaults,
-    add_pre_replay_vision_scanner_monthly_credits_patch_defaults,
+    add_pre_replay_vision_spend_projection_patch_defaults,
     add_pre_sandbox_compute_patch_defaults,
     add_pre_transactional_emails_patch_defaults,
     build_manifest,
@@ -174,10 +174,6 @@ def test_load_all_data_defaults_compute_for_pre_patch_workflow_history() -> None
     [
         (add_pre_logs_distinct_patterns_patch_defaults, "teams_with_logs_distinct_patterns_in_period"),
         (add_pre_transactional_emails_patch_defaults, "teams_with_workflow_transactional_emails_sent_in_period"),
-        (
-            add_pre_replay_vision_scanner_monthly_credits_patch_defaults,
-            "teams_with_replay_vision_scanner_monthly_credits",
-        ),
     ],
 )
 def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(
@@ -192,6 +188,22 @@ def test_load_all_data_defaults_single_query_for_pre_patch_workflow_history(
     add_defaults(patched_data, [RunQueryToS3Result(query_name=query_name, s3_key="unused", duration_ms=1)])
 
     assert patched_data == {query_name: {1: 2}}
+
+
+def test_load_all_data_defaults_replay_vision_spend_projection_for_pre_patch_workflow_history() -> None:
+    all_data: dict[str, dict[int, int]] = {}
+    add_pre_replay_vision_spend_projection_patch_defaults(all_data, [])
+
+    assert all_data == {
+        "teams_with_replay_vision_scanner_monthly_credits": {},
+        "teams_with_replay_vision_backfill_committed_credits": {},
+    }
+
+    patched_data: dict[str, dict[int, int]] = {}
+    results = [RunQueryToS3Result(query_name="replay_vision_spend_projection", s3_key="unused", duration_ms=1)]
+    add_pre_replay_vision_spend_projection_patch_defaults(patched_data, results)
+
+    assert patched_data == {}
 
 
 def test_load_all_data_does_not_default_compute_for_patched_workflow_history() -> None:

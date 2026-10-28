@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -13,12 +12,11 @@ from products.replay_vision.backend.billing import (
     OBSERVATION_CREDITS_BY_MODEL,
     get_replay_vision_credits_by_team,
     get_replay_vision_observations_by_team,
-    get_replay_vision_scanner_monthly_credits_by_team,
     observation_credits_for_model,
     suggested_observation_credits,
 )
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_scanner import ScannerModel
 
 
 class TestReplayVisionBillingUsage(APIBaseTest):
@@ -87,35 +85,6 @@ class TestReplayVisionBillingUsage(APIBaseTest):
         self._receipt(team_id=self.team.id, created_at=boundary)
         result = get_replay_vision_credits_by_team(boundary - timedelta(days=1), boundary)
         assert result == []
-
-    def test_scanner_monthly_credits_sum_enabled_paid_scanners_per_team(self) -> None:
-        def scanner(
-            team_id: int, estimate: int | None, model: str = ScannerModel.GEMINI_3_8_FLASH, **kwargs: Any
-        ) -> None:
-            ReplayScanner.objects.create(
-                team_id=team_id,
-                name=f"scanner-{uuid4()}",
-                scanner_type=ScannerType.MONITOR,
-                model=model,
-                estimated_monthly_observations=estimate,
-                **kwargs,
-            )
-
-        other_team = self.organization.teams.create(name="other")
-        scanner(self.team.id, 100, enabled=True)
-        scanner(self.team.id, 100, enabled=True, model=ScannerModel.GEMINI_3_5_FLASH_LITE)
-        # Capped at its own limit, as the in-product projection caps it.
-        scanner(self.team.id, 100, enabled=True, credit_limit=300)
-        # Left out: disabled, free-only (never adds spend), or not estimated yet.
-        scanner(self.team.id, 100, enabled=False)
-        scanner(self.team.id, 100, enabled=True, free_only=True)
-        scanner(self.team.id, None, enabled=True)
-        scanner(other_team.id, 10, enabled=True)
-
-        assert dict(get_replay_vision_scanner_monthly_credits_by_team()) == {
-            self.team.id: 1500 + 200 + 300,
-            other_team.id: 150,
-        }
 
     def test_unknown_model_bills_at_highest_known_price(self) -> None:
         assert observation_credits_for_model("gemini-99-ultra") == _FALLBACK_CREDITS

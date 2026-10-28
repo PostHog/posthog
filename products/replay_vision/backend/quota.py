@@ -8,7 +8,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
-from django.db.models import Count, IntegerField, QuerySet, Sum, Value
+from django.db.models import Count, IntegerField, Min, QuerySet, Sum, Value
 from django.db.models.functions import Coalesce, TruncDay
 
 import structlog
@@ -17,6 +17,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.dataclasses import frozen
 from posthog.date_util import start_of_month
 from posthog.models.organization import Organization
+from posthog.models.team import Team
 from posthog.settings.utils import get_from_env
 
 from products.replay_vision.backend.billing import (
@@ -599,6 +600,42 @@ def spend_projection(
         backfills_committed_credits=backfills.paid + free_only_backfills,
         free_only_monthly_credits_left=free_left,
     )
+
+
+@frozen
+class SpendProjectionByTeam:
+    """Usage report rows: each org's projection on one of its teams, so the org report's sum is the org's."""
+
+    scanners_monthly_credits: list[tuple[int, int]]
+    backfills_committed_credits: list[tuple[int, int]]
+
+
+def spend_projection_by_team() -> SpendProjectionByTeam:
+    """Every org's rest-of-period spend projection, for billing's forecast.
+
+    The projection is org-wide (free-only scanners share the org's free credits), so it cannot be split
+    across teams. Each org's value lands on its lowest team id instead.
+    """
+    org_ids = set(ReplayScanner.objects.filter(enabled=True).values_list("team__organization_id", flat=True)) | set(
+        ReplayScannerBackfill.objects.unscoped()
+        .filter(status__in=ACTIVE_BACKFILL_STATUSES)
+        .values_list("team__organization_id", flat=True)
+    )
+    team_by_org = dict(
+        Team.objects.filter(organization_id__in=org_ids)
+        .values("organization_id")
+        .annotate(first_team_id=Min("id"))
+        .values_list("organization_id", "first_team_id")
+    )
+    scanners: list[tuple[int, int]] = []
+    backfills: list[tuple[int, int]] = []
+    for org_id, team_id in team_by_org.items():
+        projection = spend_projection(org_id)
+        if projection.scanners_monthly_credits:
+            scanners.append((team_id, projection.scanners_monthly_credits))
+        if projection.backfills_committed_credits:
+            backfills.append((team_id, projection.backfills_committed_credits))
+    return SpendProjectionByTeam(scanners_monthly_credits=scanners, backfills_committed_credits=backfills)
 
 
 @frozen

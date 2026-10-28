@@ -73,9 +73,9 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.billing import (
     get_replay_vision_credits_by_team,
     get_replay_vision_observations_by_team,
-    get_replay_vision_scanner_monthly_credits_by_team,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.quota import SpendProjectionByTeam, spend_projection_by_team
 from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
@@ -225,6 +225,7 @@ class UsageReportCounters:
     replay_vision_scanner_active_count: int
     # Enabled scanners' 30-day credit rate. A snapshot, not usage: billing forecasts Replay Vision spend from it.
     replay_vision_scanner_monthly_credits: int
+    replay_vision_backfill_committed_credits: int
 
     # Persons and Groups
     group_types_total: int
@@ -1283,9 +1284,17 @@ def get_teams_with_replay_vision_observation_count_in_period(begin: datetime, en
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_replay_vision_spend_projection() -> SpendProjectionByTeam:
+    return spend_projection_by_team()
+
+
 # nosemgrep: tuple-return-prefer-dataclass -- usage report rows are (team_id, total) pairs for convert_team_usage_rows_to_dict.
-def get_teams_with_replay_vision_scanner_monthly_credits() -> list[tuple[int, int]]:
-    return get_replay_vision_scanner_monthly_credits_by_team()
+def _replay_vision_spend_projection_rows() -> dict[str, list[tuple[int, int]]]:
+    projection = get_teams_with_replay_vision_spend_projection()
+    return {
+        "teams_with_replay_vision_scanner_monthly_credits": projection.scanners_monthly_credits,
+        "teams_with_replay_vision_backfill_committed_credits": projection.backfills_committed_credits,
+    }
 
 
 @timed_log()
@@ -3229,7 +3238,7 @@ def _get_all_usage_data(
         "teams_with_replay_vision_scanner_active_count": list(
             ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),
-        "teams_with_replay_vision_scanner_monthly_credits": get_teams_with_replay_vision_scanner_monthly_credits(),
+        **_replay_vision_spend_projection_rows(),
         "teams_with_issues_created_total": [
             {"team_id": team_id, "total": total} for team_id, total in error_tracking_api.get_issue_counts_by_team()
         ],
@@ -3459,6 +3468,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         replay_vision_scanner_count=all_data["teams_with_replay_vision_scanner_count"].get(team.id, 0),
         replay_vision_scanner_active_count=all_data["teams_with_replay_vision_scanner_active_count"].get(team.id, 0),
         replay_vision_scanner_monthly_credits=all_data["teams_with_replay_vision_scanner_monthly_credits"].get(
+            team.id, 0
+        ),
+        replay_vision_backfill_committed_credits=all_data["teams_with_replay_vision_backfill_committed_credits"].get(
             team.id, 0
         ),
         group_types_total=all_data["teams_with_group_types_total"].get(team.id, 0),
