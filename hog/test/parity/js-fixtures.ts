@@ -1,5 +1,6 @@
-import { readdirSync, readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
+
+import { readTree } from './fixtures'
 
 // JavaScript bundles and maps for the parity scenarios. Each case sits in its own folder, because
 // posthog-cli walks folders in file-system order, and only cases with one bundle per folder give
@@ -119,19 +120,4 @@ export const STYLESHEETS: Record<string, string> = {
 }
 
 // Real bundler output, built from the small app in bundles/README.md.
-export function bundles(): Record<string, Uint8Array> {
-    const root = join(import.meta.dir, 'bundles')
-    const files: Record<string, Uint8Array> = {}
-    const visit = (folder: string): void => {
-        for (const entry of readdirSync(folder, { withFileTypes: true })) {
-            const path = join(folder, entry.name)
-            if (entry.isDirectory()) {
-                visit(path)
-            } else if (entry.name !== 'README.md') {
-                files[relative(root, path)] = readFileSync(path)
-            }
-        }
-    }
-    visit(root)
-    return files
-}
+export const bundles = (): Record<string, Uint8Array> => readTree(join(import.meta.dir, 'bundles'))

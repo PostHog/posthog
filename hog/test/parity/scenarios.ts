@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { Scenario } from './fake-server'
-import { GIT_REPO, mappingOfSize, SMALL_MAPPING } from './fixtures'
+import { GIT_REPO, mappingOfSize, readTree, SMALL_MAPPING } from './fixtures'
 import { EXPO_BUILD, HERMES_BUILD, HERMES_BUNDLES } from './hermes-fixtures'
 import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEETS } from './js-fixtures'
 import { decodeFile, type ParityResult } from './run'
@@ -238,4 +238,44 @@ SCENARIOS.push(
         before: [hermesArgs.clone('ios/main.jsbundle.map', 'ios/hbc/main.jsbundle.hbc.composed.map')],
     }),
     hermes('upload-no-chunk-id', hermesArgs.upload('android/hbc'), () => HERMES_BUILD)
+)
+
+// posthog-cli's `symbol-sets upload`, which takes ELF files, Mach-O files and dSYM bundles in one
+// folder, and `hog error-tracking upload`. native/build.sh builds the binaries.
+const linux = (): Files => readTree(join(import.meta.dir, 'native', 'bin', 'linux'), 'linux')
+const apple = (): Files => readTree(join(import.meta.dir, 'native', 'bin', 'apple'), 'apple')
+const appleLoose = (): Files => readTree(join(import.meta.dir, 'native', 'bin', 'apple-loose'), 'apple-loose')
+
+const native = (
+    name: string,
+    path: string,
+    files: () => Files,
+    options: Partial<ParityScenario> & { args?: string[] } = {}
+): ParityScenario => ({
+    name: `native-${name}`,
+    server: 'fresh',
+    files,
+    rust: ['symbol-sets', 'upload', '-d', path, ...(options.args ?? [])],
+    hog: ['error-tracking', 'upload', path, ...(options.args ?? [])],
+    ...options,
+})
+
+const nativeRelease = ['--release-name', 'shop', '--release-version', '3.2.0']
+
+SCENARIOS.push(
+    native('linux', 'linux', linux),
+    native('linux-release', 'linux', linux, { args: nativeRelease }),
+    native('apple', 'apple', apple, { args: nativeRelease }),
+    native('dsym-root', 'apple/Shop.app.dSYM', apple),
+    native('macho-loose', 'apple-loose', appleLoose, { args: nativeRelease }),
+    native('mixed-from-git', '.', () => ({ ...GIT_REPO, ...linux(), ...apple() })),
+    native('already-present', '.', () => ({ ...linux(), ...apple() }), { args: nativeRelease, runs: 2 }),
+    native('hash-mismatch', '.', () => ({ ...linux(), ...apple() }), {
+        args: [...nativeRelease, '--skip-on-conflict'],
+        server: 'hash-mismatch',
+    }),
+    native('hash-mismatch-force', 'linux', linux, { args: [...nativeRelease, '--force'], server: 'hash-mismatch' }),
+    native('post-only', 'linux', linux, { args: nativeRelease, server: 'post-only' }),
+    native('release-mismatch', 'apple', apple, { args: nativeRelease, server: 'release-mismatch' }),
+    native('only-unusable', 'linux/checkout-no-build-id', linux)
 )

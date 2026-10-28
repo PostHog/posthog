@@ -37,9 +37,9 @@ describe('hog', () => {
     )
 
     test('help for an unported command points to its posthog-cli help', async () => {
-        const result = await runHog(['help', 'dsym', 'upload'])
+        const result = await runHog(['help', 'logs', 'import'])
         expect(result.exitCode).toBe(1)
-        expect(result.error().message).toContain('posthog-cli dsym upload --help')
+        expect(result.error().message).toContain('posthog-cli exp logs import --help')
     })
 
     test.each([

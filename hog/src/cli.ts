@@ -213,6 +213,10 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
         to: 'error-tracking inject|clone|upload',
         hint: 'Pass paths as arguments instead of --directory, and the two maps to `hog error-tracking clone` instead of -m and -c.',
     },
+    dsym: {
+        to: 'error-tracking upload',
+        hint: 'Pass the folder as an argument instead of --directory, as in `hog error-tracking upload build/Release-iphoneos`.',
+    },
     proguard: {
         to: 'error-tracking upload',
         hint: 'Pass the mapping as an argument instead of --path, as in `hog error-tracking upload mapping.txt --map-id <id>`.',

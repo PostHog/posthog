@@ -7,6 +7,7 @@ import { HogError } from '@/core/errors'
 import { HERMES_BUNDLE_EXTENSIONS, isComposedMap } from './kinds/hermes'
 import { isJsBundle, JS_EXTENSIONS } from './kinds/js'
 import { isValidProguardMapping } from './kinds/proguard'
+import { nativeFormat } from './native/package'
 
 export interface Root {
     path: string
@@ -33,8 +34,8 @@ export interface Artifact {
 // files always give the same result, and a file only two types could claim is an error.
 interface Detector {
     kind: ArtifactKind
-    // While scanning a folder, only files with these extensions are opened.
-    extensions: readonly string[]
+    // While scanning a folder, only files with these extensions are opened. Null opens every file.
+    extensions: readonly string[] | null
     matches(path: string, options: DiscoverOptions): boolean
 }
 
@@ -61,7 +62,21 @@ const DETECTORS: readonly Detector[] = [
         extensions: ['.map'],
         matches: isComposedMap,
     },
+    {
+        // Native binaries have any name, so their first 4 bytes decide. Upload reports the ones it
+        // can't send, such as files without debug info, as posthog-cli does.
+        kind: 'elf',
+        extensions: null,
+        matches: (path) => nativeFormat(path) === 'elf',
+    },
+    {
+        kind: 'dsym',
+        extensions: null,
+        matches: (path) => nativeFormat(path) === 'macho',
+    },
 ]
+
+export const isDsymBundle = (path: string): boolean => path.endsWith('.dSYM')
 
 function detect(
     path: string,
@@ -72,7 +87,9 @@ function detect(
     const candidates = DETECTORS.filter(
         (detector) =>
             (kind === undefined || detector.kind === kind) &&
-            (!fromFolder || detector.extensions.some((extension) => path.endsWith(extension)))
+            (!fromFolder ||
+                detector.extensions === null ||
+                detector.extensions.some((extension) => path.endsWith(extension)))
     )
     const matched = [
         ...new Set(candidates.filter((detector) => detector.matches(path, options)).map((detector) => detector.kind)),
@@ -87,39 +104,44 @@ function detect(
     return matched[0]
 }
 
-function walk(folder: string, out: string[]): void {
-    // Sorted, so runs on different machines visit files in the same order. Symlinks are skipped, as
-    // in posthog-cli, so a link can't make hog rewrite files outside the folder.
+// Sorted, so runs on different machines visit files in the same order. Symlinks are skipped, as
+// in posthog-cli, so a link can't make hog rewrite files outside the folder. A dSYM bundle is one
+// artifact, so the walk doesn't look inside it.
+function walk(folder: string, out: { files: string[]; bundles: string[] }): void {
     for (const entry of readdirSync(folder, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1))) {
         if (entry.name === 'node_modules' || entry.name === '.git') {
             continue
         }
         const path = join(folder, entry.name)
         if (entry.isDirectory()) {
-            walk(path, out)
+            if (isDsymBundle(entry.name)) {
+                out.bundles.push(path)
+            } else {
+                walk(path, out)
+            }
         } else if (entry.isFile()) {
-            out.push(path)
+            out.files.push(path)
         }
     }
 }
 
-function rootFiles(root: Root, cwd: string): { path: string; isFile: boolean; files: string[] } {
+function rootFiles(root: Root, cwd: string): { path: string; isFile: boolean; files: string[]; bundles: string[] } {
     const path = resolve(cwd, root.path)
     const stat = statSync(path, { throwIfNoEntry: false })
     if (!stat) {
         throw new HogError('path_not_found', `${root.path} doesn't exist.`)
     }
     if (stat.isFile()) {
-        return { path, isFile: true, files: [path] }
+        return { path, isFile: true, files: [path], bundles: [] }
     }
-    const files: string[] = []
-    walk(path, files)
+    if (isDsymBundle(path)) {
+        return { path, isFile: false, files: [], bundles: [path] }
+    }
+    const found = { files: [] as string[], bundles: [] as string[] }
+    walk(path, found)
     const globs = (root.ignore ?? []).map((pattern) => new Bun.Glob(pattern))
-    return {
-        path,
-        isFile: false,
-        files: files.filter((file) => !globs.some((glob) => glob.match(relative(path, file)))),
-    }
+    const kept = (file: string): boolean => !globs.some((glob) => glob.match(relative(path, file)))
+    return { path, isFile: false, files: found.files.filter(kept), bundles: found.bundles.filter(kept) }
 }
 
 export function listFiles(roots: readonly Root[], cwd: string): string[] {
@@ -129,7 +151,7 @@ export function listFiles(roots: readonly Root[], cwd: string): string[] {
 export function discover(roots: readonly Root[], cwd: string, options: DiscoverOptions = {}): Artifact[] {
     const artifacts: Artifact[] = []
     for (const root of roots) {
-        const { path, isFile, files } = rootFiles(root, cwd)
+        const { path, isFile, files, bundles } = rootFiles(root, cwd)
         if (isFile) {
             const kind = detect(path, false, root.kind, options)
             if (!kind) {
@@ -143,6 +165,11 @@ export function discover(roots: readonly Root[], cwd: string, options: DiscoverO
             }
             artifacts.push({ kind, path, display: relative(cwd, path) || path, root })
             continue
+        }
+        if (root.kind === undefined || root.kind === 'dsym') {
+            for (const bundle of bundles) {
+                artifacts.push({ kind: 'dsym', path: bundle, display: relative(cwd, bundle) || bundle, root })
+            }
         }
         for (const file of files) {
             const kind = detect(file, true, root.kind, options)

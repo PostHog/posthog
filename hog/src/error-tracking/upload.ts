@@ -31,7 +31,7 @@ export interface UploadOutcome {
     contentHashes: Map<string, string>
 }
 
-const MAX_FILE_SIZE = 100 * 1024 * 1024
+export const MAX_FILE_SIZE = 100 * 1024 * 1024
 const CHECK_BATCH_SIZE = 1000
 const REQUEST_TIMEOUT_MS = 30_000
 const RATE_LIMIT_PER_MINUTE = 480

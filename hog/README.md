@@ -20,7 +20,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog query check <query>`               | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
 | `hog error-tracking inject [paths...]`  | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.               |
 | `hog error-tracking clone <from> <to>`  | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                      |
-| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, and ProGuard and R8 mappings.            |
+| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.  |
 | `hog error-tracking process [paths...]` | Runs `inject`, then `upload`. Use it in CI after the build.                                                             |
 | `hog config check`, `hog config schema` | Check `posthog.json` against its schema, or print the schema.                                                           |
 | `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
@@ -66,6 +66,8 @@ Point `$schema` at the published schema to get validation in your editor:
 - a `.bundle` or `.jsbundle` file is a React Native bundle when its sourcemap exists
 - a `.map` file is a Hermes map when it has `x_hermes_function_offsets`, which only the Hermes compiler writes
 - a `.txt` file is a ProGuard or R8 mapping when its content parses as one
+- a `.dSYM` folder is an Apple debug symbol bundle, and hog uploads each architecture in it separately
+- any other file is an ELF or Mach-O binary when its first bytes say so. hog uploads it when it has debug info and a build ID or UUID, and lists why it skipped the others
 
 Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
 `--kind` skips detection.
@@ -85,7 +87,9 @@ hog error-tracking upload android/app/build/generated/sourcemaps     # the compo
 
 hog uploads the same bytes and content hashes as posthog-cli, so either CLI can re-upload what the other uploaded. A few things differ on purpose:
 
-- `posthog-cli sourcemap`, `hermes` and `proguard` are `hog error-tracking`, with paths as arguments instead of `--directory` and `--path`
+- `posthog-cli sourcemap`, `hermes`, `proguard`, `dsym` and `symbol-sets upload` are `hog error-tracking`, with paths as arguments instead of `--directory` and `--path`
+- hog reads dSYM bundles itself, so it needs neither Xcode's `dwarfdump` nor `lipo`, and uploads dSYMs from Linux too
+- native releases come from the flags, `posthog.json` or git, as in `posthog-cli symbol-sets upload`. hog doesn't read the release from the dSYM's `Info.plist`, as `posthog-cli dsym upload` does
 - `upload` sends only Hermes maps it detects. posthog-cli treats every JSON file in the folder as a map, and fails when it finds Metro's map there
 - hog walks folders in sorted order and skips `node_modules`, `.git` and symlinks, so two machines visit the same files in the same order
 - `--dry-run` shows the plan and the content hashes without writing files or contacting PostHog. posthog-cli's `--dry-run` skips the whole command.
