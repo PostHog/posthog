@@ -48,7 +48,7 @@ def overview(team: Team, user: User) -> dict:
 def metric_preview(team: Team, user: User, short_id: str) -> Metric:
     validate_goal(team, user, short_id)
     refresh_metrics(team, user, [short_id])
-    return metric(team, user, short_id)
+    return metric(team, user, short_id, complete=True)
 
 
 def detail(team: Team, user: User, bet_id: str | UUID) -> dict:

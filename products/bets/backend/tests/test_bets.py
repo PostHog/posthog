@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
 from uuid import UUID, uuid4
@@ -21,6 +21,7 @@ from products.bets.backend.facade.contracts import Metric
 from products.bets.backend.facade.enums import IdeaOutcome, LedgerKind
 from products.bets.backend.logic.ledger import append, totals
 from products.bets.backend.logic.loop import reconcile
+from products.bets.backend.logic.metrics import unfinished
 from products.bets.backend.logic.next_actions import next_actions
 from products.bets.backend.logic.scout import DISMISS_LIMIT, scout_context, scout_job
 from products.bets.backend.logic.spend import reconcile_spend, spend_pending
@@ -88,6 +89,24 @@ class TestVerdict(SimpleTestCase):
         data = evidence([0.05, 0.2])
         data["results"]["metric_sample_counts"] = [{"control": ENOUGH, "test": ENOUGH - 1}]
         assert verdict(data, direction="increase", guardrails=[], run_days=2).outcome is None
+
+
+class TestMetricPeriods(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("week_in_progress", date(2026, 10, 25), "week", True),
+            ("last_full_week", date(2026, 10, 18), "week", False),
+            ("today", date(2026, 10, 28), "day", True),
+            ("yesterday", date(2026, 10, 27), "day", False),
+            ("month_in_progress", date(2026, 10, 1), "month", True),
+            ("last_month", date(2026, 9, 1), "month", False),
+        ]
+    )
+    def test_the_headline_skips_a_period_that_has_not_ended(
+        self, _name: str, day: date, period: str, expected: bool
+    ) -> None:
+        with time_machine.travel(datetime(2026, 10, 28, 12, tzinfo=UTC), tick=False):
+            assert unfinished(day, period, "UTC") is expected
 
 
 @dataclass

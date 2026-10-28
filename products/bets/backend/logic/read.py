@@ -70,7 +70,7 @@ def can_edit(team: Team, user: User) -> bool:
 def goal_metric(team: Team, user: User, bet: Bet) -> Metric:
     if not bet.goal_insight and bet.goal_description:
         return replace(metric(team, user, ""), message="Bets is finding the insight for this measure.")
-    return metric(team, user, bet.goal_insight)
+    return metric(team, user, bet.goal_insight, complete=True)
 
 
 def entry(
@@ -216,7 +216,7 @@ def detail(team: Team, user: User, bet: Bet) -> dict:
         "work": work_entries(bet, user),
         "spend_history": spend_history(bet),
         "is_owner": user.id == bet.owner_id,
-        "secondary_values": [metric(team, user, item["insight"]) for item in bet.secondary_metrics],
+        "secondary_values": [metric(team, user, item["insight"], complete=True) for item in bet.secondary_metrics],
         "scout": {
             "config_id": scout.config_id,
             "name": scout.skill_name,
@@ -240,7 +240,7 @@ def overview(team: Team, user: User) -> dict:
     return {
         "bets": [entry(team, user, bet, actions=actions[bet.id], owners=owners) for bet in bets],
         "next_actions": sorted([item for bet in bets for item in actions[bet.id]], key=lambda item: item["priority"]),
-        "north_star": metric(team, user, settings.north_star_insight),
+        "north_star": metric(team, user, settings.north_star_insight, complete=True),
         "settings": settings_entry(settings, user),
         "allocated_cents": allocated,
         "unallocated_cents": settings.budget_cents - allocated,

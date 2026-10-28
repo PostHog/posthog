@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Sequence
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -22,6 +22,7 @@ WINDOW_EDGE = timedelta(hours=1)
 DELIVERY_CACHE_SECONDS = 300
 PERCENT_FORMATS = {"percentage", "percentage_scaled"}
 MISSING = object()
+PERIOD_SPANS = {"hour": timedelta(days=1), "day": timedelta(days=1), "week": timedelta(days=7)}
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -58,7 +59,14 @@ def refresh_metrics(team: Team, user: User, insight_ids: Sequence[str]) -> None:
             _insight_series(team, user, short_id, force_refresh=True)
 
 
-def metric(team: Team, user: User, short_id: str) -> Metric:
+def unfinished(day: date, period: str, zone: str) -> bool:
+    today = datetime.now(ZoneInfo(zone)).date()
+    if period == "month":
+        return (day.year, day.month) == (today.year, today.month)
+    return day + PERIOD_SPANS.get(period, timedelta(days=1)) > today
+
+
+def metric(team: Team, user: User, short_id: str, *, complete: bool = False) -> Metric:
     if short_id:
         result = _insight_series(team, user, short_id)
         if result is None:
@@ -82,6 +90,8 @@ def metric(team: Team, user: User, short_id: str) -> Metric:
             )
         scale = 100 if result.value_format == "percentage_scaled" else 1
         points = [(day, value * scale) for day, value in next(iter(result.series.values()))]
+        if complete and len(points) > 1 and unfinished(points[-1][0], result.period, team.timezone):
+            points = points[:-1]
         values = [float(value) for _, value in points if math.isfinite(value)]
         dates = [day.isoformat() for day, value in points if math.isfinite(value)]
         name = result.name or "Goal"
