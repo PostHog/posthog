@@ -3,7 +3,6 @@
 //! `sql`/`row` modules; never on `store` or `kafka`.
 
 use std::collections::BTreeSet;
-use std::iter;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -178,7 +177,7 @@ impl ChunkScanner {
                 run,
                 &domain,
                 &active,
-                queries.iter().map(TableQuery::parts),
+                &queries,
                 ScanKind::Behavioral,
                 comment,
                 lease_cancel,
@@ -258,17 +257,18 @@ impl ChunkScanner {
     /// them all through one fresh accumulator, meter the moved bytes under `kind`, and return the
     /// sorted tiles. One accumulator keeps a tile key from splitting across two tile sets.
     ///
-    /// `kind` and `comment` co-vary at the two call sites. The per-row and per-chunk fold metrics
-    /// are emitted for the authoritative [`ScanKind::Behavioral`] arm only, so a diagnostic
-    /// re-scan of the same rows never doubles a throughput series.
+    /// `kind` and `comment` co-vary at the two call sites. A [`ScanKind::BehavioralCompare`] scan
+    /// reads every column of each table, which is the shadow compare's wide re-scan. The per-row
+    /// and per-chunk fold metrics are emitted for the authoritative [`ScanKind::Behavioral`] arm
+    /// only, so a diagnostic re-scan of the same rows never doubles a throughput series.
     #[allow(clippy::too_many_arguments)]
-    async fn scan_tables<'a>(
+    async fn scan_tables(
         &self,
         spec: ChunkSpec,
         run: &PinnedRun,
         domain: &SeedDomain,
         active: &ActiveConditions,
-        queries: impl IntoIterator<Item = (&'a ScanSpec, &'a ChunkProjection)>,
+        queries: &[TableQuery],
         kind: ScanKind,
         comment: ScanLogComment,
         lease_cancel: &CancellationToken,
@@ -278,10 +278,16 @@ impl ChunkScanner {
             ChunkAccumulator::new(run.team_id, &run.filters, active).map_err(ScanError::from)?;
         let mut volume = ScanVolume::default();
         let mut summary = FoldSummary::default();
-        for (scan_spec, projection) in queries {
+        let wide = ChunkProjection::FullColumns;
+        for query in queries {
+            let projection = if kind == ScanKind::BehavioralCompare {
+                &wide
+            } else {
+                &query.projection
+            };
             let mut cursor = self
                 .client
-                .query(&scan_sql(scan_spec, projection))
+                .query(&scan_sql(&query.spec, projection))
                 .with_option(LOG_COMMENT_OPTION, comment.to_string())
                 .fetch::<EventRow>()
                 .map_err(ScanError::Query)?;
@@ -342,17 +348,13 @@ impl ChunkScanner {
         // Spans the re-scan, its fold, and the diff. Records on every exit, so a cancelled or
         // failed compare still reports the time it held the chunk's slot and lease.
         let _timer = MetricTimer::start(SHADOW_COMPARE_DURATION_SECONDS);
-        let wide = ChunkProjection::FullColumns;
         let (legacy_tiles, legacy_fold) = match self
             .scan_tables(
                 spec,
                 run,
                 domain,
                 active,
-                queries
-                    .iter()
-                    .map(TableQuery::spec)
-                    .zip(iter::repeat(&wide)),
+                queries,
                 ScanKind::BehavioralCompare,
                 ScanLogComment::BehavioralCompareChunk {
                     spec,
@@ -522,18 +524,6 @@ impl ChunkScanner {
 struct TableQuery {
     spec: ScanSpec,
     projection: ChunkProjection,
-}
-
-/// These are methods rather than closures because a closure that returns a borrow of its argument
-/// fails the `Send` check on the spawned chunk future.
-impl TableQuery {
-    const fn spec(&self) -> &ScanSpec {
-        &self.spec
-    }
-
-    const fn parts(&self) -> (&ScanSpec, &ChunkProjection) {
-        (&self.spec, &self.projection)
-    }
 }
 
 #[derive(Debug)]
@@ -1779,6 +1769,40 @@ mod tests {
                     (person(2), pageview, 1),
                     (person(3), flag_call, 2),
                 ]
+            );
+        }
+
+        #[tokio::test]
+        async fn a_flag_evaluations_run_scans_an_events_only_chunk_past_the_ttl() {
+            use crate::domain::pinned::test_runs::{run_with, RunLeaf};
+            use crate::domain::row_filter::test_catalog::event_is;
+
+            let client = mixed_chunk_database("seeder_scanner_events_past_ttl").await;
+            let run = run_with(
+                ScanTable::FlagEvaluations,
+                120,
+                &[RunLeaf {
+                    cohort_id: 1,
+                    hash: PAGEVIEW_HASH,
+                    event: "$pageview",
+                    body: event_is("$pageview"),
+                }],
+            );
+
+            let scanned =
+                match scan_day_one(&scanner(client, false), &run, || 101 * 86_400_000).await {
+                    Ok(scanned) => scanned,
+                    failed => panic!("{:?}", failure_of(failed)),
+                };
+
+            let pageview = ConditionHash::parse(PAGEVIEW_HASH).unwrap();
+            assert_eq!(
+                scanned
+                    .tiles()
+                    .iter()
+                    .map(|tile| (tile.person_id(), tile.condition_hash(), tile.count()))
+                    .collect::<Vec<_>>(),
+                vec![(person(2), pageview, 1)]
             );
         }
 
