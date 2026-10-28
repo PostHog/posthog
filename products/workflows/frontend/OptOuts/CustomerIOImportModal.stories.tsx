@@ -2,6 +2,8 @@ import { Meta, StoryFn } from '@storybook/react'
 import { useActions } from 'kea'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
@@ -269,6 +271,7 @@ ImportRunning.args = {
     ],
 }
 ImportRunning.parameters = {
+    featureFlags: [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_BACKGROUND_IMPORT],
     testOptions: {
         waitForLoadersToDisappear: false,
         waitForSelector: '[data-attr="customerio-import-run-progress"]',
@@ -302,6 +305,7 @@ ImportStepFailed.args = {
     ],
 }
 ImportStepFailed.parameters = {
+    featureFlags: [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_BACKGROUND_IMPORT],
     mockDate: '2026-04-13 10:30:00',
     testOptions: { waitForSelector: '[data-attr="customerio-import-run-progress"]' },
 }

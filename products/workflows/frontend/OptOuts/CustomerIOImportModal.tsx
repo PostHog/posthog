@@ -117,7 +117,7 @@ function LegacyImportResult(): JSX.Element | null {
     )
 }
 
-function Step1Content(): JSX.Element {
+function BackgroundImportContent(): JSX.Element {
     const {
         importForm,
         importError,
@@ -230,6 +230,162 @@ function Step1Content(): JSX.Element {
             </div>
         </div>
     )
+}
+
+function InRequestImportContent(): JSX.Element {
+    const { isImporting, importProgress, importError, importForm, syncConfig, isRemovingAppConfig } =
+        useValues(customerIOImportLogic)
+    const { submitImportForm, rerunImport, removeAppConfig } = useActions(customerIOImportLogic)
+
+    const hasStoredKey = syncConfig?.app_integration_id != null || importProgress?.status === 'completed'
+    const result = syncConfig?.app_import_result
+    // Prefer local reducer state, fall back to DB-persisted result
+    const displayResult = importProgress?.status === 'completed' ? importProgress : null
+    const persistedResult = !displayResult && result?.status === 'completed' ? result : null
+    const partialErrors = displayResult?.errors ?? persistedResult?.errors ?? []
+
+    if (isImporting) {
+        return (
+            <div className="text-center py-8">
+                <Spinner className="text-3xl mb-4" />
+                <div className="text-lg font-semibold mb-2">Importing from Customer.io...</div>
+                <div className="text-sm text-muted-alt">
+                    This may take a moment. Please don't navigate away from this page.
+                </div>
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-4">
+            {/* Error banner */}
+            {importProgress?.status === 'failed' && (
+                <LemonBanner type="error">
+                    Import failed: {importProgress.errors?.join(', ') || 'An unknown error occurred'}
+                </LemonBanner>
+            )}
+            {!importProgress && result?.status === 'failed' && (
+                <LemonBanner type="error">Last import failed: {result.error || 'Unknown error'}</LemonBanner>
+            )}
+
+            {/* Success banner */}
+            {(displayResult || persistedResult) && (
+                <>
+                    <LemonBanner type="success">
+                        <span className="font-semibold">API import complete</span>
+                    </LemonBanner>
+                    {partialErrors.length > 0 && (
+                        <LemonBanner type="warning">
+                            Some data didn't import. Run the import again to retry. {partialErrors.join(', ')}
+                        </LemonBanner>
+                    )}
+                    <div className="space-y-2 text-sm">
+                        {(persistedResult?.imported_at || displayResult) && (
+                            <div className="flex items-center justify-between">
+                                <span>Last imported:</span>
+                                <TZLabel time={persistedResult?.imported_at || new Date().toISOString()} />
+                            </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                            <span>Categories imported:</span>
+                            <LemonTag>
+                                {displayResult?.categories_created ?? persistedResult?.categories_created ?? 0}
+                            </LemonTag>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Globally unsubscribed users:</span>
+                            <LemonTag>
+                                {(
+                                    displayResult?.globally_unsubscribed_count ??
+                                    persistedResult?.globally_unsubscribed_count ??
+                                    0
+                                ).toLocaleString()}
+                            </LemonTag>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <span>Suppressed addresses:</span>
+                            <LemonTag>
+                                {(
+                                    displayResult?.suppressions_imported ??
+                                    persistedResult?.suppressions_imported ??
+                                    0
+                                ).toLocaleString()}
+                            </LemonTag>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* API key */}
+            {hasStoredKey ? (
+                <>
+                    <div className="space-y-2">
+                        <label className="LemonLabel">Customer.io App API Key</label>
+                        <LemonInput
+                            value="••••••••••••••••"
+                            disabledReason="Can't be changed"
+                            suffix={
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    status="danger"
+                                    tooltip="Remove stored API key"
+                                    onClick={removeAppConfig}
+                                    loading={isRemovingAppConfig}
+                                    icon={<IconTrash className="text-danger" />}
+                                />
+                            }
+                        />
+                    </div>
+                    <p className="text-sm text-muted">Safe to rerun, existing categories and users will be updated.</p>
+                </>
+            ) : (
+                <Form logic={customerIOImportLogic} formKey="importForm" enableFormOnSubmit>
+                    <div className="space-y-4">
+                        <LemonField name="app_api_key" label="Customer.io App API Key">
+                            <LemonInput
+                                placeholder="Enter your App API key"
+                                type="password"
+                                data-attr="customerio-api-key"
+                                autoComplete="off"
+                            />
+                        </LemonField>
+                        {importError && (
+                            <LemonBanner type="error" className="text-sm">
+                                {importError}
+                            </LemonBanner>
+                        )}
+                        <div className="text-xs text-muted-alt">
+                            You can generate an App API key in Customer.io under Settings → Account Settings → API
+                            Credentials.
+                        </div>
+                    </div>
+                </Form>
+            )}
+
+            {/* Action button */}
+            <div className="flex justify-end">
+                {hasStoredKey ? (
+                    <LemonButton type="primary" onClick={rerunImport}>
+                        Run again
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        type="primary"
+                        onClick={submitImportForm}
+                        disabledReason={!importForm.app_api_key ? 'Enter your API key' : undefined}
+                    >
+                        Start import
+                    </LemonButton>
+                )}
+            </div>
+        </div>
+    )
+}
+
+function Step1Content(): JSX.Element {
+    const { isBackgroundImportEnabled } = useValues(customerIOImportLogic)
+    return isBackgroundImportEnabled ? <BackgroundImportContent /> : <InRequestImportContent />
 }
 
 function Step2Content(): JSX.Element {
