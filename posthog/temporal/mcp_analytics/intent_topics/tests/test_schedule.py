@@ -1,5 +1,7 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
+
+from temporalio.client import Client
 
 from posthog.temporal.mcp_analytics.intent_topics.schedule import SCHEDULES, create_intent_topics_schedules
 
@@ -27,7 +29,7 @@ class TestCreateIntentTopicsSchedules:
         schedule_helpers["exists"].return_value = False
 
         with _flag(False):
-            await create_intent_topics_schedules(object())
+            await create_intent_topics_schedules(MagicMock(spec=Client))
 
         schedule_helpers["create"].assert_not_called()
         schedule_helpers["update"].assert_not_called()
@@ -41,7 +43,7 @@ class TestCreateIntentTopicsSchedules:
         schedule_helpers["exists"].side_effect = RuntimeError("temporal unavailable")
 
         with _flag(enabled):
-            await create_intent_topics_schedules(object())
+            await create_intent_topics_schedules(MagicMock(spec=Client))
 
     @pytest.mark.asyncio
     async def test_one_failing_schedule_does_not_stop_the_others(self, schedule_helpers) -> None:
@@ -49,6 +51,6 @@ class TestCreateIntentTopicsSchedules:
         schedule_helpers["create"].side_effect = [RuntimeError("temporal unavailable"), None, None]
 
         with _flag(True):
-            await create_intent_topics_schedules(object())
+            await create_intent_topics_schedules(MagicMock(spec=Client))
 
         assert schedule_helpers["create"].await_count == len(SCHEDULES)
