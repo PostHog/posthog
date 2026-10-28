@@ -19,6 +19,8 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
     from django.core.management.base import BaseCommand, CommandError
 
+from posthog.hogql import parser as hogql_parser
+
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.temporal.ai import AI_ACTIVITIES, AI_WORKFLOWS
 from posthog.temporal.ai_observability import (
@@ -705,6 +707,26 @@ else:
 LOGGER = get_logger(__name__)
 
 
+def apply_hogql_shadow_sample_rate_override() -> None:
+    """Sets HogQL's cpp shadow parse rate for this worker from `HOGQL_PARSER_SHADOW_SAMPLE_RATE`.
+
+    The cpp shadow parse holds the GIL for the whole parse, and on a large expression that stalls
+    workflow tasks past Temporal's 2s deadlock detector. A worker that sets the variable turns the
+    shadow down for its own process only. Remove this once the parser reads the variable itself.
+    """
+    raw = os.environ.get("HOGQL_PARSER_SHADOW_SAMPLE_RATE")
+    if raw is None:
+        return
+    try:
+        rate: float | None = float(raw)
+    except ValueError:
+        rate = None
+    if rate is None or not 0.0 <= rate <= 1.0:
+        LOGGER.warning("Ignoring invalid HOGQL_PARSER_SHADOW_SAMPLE_RATE", value=raw)
+        return
+    hogql_parser._SHADOW_SAMPLE_RATE = rate
+
+
 class Command(BaseCommand):
     help = "Start Temporal Python Django-aware Worker"
 
@@ -855,6 +877,7 @@ class Command(BaseCommand):
         # `kill -USR1 <pid>` dumps every thread's stack to stderr and leaves the worker running. It
         # works while a thread holds the GIL, and in containers where py-spy cannot ptrace.
         faulthandler.register(signal.SIGUSR1)
+        apply_hogql_shadow_sample_rate_override()
 
         metrics_port = int(options["metrics_port"])
 
