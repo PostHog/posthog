@@ -12,14 +12,14 @@ import re
 
 from django.db.models import Q
 
-from posthog.public_suffix import extract_domain_parts
+import tldextract
+
+_DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
 
 def brand_names(target_domains: list[str]) -> tuple[str, ...]:
     """Lower-cased registrable names of the target domains, sorted, without duplicates."""
-    return tuple(
-        sorted({(extract_domain_parts(domain).domain or domain).lower() for domain in target_domains if domain})
-    )
+    return tuple(sorted({(_DOMAIN_PARTS(domain).domain or domain).lower() for domain in target_domains if domain}))
 
 
 def brand_regex(target_domains: list[str]) -> str | None:

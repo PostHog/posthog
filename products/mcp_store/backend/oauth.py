@@ -11,10 +11,10 @@ from django.db import transaction
 
 import httpx
 import structlog
+import tldextract
 
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response, slack_endpoint_from_url
-from posthog.public_suffix import extract_domain_parts
 from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
@@ -264,7 +264,7 @@ def _resolve_issuer(metadata: dict, expected_issuer: str) -> dict:
 
 def _registrable_domain(hostname: str) -> str | None:
     """Return the eTLD+1 (registrable domain) for a hostname, e.g. `auth.example.co.uk` -> `example.co.uk`."""
-    extracted = extract_domain_parts(hostname)
+    extracted = tldextract.extract(hostname)
     if not extracted.domain or not extracted.suffix:
         return None
     return f"{extracted.domain}.{extracted.suffix}".lower()
