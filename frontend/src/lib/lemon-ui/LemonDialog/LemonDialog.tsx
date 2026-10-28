@@ -29,6 +29,10 @@ export type LemonFormDialogProps = LemonDialogFormPropsType &
         content?: ((isLoading: boolean) => ReactNode) | ReactNode
         /** Override props on the auto-generated submit button (e.g. status, children) */
         primaryButtonProps?: Partial<Pick<LemonButtonProps, 'children' | 'status' | 'type' | 'icon'>>
+        /** Like primaryButtonProps, but computed from the current form values */
+        getPrimaryButtonProps?: (
+            values: Record<string, any>
+        ) => Partial<Pick<LemonButtonProps, 'children' | 'status' | 'type' | 'icon'>>
     }
 
 export type LemonDialogProps = Pick<
@@ -185,6 +189,7 @@ export const LemonFormDialog = ({
     errors,
     content,
     primaryButtonProps,
+    getPrimaryButtonProps,
     dialogKey,
     showErrorsOnTouch,
     ...props
@@ -204,6 +209,7 @@ export const LemonFormDialog = ({
         type: 'primary',
         children: 'Submit',
         ...primaryButtonProps,
+        ...getPrimaryButtonProps?.(form),
         htmlType: 'submit',
         // eslint-disable-next-line @typescript-eslint/no-misused-promises
         onClick: props.shouldAwaitSubmit ? async () => await onSubmit(form) : () => void onSubmit(form),
@@ -224,6 +230,13 @@ export const LemonFormDialog = ({
 
     const ref = useRef<LemonDialogRef>(null)
 
+    // A focused button handles Enter with its own click, so Enter on Cancel must not submit the form
+    const isEnterSubmit = (e: React.KeyboardEvent<HTMLFormElement>): boolean =>
+        e.key === 'Enter' &&
+        !(e.target instanceof HTMLButtonElement) &&
+        primaryButton?.htmlType === 'submit' &&
+        isFormValid
+
     return (
         <Form
             logic={lemonDialogLogic}
@@ -232,7 +245,7 @@ export const LemonFormDialog = ({
             onKeyDown={
                 props.shouldAwaitSubmit
                     ? async (e: React.KeyboardEvent<HTMLFormElement>): Promise<void> => {
-                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                          if (isEnterSubmit(e)) {
                               try {
                                   await onSubmit(form)
                               } catch (error) {
@@ -246,7 +259,7 @@ export const LemonFormDialog = ({
                           }
                       }
                     : (e: React.KeyboardEvent<HTMLFormElement>): void => {
-                          if (e.key === 'Enter' && primaryButton?.htmlType === 'submit' && isFormValid) {
+                          if (isEnterSubmit(e)) {
                               void onSubmit(form)
                               ref?.current?.closeDialog()
                           }

@@ -20,6 +20,7 @@ from posthog.models.event_filter_config import EventFilterConfig, EventFilterMod
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.event_definitions.backend.models.event_definition import EventDefinition
 
 from ee.models.event_definition import EnterpriseEventDefinition
@@ -1017,6 +1018,23 @@ class TestEventDefinitionStopIngestingAPI(APIBaseTest):
         self.client.logout()
 
         response = self._stop_ingesting(event, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not EventFilterConfig.objects.exists()
+        event.refresh_from_db()
+        assert event.hidden is False
+
+    def test_user_needs_event_filter_editor_access_in_every_environment(self):
+        self.organization.available_product_features = [
+            {"key": "access_control", "name": "access_control"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+        other_team = Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        AccessControl.objects.create(team=other_team, resource="event_filter", access_level="viewer")
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+
+        response = self._stop_ingesting(event)
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert not EventFilterConfig.objects.exists()

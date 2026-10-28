@@ -85,6 +85,41 @@ describe('LemonFormDialog', () => {
         }
     })
 
+    it.each([
+        ['Cancel', 0],
+        ['Submit', 1],
+    ])('submits only through the button itself when Enter is pressed on %s', async (button, expectedCalls) => {
+        const onSubmit = jest.fn().mockResolvedValue(undefined)
+
+        renderDialog(onSubmit)
+        act(() => screen.getByText(button).closest('button')?.focus())
+        await userEvent.keyboard('{Enter}')
+
+        await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(expectedCalls))
+    })
+
+    it('takes the submit button props from the current form values', async () => {
+        render(
+            <LemonFormDialog
+                dialogKey="test-dialog-dynamic-button"
+                title="Test dialog"
+                initialValues={{ name: '' }}
+                content={
+                    <LemonField name="name">
+                        <LemonInput />
+                    </LemonField>
+                }
+                getPrimaryButtonProps={({ name }) => ({ children: name ? `Save ${name}` : 'Save' })}
+                onSubmit={jest.fn()}
+            />
+        )
+        expect(screen.getByText('Save')).toBeInTheDocument()
+
+        await userEvent.type(screen.getByRole('textbox'), 'draft')
+
+        expect(screen.getByText('Save draft')).toBeInTheDocument()
+    })
+
     it('closes the dialog and does not capture when the submit resolves', async () => {
         const onSubmit = jest.fn().mockResolvedValue(undefined)
 

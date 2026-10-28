@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 import functools
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
@@ -51,6 +52,7 @@ from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
+from posthog.permissions import is_service_auth
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
@@ -67,6 +69,7 @@ from posthog.taxonomy.definition_search import (
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -1019,11 +1022,7 @@ class EventDefinitionViewSet(
 
         user = cast(User, request.user)
         teams = list(Team.objects.filter(project_id=self.project_id))
-        # The request is scoped to one environment, but this writes the filter of each one.
-        try:
-            AccessibleTeams.for_request(request, [team.id for team in teams])
-        except CredentialScopeDenied:
-            raise exceptions.PermissionDenied("You can't change the event filter of every environment in this project.")
+        self._check_event_filter_write_access(request, teams)
         try:
             # This commits before the hide, so ingestion loads the condition as early as possible.
             add_event_name_drop(teams, instance.name, user)
@@ -1058,6 +1057,26 @@ class EventDefinitionViewSet(
             user, "event definition ingestion stopped", {"name": instance.name}, team=self.team, request=request
         )
         return response.Response(self.get_serializer(instance).data)
+
+    def _check_event_filter_write_access(self, request: request.Request, teams: Sequence[Team]) -> None:
+        """Check the caller may write the event filter of each environment, as the event filter endpoint would.
+
+        The permission classes only check the environment in the URL, but stop_ingesting writes them all.
+        """
+        denied = exceptions.PermissionDenied("You can't change the event filter of every environment in this project.")
+        try:
+            AccessibleTeams.for_request(request, [team.id for team in teams])
+        except CredentialScopeDenied:
+            raise denied
+        # Service credentials skip resource access control, as in AccessControlPermission.
+        if is_service_auth(request):
+            return
+        user = cast(User, request.user)
+        for team in teams:
+            if not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+                "event_filter", required_level="editor"
+            ):
+                raise denied
 
     def perform_create(self, serializer):
         """Handle context and side effects for event definition creation."""
