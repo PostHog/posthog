@@ -708,6 +708,7 @@ function ColumnsAndRowFiltersSection({
     const [draftColumns, setDraftColumns] = useState<string[] | null>(schema.enabled_columns ?? null)
     const [draftRowFilters, setDraftRowFilters] = useState<RowFilter[] | null>(schema.row_filters ?? null)
     const [draftMasked, setDraftMasked] = useState<string[]>(schema.masked_columns ?? [])
+    const [saving, setSaving] = useState(false)
 
     // Reset drafts on schema switch or when server values change (e.g. reload after save).
     // Keyed on content so unrelated re-renders don't wipe edits.
@@ -753,6 +754,10 @@ function ColumnsAndRowFiltersSection({
         masksChanged
 
     const commit = (resyncAfter: boolean): void => {
+        // A second save would validate against the old masks and request another rebuild.
+        if (saving) {
+            return
+        }
         const next = {
             ...schema,
             enabled_columns: draftColumns,
@@ -763,6 +768,7 @@ function ColumnsAndRowFiltersSection({
             // Bypass the bulk-update debounce so resync reads the new config from the DB, not the
             // stale one a still-queued PATCH hasn't written yet.
             // The backend starts the resync itself when it saves a mask change, and it can refuse one.
+            setSaving(true)
             void api.externalDataSchemas
                 .update(schema.id, {
                     enabled_columns: draftColumns,
@@ -787,6 +793,7 @@ function ColumnsAndRowFiltersSection({
                 .catch((e: any) => {
                     lemonToast.error(e?.message || "Can't save at this time")
                 })
+                .finally(() => setSaving(false))
             return
         }
         updateSchema(next)
@@ -941,6 +948,7 @@ function ColumnsAndRowFiltersSection({
                     <LemonButton
                         type="primary"
                         onClick={handleSave}
+                        loading={saving}
                         disabledReason={
                             editorDisabledReason ??
                             (hasRowFilterErrors

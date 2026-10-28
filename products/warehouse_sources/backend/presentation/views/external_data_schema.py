@@ -1919,8 +1919,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # buffer first: files captured before the change hold the old values and the old column type.
         cdc_mask_reset = is_cdc and masked_columns_changed and updated_instance.should_sync
         if cdc_mask_reset:
-            # The save above staged the reset.
-            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger, restage=False))
+            self._run_temporal_side_effect(lambda: hand_reset_to_capture(updated_instance, logger))
 
         # If the cdc_table_mode change added a new physical write target, kick a full re-snapshot so the
         # new table is seeded from the current source state. `_seed_cdc_companion_from_snapshot` runs

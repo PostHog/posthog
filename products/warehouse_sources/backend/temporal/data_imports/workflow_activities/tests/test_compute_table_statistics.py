@@ -745,7 +745,6 @@ class TestComputeTableStatisticsSync:
         schema, table, _ = self._schema_table_job(
             team, columns={"amount": {"clickhouse": "Nullable(Int64)"}, "email": {"clickhouse": "Nullable(String)"}}
         )
-        ExternalDataSchema.objects.filter(id=schema.id).update(masked_columns=["Email"])
         add_actions = pa.table(
             {
                 "num_records": [10],
@@ -757,7 +756,17 @@ class TestComputeTableStatisticsSync:
                 "max.email": ["z@example.com"],
             }
         )
-        with patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)):
+        aggregate = comp._aggregate_add_action_stats
+
+        def mask_saved_during_the_read(*args: Any) -> Any:
+            # The profiler loaded the schema before this save, so it must read the masks again to write.
+            ExternalDataSchema.objects.filter(id=schema.id).update(masked_columns=["Email"])
+            return aggregate(*args)
+
+        with (
+            patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)),
+            patch.object(comp, "_aggregate_add_action_stats", mask_saved_during_the_read),
+        ):
             compute_table_statistics_sync(team.id, schema.id)
 
         stats = {
