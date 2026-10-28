@@ -112,6 +112,9 @@ def build_insight_alert_slack_config(
     )
 
 
+INVESTIGATION_SUMMARY_MAX_CHARS: Final = insight_alert_message.INVESTIGATION_SUMMARY_MAX_CHARS
+
+
 def insight_alert_slack_properties(
     *,
     breaches: list[str],

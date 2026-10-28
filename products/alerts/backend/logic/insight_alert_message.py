@@ -20,6 +20,9 @@ _TIME_OR_VALUE = re.compile(
     r"|(?P<value>(?<![\w])[-+~]?\d+(?:[.,]\d+)*(?:\s?(?:ms|seconds?|minutes?|hours?|days?|%|s))?(?!\w))"
 )
 
+# Discord rejects content over 2000 characters, and its destination template adds the alert header and link.
+INVESTIGATION_SUMMARY_MAX_CHARS = 1500
+
 
 def _breach_elements(text: str, metric_name: str) -> list[dict[str, Any]]:
     pattern = _TIME_OR_VALUE
@@ -176,8 +179,8 @@ def insight_alert_slack_properties(
                 )
         content = {"type": "rich_text", "elements": sections}
     elif summary and summary.strip():
-        if len(summary) > 2800:
-            summary = summary[:2797] + "..."
+        if len(summary) > INVESTIGATION_SUMMARY_MAX_CHARS:
+            summary = summary[: INVESTIGATION_SUMMARY_MAX_CHARS - 3] + "..."
         content = slack_rich_text(summary, allowed_root=allowed_root)
     else:
         sections = []

@@ -31,7 +31,7 @@ def test_investigation_summary_is_sanitized_and_bounded_for_destinations(summary
     assert "[metric](https://example.com) **count** &lt;value&gt;" in context["match_descriptions_html"][0]
     sent = destinations.call_args.kwargs["properties"]["breaches"]
     assert len(sent) <= 1500
-    assert sent.startswith(label + "\n• *Spike* in")
+    assert sent.startswith(label + "\n- **Spike** in")
     assert "evil.example.com" not in sent
     assert sent.endswith(footer)
 

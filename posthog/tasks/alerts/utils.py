@@ -2,6 +2,7 @@ import re
 from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db.models import Q
@@ -26,6 +27,7 @@ from posthog.utils import absolute_uri
 from products.alerts.backend.facade.api import LLM_DETECTOR_UNAVAILABLE_ERROR_CODE
 from products.alerts.backend.facade.destinations import (
     ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS,
+    INVESTIGATION_SUMMARY_MAX_CHARS,
     alert_internal_event_delivered,
     flush_alert_internal_events,
     insight_alert_slack_properties,
@@ -55,8 +57,7 @@ from products.exports.backend.facade import api as exports
 
 logger = structlog.get_logger(__name__)
 
-# Discord rejects content over 2000 characters, and the destination template adds the alert header and link to it.
-_DESTINATION_MAX_CHARS = 1500
+_DESTINATION_MAX_CHARS = INVESTIGATION_SUMMARY_MAX_CHARS
 _DESTINATION_MIN_SUMMARY_CHARS = 300
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
@@ -280,8 +281,6 @@ def _destination_breach_text(breaches: list[str], summary_index: int | None) -> 
         cut = re.sub(r"\s+\S*$", "", cut) or cut
         summary = re.sub(r"<\S*$", "", cut).rstrip() + "…"
     summary = strip_external_links_markdown(summary)
-    summary = re.sub(r"\*\*(.+?)\*\*", r"*\1*", summary)
-    summary = re.sub(r"^(\s*)[-*] ", "\\1• ", summary, flags=re.MULTILINE)
     return "\n".join([*breaches[:summary_index], summary, *breaches[summary_index + 1 :]])
 
 
