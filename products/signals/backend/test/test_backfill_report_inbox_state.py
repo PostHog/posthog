@@ -1,4 +1,5 @@
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.core.management import call_command
 
@@ -48,20 +49,22 @@ class TestBackfillReportInboxState(BaseTest):
         assert self._flags(stale) == (False, False)
 
     def test_reconcile_counts_and_corrects_rows_a_bulk_write_left_stale(self) -> None:
-        linked = self._report()
+        linked = [self._report(), self._report()]
         SignalReportAssignment.all_teams.bulk_create(
             [
                 SignalReportAssignment(
                     team=self.team,
-                    report=linked,
-                    pr_url="https://github.com/example/app/pull/3",
+                    report=report,
+                    pr_url=f"https://github.com/example/app/pull/{number}",
                     repository="example/app",
-                    pr_number=3,
+                    pr_number=number,
                     pr_state="open",
                 )
+                for number, report in enumerate(linked, start=3)
             ]
         )
 
-        assert reconcile_report_inbox_state(self.team.id) == 1
-        assert self._flags(linked) == (True, True)
+        with patch("products.signals.backend.report_inbox_state._RECONCILE_BATCH_SIZE", 1):
+            assert reconcile_report_inbox_state(self.team.id) == 2
+        assert [self._flags(report) for report in linked] == [(True, True), (True, True)]
         assert reconcile_report_inbox_state(self.team.id) == 0
