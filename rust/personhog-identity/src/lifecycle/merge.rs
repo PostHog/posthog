@@ -1846,7 +1846,7 @@ async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
     record_moved_mappings(&mut tx, tables, op, &sources, &repointed).await?;
     move_cohort_membership(&mut tx, tables, &sources, target).await?;
     move_hash_key_overrides(&mut tx, tables, team_id, &sources, target).await?;
-    tombstone_sealed_sources(&mut tx, tables, op, team_id).await?;
+    let moved_above_seal = tombstone_sealed_sources(&mut tx, tables, op, team_id).await?;
     clear_target_mark(&mut tx, tables, op).await?;
 
     if !advance_step_in_tx(
@@ -1866,6 +1866,22 @@ async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
         MergeStep::DocumentFolded.as_str(),
         MergeStep::Flipped.as_str(),
     );
+    // Reported after the commit: a driver that loses the step CAS sees the
+    // winner's tombstone as a moved row, and its transaction rolls back.
+    if !moved_above_seal.is_empty() {
+        tracing::warn!(
+            op_id = %op.op_id,
+            team_id = op.team_id,
+            persons = moved_above_seal.len(),
+            person_sealed_tombstone = ?moved_above_seal,
+            "merge source tombstones landed above sealed + 1; the rows moved after the seal"
+        );
+        common_metrics::inc(
+            TOMBSTONES_ABOVE_SEAL_TOTAL,
+            &[],
+            moved_above_seal.len() as u64,
+        );
+    }
     Ok(())
 }
 
@@ -2031,13 +2047,14 @@ async fn move_hash_key_overrides(
 /// revives above it. The fence stops leader writes only: a writer on the
 /// Postgres path can move a source row past its seal before the flip, so
 /// the tombstone also clears the row's own version. The committed version
-/// joins the seal, and the release carries it to the leader.
+/// joins the seal, and the release carries it to the leader. Returns the
+/// rows that moved, as (person_id, sealed_version, tombstone_version).
 async fn tombstone_sealed_sources(
     tx: &mut Tx<'_>,
     tables: &IdentityTables,
     op: &OpRow,
     team_id: i32,
-) -> Result<(), SagaError> {
+) -> Result<Vec<(i64, i64, i64)>, SagaError> {
     let tombstone_sql = format!(
         r#"
         UPDATE {person_table} p
@@ -2089,22 +2106,7 @@ async fn tombstone_sealed_sources(
         &tombstone_versions
         => execute(&mut **tx)
     )?;
-
-    if !moved_above_seal.is_empty() {
-        tracing::warn!(
-            op_id = %op.op_id,
-            team_id = op.team_id,
-            persons = moved_above_seal.len(),
-            person_sealed_tombstone = ?moved_above_seal,
-            "merge source tombstones landed above sealed + 1; the rows moved after the seal"
-        );
-        common_metrics::inc(
-            TOMBSTONES_ABOVE_SEAL_TOTAL,
-            &[],
-            moved_above_seal.len() as u64,
-        );
-    }
-    Ok(())
+    Ok(moved_above_seal)
 }
 
 /// The target's own person row is untouched: the folded document
