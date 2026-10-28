@@ -543,6 +543,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             '(CAST((cardinality("a"."xs") + 1) AS BIGINT) / CAST(2 AS BIGINT))',
         ),
         (
+            "SELECT d + 1 FROM (SELECT toDate('2024-01-01') AS d UNION ALL SELECT toDateTime('2024-01-01 00:00:00') AS d)",
+            "date_add('second'",
+        ),
+        (
             "WITH a AS (SELECT [toDate('2024-01-01')] AS days) SELECT days[1] + 1 FROM a",
             'date_add(\'day\', CAST(1 AS BIGINT), element_at("a"."days", 1))',
         ),

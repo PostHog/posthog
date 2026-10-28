@@ -1543,6 +1543,7 @@ class TrinoPrinter(PostgresPrinter):
             if isinstance(array_type, ast.ArrayType) and not isinstance(array_type.item_type, ast.UnknownType):
                 return array_type.item_type
         value_type = node.type
+        merged_type: ast.ConstantType | None = None
         seen: set[int] = set()
         while value_type is not None and id(value_type) not in seen:
             seen.add(id(value_type))
@@ -1559,6 +1560,8 @@ class TrinoPrinter(PostgresPrinter):
                 elif isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
                     select_type = table_type
                 while isinstance(select_type, ast.SelectSetQueryType) and select_type.types:
+                    if merged_type is None and value_type.name in select_type.columns:
+                        merged_type = select_type.columns[value_type.name].resolve_constant_type(self.context)
                     select_type = select_type.types[0]
                 if isinstance(select_type, ast.SelectQueryType):
                     column_type = select_type.columns.get(value_type.name)
@@ -1584,6 +1587,13 @@ class TrinoPrinter(PostgresPrinter):
             and self._is_text_backed_warehouse_column(value_type)
         ):
             return ast.StringType(nullable=True)
+        # Branches of different types are promoted, e.g. Date with DateTime, so the first branch is not the column type.
+        if (
+            merged_type is not None
+            and not isinstance(merged_type, ast.UnknownType)
+            and type(merged_type) is not type(resolved)
+        ):
+            return merged_type
         return resolved
 
     def _is_text_backed_warehouse_column(self, field_type: ast.FieldType) -> bool:
