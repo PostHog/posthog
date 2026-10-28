@@ -127,6 +127,7 @@ pub fn prepare_block(
     let content_key = image_content_key(team_key);
     let mut rewrite = UrlRewrite::new(
         &block.remote_urls,
+        &block.srcsets,
         block.session.team_id,
         key_month,
         team_key,
@@ -683,6 +684,7 @@ mod tests {
             image_urls: Vec::new(),
             remote_urls: Vec::new(),
             url_limit: None,
+            srcsets: Vec::new(),
             captured_at_ms: None,
         }
     }
@@ -702,6 +704,7 @@ mod tests {
         let found = inspection.finish();
         inspected.remote_urls = found.remote_urls;
         inspected.url_limit = found.url_limit;
+        inspected.srcsets = found.srcsets;
         inspected
             .remote_urls
             .extend(extra.iter().map(|url| (*url).to_owned()));
@@ -791,6 +794,82 @@ mod tests {
                 .to_string();
         assert_eq!(stored_lines(&event, &[signed]), "");
         assert!(!stored_lines(&event, &[public]).is_empty());
+    }
+
+    #[test]
+    fn leaves_a_picture_only_the_sources_that_can_load() {
+        let (avif, webp, signed, fallback) = (
+            "https://cdn.example.com/a.avif",
+            "https://cdn.example.com/a.webp",
+            "https://bucket.s3.amazonaws.com/a.webp?X-Amz-Signature=abc123",
+            "https://cdn.example.com/a.png",
+        );
+        let source = |id: i64, attributes: serde_json::Value| json!({"type": 2, "tagName": "source", "attributes": attributes, "childNodes": [], "id": id});
+        // The scan leaves an SVG inline, so the browser can load it from the block.
+        let (bare, typeless) = (
+            "https://cdn.example.com/b.avif",
+            "https://cdn.example.com/c.webp",
+        );
+        let svg =
+            "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
+        let picture = json!({"type": 2, "tagName": "picture", "attributes": {}, "id": 2, "childNodes": [
+            source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
+            source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x")})),
+            // A bare srcset equal to the img's src below: only the srcset empties.
+            source(8, json!({"type": "image/avif", "srcset": bare})),
+            // An empty type gives no hint, so the source keeps its candidate.
+            source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
+            source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x")})),
+            {"type": 2, "tagName": "img", "attributes": {"src": fallback}, "childNodes": [], "id": 5},
+        ]});
+        let img = json!({"type": 2, "tagName": "img", "attributes": {"src": bare}, "childNodes": [], "id": 10});
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [picture, img]}}}]).to_string();
+
+        let block = block_of("kept", &events);
+        let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
+        let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
+        for message in &block.messages {
+            inspector.observe_message(&mut inspection, message);
+        }
+        // The fetcher stores no AVIF, so the AVIF source gets no fetch job.
+        assert!(!inspection.finish().image_urls.iter().any(|u| u == avif));
+
+        let lines = stored_lines(&events, &[]);
+        let reference = |url: &str| {
+            crate::urls::url_reference(
+                url,
+                7,
+                "2026-10",
+                &replay_core_v4::seal::image_url_key(&[6; 32]),
+            )
+            .unwrap()
+            .1
+        };
+        // The AVIF source has no candidate left and the declined one leaves the list, so the browser takes the WebP.
+        assert!(lines.contains(r#""srcset":"""#), "{lines}");
+        assert!(
+            lines.contains(&format!(r#""srcset":"{svg} 1x""#)),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(webp))),
+            "{lines}"
+        );
+        assert!(lines.contains(&reference(fallback)), "{lines}");
+        assert!(
+            lines.contains(&format!(r#""src":"{}""#, reference(bare))),
+            "{lines}"
+        );
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(typeless))),
+            "{lines}"
+        );
+        assert!(
+            !lines.contains("a.avif")
+                && !lines.contains("X-Amz-Signature")
+                && !lines.contains("declined"),
+            "{lines}"
+        );
     }
 
     #[test]
