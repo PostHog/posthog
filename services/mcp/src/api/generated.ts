@@ -20331,6 +20331,21 @@ export namespace Schemas {
       errors: BulkDeleteErrorItem[];
     }
 
+    export interface BulkDeleteTicketsRequest {
+      /**
+         * List of ticket UUIDs to delete.
+         * @maxItems 500
+         */
+      ids: string[];
+    }
+
+    export interface BulkDeleteTicketsResponse {
+      /** Number of tickets deleted. */
+      deleted: number;
+      /** UUIDs of the tickets deleted. */
+      ids: string[];
+    }
+
     export interface BulkKeysRequest {
       /** Feature flag IDs to look up keys for. Strings of digits are also accepted; any other value is reported in the response `warning` field and otherwise ignored. */
       ids?: unknown[];

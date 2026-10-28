@@ -17,16 +17,22 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, Breadcrumb, TeamType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Breadcrumb, TeamType } from '~/types'
 
 import { assigneeSelectLogic } from '../../components/Assignee'
-import { conversationsTicketsBulkUpdateStatusCreate, conversationsViewsRetrieve } from '../../generated/api'
+import {
+    conversationsTicketsBulkDeleteCreate,
+    conversationsTicketsBulkUpdateStatusCreate,
+    conversationsViewsRetrieve,
+} from '../../generated/api'
 import type { AiTriageResultEnumApi } from '../../generated/api.schemas'
 import { normalizeAssigneeFilter } from '../../types'
 import type {
@@ -215,8 +221,10 @@ export interface supportTicketsSceneLogicValues {
         dateTo: string | null
     } | null
     dateTo: string | null
+    deletableSelectedTicketIds: string[]
     editableSelectedTicketIds: string[]
     hasActiveFilters: boolean
+    hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     orderBy: string
     priorityFilter: TicketPriority[]
     searchQuery: string
@@ -246,6 +254,9 @@ export interface supportTicketsSceneLogicActions {
     }
     applyViewFilters: (filters: TicketViewFilters) => {
         filters: TicketViewFilters
+    }
+    bulkDeleteTickets: (ids: string[]) => {
+        ids: string[]
     }
     bulkUpdateStatus: (
         ids: string[],
@@ -351,6 +362,10 @@ export interface supportTicketsSceneLogicMeta {
         orderBy: (sorting: Sorting | null) => string
         selectedTickets: (tickets: Ticket[], selectedTicketIds: string[]) => Ticket[]
         editableSelectedTicketIds: (selectedTickets: Ticket[]) => string[]
+        deletableSelectedTicketIds: (
+            selectedTickets: Ticket[],
+            hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean
+        ) => string[]
         assigneeFilterEntries: (assigneeFilter: AssigneeFilterEntry[]) => AssigneeFilterEntry[]
         hasActiveFilters: (
             statusFilter: TicketStatus[],
@@ -394,6 +409,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
     props({} as SupportTicketsSceneLogicProps),
     key((props: SupportTicketsSceneLogicProps) => props?.key || 'SupportTicketsScene'),
     connect(() => ({
+        values: [userLogic, ['hasAvailableFeature']],
         actions: [assigneeSelectLogic, ['ensureAssigneeTypesLoaded']],
     })),
     actions({
@@ -424,6 +440,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         clearFiltersKeepingSearch: true,
         setDateRangeBeforeView: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        bulkDeleteTickets: (ids: string[]) => ({ ids }),
         setBulkUpdating: (updating: boolean) => ({ updating }),
         setSelectedTicketIds: (ids: string[]) => ({ ids }),
         clearSelectedTickets: true,
@@ -633,6 +650,26 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                             )
                     )
                     .map((ticket) => ticket.id),
+        ],
+        // Without the access control add-on there is no manager role, so the backend lets editors delete.
+        deletableSelectedTicketIds: [
+            (s) => [s.selectedTickets, s.hasAvailableFeature],
+            (selectedTickets, hasAvailableFeature): string[] => {
+                const requiredLevel = hasAvailableFeature(AvailableFeature.ACCESS_CONTROL)
+                    ? AccessControlLevel.Manager
+                    : AccessControlLevel.Editor
+                return selectedTickets
+                    .filter(
+                        (ticket) =>
+                            !ticket.user_access_level ||
+                            accessLevelSatisfied(
+                                AccessControlResourceType.Ticket,
+                                ticket.user_access_level,
+                                requiredLevel
+                            )
+                    )
+                    .map((ticket) => ticket.id)
+            },
         ],
         assigneeFilterEntries: [
             (s) => [s.assigneeFilter],
@@ -932,6 +969,37 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             } finally {
                 actions.setBulkUpdating(false)
             }
+        },
+        bulkDeleteTickets: ({ ids }) => {
+            const single = ids.length === 1
+            LemonDialog.open({
+                title: single ? 'Delete 1 ticket?' : `Delete ${ids.length} tickets?`,
+                description: `${single ? 'The ticket and its messages disappear' : 'The tickets and their messages disappear'} for your team and your customers right away, and are permanently deleted after 14 days. Messages already sent to Slack, Teams, email, or GitHub stay there.`,
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: async () => {
+                        if (values.bulkUpdating) {
+                            return
+                        }
+                        actions.setBulkUpdating(true)
+                        try {
+                            const result = await conversationsTicketsBulkDeleteCreate(
+                                String(ApiConfig.getCurrentProjectId()),
+                                { ids }
+                            )
+                            lemonToast.success(`Deleted ${result.deleted} ticket${result.deleted === 1 ? '' : 's'}`)
+                            actions.clearSelectedTickets()
+                            actions.loadTickets()
+                        } catch {
+                            lemonToast.error('Failed to delete tickets. Try again.')
+                        } finally {
+                            actions.setBulkUpdating(false)
+                        }
+                    },
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
         },
     })),
     actionToUrl(({ values, props, cache }) => {

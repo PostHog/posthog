@@ -583,6 +583,21 @@ export interface TicketReplyRequestApi {
     rich_content?: unknown
 }
 
+export interface BulkDeleteTicketsRequestApi {
+    /**
+     * List of ticket UUIDs to delete.
+     * @maxItems 500
+     */
+    ids: string[]
+}
+
+export interface BulkDeleteTicketsResponseApi {
+    /** Number of tickets deleted. */
+    deleted: number
+    /** UUIDs of the tickets deleted. */
+    ids: string[]
+}
+
 export interface BulkUpdateStatusRequestApi {
     /**
      * List of ticket UUIDs to update.

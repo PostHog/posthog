@@ -1056,6 +1056,33 @@ class TestBulkUpdateStatus(APIBaseTest):
         other_ticket.refresh_from_db()
         self.assertEqual(other_ticket.status, Status.NEW)
 
+    def test_bulk_delete_soft_deletes_only_this_teams_tickets(self, mock_on_commit):
+        from products.conversations.backend.cache import get_cached_tickets, set_cached_tickets
+
+        other_team = self.create_team_with_organization(organization=Organization.objects.create(name="Other Org"))
+        other_ticket = Ticket.objects.create_with_number(
+            team=other_team, channel_source=Channel.WIDGET, widget_session_id="other-sess", distinct_id="other-user"
+        )
+        set_cached_tickets(self.team.id, "sess-0", {"count": 1, "results": [{"id": str(self.tickets[0].id)}]})
+
+        ids = [str(self.tickets[0].id), str(self.tickets[1].id), str(other_ticket.id)]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/bulk_delete/", {"ids": ids}, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(response.json()["deleted"], 2)
+        self.assertEqual(set(response.json()["ids"]), set(ids[:2]))
+        for ticket in self.tickets[:2]:
+            ticket.refresh_from_db()
+            self.assertEqual(ticket.deleted_by_id, self.user.id)
+            self.assertTrue(
+                ActivityLog.objects.filter(scope="Ticket", item_id=str(ticket.id), activity="deleted").exists()
+            )
+        self.assertTrue(Ticket.objects.filter(id=self.tickets[2].id).exists())
+        self.assertTrue(Ticket.objects.filter(id=other_ticket.id).exists())
+        self.assertIsNone(get_cached_tickets(self.team.id, "sess-0"))
+
     def test_skips_tickets_denied_at_object_level(self, mock_on_commit):
         # Bulk status update must respect object-level access control the same way single-ticket
         # updates do via get_object() -- a ticket explicitly denied to the caller must not be
@@ -3535,6 +3562,24 @@ class TestTicketAccessControl(APIBaseTest):
             self.assertIsNotNone(self.ticket.deleted_at)
         else:
             self.assertIsNone(self.ticket.deleted_at)
+
+    @parameterized.expand(
+        [
+            ("viewer", status.HTTP_403_FORBIDDEN, False),
+            ("editor", status.HTTP_200_OK, False),
+            ("manager", status.HTTP_200_OK, True),
+        ]
+    )
+    def test_bulk_delete_requires_manager(self, access_level: str, expected_status: int, deleted: bool) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/conversations/tickets/bulk_delete/",
+            {"ids": [str(self.ticket.id)]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.deleted_at is not None, deleted)
 
     def test_delete_api_key_without_manager_is_forbidden(self) -> None:
         self._set_resource_level("editor")
