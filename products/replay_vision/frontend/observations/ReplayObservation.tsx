@@ -31,6 +31,7 @@ import { ObservationDetails } from './ObservationDetails'
 import { ObservationFacts } from './ObservationFacts'
 import { ObservationHeadline } from './ObservationHeadline'
 import { ObservationLabelControl } from './ObservationLabelControl'
+import { ObservationNotesButton } from './ObservationNotesButton'
 import { ObservationPinnedProperties } from './ObservationPinnedProperties'
 import { ObservationReasoning } from './ObservationReasoning'
 import { ObservationRecordingUnavailable } from './ObservationRecordingUnavailable'
@@ -220,6 +221,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             >
                                 Next
                             </LemonButton>
+                            <ObservationNotesButton />
                             <ObservationShareButton
                                 observationId={observation.id}
                                 sessionRecordingId={observation.session_id}

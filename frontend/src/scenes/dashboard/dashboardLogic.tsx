@@ -772,6 +772,7 @@ export interface dashboardLogicValues {
     placement: DashboardPlacement
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
+    queryLoadQueue: TaskQueue
     readOnly: boolean
     refreshEligibilityTick: number
     refreshMetrics: {
@@ -3474,7 +3475,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    selectors(() => ({
+    selectors(({ cache }) => ({
+        queryLoadQueue: [() => [], (): TaskQueue => tileLoadQueue(cache)],
         filterEditModeActive: [
             (s) => [s.dashboardEditing],
             (dashboardEditing: DashboardEditing | null): boolean => dashboardEditing?.filters === true,

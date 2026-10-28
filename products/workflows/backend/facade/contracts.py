@@ -679,6 +679,10 @@ class WorkflowRef:
     has_email_step: bool
 
 
+# Engagement tracking and message assets key on this id, so it stays stable across versions.
+TRANSACTIONAL_EMAIL_ACTION_ID: Final[str] = "transactional_email"
+
+
 @frozen
 class TransactionalEmailContent:
     """What a transactional email's workflow sends, taken from the message template it was made from."""
@@ -734,6 +738,7 @@ class WorkflowListQuery:
     suggestions_first: bool = False
     # A workflow matches when it carries at least one of these tags.
     tags: frozenset[str] = frozenset()
+    latest_send_first: bool = False
     field_filters: Mapping[str, str] = field(default_factory=dict)
 
 

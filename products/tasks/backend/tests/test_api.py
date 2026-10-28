@@ -56,7 +56,7 @@ from posthog.utils import absolute_uri
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
-from products.tasks.backend.constants import DEV_STACK_PREVIEW_PORT
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, DEV_STACK_PREVIEW_PORT
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -6066,6 +6066,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "context_window": "1m",
                 "fast_mode": True,
                 "snapshot_external_id": "snap-1",
+                "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
             },
         )
 
@@ -7685,7 +7686,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
-                "use_modal_directory_resume_snapshots": True,
                 "use_modal_vm_sandbox": False,
                 "sandbox_template": "default_base",
                 "agent_otel_telemetry_enabled": False,
@@ -7766,7 +7766,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_ttl_seconds": 86400,
                     "inactivity_timeout_seconds": 86400,
                     "wizard_config": {},
-                    "use_modal_directory_resume_snapshots": False,
                     "use_modal_vm_sandbox": True,
                     # a VM template here would boot a Docker-capable box past the VM gate
                     "sandbox_template": "vm_base",
@@ -7850,7 +7849,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_ttl_seconds"] == 1800
         assert run.state["inactivity_timeout_seconds"] == 600
         assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
-        assert run.state["use_modal_directory_resume_snapshots"] is True
         assert run.state["use_modal_vm_sandbox"] is False
         assert run.state["sandbox_template"] == "default_base"
         assert run.state["agent_otel_telemetry_enabled"] is False
@@ -7928,7 +7926,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "stream_presence_gated",
                     "stream_thin_tail",
                     "sandbox_id",
-                    "use_modal_directory_resume_snapshots",
                     "use_modal_vm_sandbox",
                     "snapshot_external_id",
                     "snapshot_kind",
@@ -7981,7 +7978,6 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["stream_presence_gated"] is True  # protected key survives removal
         assert run.state["stream_thin_tail"] is True  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
-        assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
         assert run.state["use_modal_vm_sandbox"] is False  # protected key survives removal
         assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
         assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
@@ -15239,21 +15235,22 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         task.refresh_from_db()
         self.assertNotIn("mobile_push_user_ids", task.state or {})
 
+    @parameterized.expand([("ai_gateway_product", "slack_app"), ("billing_product", "posthog_ai")])
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
-    def test_patch_cannot_forge_the_gateway_pin_stamp(self, _mock_publish):
+    def test_patch_cannot_forge_billing_or_gateway_product(self, key, original, _mock_publish):
         task = self.create_task()
         run = TaskRun.objects.create(
-            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={"ai_gateway_product": "slack_app"}
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state={key: original}
         )
         url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
 
-        response = self.client.patch(url, {"state": {}, "state_remove_keys": ["ai_gateway_product"]}, format="json")
+        response = self.client.patch(url, {"state": {}, "state_remove_keys": [key]}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response = self.client.patch(url, {"state": {"ai_gateway_product": "review_hog"}}, format="json")
+        response = self.client.patch(url, {"state": {key: "review_hog"}}, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         run.refresh_from_db()
-        assert run.state["ai_gateway_product"] == "slack_app"
+        assert run.state[key] == original
 
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")

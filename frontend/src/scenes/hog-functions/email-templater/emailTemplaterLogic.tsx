@@ -803,7 +803,14 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // A transactional template's sender and reply-to belong to its own sends, so applying it keeps the
             // email's current ones.
             const { from: _from, replyTo: _replyTo, ...emailTemplateContent } = template.content.email
-            actions.setEmailTemplateValues(emailTemplateContent)
+            // The values merge into the current email, so a body field the template omits is cleared to keep the
+            // previous email's html or design from being sent.
+            actions.setEmailTemplateValues({
+                ...emailTemplateContent,
+                html: emailTemplateContent.html ?? '',
+                text: emailTemplateContent.text ?? '',
+                design: emailTemplateContent.design ?? null,
+            })
 
             // Load the design into the editor if it's ready and has a design
             if (values.isEmailEditorReady && emailTemplateContent.design) {
