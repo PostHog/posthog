@@ -9,24 +9,25 @@ from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE
 # back. A 92-day TTL keeps every UTC day that such a range covers.
 #
 # MODIFY TTL starts a mutation that recalculates the TTL of every existing part. Without it, a part
-# written before this migration keeps expiring on the 90-day schedule. materialize_ttl_recalculate_only
-# makes the mutation read only `timestamp` and rewrite only each part's TTL metadata.
+# written before this migration keeps expiring on the 90-day schedule. The table has only a row TTL and
+# ttl_only_drop_parts = 1, so the mutation reads only `timestamp` and rewrites only each part's TTL metadata.
 #
 # Tables in tests have no TTL. See ttl_period().
 operations = (
     [
         # A settings-only ALTER changes only the replica that runs it, so this statement runs on every host. Each
-        # replica runs the TTL mutation on its own parts. A replica without the setting rewrites every column of
-        # every part.
+        # replica runs the TTL mutation on its own parts. The setting keeps a TTL mutation from rewriting columns
+        # if the table later gains a column TTL or loses ttl_only_drop_parts.
         run_sql_with_exceptions(
             f"ALTER TABLE {FLAG_EVALUATIONS_DATA_TABLE} MODIFY SETTING materialize_ttl_recalculate_only = 1",
             node_roles=[NodeRole.DATA],
             sharded=True,
             is_alter_on_replicated_table=False,
         ),
-        # The new TTL applies as soon as the statement returns. With the default alter_sync = 1, the statement also
-        # waits for the mutation to finish on this replica, so alter_sync = 0 keeps the deploy from waiting on it.
-        # system.mutations shows when the mutation is done.
+        # With alter_sync = 0, the statement returns once the ALTER is in Keeper. Each replica switches to the new
+        # TTL when its replication queue runs the ALTER_METADATA entry. The mutation then recalculates the TTL of
+        # each existing part. With the default alter_sync = 1, the deploy would wait for both steps on this replica.
+        # system.tables and system.mutations on each replica show when each step is done.
         run_sql_with_exceptions(
             f"ALTER TABLE {FLAG_EVALUATIONS_DATA_TABLE} MODIFY TTL toDate(timestamp) + INTERVAL 92 DAY "
             "SETTINGS materialize_ttl_after_modify = 1, alter_sync = 0",
