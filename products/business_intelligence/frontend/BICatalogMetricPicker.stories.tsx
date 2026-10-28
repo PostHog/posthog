@@ -1,11 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { userEvent } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { BICatalogMetricPicker } from './BICatalogMetricPicker'
+import { biCatalogPickerLogic } from './biCatalogPickerLogic'
 
 const meta: Meta<typeof BICatalogMetricPicker> = {
     title: 'Products/Business intelligence/Catalog metric picker',
@@ -47,7 +48,8 @@ const meta: Meta<typeof BICatalogMetricPicker> = {
         }),
     ],
     play: async ({ canvasElement }) => {
-        await userEvent.click(within(canvasElement).getByRole('button', { name: 'Use a catalog metric' }))
+        await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Use a catalog metric' }))
+        await waitFor(() => expect(biCatalogPickerLogic.values.metricsLoading).toBe(false))
     },
 }
 export default meta
