@@ -557,8 +557,9 @@ async def _process_source_bundles(
             team_id, source, [key for key, _ in chunk]
         )
         to_send = [(key, bundle) for key, bundle in chunk if key in existing]
-        # rows_read and changed are this attempt's totals, not per-chunk amounts. They give the run row
-        # its denominator, so a run stopped part way shows how far it got.
+        # rows_read, changed and skipped_missing_person are this attempt's running totals, not per-chunk
+        # amounts. rows_read and changed give the run row its denominator. A missing person is never
+        # snapshotted, so a retry skips it again and only a total can avoid counting it twice.
         increment = PerSourceResult(
             source_id=ps.source_id,
             rows_read=ps.rows_read,
@@ -582,6 +583,7 @@ async def _process_source_bundles(
         ps.skipped_missing_person += increment.skipped_missing_person
         ps.produced += increment.produced
         ps.undelivered += len(to_send) - len(delivered)
+        increment.skipped_missing_person = ps.skipped_missing_person
         if on_progress is not None:
             # Reported before the snapshot write. A run stopped between the two sends this chunk
             # again on the next attempt, so the run row counts it twice.

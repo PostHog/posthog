@@ -79,7 +79,8 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     log = logger.bind(**inputs.properties_to_log)
     log.info(f"Starting person-property sync for {inputs.source_type}/{inputs.schema_name}")
     start = time.monotonic()
-    started_at = datetime.now(UTC).isoformat()
+    # A retry keeps the time the run was first scheduled, so the run row shows its whole duration.
+    started_at = activity.info().scheduled_time.isoformat()
     binding = inputs.binding
     await record_started_runs(
         team_id=inputs.team_id,

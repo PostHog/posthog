@@ -453,10 +453,10 @@ def record_person_property_sync_run(record: PersonPropertySyncRunRecord) -> None
 
 @dataclasses.dataclass(frozen=True)
 class PersonPropertySyncProgress:
-    """One produced chunk's counts for one source. The recorder adds ``existing``, ``produced`` and
-    ``skipped_missing_person`` to the run row that ``job_id`` and ``trigger`` reconcile to, the same row a
-    ``PersonPropertySyncRunRecord`` lands on. ``rows_read`` and ``changed`` are the attempt's totals; the
-    row keeps the highest seen, since a retry only diffs the rows still left."""
+    """One produced chunk's counts for one source. The recorder adds ``existing`` and ``produced`` to the
+    run row that ``job_id`` and ``trigger`` reconcile to, the same row a ``PersonPropertySyncRunRecord``
+    lands on. ``rows_read``, ``changed`` and ``skipped_missing_person`` are the attempt's running totals;
+    the row keeps the highest seen, since a retry diffs again everything not yet delivered."""
 
     team_id: int
     binding_kind: str

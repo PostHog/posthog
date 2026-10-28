@@ -44,9 +44,10 @@ _SYNC_TRIGGERS = frozenset({SyncTrigger.SCHEDULED.value, SyncTrigger.SYNC.value}
 # row created by "Sync now" keeps its own trigger when the terminal record lands on it.
 _USER_TRIGGERS = frozenset({SyncTrigger.SYNC.value, SyncTrigger.MANUAL.value})
 
-_PROGRESS_COUNTS = ("existing", "produced", "skipped_missing_person")
-# A retry diffs only the rows still left to send, so the first attempt's totals are the run's totals.
-_ATTEMPT_TOTALS = ("rows_read", "changed")
+_PROGRESS_COUNTS = ("existing", "produced")
+# A retry diffs again everything not yet delivered, so the first attempt's totals are the run's totals.
+# Missing persons are never delivered, so each attempt skips them again.
+_ATTEMPT_TOTALS = ("rows_read", "changed", "skipped_missing_person")
 
 
 def _binding_fields(record: PersonPropertySyncRunRecord | PersonPropertySyncProgress) -> dict[str, str | None]:
@@ -214,7 +215,7 @@ def record_sync_progress(progress: PersonPropertySyncProgress) -> None:
                 changed=Greatest(F("changed"), progress.changed),
                 existing=F("existing") + progress.existing,
                 produced=F("produced") + progress.produced,
-                skipped_missing_person=F("skipped_missing_person") + progress.skipped_missing_person,
+                skipped_missing_person=Greatest(F("skipped_missing_person"), progress.skipped_missing_person),
             )
     except Exception as error:
         log.exception("person-property progress recorder failed")

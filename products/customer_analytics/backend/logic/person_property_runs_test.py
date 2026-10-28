@@ -204,30 +204,37 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         # row must still show everything delivered across the whole run.
         zeros = {"rows_read": 0, "changed": 0, "existing": 0, "produced": 0, "skipped_missing_person": 0}
         record_sync_run(self._record(job_id=job_id, trigger=trigger, status="running", finished_at="", **zeros))
-        record_sync_progress(self._progress(job_id=job_id, trigger=trigger, existing=2, produced=2))
-        record_sync_progress(self._progress(job_id=job_id, trigger=trigger, existing=2, produced=2))
+        # skipped_missing_person is the attempt's running total: a missing person is never snapshotted, so
+        # every retry skips it again and adding the reports up would count it once per attempt.
+        record_sync_progress(
+            self._progress(job_id=job_id, trigger=trigger, existing=2, produced=2, skipped_missing_person=1)
+        )
+        record_sync_progress(
+            self._progress(job_id=job_id, trigger=trigger, existing=2, produced=2, skipped_missing_person=2)
+        )
         if job_id is not None:
             record_sync_run(self._record(job_id=job_id, trigger=trigger, status="failed", error="killed", **zeros))
             failed = CustomPropertySyncRun.objects.unscoped().get(source=self.source)
             # The killed run still shows how far it got: 4 of the 8 changed rows.
-            assert (failed.status, failed.produced, failed.existing, failed.rows_read, failed.changed) == (
-                "failed",
-                4,
-                4,
-                10,
-                8,
-            )
+            assert (
+                failed.status,
+                failed.produced,
+                failed.existing,
+                failed.skipped_missing_person,
+                failed.rows_read,
+                failed.changed,
+            ) == ("failed", 4, 4, 2, 10, 8)
             record_sync_run(self._record(job_id=job_id, trigger=trigger, status="running", finished_at="", **zeros))
         # The retry diffs against the snapshot, so it sees only the 4 rows still left.
         record_sync_progress(
-            self._progress(job_id=job_id, trigger=trigger, changed=4, existing=3, produced=3, skipped_missing_person=1)
+            self._progress(job_id=job_id, trigger=trigger, changed=4, existing=3, produced=3, skipped_missing_person=3)
         )
         record_sync_run(self._record(job_id=job_id, trigger=trigger, status="completed"))
 
         run = CustomPropertySyncRun.objects.unscoped().get(source=self.source)
         assert run.status == "completed"
         assert (run.rows_read, run.changed) == (10, 8)
-        assert (run.existing, run.produced, run.skipped_missing_person) == (7, 7, 1)
+        assert (run.existing, run.produced, run.skipped_missing_person) == (7, 7, 3)
 
     def test_scheduled_retry_that_finally_succeeds_clears_the_failure(self):
         # A transient failure followed by a successful retry (same job_id) must resolve the row to
