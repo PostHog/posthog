@@ -372,6 +372,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "segments_date": "The date the metrics are reported for.",
         },
     },
+    "search_term_keyword_stats": {
+        "description": "Daily performance for search terms, split by the keyword that matched each one.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/search_term_view",
+        "columns": {
+            **_IDS,
+            "search_term_view_search_term": "The search query a user entered that triggered an ad.",
+            "search_term_view_status": "Whether the search term has been added or excluded as a keyword.",
+            "segments_keyword_ad_group_criterion": "Resource name of the keyword (ad group criterion) that matched the search term.",
+            "segments_keyword_info_text": "Text of the keyword that matched the search term.",
+            "segments_keyword_info_match_type": "Match type of that keyword (exact, phrase or broad).",
+            "metrics_clicks": "Number of clicks.",
+            "metrics_impressions": "Number of impressions.",
+            "metrics_cost_micros": "Total cost in micros.",
+            "metrics_conversions": "Number of conversions.",
+            "segments_date": "The date the metrics are reported for.",
+        },
+    },
     "performance_max_search_term_stats": {
         "description": "Daily performance for the search terms that triggered Performance Max campaigns (campaign_search_term_view).",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v25/campaign_search_term_view",
@@ -723,5 +740,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
                 "metrics_cross_device_conversions": "Conversions where the conversion happened on a different device to the ad interaction.",
             }
         ),
+    },
+    "search_term_conversion_action_stats": {
+        "description": "Daily search term conversions broken out by conversion action. Only conversion metrics are available alongside this segmentation, so clicks, impressions and cost are in search_term_stats.",
+        "docs_url": "https://developers.google.com/google-ads/api/fields/v25/search_term_view",
+        "columns": {
+            **_IDS,
+            "search_term_view_search_term": "The search query a user entered that triggered an ad.",
+            "segments_conversion_action": "Resource name of the conversion action the conversions are attributed to. Join to conversion_action.",
+            "segments_conversion_action_name": "Name of the conversion action.",
+            "segments_conversion_action_category": "Category of the conversion action (e.g. purchase, lead, sign-up).",
+            "segments_date": _SEGMENTS["segments_date"],
+            "metrics_conversions": _METRICS["metrics_conversions"],
+            "metrics_conversions_value": _METRICS["metrics_conversions_value"],
+            "metrics_all_conversions": _METRICS["metrics_all_conversions"],
+            "metrics_all_conversions_value": _METRICS["metrics_all_conversions_value"],
+        },
     },
 }

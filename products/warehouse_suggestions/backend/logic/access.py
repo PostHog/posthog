@@ -14,6 +14,7 @@ from products.warehouse_sources.backend.facade.api import allowed_table_ids
 from ..facade.contracts import SubjectKinds
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
 from ..models import WarehouseSuggestion
+from .flags import is_warehouse_suggestions_enabled
 from .rules import RULES
 
 if TYPE_CHECKING:
@@ -107,6 +108,24 @@ def visible_suggestions(
         .order_by("kind_position", "-score", "id")
     )
     return visible, access
+
+
+def actionable_open_count(
+    team: "Team",
+    user: "User",
+    kinds: frozenset[WarehouseSuggestionKind],
+    subject_kinds: frozenset[WarehouseSuggestionSubjectKind],
+) -> int:
+    """How many surfaced, proposed suggestions of `kinds` on `subject_kinds` `user` can act on."""
+    if not is_warehouse_suggestions_enabled(team):
+        return 0
+    visible, access = visible_suggestions(
+        team.pk,
+        UserAccessControl(user, team),
+        status=WarehouseSuggestionStatus.PROPOSED,
+        subject_kinds=SubjectKinds(readable=subject_kinds, actionable=subject_kinds),
+    )
+    return sum(1 for suggestion in visible.filter(kind__in=kinds) if access.can_act_on(suggestion))
 
 
 def subject_access(

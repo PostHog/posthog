@@ -36,6 +36,10 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+# "workflows" or "activities" makes the worker poll only that half of its task queue, so that a second
+# deployment on the same queue can serve the other half. Workflow tasks then do not compete with
+# CPU-heavy activities for the GIL. "all", the default, polls both.
+TEMPORAL_WORKER_ROLE: str = get_from_env("TEMPORAL_WORKER_ROLE", "all")
 # Caps the @asyncify pool. An asyncify thread can hold a Django connection for its whole call, so the
 # pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
 # pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
@@ -363,6 +367,11 @@ SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
 # dispatching services. Setting it first strands builds on a pollerless queue until the
 # workflow execution timeout closes them.
 CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
+# Messaging provider imports (for example Customer.io suppressions) share the general-purpose fleet. To move them to a
+# dedicated worker, deploy a worker polling the new queue before setting this env on the dispatching services.
+MESSAGING_IMPORT_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("MESSAGING_IMPORT_TASK_QUEUE", "general-purpose-task-queue")
+)
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-activity-task-queue"

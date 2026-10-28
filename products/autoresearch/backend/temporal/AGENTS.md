@@ -83,7 +83,7 @@ Temporal activity payloads are capped at roughly 2 MiB, and autoresearch moves g
 ## When editing this flow
 
 - **Editing a `@workflow.defn` body breaks in-flight executions.** Adding, removing, or reordering `execute_activity` calls, child-workflow starts, or timers fails replay with a non-determinism error on every running execution.
-  Gate new commands behind `workflow.patched("...")`, or on a new field of an existing activity's output dataclass that defaults to the skip value. Activity _implementations_ and activity _input_ dataclasses are safe to edit; command sequences are not.
+  Gate new commands behind `workflow.patched("...")`. A new field on an activity's output dataclass does not replace the patch, because old workflow code can receive that field during a rolling deploy. Activity _implementations_ and activity _input_ dataclasses are safe to edit; command sequences are not.
 - **Never gate a workflow command on something computed inside the workflow body** — a feature flag, a setting, the clock, a database read. That is itself non-deterministic.
 - Keep scoring, validation and training logic out of the activities. It belongs in the package the activity calls, or the management commands will quietly behave differently from production. Only sweep-specific decisions (what is due, who may launch) stay here.
 - New workflows and activities must be added to `WORKFLOWS` / `ACTIVITIES` in `__init__.py` or they are never registered — this fails silently, since nothing errors when a workflow simply never runs.

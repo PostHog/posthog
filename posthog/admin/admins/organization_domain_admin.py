@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from posthog.models import OrganizationDomain
 
@@ -59,5 +60,5 @@ class OrganizationDomainAdmin(admin.ModelAdmin):
     def saml_status(self, obj):
         """Display SAML configuration status"""
         if obj.saml_identity_provider_configs.exists():
-            return format_html('<span style="color: green;">✓ Configured</span>')
-        return format_html('<span style="color: gray;">Not Configured</span>')
+            return mark_safe('<span style="color: green;">✓ Configured</span>')
+        return mark_safe('<span style="color: gray;">Not Configured</span>')

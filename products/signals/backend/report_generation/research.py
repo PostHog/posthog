@@ -89,11 +89,11 @@ __all__ = [
 
 
 def _rejection_reason(error: Exception) -> str:
-    """Why a chart was rejected, as failing field and rule only — never the rejected content."""
+    """Return failing fields and rules without copying rejected content into logs."""
     if not isinstance(error, ValidationError):
         return type(error).__name__
     return ", ".join(
-        f"{'.'.join(str(part) for part in entry['loc']) or 'chart'}: {entry['type']}" for entry in error.errors()
+        f"{'.'.join(str(part) for part in entry['loc']) or 'entry'}: {entry['type']}" for entry in error.errors()
     )
 
 
@@ -342,15 +342,22 @@ Hard rules:
 
     @field_validator("metrics", mode="before")
     @classmethod
-    def clear_legacy_metric_goals(cls, v: object) -> object:
+    def drop_metrics_that_do_not_validate(cls, v: object) -> object:
         if not isinstance(v, list):
             return v
-        return [
-            {key: value for key, value in entry.items() if key not in REPORT_METRIC_GOAL_FIELDS}
-            if isinstance(entry, dict)
-            else entry
-            for entry in v
-        ]
+        kept: list[ReportMetric] = []
+        for index, entry in enumerate(v):
+            if isinstance(entry, dict):
+                entry = {key: value for key, value in entry.items() if key not in REPORT_METRIC_GOAL_FIELDS}
+            try:
+                kept.append(ReportMetric.model_validate(entry))
+            except ValidationError as error:
+                logger.warning(
+                    "presentation: dropped metric at index %d that did not validate (%s)",
+                    index,
+                    _rejection_reason(error),
+                )
+        return kept
 
     @field_validator("title", "summary")
     @classmethod

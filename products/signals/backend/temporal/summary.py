@@ -68,6 +68,18 @@ from products.signals.backend.spend import (
     submit_signal_metadata_updates,
 )
 from products.signals.backend.stack_plan import create_layer_reports, start_unblocked_layers_of_plan
+from products.signals.backend.startup_failure import (
+    ResearchStartupFailure,
+    notify_research_startup_failure,
+    report_startup_failure,
+    research_startup_failure,
+    startup_failure_message,
+)
+from products.signals.backend.task_run_artefacts import (
+    SIGNALS_PRODUCT,
+    TASK_RUN_TYPE_RESEARCH,
+    append_task_run_artefact,
+)
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
@@ -835,6 +847,7 @@ class SignalReportSummaryWorkflow:
                     )
             return has_new_signals
         except Exception as e:
+            startup_failure = research_startup_failure(e)
             await workflow.execute_activity(
                 mark_report_failed_activity,
                 MarkReportFailedInput(
@@ -847,12 +860,28 @@ class SignalReportSummaryWorkflow:
                         else "agentic_activity_error"
                     ),
                     error_type=_activity_error_type(e),
+                    startup_failure=startup_failure,
                     signal_count=signal_count,
                     source_products=source_products,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
+            if startup_failure:
+                try:
+                    await workflow.execute_activity(
+                        notify_research_startup_failure_activity,
+                        NotifyResearchStartupFailureInput(
+                            team_id=inputs.team_id, report_id=inputs.report_id, failure=startup_failure
+                        ),
+                        start_to_close_timeout=timedelta(minutes=1),
+                        schedule_to_close_timeout=timedelta(minutes=10),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(seconds=5), maximum_interval=timedelta(minutes=1)
+                        ),
+                    )
+                except ActivityError:
+                    workflow.logger.exception("Failed to deliver research startup notification")
             raise
 
 
@@ -1353,6 +1382,23 @@ class MarkReportFailedInput:
     error_type: str | None = None
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
+    startup_failure: ResearchStartupFailure | None = None
+
+
+@frozen
+class NotifyResearchStartupFailureInput:
+    team_id: int
+    report_id: str
+    failure: ResearchStartupFailure
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def notify_research_startup_failure_activity(input: NotifyResearchStartupFailureInput) -> None:
+    await database_sync_to_async(notify_research_startup_failure, thread_sensitive=False)(
+        input.team_id, input.report_id, input.failure
+    )
 
 
 @temporalio.activity.defn
@@ -1367,8 +1413,22 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
             report = SignalReport.objects.select_for_update().get(id=input.report_id, team_id=input.team_id)
             if report.status == SignalReport.Status.FAILED:
                 return report.run_count, True
-            updated_fields = report.transition_to(SignalReport.Status.FAILED, error=input.error)
+            updated_fields = report.transition_to(
+                SignalReport.Status.FAILED,
+                error=startup_failure_message(input.startup_failure.failure) if input.startup_failure else input.error,
+            )
+            report.startup_failure = report_startup_failure(input.startup_failure) if input.startup_failure else None
+            updated_fields.append("startup_failure")
             report.save(update_fields=updated_fields)
+            if input.startup_failure:
+                append_task_run_artefact(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    product=SIGNALS_PRODUCT,
+                    type=TASK_RUN_TYPE_RESEARCH,
+                    task_id=str(input.startup_failure.task_id),
+                    run_id=str(input.startup_failure.run_id),
+                )
             return report.run_count, False
 
         run_count, was_already_failed = await database_sync_to_async(do_update, thread_sensitive=False)()

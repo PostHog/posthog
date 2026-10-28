@@ -185,4 +185,65 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "created_at": "The creation time of the transaction.",
         },
     },
+    "CreditBlocks": {
+        "description": "The prepaid credit blocks of each customer in Orb's default credits ledger, including "
+        "expired and depleted blocks, with their remaining balance. Blocks in a real-world currency ledger are "
+        "not included. Synced per customer as a full refresh.",
+        "docs_url": "https://docs.withorb.com/api-reference/credit/fetch-customer-credit-balance",
+        "columns": {
+            "id": "The Orb-assigned unique identifier for the credit block.",
+            "customer_id": "The Orb ID of the customer that owns the credit block.",
+            "balance": "The number of credits left in the block.",
+            "maximum_initial_balance": "The number of credits that the block started with.",
+            "credit_block_source": "How the block was created: allocation, top_up, commitment or manual.",
+            "status": "Whether the block is active or waits for payment (active, pending_payment).",
+            "effective_date": "The time at which the credits in the block become usable.",
+            "expiry_date": "The time at which the remaining credits in the block expire.",
+            "per_unit_cost_basis": "The cost basis of one credit in the block.",
+            "filters": "The prices that can draw down credits from the block.",
+            "metadata": "User-defined key/value pairs attached to the credit block.",
+        },
+    },
+    "CustomerCosts": {
+        "description": "A day-by-day series of each customer's costs over the current billing period (or the "
+        "last active one), broken down by price. Totals are cumulative from the start of the billing period. "
+        "Synced per customer as a full refresh.",
+        "docs_url": "https://docs.withorb.com/api-reference/customer/fetch-customer-costs",
+        "columns": {
+            "customer_id": "The Orb ID of the customer that the costs belong to.",
+            "timeframe_start": "The start of the window, inclusive. This is the start of the billing period.",
+            "timeframe_end": "The end of the window, exclusive. Each data point moves it one day forward.",
+            "subtotal": "Total costs for the window, excluding minimums and discounts.",
+            "total": "Total costs for the window, including minimums and discounts.",
+            "per_price_costs": "The costs for the window broken down by price, with each price's quantity, "
+            "subtotal and total.",
+        },
+    },
+    "SubscriptionCosts": {
+        "description": "A day-by-day series of each subscription's costs over its current billing period (or "
+        "the last active one), broken down by price. Totals are cumulative from the start of the billing "
+        "period. Synced per subscription as a full refresh.",
+        "docs_url": "https://docs.withorb.com/api-reference/subscription/fetch-subscription-costs",
+        "columns": {
+            "subscription_id": "The Orb ID of the subscription that the costs belong to.",
+            "timeframe_start": "The start of the window, inclusive. This is the start of the billing period.",
+            "timeframe_end": "The end of the window, exclusive. Each data point moves it one day forward.",
+            "subtotal": "Total costs for the window, excluding minimums and discounts.",
+            "total": "Total costs for the window, including minimums and discounts.",
+            "per_price_costs": "The costs for the window broken down by price, with each price's quantity, "
+            "subtotal and total.",
+        },
+    },
+    "SubscriptionSchedules": {
+        "description": "The plans of each subscription over time: the initial plan and every past and future "
+        "plan change, with start and end dates. Synced per subscription as a full refresh.",
+        "docs_url": "https://docs.withorb.com/api-reference/subscription/fetch-subscription-schedule",
+        "columns": {
+            "subscription_id": "The Orb ID of the subscription.",
+            "plan": "The plan that applies in this period (id, external_plan_id and name).",
+            "start_date": "The time at which the plan starts to apply to the subscription.",
+            "end_date": "The time at which the plan stops to apply. Empty when the plan has no end.",
+            "created_at": "The time at which the schedule entry was created.",
+        },
+    },
 }

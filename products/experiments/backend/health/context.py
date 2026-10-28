@@ -247,6 +247,7 @@ class MetricEvents:
 class MetricCompileFailure:
     """A metric whose query doesn't compile, so every calculation of the metric fails."""
 
+    metric_id: str
     name: str
     role: MetricRole
     kind: ExperimentHealthMetricCompileErrorKind
@@ -269,6 +270,42 @@ class MetricCompiles:
     # Whether the exposure query alone doesn't compile. A failure then says nothing about the metric, so `failures`
     # is empty.
     exposure_query_fails: bool
+
+
+@frozen
+class MetricCalculationFailure:
+    """A metric whose latest calculation failed, with the error that the calculation stored for it."""
+
+    metric_id: str
+    name: str
+    role: MetricRole
+    # The class that `classify_experiment_query_error` gave the error, or the class of a rejected calculation. None
+    # for a failure that stores no class, such as one stored before calculations stored it.
+    error_type: str | None
+    step: str | None
+    # The message as the results page shows it, without the names that HogQL suggests and the list of a scope's
+    # fields. It can be the raw text of a ClickHouse or Python exception.
+    message: str
+    # Whether a HogQL message can quote the evaluation rules that the markers keep out of the browser, because the
+    # definition holds a marker.
+    can_quote_evaluation_rules: bool
+    # Whether the results page shows a "Try again" button for the failure, which it does only for an error stored as
+    # retriable.
+    retriable: bool
+    # The effective definition now, in which the wording looks for the names that the message gives.
+    definition: Mapping[str, Any]
+
+
+@frozen
+class LatestCalculation:
+    """The latest finished calculation of the experiment's metrics, whose results and errors the results page
+    shows."""
+
+    metric_count: int
+    # None when no calculation has finished, so the page shows no stored error.
+    finished_at: datetime | None
+    # The metrics of the experiment now whose latest calculation failed, in calculation order.
+    failures: tuple[MetricCalculationFailure, ...]
 
 
 @frozen
@@ -342,17 +379,20 @@ class HealthContext:
     # None when not loaded. The health endpoint loads it. The exposure answer loads it only when the sample ratio test
     # fails, because the load can query the exposures and `srm` is the only exposure check that reads it.
     flag_history: FlagHistory | FlagHistoryNotChecked | None
-    # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
+    # None when not loaded or unknown. Only the health endpoints load it, because it queries the events.
     condition_set_traffic: ConditionSetTraffic | None
-    # None when not loaded or unknown. Only the health endpoint loads it, and only for a paused experiment.
+    # None when not loaded or unknown. Only the health endpoints load it, and only for a paused experiment.
     pause_history: PauseHistory | None
-    # None when not loaded, unknown, or the experiment calculates no primary metric. Only the health endpoint loads it,
+    # None when not loaded, unknown, or the experiment calculates no primary metric. Only the health endpoints load it,
     # and only for a launched experiment.
     primary_metric: PrimaryMetric | None
     # The variants that the analysis leaves out of the results.
     excluded_variant_keys: frozenset[str]
-    # None when not loaded or unknown. Only the health endpoint loads it, as the reader.
+    # None when not loaded or unknown. Only the health endpoints load it, as the reader.
     metric_compiles: MetricCompiles | None
+    # None when not loaded or unknown. Only the health endpoints load it, and only for a launched experiment that
+    # isn't archived.
+    latest_calculation: LatestCalculation | None
 
 
 def parse_flag_state(
@@ -655,4 +695,5 @@ def load_health_context(
         primary_metric=None,
         excluded_variant_keys=frozenset(experiment.excluded_variants or []),
         metric_compiles=None,
+        latest_calculation=None,
     )
