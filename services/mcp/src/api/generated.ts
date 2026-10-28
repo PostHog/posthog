@@ -123832,21 +123832,11 @@ export namespace Schemas {
      */
     export type WorkflowImportRequestLayouts = {[key: string]: string};
 
-    /**
-     * * `customerio` - Customer.io
-     */
-    export type WorkflowImportSourceEnum = typeof WorkflowImportSourceEnum[keyof typeof WorkflowImportSourceEnum];
-
-
-    export const WorkflowImportSourceEnum = {
-      Customerio: 'customerio',
-    } as const;
-
     export interface WorkflowImportRequest {
       /** The tool the automations come from.
        *
        * * `customerio` - Customer.io */
-      source: WorkflowImportSourceEnum;
+      source: ImportProviderKeyEnum;
       /** The automations to import, at most 50. People are never read from these objects. */
       campaigns: CustomerioCampaign[];
       /** Customer.io snippet name to its content, inlined where a message uses `{% snippet "name" %}`. */
