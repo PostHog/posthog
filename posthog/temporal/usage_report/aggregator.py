@@ -59,7 +59,7 @@ _LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_perio
 _TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
 _REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME = "replay_vision_spend_projection"
 _REPLAY_VISION_SPEND_PROJECTION_DESTINATION_KEYS = (
-    "teams_with_replay_vision_scanner_monthly_credits",
+    "teams_with_replay_vision_scanner_projected_credits",
     "teams_with_replay_vision_backfill_committed_credits",
 )
 

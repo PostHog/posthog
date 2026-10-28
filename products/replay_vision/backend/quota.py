@@ -606,7 +606,8 @@ def spend_projection(
 class SpendProjectionByTeam:
     """Usage report rows: each org's projection on one of its teams, so the org report's sum is the org's."""
 
-    scanners_monthly_credits: list[tuple[int, int]]
+    # Credits the enabled scanners spend from now to the period end, not a rate, so billing needs no clock.
+    scanners_period_credits: list[tuple[int, int]]
     backfills_committed_credits: list[tuple[int, int]]
 
 
@@ -614,15 +615,17 @@ def spend_projection_by_team() -> SpendProjectionByTeam:
     """Every org's rest-of-period spend projection, for billing's forecast.
 
     The projection is org-wide (free-only scanners share the org's free credits), so it cannot be split
-    across teams. Each org's value lands on its lowest team id instead.
+    across teams. Each org's value lands on its lowest billable team id instead.
     """
     org_ids = set(ReplayScanner.objects.filter(enabled=True).values_list("team__organization_id", flat=True)) | set(
         ReplayScannerBackfill.objects.unscoped()
         .filter(status__in=ACTIVE_BACKFILL_STATUSES)
         .values_list("team__organization_id", flat=True)
     )
+    # The usage report skips demo teams, so a value on one would never reach billing.
     team_by_org = dict(
         Team.objects.filter(organization_id__in=org_ids)
+        .exclude(is_demo=True)
         .values("organization_id")
         .annotate(first_team_id=Min("id"))
         .values_list("organization_id", "first_team_id")
@@ -631,11 +634,13 @@ def spend_projection_by_team() -> SpendProjectionByTeam:
     backfills: list[tuple[int, int]] = []
     for org_id, team_id in team_by_org.items():
         projection = spend_projection(org_id)
-        if projection.scanners_monthly_credits:
-            scanners.append((team_id, projection.scanners_monthly_credits))
+        days_left = max((current_period_bounds(org_id).end - datetime.now(UTC)).total_seconds() / 86400, 0)
+        period_credits = round(projection.scanners_monthly_credits * days_left / ESTIMATE_MONTH_DAYS)
+        if period_credits:
+            scanners.append((team_id, period_credits))
         if projection.backfills_committed_credits:
             backfills.append((team_id, projection.backfills_committed_credits))
-    return SpendProjectionByTeam(scanners_monthly_credits=scanners, backfills_committed_credits=backfills)
+    return SpendProjectionByTeam(scanners_period_credits=scanners, backfills_committed_credits=backfills)
 
 
 @frozen

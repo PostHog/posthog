@@ -224,7 +224,7 @@ class UsageReportCounters:
     replay_vision_scanner_count: int
     replay_vision_scanner_active_count: int
     # Enabled scanners' 30-day credit rate. A snapshot, not usage: billing forecasts Replay Vision spend from it.
-    replay_vision_scanner_monthly_credits: int
+    replay_vision_scanner_projected_credits: int
     replay_vision_backfill_committed_credits: int
 
     # Persons and Groups
@@ -1292,7 +1292,7 @@ def get_teams_with_replay_vision_spend_projection() -> SpendProjectionByTeam:
 def _replay_vision_spend_projection_rows() -> dict[str, list[tuple[int, int]]]:
     projection = get_teams_with_replay_vision_spend_projection()
     return {
-        "teams_with_replay_vision_scanner_monthly_credits": projection.scanners_monthly_credits,
+        "teams_with_replay_vision_scanner_projected_credits": projection.scanners_period_credits,
         "teams_with_replay_vision_backfill_committed_credits": projection.backfills_committed_credits,
     }
 
@@ -3467,7 +3467,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ),
         replay_vision_scanner_count=all_data["teams_with_replay_vision_scanner_count"].get(team.id, 0),
         replay_vision_scanner_active_count=all_data["teams_with_replay_vision_scanner_active_count"].get(team.id, 0),
-        replay_vision_scanner_monthly_credits=all_data["teams_with_replay_vision_scanner_monthly_credits"].get(
+        replay_vision_scanner_projected_credits=all_data["teams_with_replay_vision_scanner_projected_credits"].get(
             team.id, 0
         ),
         replay_vision_backfill_committed_credits=all_data["teams_with_replay_vision_backfill_committed_credits"].get(

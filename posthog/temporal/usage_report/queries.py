@@ -233,7 +233,7 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
 def _replay_vision_spend_projection() -> dict[str, list[tuple[int, int]]]:
     projection = get_teams_with_replay_vision_spend_projection()
     return {
-        "scanners_monthly_credits": projection.scanners_monthly_credits,
+        "scanners_period_credits": projection.scanners_period_credits,
         "backfills_committed_credits": projection.backfills_committed_credits,
     }
 
@@ -743,7 +743,7 @@ QUERIES: list[QuerySpec] = [
         kind="snapshot",
         output="multi",
         multi_keys_mapping={
-            "scanners_monthly_credits": "teams_with_replay_vision_scanner_monthly_credits",
+            "scanners_period_credits": "teams_with_replay_vision_scanner_projected_credits",
             "backfills_committed_credits": "teams_with_replay_vision_backfill_committed_credits",
         },
     ),

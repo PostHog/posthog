@@ -195,7 +195,7 @@ def test_load_all_data_defaults_replay_vision_spend_projection_for_pre_patch_wor
     add_pre_replay_vision_spend_projection_patch_defaults(all_data, [])
 
     assert all_data == {
-        "teams_with_replay_vision_scanner_monthly_credits": {},
+        "teams_with_replay_vision_scanner_projected_credits": {},
         "teams_with_replay_vision_backfill_committed_credits": {},
     }
 
