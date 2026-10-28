@@ -31,7 +31,6 @@ import {
     captureTodayReportsImpressed,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
-import { buildSignalReportListSortParams } from 'products/signals/frontend/inbox/logics/inboxFiltersLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
@@ -62,7 +61,7 @@ const CLOCK_MS = 30_000
 function todayReportListParams(): Record<string, string | undefined> {
     return {
         view: 'for_you',
-        ...buildSignalReportListSortParams('recommended', 'asc'),
+        sort: 'recommended',
         created_after: createdAfterForWindow('7d'),
     }
 }
