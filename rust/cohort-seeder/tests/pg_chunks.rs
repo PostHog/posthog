@@ -1819,7 +1819,7 @@ async fn behavioral_days_claim_newest_first_then_person_chunks_with_ranges() -> 
         let behavioral_run =
             insert_run(&pool, 2, "team_enablement", "seeding", true, empty_pinned()).await?;
         // Another team, because a team holds one active team-scoped run per kind.
-        let later_run =
+        let other_team_run =
             insert_run(&pool, 3, "team_enablement", "seeding", true, empty_pinned()).await?;
         let person_run = insert_person_run(&pool, 2, "seeding", true, person_pinned(&[])).await?;
         let store = PgChunkStore::new(pool.clone());
@@ -1833,7 +1833,7 @@ async fn behavioral_days_claim_newest_first_then_person_chunks_with_ranges() -> 
         ensure!(
             planned_count(
                 store
-                    .plan_chunks(later_run, historical([99]), ONE_BAND)
+                    .plan_chunks(other_team_run, historical([99]), ONE_BAND)
                     .await?
             )? == 1
         );
@@ -1843,7 +1843,7 @@ async fn behavioral_days_claim_newest_first_then_person_chunks_with_ranges() -> 
 
         let lease60 = LeaseDuration::new(Duration::from_secs(60))?;
         let attempts5 = MaxAttempts::new(5)?;
-        let run_ids = [behavioral_run, later_run, person_run];
+        let run_ids = [behavioral_run, other_team_run, person_run];
         let claimant = Claimant::new("worker-a")?;
 
         let mut behavioral_claims = Vec::new();
@@ -1856,7 +1856,12 @@ async fn behavioral_days_claim_newest_first_then_person_chunks_with_ranges() -> 
             behavioral_claims.push((claim.chunk.spec().lease.run_id(), claim.chunk.spec().day));
         }
         ensure!(
-            behavioral_claims == [(behavioral_run, 100), (later_run, 99), (behavioral_run, 98)],
+            behavioral_claims
+                == [
+                    (behavioral_run, 100),
+                    (other_team_run, 99),
+                    (behavioral_run, 98)
+                ],
             "expected newest day first across runs, got {behavioral_claims:?}"
         );
 

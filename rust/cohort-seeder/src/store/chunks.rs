@@ -269,13 +269,14 @@ impl PgChunkStore {
                            AND (c.next_attempt_at IS NULL OR c.next_attempt_at <= now()))
                        OR (c.status = $6 AND c.lease_expires_at < now())
                        OR (c.status = $5 AND c.lease_expires_at < now() AND c.attempts < $4))
-                -- `false` sorts first, so behavioral chunks (readiness-gating, fence-sensitive)
-                -- claim before person chunks. The kind key must lead: person chunks sit on a
-                -- far-future sentinel day, which `day DESC` alone would claim first. Newest day
-                -- first lets a short-window cohort, whose days are all recent, finish without
-                -- waiting behind a long run's older days. Claimable trailing days have no key of
-                -- their own and sort among the newest days, because their cohorts already serve
-                -- as ready and under-count the boundary day until the trailing tiles apply.
+                -- `r.backfill_kind = $9` is true only for person runs, and `false` sorts first,
+                -- so behavioral chunks (readiness-gating, fence-sensitive) claim before person
+                -- chunks. The kind key must lead: person chunks sit on a far-future sentinel day,
+                -- which `day DESC` alone would claim first. Newest day first lets a short-window
+                -- cohort, whose days are all recent, finish without waiting behind a long run's
+                -- older days. Claimable trailing days have no key of their own and sort among the
+                -- newest days, because their cohorts already serve as ready and under-count the
+                -- boundary day until the trailing tiles apply.
                 ORDER BY (r.backfill_kind = $9), c.day DESC, c.band
                 LIMIT 1
                 FOR UPDATE OF c SKIP LOCKED
