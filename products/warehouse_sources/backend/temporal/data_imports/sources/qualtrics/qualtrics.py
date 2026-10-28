@@ -113,7 +113,7 @@ class QualtricsExportFailedError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class QualtricsResumeConfig:
     # Full URL of the next collection page to fetch (top-level list endpoints).
     next_page: str | None = None
@@ -121,6 +121,11 @@ class QualtricsResumeConfig:
     # endpoints). Restarting the in-flight parent is intentional — merge dedupes its rows on the
     # primary key.
     parent_index: int = 0
+    # Page checkpoint inside the in-flight parent: a resumed full refresh appends without
+    # deduping, so replaying the parent would duplicate rows.
+    parent_id: str | None = None
+    child_id: str | None = None
+    child_next_page: str | None = None
 
 
 @frozen
@@ -407,13 +412,13 @@ def _next_page(payload: Any) -> str | None:
     return next_page if isinstance(next_page, str) and next_page else None
 
 
-def _iter_collection(
+def _iter_pages(
     client: QualtricsClient,
     first_url: str,
     resumable_source_manager: ResumableSourceManager[QualtricsResumeConfig] | None,
     start_url: str | None = None,
-) -> Iterator[list[dict[str, Any]]]:
-    """Walk a `result.elements` collection, following `result.nextPage` until it runs out."""
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Walk a `result.elements` collection, yielding each page with its `result.nextPage` URL."""
     url = start_url or first_url
     pages = 0
 
@@ -427,19 +432,44 @@ def _iter_collection(
             )
 
         payload = client.get_json(url)
-        elements = _elements(payload)
+        next_url = _next_page(payload)
+        yield _elements(payload), next_url
+        if not next_url:
+            break
+        url = next_url
+        pages += 1
+
+
+def _iter_collection(
+    client: QualtricsClient,
+    first_url: str,
+    resumable_source_manager: ResumableSourceManager[QualtricsResumeConfig] | None,
+    start_url: str | None = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk a `result.elements` collection, following `result.nextPage` until it runs out."""
+    for elements, next_url in _iter_pages(client, first_url, resumable_source_manager, start_url):
         if elements:
             yield elements
 
-        next_url = _next_page(payload)
-        if not next_url:
-            break
-
         # Saved AFTER yielding so a crash re-yields the last page rather than skipping it.
-        if resumable_source_manager is not None:
+        if next_url and resumable_source_manager is not None:
             resumable_source_manager.save_state(QualtricsResumeConfig(next_page=next_url))
-        url = next_url
-        pages += 1
+
+
+def _iter_child_pages(
+    client: QualtricsClient,
+    first_url: str,
+    resumable_source_manager: ResumableSourceManager[QualtricsResumeConfig],
+    checkpoint: QualtricsResumeConfig,
+    start_url: str | None = None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk one child collection of a fan-out parent, staging the page cursor before each yield."""
+    for elements, next_url in _iter_pages(client, first_url, resumable_source_manager, start_url):
+        resumable_source_manager.save_state(dataclasses.replace(checkpoint, child_next_page=next_url))
+        if elements:
+            yield elements
+        else:
+            resumable_source_manager.safe_point()
 
 
 def _path_safe_id(raw: Any) -> str | None:
@@ -452,7 +482,7 @@ def _path_safe_id(raw: Any) -> str | None:
     return value
 
 
-def _parent_ids(client: QualtricsClient, path: str, id_field: str) -> list[str]:
+def _parent_ids(client: QualtricsClient, path: str, id_field: str, params: dict[str, Any] | None = None) -> list[str]:
     """Collect the parent ids (`SV_...` surveys or `POOL_...` directories) a fan-out iterates.
 
     The list is fully materialized — resuming the fan-out addresses parents by index — so an
@@ -460,7 +490,7 @@ def _parent_ids(client: QualtricsClient, path: str, id_field: str) -> list[str]:
     exhausting worker memory.
     """
     ids: list[str] = []
-    for page in _iter_collection(client, client.url(path), resumable_source_manager=None):
+    for page in _iter_collection(client, client.url(path, params), resumable_source_manager=None):
         for element in page:
             parent_id = _path_safe_id(element.get(id_field))
             if parent_id is None:
@@ -752,7 +782,12 @@ def get_rows(
         # Every earlier parent's rows are already yielded, so the run can hand off here. Many
         # parents (empty directories, surveys with no distributions) yield no rows at all.
         resumable_source_manager.safe_point()
-        yield from _rows_for_parent(client, config, parent_ids[index], start_date, logger, resumable_source_manager)
+        parent_id = parent_ids[index]
+        # Only the in-flight parent resumes mid-way, and only if the parent list hasn't shifted.
+        child_resume = resume if resume and index == start_index and resume.parent_id == parent_id else None
+        yield from _rows_for_parent(
+            client, config, index, parent_id, start_date, logger, resumable_source_manager, child_resume
+        )
         # Saved AFTER the parent's rows are yielded, so a crash replays that parent instead
         # of skipping it — merge dedupes on the composite primary key.
         resumable_source_manager.save_state(QualtricsResumeConfig(parent_index=index + 1))
@@ -761,19 +796,23 @@ def get_rows(
 def _rows_for_parent(
     client: QualtricsClient,
     config: QualtricsEndpointConfig,
+    parent_index: int,
     parent_id: str,
     start_date: str | None,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[QualtricsResumeConfig],
+    child_resume: QualtricsResumeConfig | None,
 ) -> Iterator[list[dict[str, Any]]]:
     if config.fetch_mode == "directory_path":
         url = client.url(config.path.format(directory_id=parent_id), config.params)
-        for page in _iter_collection(client, url, resumable_source_manager=None):
+        checkpoint = QualtricsResumeConfig(parent_index=parent_index, parent_id=parent_id)
+        start_url = child_resume.child_next_page if child_resume else None
+        for page in _iter_child_pages(client, url, resumable_source_manager, checkpoint, start_url):
             yield [{**row, "directoryId": parent_id} for row in page]
         return
 
     if config.fetch_mode == "distribution_path":
-        yield from _distribution_rows(client, config, parent_id, resumable_source_manager)
+        yield from _distribution_rows(client, config, parent_index, parent_id, resumable_source_manager, child_resume)
         return
 
     survey_id = parent_id
@@ -796,21 +835,28 @@ def _rows_for_parent(
 def _distribution_rows(
     client: QualtricsClient,
     config: QualtricsEndpointConfig,
+    parent_index: int,
     survey_id: str,
     resumable_source_manager: ResumableSourceManager[QualtricsResumeConfig],
+    child_resume: QualtricsResumeConfig | None,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk each distribution of one survey, then that distribution's paginated rows."""
-    distributions_url = client.url("/distributions", {"surveyId": survey_id})
-    for distributions in _iter_collection(client, distributions_url, resumable_source_manager=None):
-        for distribution in distributions:
-            distribution_id = _path_safe_id(distribution.get("id"))
-            if distribution_id is None:
-                continue
-            url = client.url(config.path.format(distribution_id=distribution_id), config.params)
-            for page in _iter_collection(client, url, resumable_source_manager=None):
-                yield [{**row, "surveyId": survey_id, "distributionId": distribution_id} for row in page]
-            # The staged cursor restarts this survey, which re-reads (never skips) its rows.
-            resumable_source_manager.safe_point()
+    distribution_ids = _parent_ids(client, "/distributions", "id", {"surveyId": survey_id})
+    start, start_url = 0, None
+    if child_resume and child_resume.child_id in distribution_ids:
+        start = distribution_ids.index(child_resume.child_id)
+        start_url = child_resume.child_next_page
+        if start_url is None:
+            start += 1
+
+    for position in range(start, len(distribution_ids)):
+        resumable_source_manager.safe_point()
+        distribution_id = distribution_ids[position]
+        url = client.url(config.path.format(distribution_id=distribution_id), config.params)
+        checkpoint = QualtricsResumeConfig(parent_index=parent_index, parent_id=survey_id, child_id=distribution_id)
+        page_start = start_url if position == start else None
+        for page in _iter_child_pages(client, url, resumable_source_manager, checkpoint, page_start):
+            yield [{**row, "surveyId": survey_id, "distributionId": distribution_id} for row in page]
 
 
 def validate_credentials(

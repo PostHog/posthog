@@ -236,7 +236,7 @@ class TestCollectionPagination:
 
 class TestSurveyFanout:
     @pytest.mark.parametrize(
-        "endpoint, script, expected_items, expected_paths",
+        "endpoint, script, expected_items, expected_paths, expected_child_states",
         [
             (
                 "distributions",
@@ -247,6 +247,7 @@ class TestSurveyFanout:
                 ],
                 [[{"id": "EMD_1", "surveyId": "SV_1"}], [{"id": "EMD_2", "surveyId": "SV_2"}]],
                 ["/API/v3/surveys", "/API/v3/distributions", "/API/v3/distributions"],
+                [[], []],
             ),
             (
                 "directory_contacts",
@@ -271,6 +272,15 @@ class TestSurveyFanout:
                     "/API/v3/directories/POOL_1/contacts",
                     "/API/v3/directories/POOL_2/contacts",
                 ],
+                [
+                    [
+                        QualtricsResumeConfig(
+                            parent_id="POOL_1", child_next_page=f"{BASE}/directories/POOL_1/contacts?skipToken=a"
+                        ),
+                        QualtricsResumeConfig(parent_id="POOL_1"),
+                    ],
+                    [QualtricsResumeConfig(parent_index=1, parent_id="POOL_2")],
+                ],
             ),
             (
                 "mailing_lists",
@@ -287,6 +297,10 @@ class TestSurveyFanout:
                     "/API/v3/directories",
                     "/API/v3/directories/POOL_1/mailinglists",
                     "/API/v3/directories/POOL_2/mailinglists",
+                ],
+                [
+                    [QualtricsResumeConfig(parent_id="POOL_1")],
+                    [QualtricsResumeConfig(parent_index=1, parent_id="POOL_2")],
                 ],
             ),
             (
@@ -315,6 +329,18 @@ class TestSurveyFanout:
                     "/API/v3/distributions/EMD_2/history",
                     "/API/v3/distributions",
                 ],
+                [
+                    [
+                        QualtricsResumeConfig(
+                            parent_id="SV_1",
+                            child_id="EMD_1",
+                            child_next_page=f"{BASE}/distributions/EMD_1/history?skipToken=a",
+                        ),
+                        QualtricsResumeConfig(parent_id="SV_1", child_id="EMD_1"),
+                        QualtricsResumeConfig(parent_id="SV_1", child_id="EMD_2"),
+                    ],
+                    [],
+                ],
             ),
         ],
     )
@@ -324,13 +350,19 @@ class TestSurveyFanout:
         script: list[ScriptedResponse],
         expected_items: list[list[dict[str, Any]]],
         expected_paths: list[str],
+        expected_child_states: list[list[QualtricsResumeConfig]],
     ) -> None:
         result = _drive(endpoint, script)
 
         assert result.raised is None
         assert result.items == expected_items
         assert result.paths == expected_paths
-        assert result.saved_states == [QualtricsResumeConfig(parent_index=1), QualtricsResumeConfig(parent_index=2)]
+        assert result.saved_states == [
+            *expected_child_states[0],
+            QualtricsResumeConfig(parent_index=1),
+            *expected_child_states[1],
+            QualtricsResumeConfig(parent_index=2),
+        ]
 
     def test_over_length_survey_ids_are_dropped(self) -> None:
         with mock.patch.object(qualtrics_module, "MAX_PARENT_ID_LENGTH", 5):
@@ -363,6 +395,91 @@ class TestSurveyFanout:
         assert result.items == [[{"QuestionID": "QID9", "surveyId": "SV_3"}]]
         assert result.paths[1] == "/API/v3/survey-definitions/SV_3/questions"
         assert result.saved_states == [QualtricsResumeConfig(parent_index=3)]
+
+    @pytest.mark.parametrize(
+        "endpoint, resume_state, script, expected_items, expected_paths",
+        [
+            (
+                "directory_contacts",
+                QualtricsResumeConfig(
+                    parent_index=1,
+                    parent_id="POOL_2",
+                    child_next_page=f"{BASE}/directories/POOL_2/contacts?skipToken=b",
+                ),
+                [
+                    _json(_collection([{"directoryId": "POOL_1"}, {"directoryId": "POOL_2"}])),
+                    _json(_collection([{"contactId": "CID_9"}])),
+                ],
+                [[{"contactId": "CID_9", "directoryId": "POOL_2"}]],
+                ["/API/v3/directories", "/API/v3/directories/POOL_2/contacts"],
+            ),
+            (
+                "directory_contacts",
+                QualtricsResumeConfig(
+                    parent_index=1,
+                    parent_id="POOL_9",
+                    child_next_page=f"{BASE}/directories/POOL_9/contacts?skipToken=b",
+                ),
+                [
+                    _json(_collection([{"directoryId": "POOL_1"}, {"directoryId": "POOL_2"}])),
+                    _json(_collection([{"contactId": "CID_1"}])),
+                ],
+                [[{"contactId": "CID_1", "directoryId": "POOL_2"}]],
+                ["/API/v3/directories", "/API/v3/directories/POOL_2/contacts"],
+            ),
+            (
+                "distribution_history",
+                QualtricsResumeConfig(
+                    parent_index=0,
+                    parent_id="SV_1",
+                    child_id="EMD_2",
+                    child_next_page=f"{BASE}/distributions/EMD_2/history?skipToken=b",
+                ),
+                [
+                    _json(_collection([{"id": "SV_1"}])),
+                    _json(_collection([{"id": "EMD_1"}, {"id": "EMD_2"}, {"id": "EMD_3"}])),
+                    _json(_collection([{"contactId": "CID_5"}])),
+                    _json(_collection([{"contactId": "CID_6"}])),
+                ],
+                [
+                    [{"contactId": "CID_5", "surveyId": "SV_1", "distributionId": "EMD_2"}],
+                    [{"contactId": "CID_6", "surveyId": "SV_1", "distributionId": "EMD_3"}],
+                ],
+                [
+                    "/API/v3/surveys",
+                    "/API/v3/distributions",
+                    "/API/v3/distributions/EMD_2/history",
+                    "/API/v3/distributions/EMD_3/history",
+                ],
+            ),
+            (
+                "distribution_history",
+                QualtricsResumeConfig(parent_index=0, parent_id="SV_1", child_id="EMD_1"),
+                [
+                    _json(_collection([{"id": "SV_1"}])),
+                    _json(_collection([{"id": "EMD_1"}, {"id": "EMD_2"}])),
+                    _json(_collection([{"contactId": "CID_7"}])),
+                ],
+                [[{"contactId": "CID_7", "surveyId": "SV_1", "distributionId": "EMD_2"}]],
+                ["/API/v3/surveys", "/API/v3/distributions", "/API/v3/distributions/EMD_2/history"],
+            ),
+        ],
+    )
+    def test_full_refresh_fanout_resumes_after_the_last_written_page(
+        self,
+        endpoint: str,
+        resume_state: QualtricsResumeConfig,
+        script: list[ScriptedResponse],
+        expected_items: list[list[dict[str, Any]]],
+        expected_paths: list[str],
+    ) -> None:
+        result = _drive(endpoint, script, resume_state=resume_state)
+
+        assert result.raised is None
+        assert result.items == expected_items
+        assert result.paths == expected_paths
+        expected_token = "b" if resume_state.child_next_page and resume_state.parent_id != "POOL_9" else None
+        assert result.params("skipToken")[len(expected_paths) - len(expected_items)] == expected_token
 
 
 class TestResponseExport:
