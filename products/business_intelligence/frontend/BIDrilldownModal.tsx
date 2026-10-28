@@ -55,7 +55,20 @@ export function BIDrilldownModal({
                                         ? props.getDashboardFilterUrl?.(record)
                                         : undefined
                                 }
-                                onClick={filterDashboard}
+                                disableClientSideRouting
+                                onClick={(event) => {
+                                    if (
+                                        event.button !== 0 ||
+                                        event.metaKey ||
+                                        event.ctrlKey ||
+                                        event.shiftKey ||
+                                        event.altKey
+                                    ) {
+                                        return
+                                    }
+                                    event.preventDefault()
+                                    filterDashboard()
+                                }}
                             >
                                 {record && props.isDashboardFilterSelected?.(record)
                                     ? 'Remove filter'

@@ -107,12 +107,21 @@ describe('native result-menu links', () => {
                 if (filtering) {
                     const link = screen.getByText('Filter dashboard by this result').closest('a')!
                     expect(link).toHaveAttribute('href', '/project/1/dashboard/1#bi_filter=selection')
-                    const modified = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true })
-                    act(() => {
-                        link.dispatchEvent(modified)
-                    })
-                    expect(modified.defaultPrevented).toBe(false)
-                    expect(logic.values.record).toEqual({ status: 'refunded' })
+                    const callsBeforeModifiedClicks = onFilterDashboard.mock.calls.length
+                    for (const modifier of [
+                        { metaKey: true },
+                        { ctrlKey: true },
+                        { shiftKey: true },
+                        { altKey: true },
+                    ]) {
+                        const modified = new MouseEvent('click', { bubbles: true, cancelable: true, ...modifier })
+                        act(() => {
+                            link.dispatchEvent(modified)
+                        })
+                        expect(modified.defaultPrevented).toBe(false)
+                        expect(logic.values.record).toEqual({ status: 'refunded' })
+                        expect(onFilterDashboard).toHaveBeenCalledTimes(callsBeforeModifiedClicks)
+                    }
                     fireEvent.click(link)
                     expect(onFilterDashboard).toHaveBeenLastCalledWith({ status: 'refunded' })
                     expect(logic.values.record).toBeNull()
