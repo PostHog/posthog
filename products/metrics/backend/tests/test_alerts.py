@@ -34,7 +34,7 @@ from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.metrics.backend.alerts.checkpoint import evaluation_time
 from products.metrics.backend.alerts.evaluation import evaluate_metrics_alert_batch
-from products.metrics.backend.alerts.source_config import MetricsAlertConfig
+from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'
 
@@ -52,7 +52,7 @@ class TestMetricsAlertConfig(SimpleTestCase):
     )
     def test_a_config_that_cannot_be_evaluated_is_refused(self, _name: str, config: dict[str, object]) -> None:
         with self.assertRaises(ValidationError):
-            MetricsAlertConfig.model_validate(config)
+            MetricsPlatformAlertConfig.model_validate(config)
 
 
 class TestMetricsAlertCreate(APIBaseTest):
@@ -170,7 +170,9 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert self.snuffle.call_args.kwargs["data"]["time"] == str((self.due_at - timedelta(seconds=30)).timestamp())
 
         self._next_check(first)
-        self.snuffle.return_value = _response(200, _vector(({"group": "b"}, "NaN"), ({"group": "c"}, "10")))
+        self.snuffle.return_value = _response(
+            200, _vector(({"group": "b"}, "NaN"), ({"group": "b"}, "10"), ({"group": "c"}, "10"))
+        )
 
         assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
 
@@ -179,6 +181,11 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             ("rejected_query_counts_toward_broken", _response(400, {"status": "error", "error": "parse error"}), 1),
             ("backend_failure_is_transient", _response(503, {"status": "error"}), 0),
             ("timeout_is_transient", requests.Timeout(), 0),
+            (
+                "too_many_series_counts_toward_broken",
+                _response(200, _vector(*(({"group": str(index)}, "1") for index in range(1001)))),
+                1,
+            ),
         ]
     )
     def test_a_failed_query_records_a_failure(

@@ -34,7 +34,9 @@ export const platformAlertsCreateBodyTwoNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyTwoNameMax = 255
 
 export const platformAlertsCreateBodyTwoEnabledDefault = true
-export const platformAlertsCreateBodyTwoSourceConfigOneTypeDefault = `MetricsAlertConfig`
+export const platformAlertsCreateBodyTwoSourceConfigOneQueryMax = 10000
+
+export const platformAlertsCreateBodyTwoSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesDefault = 100
 export const platformAlertsCreateBodyTwoGroupingOneMaxInstancesMax = 100
 
@@ -273,15 +275,31 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .describe('Whether the alert is evaluated on schedule. Defaults to true.'),
             source_config: zod
                 .object({
-                    check_ongoing_interval: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
+                    query: zod
+                        .string()
+                        .min(1)
+                        .max(platformAlertsCreateBodyTwoSourceConfigOneQueryMax)
                         .describe(
-                            'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
                         ),
-                    type: zod
-                        .literal('MetricsAlertConfig')
-                        .default(platformAlertsCreateBodyTwoSourceConfigOneTypeDefault),
+                    condition: zod
+                        .object({
+                            kind: zod
+                                .enum(['threshold', 'present'])
+                                .default(platformAlertsCreateBodyTwoSourceConfigOneConditionKindDefault)
+                                .describe(
+                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
+                                ),
+                            operator: zod
+                                .union([zod.enum(['>', '>=', '<', '<=', '==', '!=']), zod.null()])
+                                .optional()
+                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value a series is compared with. Required for a threshold.'),
+                        })
+                        .describe('When a series is in breach.'),
                 })
                 .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
@@ -677,7 +695,9 @@ export const platformAlertsUpdateBodyTwoCooldownMinutesMax = 2147483647
 
 export const platformAlertsUpdateBodyThreeNameMax = 255
 
-export const platformAlertsUpdateBodyThreeSourceConfigOneTypeDefault = `MetricsAlertConfig`
+export const platformAlertsUpdateBodyThreeSourceConfigOneQueryMax = 10000
+
+export const platformAlertsUpdateBodyThreeSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsUpdateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsUpdateBodyThreeGroupingOneMaxInstancesMax = 100
 
@@ -1041,15 +1061,31 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
             enabled: zod.boolean().describe('Whether the alert is evaluated on schedule.'),
             source_config: zod
                 .object({
-                    check_ongoing_interval: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
+                    query: zod
+                        .string()
+                        .min(1)
+                        .max(platformAlertsUpdateBodyThreeSourceConfigOneQueryMax)
                         .describe(
-                            'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
                         ),
-                    type: zod
-                        .literal('MetricsAlertConfig')
-                        .default(platformAlertsUpdateBodyThreeSourceConfigOneTypeDefault),
+                    condition: zod
+                        .object({
+                            kind: zod
+                                .enum(['threshold', 'present'])
+                                .default(platformAlertsUpdateBodyThreeSourceConfigOneConditionKindDefault)
+                                .describe(
+                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
+                                ),
+                            operator: zod
+                                .union([zod.enum(['>', '>=', '<', '<=', '==', '!=']), zod.null()])
+                                .optional()
+                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value a series is compared with. Required for a threshold.'),
+                        })
+                        .describe('When a series is in breach.'),
                 })
                 .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),
             grouping: zod
@@ -1420,7 +1456,9 @@ export const platformAlertsPartialUpdateBodyTwoCooldownMinutesMax = 2147483647
 
 export const platformAlertsPartialUpdateBodyThreeNameMax = 255
 
-export const platformAlertsPartialUpdateBodyThreeSourceConfigOneTypeDefault = `MetricsAlertConfig`
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneQueryMax = 10000
+
+export const platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionKindDefault = `threshold`
 export const platformAlertsPartialUpdateBodyThreeGroupingOneMaxInstancesDefault = 100
 export const platformAlertsPartialUpdateBodyThreeGroupingOneMaxInstancesMax = 100
 
@@ -1808,15 +1846,31 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
             enabled: zod.boolean().optional().describe('Whether the alert is evaluated on schedule.'),
             source_config: zod
                 .object({
-                    check_ongoing_interval: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
+                    query: zod
+                        .string()
+                        .min(1)
+                        .max(platformAlertsPartialUpdateBodyThreeSourceConfigOneQueryMax)
                         .describe(
-                            'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
+                            "A PromQL expression over this project's metrics. Each series it returns is one group. For a threshold condition, leave the comparison out of the expression."
                         ),
-                    type: zod
-                        .literal('MetricsAlertConfig')
-                        .default(platformAlertsPartialUpdateBodyThreeSourceConfigOneTypeDefault),
+                    condition: zod
+                        .object({
+                            kind: zod
+                                .enum(['threshold', 'present'])
+                                .default(platformAlertsPartialUpdateBodyThreeSourceConfigOneConditionKindDefault)
+                                .describe(
+                                    "threshold compares each series' latest value with `threshold`. present fires for every series the query returns, for a query that already filters to the series in breach."
+                                ),
+                            operator: zod
+                                .union([zod.enum(['>', '>=', '<', '<=', '==', '!=']), zod.null()])
+                                .optional()
+                                .describe("How a series' value compares with `threshold`. Required for a threshold."),
+                            threshold: zod
+                                .union([zod.number(), zod.null()])
+                                .optional()
+                                .describe('The value a series is compared with. Required for a threshold.'),
+                        })
+                        .describe('When a series is in breach.'),
                 })
                 .optional()
                 .describe('Settings for a metrics alert. The bound the alert is evaluated against is under condition.'),

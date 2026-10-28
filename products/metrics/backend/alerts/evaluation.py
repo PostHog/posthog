@@ -66,7 +66,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.metrics.backend.alerts.checkpoint import evaluation_time, fetch_live_metrics_checkpoint
 from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
-from products.metrics.backend.alerts.source_config import MetricsAlertCondition, MetricsAlertConfig
+from products.metrics.backend.alerts.source_config import MetricsPlatformAlertCondition, MetricsPlatformAlertConfig
 from products.metrics.backend.alerts.wording import alert_url
 from products.metrics.backend.promql import PromQLQueryError, snuffle_payload
 
@@ -83,6 +83,9 @@ MAX_QUERY_SECONDS: Final = 10
 # Below this there is no point starting another query.
 MIN_QUERY_SECONDS: Final = 2
 CHECKPOINT_QUERY_SECONDS: Final = 5
+# Ten times the most groups a configuration can hold. A query past it is refused before its series
+# are judged, so one high-cardinality expression cannot exhaust the worker.
+MAX_SERIES: Final = 1000
 
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
@@ -162,7 +165,7 @@ def _evaluate(
 ) -> Decision:
     started_at = time.monotonic()
     try:
-        config = MetricsAlertConfig.model_validate(check.source_config)
+        config = MetricsPlatformAlertConfig.model_validate(check.source_config)
     except ValidationError:
         # Saved through the same model, so this is a config an older version accepted.
         return _failed(check, _INVALID_CONFIG, transient=False, now=now, muted=muted)
@@ -223,10 +226,14 @@ def _query(team: Team, expr: str, *, at: datetime, timeout_seconds: float) -> li
         return [_Sample(labels={}, value=_number(result[1]))] if result else []
     if result_type != "vector":
         raise PromQLQueryError(f"A metrics alert query must return an instant vector or a scalar, not a {result_type}.")
+    if len(result or []) > MAX_SERIES:
+        raise PromQLQueryError(
+            f"The query returned more than {MAX_SERIES} series. Aggregate it, for example with sum by (...)."
+        )
     samples: list[_Sample] = []
     for series in result or []:
+        # `__name__` stays, so an alert can group by it.
         labels = {str(key): str(value) for key, value in (series.get("metric") or {}).items()}
-        labels.pop("__name__", None)
         sample = series.get("value") or [None, None]
         samples.append(_Sample(labels=labels, value=_number(sample[1])))
     return samples
@@ -240,7 +247,7 @@ def _number(raw: Any) -> float | None:
     return value if math.isfinite(value) else None
 
 
-def _breached(condition: MetricsAlertCondition, value: float | None) -> bool | None:
+def _breached(condition: MetricsPlatformAlertCondition, value: float | None) -> bool | None:
     """Whether a sample breaches, or None when its value reaches no verdict."""
     if condition.kind == "present":
         return True
@@ -251,14 +258,21 @@ def _breached(condition: MetricsAlertCondition, value: float | None) -> bool | N
 
 
 def _observations(
-    check: PlatformAlertCheckInput, condition: MetricsAlertCondition, samples: Sequence[_Sample]
+    check: PlatformAlertCheckInput, condition: MetricsPlatformAlertCondition, samples: Sequence[_Sample]
 ) -> tuple[list[GroupObservation], set[str]]:
-    """One observation per sample, and the keys of the groups no sample reached a verdict for."""
+    """One observation per sample, and the keys of the groups held without a verdict.
+
+    A group with a sample that has no number is held, unless another of its samples breaches. A healthy
+    sample beside it does not show that the unknown one recovered.
+    """
     by_labels = check.grouping.mode == GroupingMode.BY_RESULT_LABELS
     observations: list[GroupObservation] = []
     unknown: set[str] = set()
     for sample in samples:
-        labels = {key: sample.labels.get(key, "") for key in check.grouping.keys} if by_labels else sample.labels
+        if by_labels:
+            labels = {key: sample.labels.get(key, "") for key in check.grouping.keys}
+        else:
+            labels = {key: value for key, value in sample.labels.items() if key != "__name__"}
         key = _grouping_key_of(labels) if by_labels else ""
         breached = _breached(condition, sample.value)
         if breached is None:
@@ -267,8 +281,9 @@ def _observations(
         observations.append(
             GroupObservation(grouping_key=key, current_breached=breached, value=sample.value, labels=labels)
         )
-    # Another sample of the same group reached a verdict, so the group has one.
-    return observations, unknown - {observation.grouping_key for observation in observations}
+    breaching = {observation.grouping_key for observation in observations if observation.current_breached}
+    held = unknown - breaching
+    return [observation for observation in observations if observation.grouping_key not in held], held
 
 
 def _grouping_key_of(labels: dict[str, str]) -> str:
