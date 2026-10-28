@@ -34,6 +34,12 @@ export interface UploadOutcome {
 export const MAX_FILE_SIZE = 100 * 1024 * 1024
 const CHECK_BATCH_SIZE = 1000
 const REQUEST_TIMEOUT_MS = 30_000
+// A symbol set can be 100 MB. Its deadline grows with its size, so only a link slower than this fails.
+const MIN_TRANSFER_BYTES_PER_SECOND = 50_000
+
+function transferTimeout(bytes: number): number {
+    return REQUEST_TIMEOUT_MS + Math.ceil((bytes / MIN_TRANSFER_BYTES_PER_SECOND) * 1000)
+}
 const RATE_LIMIT_PER_MINUTE = 480
 
 class ApiFailure extends Error {
@@ -399,7 +405,7 @@ export class SymbolSetClient {
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
                 body: data as BodyInit,
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                signal: AbortSignal.timeout(transferTimeout(data.length)),
             })
         }
         const form = new FormData()
@@ -411,7 +417,7 @@ export class SymbolSetClient {
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+            signal: AbortSignal.timeout(transferTimeout(data.length)),
         })
     }
 }

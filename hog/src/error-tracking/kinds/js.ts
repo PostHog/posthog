@@ -186,25 +186,34 @@ export const isEmptyMapContent = (content: MapContent): boolean => isEmptyMap((k
 // `urlencoding::decode`: decodes valid `%XX` sequences, leaves malformed ones as they are, and fails
 // when the result is not valid UTF-8.
 function percentDecode(text: string): string {
-    const bytes: number[] = []
+    if (!text.includes('%')) {
+        return text
+    }
     const raw = Buffer.from(text, 'utf8')
+    const bytes = Buffer.alloc(raw.length)
+    let length = 0
     for (let index = 0; index < raw.length; index++) {
-        const byte = raw[index]!
-        if (
-            byte === 0x25 &&
-            index + 2 < raw.length &&
-            /^[0-9a-fA-F]{2}$/.test(String.fromCharCode(raw[index + 1]!, raw[index + 2]!))
-        ) {
-            bytes.push(Number.parseInt(String.fromCharCode(raw[index + 1]!, raw[index + 2]!), 16))
+        const high = hexValue(raw[index + 1])
+        const low = hexValue(raw[index + 2])
+        if (raw[index] === 0x25 && high !== undefined && low !== undefined) {
+            bytes[length++] = high * 16 + low
             index += 2
         } else {
-            bytes.push(byte)
+            bytes[length++] = raw[index]!
         }
     }
-    return decodeUtf8(Uint8Array.from(bytes))
+    return decodeUtf8(bytes.subarray(0, length))
 }
 
-function sourceMappingReference(source: string): string | undefined {
+function hexValue(byte: number | undefined): number | undefined {
+    if (byte === undefined) {
+        return undefined
+    }
+    const digit = Number.parseInt(String.fromCharCode(byte), 16)
+    return Number.isNaN(digit) ? undefined : digit
+}
+
+export function sourceMappingReference(source: string): string | undefined {
     const lines = rustLines(source)
     for (let index = lines.length - 1; index >= 0; index--) {
         const line = rustTrim(lines[index]!)
@@ -221,12 +230,11 @@ function sourceMappingReference(source: string): string | undefined {
 // path prefix stripped, and `<file>.map` next to the bundle.
 export function findSourceMap(
     sourcePath: string,
-    source: string,
+    reference: string | undefined,
     publicPathPrefix: string | undefined
 ): string | undefined {
     const folder = dirname(sourcePath)
     const candidates: string[] = []
-    const reference = sourceMappingReference(source)
     if (reference !== undefined) {
         const decoded = percentDecode(reference)
         const resolve = (path: string): string => (isAbsolute(path) ? path : join(folder, path))
@@ -255,7 +263,9 @@ export function isJsBundle(
         return false
     }
     try {
-        return findSourceMap(path, decodeUtf8(readFileSync(path)), publicPathPrefix) !== undefined
+        return (
+            findSourceMap(path, sourceMappingReference(decodeUtf8(readFileSync(path))), publicPathPrefix) !== undefined
+        )
     } catch {
         return false
     }
@@ -420,7 +430,7 @@ export function readPair(path: string, publicPathPrefix: string | undefined, ski
     }
     let mapPath: string | undefined
     try {
-        mapPath = findSourceMap(canonical, source, publicPathPrefix)
+        mapPath = findSourceMap(canonical, sourceMappingReference(source), publicPathPrefix)
     } catch {
         skipped.push({ path, reason: 'the sourcemap reference is not valid UTF-8 once decoded' })
         return undefined
@@ -428,8 +438,9 @@ export function readPair(path: string, publicPathPrefix: string | undefined, ski
     if (mapPath === undefined) {
         return undefined
     }
+    let map: MapContent
     try {
-        return new SourcePair(canonical, source, mapPath, loadMapContent(decodeUtf8(readFileSync(mapPath))))
+        map = loadMapContent(decodeUtf8(readFileSync(mapPath)))
     } catch (error) {
         skipped.push({
             path,
@@ -437,6 +448,13 @@ export function readPair(path: string, publicPathPrefix: string | undefined, ski
         })
         return undefined
     }
+    // posthog-cli would rewrite any JSON object the reference names, such as a settings file next to
+    // the build. A sourcemap always has `mappings`, or `sections` when it is an index map.
+    if (!map.fields.has('mappings') && !map.fields.has('sections')) {
+        skipped.push({ path, reason: "the file its sourceMappingURL names isn't a sourcemap: it has no mappings" })
+        return undefined
+    }
+    return new SourcePair(canonical, source, mapPath, map)
 }
 
 const FILE_PATH_TOKEN = '\u0001file-path\u0001'
