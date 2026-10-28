@@ -5,16 +5,18 @@
 //! A srcset is rebuilt instead: a declined candidate leaves the list, and so does each remote candidate of a picture
 //! source whose type the fetcher does not store. An inline image, such as an SVG data URI, stays. A browser skips a
 //! source with no candidates, so it falls back to a source or an img that can load, where a marker in the list would
-//! show a broken image.
+//! show a broken image. The writer rebuilds each srcset in the bytes it stores, after inline images left and escapes
+//! were written again, so the rebuild never depends on a prediction of those bytes.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string};
-use replay_core_v4::inspect::dom::{srcset_candidates, Srcset};
-use replay_core_v4::seal::image_url_key;
+use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
+use replay_core_v4::scan::images::{extract_images, ImageLimits, ImageSink, AVIF_MARKER};
+use replay_core_v4::seal::{image_content_key, image_url_key};
 use replay_core_v4::url_policy::is_remote;
 
 use crate::urls::url_reference;
@@ -119,9 +121,6 @@ struct Target {
     /// The policy's reason, for a declined URL.
     declined: Option<&'static str>,
     found: bool,
-    /// For a srcset, which is a whole JSON string with its quotes: how it was rebuilt, and the URL targets its value
-    /// holds. Those URLs leave the block with the old value, so a match counts as theirs.
-    srcset: Option<(&'static str, Vec<usize>)>,
 }
 
 pub struct UrlRewrite {
@@ -132,6 +131,16 @@ pub struct UrlRewrite {
     targets: Vec<Target>,
     /// Bytes that `apply` returned still hold a declined URL.
     declined_kept: bool,
+    srcset_key: AhoCorasick,
+    /// Remote URLs that the block names only in picture sources of a type the fetcher does not store.
+    unfetched: HashSet<String>,
+    /// Each inspected srcset value as the stored block holds it. Only these are rebuilt, so a srcset key outside an
+    /// image slot, such as in a custom event's payload, stays as it is.
+    stored_srcsets: HashSet<Vec<u8>>,
+    url_targets: HashMap<String, usize>,
+    team_id: i64,
+    key_month: String,
+    url_key: [u8; 32],
 }
 
 impl UrlRewrite {
@@ -159,33 +168,39 @@ impl UrlRewrite {
                 replacement: replacement.into_bytes(),
                 declined,
                 found: false,
-                srcset: None,
             });
         }
-        let url_targets: HashMap<&str, usize> = urls
+        let url_targets: HashMap<String, usize> = urls
             .iter()
             .enumerate()
-            .map(|(index, url)| (url.as_str(), index))
+            .map(|(index, url)| (url.clone(), index))
             .collect();
+        // A URL that a source of a stored type also names stays, as the inspector merges identical srcset values.
+        let mut source_types: HashMap<&str, bool> = HashMap::new();
         for srcset in srcsets {
-            let Some((value, outcome, covers)) =
-                rebuilt_srcset(srcset, &url_targets, team_id, key_month, &url_key)
-            else {
-                continue;
-            };
-            // The key keeps the pattern to srcset attributes, so a `src` or `href` with the same value stays.
-            let mut pattern = SRCSET_KEY.to_vec();
-            write_json_string(&srcset.text, &mut pattern);
-            patterns.push(pattern);
-            let mut replacement = SRCSET_KEY.to_vec();
-            write_json_string(&value, &mut replacement);
-            targets.push(Target {
-                replacement,
-                declined: None,
-                found: false,
-                srcset: Some((outcome, covers)),
+            for_each_srcset_candidate(&srcset.text, |url, _| {
+                if is_remote(url) {
+                    *source_types.entry(url).or_insert(true) &= srcset.unfetched_type;
+                }
             });
         }
+        let unfetched = source_types
+            .into_iter()
+            .filter(|&(_, unfetched)| unfetched)
+            .map(|(url, _)| url.to_owned())
+            .collect();
+        // The writer takes the inline images out of the raw event and then writes its escapes again, so each value
+        // goes through the same two steps.
+        let content_key = image_content_key(team_key);
+        let stored_srcsets = srcsets
+            .iter()
+            .map(|srcset| {
+                let mut sink =
+                    ImageSink::new(&content_key, team_id, key_month, ImageLimits::default());
+                let extracted = extract_images(&srcset.raw, &mut sink);
+                canonical_strings(&extracted).into_owned()
+            })
+            .collect();
         let matcher = (!patterns.is_empty())
             .then(|| {
                 // A DFA over long URLs can take hundreds of times their bytes. A contiguous NFA takes about ten.
@@ -215,11 +230,72 @@ impl UrlRewrite {
             declined,
             targets,
             declined_kept: false,
+            srcset_key: AhoCorasick::new([SRCSET_KEY]).expect("one literal pattern builds"),
+            unfetched,
+            stored_srcsets,
+            url_targets,
+            team_id,
+            key_month: key_month.to_owned(),
+            url_key,
         }
     }
 
-    /// The bytes with each URL replaced. Returns the input when it holds none.
+    /// The bytes with each srcset that holds a candidate the block cannot keep rebuilt from the candidates it keeps.
+    fn rebuild_srcsets<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
+        let mut out: Option<Vec<u8>> = None;
+        let mut copied_to = 0;
+        for found in self.srcset_key.find_iter(bytes) {
+            let start = found.end();
+            if start < copied_to || bytes.get(start) != Some(&b'"') {
+                continue;
+            }
+            let Some(end) = string_end(bytes, start) else {
+                continue;
+            };
+            if !self.stored_srcsets.contains(&bytes[start..end]) {
+                continue;
+            }
+            let Ok(text) = unescape(bytes, (start, end)) else {
+                continue;
+            };
+            let Some((value, outcome, covers)) = rebuilt_srcset(
+                &text,
+                &self.unfetched,
+                &self.url_targets,
+                self.team_id,
+                &self.key_month,
+                &self.url_key,
+            ) else {
+                continue;
+            };
+            for url in covers {
+                self.targets[url].found = true;
+            }
+            counter!("ai_research_v4_recorder_srcset_rewrites_total", "outcome" => outcome)
+                .increment(1);
+            let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+            out.extend_from_slice(&bytes[copied_to..start]);
+            write_json_string(&value, out);
+            copied_to = end;
+        }
+        match out {
+            Some(mut out) => {
+                out.extend_from_slice(&bytes[copied_to..]);
+                Cow::Owned(out)
+            }
+            None => Cow::Borrowed(bytes),
+        }
+    }
+
+    /// The bytes with each srcset rebuilt and each URL replaced. Returns the input when it holds none.
     pub fn apply<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
+        match self.rebuild_srcsets(bytes) {
+            Cow::Borrowed(bytes) => self.replace_urls(bytes),
+            Cow::Owned(rebuilt) => Cow::Owned(self.replace_urls(&rebuilt).into_owned()),
+        }
+    }
+
+    fn replace_urls<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
         let Some(matcher) = &self.matcher else {
             return Cow::Borrowed(bytes);
         };
@@ -228,12 +304,9 @@ impl UrlRewrite {
         for found in matcher.find_iter(bytes) {
             let (start, end) = (found.start(), found.end());
             let index = found.pattern().as_usize();
-            // A srcset pattern holds its quotes, so it matches only a whole JSON string.
-            let whole_string = self.targets[index].srcset.is_some();
-            if !whole_string
-                && (start.checked_sub(1).is_some_and(|before| {
-                    continues_url(bytes[before]) && !ends_with_escape(bytes, start)
-                }) || bytes.get(end).is_some_and(|&after| continues_url(after)))
+            if start.checked_sub(1).is_some_and(|before| {
+                continues_url(bytes[before]) && !ends_with_escape(bytes, start)
+            }) || bytes.get(end).is_some_and(|&after| continues_url(after))
             {
                 continue;
             }
@@ -243,11 +316,6 @@ impl UrlRewrite {
             out.extend_from_slice(&bytes[copied_to..start]);
             out.extend_from_slice(&target.replacement);
             copied_to = end;
-            if let Some((_, covers)) = self.targets[index].srcset.clone() {
-                for url in covers {
-                    self.targets[url].found = true;
-                }
-            }
         }
         let out = match out {
             Some(mut out) => {
@@ -268,14 +336,6 @@ impl UrlRewrite {
     pub fn finish(self) -> bool {
         let mut safe = !self.declined_kept;
         for target in self.targets {
-            if let Some((outcome, _)) = target.srcset {
-                counter!(
-                    "ai_research_v4_recorder_srcset_rewrites_total",
-                    "outcome" => if target.found { outcome } else { "unrewritten" },
-                )
-                .increment(1);
-                continue;
-            }
             safe &= target.found || target.declined.is_none();
             let outcome = match (target.found, target.declined) {
                 (false, _) => "unrewritten",
@@ -295,45 +355,62 @@ impl UrlRewrite {
 
 /// The srcset with only the candidates the block keeps, each remote URL as its reference, how it was rebuilt, and the
 /// URL targets of the remote URLs it held. `None` when every candidate stays, because the URL targets then replace it.
+/// Where the JSON string that opens at `start` ends, after its closing quote.
+fn string_end(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut position = start + 1;
+    while let Some(&byte) = bytes.get(position) {
+        match byte {
+            b'\\' => position += 2,
+            b'"' => return Some(position + 1),
+            _ => position += 1,
+        }
+    }
+    None
+}
+
 fn rebuilt_srcset(
-    srcset: &Srcset,
-    url_targets: &HashMap<&str, usize>,
+    text: &str,
+    unfetched: &HashSet<String>,
+    url_targets: &HashMap<String, usize>,
     team_id: i64,
     key_month: &str,
     url_key: &[u8; 32],
 ) -> Option<(String, &'static str, Vec<usize>)> {
-    let mut kept = Vec::new();
+    // Streams the candidates into the new value, so that a long srcset holds no list of them.
+    let mut value = String::with_capacity(text.len());
     let mut covers = Vec::new();
     let mut removed = false;
-    for (url, descriptors) in srcset_candidates(&srcset.text) {
-        if !is_remote(url) {
-            kept.push((Cow::Borrowed(url), descriptors));
-            continue;
+    let mut keep = |url: &str, descriptors: &str| {
+        if !value.is_empty() {
+            value.push_str(", ");
         }
-        covers.extend(url_targets.get(url));
-        match url_reference(url, team_id, key_month, url_key) {
-            Ok((_, reference)) if !srcset.unfetched_type => {
-                kept.push((Cow::Owned(reference), descriptors))
+        value.push_str(url);
+        if !descriptors.is_empty() {
+            value.push(' ');
+            value.push_str(descriptors);
+        }
+    };
+    for_each_srcset_candidate(text, |url, descriptors| {
+        if url == AVIF_MARKER {
+            removed = true;
+        } else if !is_remote(url) {
+            keep(url, descriptors);
+        } else {
+            covers.extend(url_targets.get(url));
+            match url_reference(url, team_id, key_month, url_key) {
+                Ok((_, reference)) if !unfetched.contains(url) => keep(&reference, descriptors),
+                _ => removed = true,
             }
-            _ => removed = true,
         }
-    }
+    });
     if !removed {
         return None;
     }
-    let outcome = if kept.is_empty() {
+    let outcome = if value.is_empty() {
         "emptied"
     } else {
         "trimmed"
     };
-    let value = kept
-        .iter()
-        .map(|(url, descriptors)| match *descriptors {
-            "" => url.to_string(),
-            descriptors => format!("{url} {descriptors}"),
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
     Some((value, outcome, covers))
 }
 

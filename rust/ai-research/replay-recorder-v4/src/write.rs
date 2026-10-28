@@ -171,6 +171,8 @@ pub fn prepare_block(
             .map(|i| i.bytes.len() as u64)
             .sum::<u64>();
         counts.inline += sink.left_inline;
+        counter!("ai_research_v4_recorder_removed_images_total", "format" => "avif")
+            .increment(u64::from(sink.removed_avif));
         images.extend(
             sink.images
                 .into_iter()
@@ -818,12 +820,26 @@ mod tests {
         let svg =
             "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
         let remote_svg = "https://cdn.example.com/a.svg";
+        let shared = "https://cdn.example.com/shared.webp";
+        let other_avif = format!(
+            "data:image/avif;base64,{}",
+            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
+        );
+        // The dataset keeps no AVIF, so an inline one leaves the list too.
+        let inline_avif = format!(
+            "data:image/avif;base64,{}",
+            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf")
+        );
         let picture = json!({"type": 2, "tagName": "picture", "attributes": {}, "id": 2, "childNodes": [
             source(6, json!({"type": "image/svg+xml", "srcset": format!("{svg} 1x")})),
             source(7, json!({"type": "image/svg+xml", "srcset": format!("{remote_svg} 1x")})),
-            source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x")})),
+            source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
             // A bare srcset equal to the img's src below: only the srcset empties.
             source(8, json!({"type": "image/avif", "srcset": bare})),
+            // Values that read the same once their inline AVIFs leave merge their policies, so the WebP source keeps
+            // the shared candidate.
+            source(11, json!({"type": "image/avif", "srcset": format!("{shared} 1x, {inline_avif} 2x")})),
+            source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
             source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x")})),
@@ -868,6 +884,10 @@ mod tests {
         );
         assert!(lines.contains(&reference(fallback)), "{lines}");
         assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(shared))),
+            "{lines}"
+        );
+        assert!(
             lines.contains(&format!(r#""src":"{}""#, reference(bare))),
             "{lines}"
         );
@@ -877,8 +897,41 @@ mod tests {
         );
         assert!(
             !lines.contains("a.avif")
+                && !lines.contains("ftypavif")
+                && !lines.contains("data:image/avif")
                 && !lines.contains("X-Amz-Signature")
                 && !lines.contains("declined"),
+            "{lines}"
+        );
+    }
+
+    #[test]
+    fn rebuilds_a_srcset_as_the_block_holds_it_after_escapes_are_written_again() {
+        // The `\/` escapes keep the PNG inline, and the writer then writes them as `/`.
+        let png = STANDARD.encode(png(&[0xff; 30]));
+        assert!(png.contains('/'));
+        let inline = format!("data:image/png;base64,{png}");
+        let events = format!(
+            r#"[{{"type":3,"timestamp":1,"data":{{"source":0,"adds":[],"removes":[],"texts":[],"attributes":[{{"id":99,"attributes":{{"srcset":"{} 1x, https://10.0.0.7/a.png 2x"}}}}]}}}}]"#,
+            inline.replace('/', "\\/")
+        );
+        let lines = stored_lines(&events, &[]);
+        assert!(
+            lines.contains(&format!(r#""srcset":"{inline} 1x""#)),
+            "{lines}"
+        );
+        assert!(
+            !lines.contains("declined") && !lines.contains("10.0.0.7"),
+            "{lines}"
+        );
+
+        // A srcset key outside an image slot, here in a custom event, is no srcset of the DOM and stays as it is.
+        let custom = r#"[{"type":5,"timestamp":1,"data":{"tag":"app","payload":{"srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x"}}}]"#;
+        let lines = stored_lines(custom, &[]);
+        assert!(
+            lines.contains(
+                r#""srcset":"https://cdn.example.com/a.png 1x, https://10.0.0.7/a.png 2x""#
+            ),
             "{lines}"
         );
     }
