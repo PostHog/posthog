@@ -1288,8 +1288,7 @@ def get_teams_with_replay_vision_spend_projection() -> SpendProjectionByTeam:
     return spend_projection_by_team()
 
 
-# nosemgrep: tuple-return-prefer-dataclass -- usage report rows are (team_id, total) pairs for convert_team_usage_rows_to_dict.
-def _replay_vision_spend_projection_rows() -> dict[str, list[tuple[int, int]]]:
+def _replay_vision_spend_projection_rows() -> dict[str, TeamUsageRows]:
     projection = get_teams_with_replay_vision_spend_projection()
     return {
         "teams_with_replay_vision_scanner_projected_credits": projection.scanners_period_credits,

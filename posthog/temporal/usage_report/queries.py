@@ -47,6 +47,7 @@ from django.db.models import Count
 
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
+    TeamUsageRows,
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
@@ -229,8 +230,7 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
     }
 
 
-# nosemgrep: tuple-return-prefer-dataclass -- usage report rows are (team_id, total) pairs for convert_team_usage_rows_to_dict.
-def _replay_vision_spend_projection() -> dict[str, list[tuple[int, int]]]:
+def _replay_vision_spend_projection() -> dict[str, TeamUsageRows]:
     projection = get_teams_with_replay_vision_spend_projection()
     return {
         "scanners_period_credits": projection.scanners_period_credits,
