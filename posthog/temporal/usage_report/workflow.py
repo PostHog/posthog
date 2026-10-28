@@ -58,6 +58,8 @@ PARALLEL_COUNTER_QUERIES_PATCH_ID = "usage-report-parallel-counter-queries-2026-
 AGGREGATION_QUEUE_PATCH_ID = "usage-report-aggregation-queue-2026-10"
 LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID = "usage-report-logs-distinct-patterns-query-2026-10"
 LOGS_DISTINCT_PATTERNS_QUERY_NAME = "teams_with_logs_distinct_patterns_in_period"
+TRANSACTIONAL_EMAILS_QUERY_PATCH_ID = "usage-report-transactional-emails-query-2026-10"
+TRANSACTIONAL_EMAILS_QUERY_NAME = "teams_with_workflow_transactional_emails_sent_in_period"
 
 
 def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
@@ -70,6 +72,12 @@ def _queries_for_logs_distinct_patterns_patch(queries: list[QuerySpec], patch_ap
     if patch_applied:
         return queries
     return [spec for spec in queries if spec.name != LOGS_DISTINCT_PATTERNS_QUERY_NAME]
+
+
+def _queries_for_transactional_emails_patch(queries: list[QuerySpec], patch_applied: bool) -> list[QuerySpec]:
+    if patch_applied:
+        return queries
+    return [spec for spec in queries if spec.name != TRANSACTIONAL_EMAILS_QUERY_NAME]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -134,6 +142,9 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
             queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
             queries = _queries_for_logs_distinct_patterns_patch(
                 queries, workflow.patched(LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID)
+            )
+            queries = _queries_for_transactional_emails_patch(
+                queries, workflow.patched(TRANSACTIONAL_EMAILS_QUERY_PATCH_ID)
             )
             if workflow.patched(USAGE_COUNTER_SERVICE_PATCH_ID):
                 ctx.usage_counter_plan = await workflow.execute_activity(

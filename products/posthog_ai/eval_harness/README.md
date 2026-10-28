@@ -18,6 +18,18 @@ Two other docs sit next to this one:
 - [`../evals/AGENTS.md`](../evals/AGENTS.md) is the Hedgebox dataset reference. Read it before writing eval cases: your `expected` values and scorers must match that taxonomy exactly.
 - [`harness/AGENTS.md`](harness/AGENTS.md) lists the invariants to preserve when changing the harness itself.
 
+## Scout evals
+
+`hogli evals signals/eval_first_report --trials 5 --max-sandboxes 1` runs the production first-report scout against three isolated projects: a Hedgebox project with a seeded upload regression, a matched control, and a project containing only a few signups. Use `--eval upload_regression` for the first smoke run. Scout suites use bundled skills and the normal scout context, permissions, report tools, structured closeout, and ten-minute investigation limit. They do not run through the generic chat prompt or the private scout-trial report overlay.
+
+The upload cases add synthetic, mature signup-to-upload cohorts, split by browser and release, and verify their counts through HogQL before launching the scout. Cohorts include browsing and identify events, opaque identities, the demo's normal URLs, and varied daily volumes and timestamps so fixture artifacts do not become the finding. The regression adds upload exceptions in the affected sessions; the control keeps conversion stable. These cases remove their copied warehouse table registrations because the shared immutable CSV snapshots do not describe the added event history. The sparse case starts without inherited Hedgebox data. Seed identities and oracle counts go to scorers, never into the scout prompt.
+
+Local artifacts include persisted reports, the structured outcome, context preparation time, first logged agent text time, and first visible report time. First progress uses the earliest saved agent text; streaming deltas that are not persisted are not measured. Report timing starts before context preparation and excludes fixture setup, harness boot, and the onboarding job queue. It therefore measures scout execution, not total onboarding latency. Quality and the five-minute qualified-report rate use separate binary LLM judgments grounded in successful tool results and the queried oracle. Planted-issue recall is a separate diagnostic, so another verified useful finding can pass quality. The matched control checks false positives; sparse data must produce an explicit explanation without a report. Inspect these metrics separately rather than treating their arithmetic mean as first value. Agent failures and timeouts score zero; infrastructure failures remain separately reported by the shared harness. Repeat trials before drawing conclusions about quality or latency.
+
+Product suites can supply `case_runner=` to `SandboxedEval` with the `SandboxedCaseRunner` protocol. The shared harness retains isolation, setup hooks, concurrency slots, timeout handling, logs, and scoring; the runner owns its task workflow cleanup and provider registration. Returning an `AgentArtifacts` subclass preserves product-specific fields in local artifacts and scorer input. Scout runners collect structured closeout fields from persisted run metadata, including when a visible report takes precedence over the agent's claimed outcome. The `scout_closeout` artifact preserves the final conclusion independently of the shared harness's text-only `last_message`.
+
+Test cases should keep the default `SandboxedEvalCase.inherit_demo_data=True` to inherit Hedgebox data. Setting it to `False` is an explicit opt-in only for cases that intentionally need an empty isolated project, such as testing abstention with insufficient data. The setup hook must seed any data the case needs. The sparse scout case uses this option to add just four signups: inheriting the populated Hedgebox dataset would invalidate that test. Regression and control cases keep the default.
+
 ## Running
 
 ```bash
@@ -37,8 +49,8 @@ python -m products.posthog_ai.eval_harness.harness [SELECTOR ...] [flags]
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
-Which variables are required depends on the selected suites' reporting settings and kinds: the Braintrust engine requires `BRAINTRUST_API_KEY` only if at least one selected suite sends logs to Braintrust. A run consisting entirely of suites declaring `NO_SEND_LOGS = True` does not require that reporting credential. Sandboxed suites require `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`, and need a [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) clone plus `go` on `PATH` (see [AI gateway](#ai-gateway)); one-shot suites require `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
-Scorers still need credentials for their model provider. A scorer configured to use Braintrust's model proxy needs its proxy credential independently of result reporting.
+Required variables depend on the selected suite kinds. Braintrust runs locally and needs no reporting credential. Sandboxed suites require `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`, and need a [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) clone plus `go` on `PATH` (see [AI gateway](#ai-gateway)); one-shot suites require `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Autoevals judges use a direct OpenAI client with `OPENAI_API_KEY`, including when PostHog trace capture is unavailable. `OPENAI_BASE_URL` can select an explicit provider endpoint. No judge falls back to Braintrust's model proxy or API key.
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -128,6 +140,7 @@ git clone git@github.com:PostHog/ai-gateway.git ~/Development/ai-gateway
 ```
 
 The gateway runs on `:18080` with its own Postgres database and Valkey DB index in the clone's compose containers, so it does not touch a dev-stack gateway's ledger or blobs.
+Sandboxed agents and server-side tool judges, including the scout report safety judge, both use this isolated gateway.
 It uses `LLM_GATEWAY_ANTHROPIC_API_KEY` and `LLM_GATEWAY_OPENAI_API_KEY` as its provider keys.
 The harness adds test credits to the master demo team in this separate ledger. Scoped tokens require a positive balance and cannot use an overspend allowance.
 Each run gets a capped `phe_` token minted with a key on that team, so spend is per run and never reaches a real wallet. The harness refreshes the mint key during long runs. It retries temporary database or Redis errors until the credential expires. Retry delays increase to at most one minute.
@@ -180,14 +193,14 @@ hogli evals eval_skill_distribution --skill-delivery bundled --agent-runtime cla
 hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude --agent-model claude-opus-4-8 --trials 3
 ```
 
-Both runs use the same prompts and Braintrust history key.
+Both runs use the same prompts and experiment name.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's AI gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
+Experiment names don't change with the runtime or skill delivery. Each local evaluation and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
 
 ### Claude and Codex smoke comparison
 
@@ -318,7 +331,7 @@ When object storage is enabled, setup also validates the master warehouse and cl
 When a setup completes, its slot becomes available to the next case while the prepared case runs its agent.
 
 A case holds a sandbox slot only for the window it actually needs one: team setup and the agent run.
-Log parsing, Braintrust span building, trace emission, and scoring all happen after the slot is released.
+Log parsing, trace emission, and scoring all happen after the slot is released.
 The per-case timeout starts after team setup, so neither sandbox nor setup queueing consumes the agent's budget.
 
 ## Suite kinds
@@ -346,16 +359,16 @@ New product-owned evals belong under `products/<product>/evals/`; that directory
 
 1. Create `products/posthog_ai/evals/<domain>/eval_<name>.py` (or `products/<product>/evals/eval_<name>.py`). The directory becomes the suite's domain.
 2. Write one or more coroutines named `eval_*` taking a single `ctx: EvalContext`.
-3. Build a list of `SandboxedEvalCase` and hand it to `SandboxedPrivateEval` or `SandboxedPublicEval` along with your scorers and `ctx=ctx`.
+3. Build a list of `SandboxedEvalCase` and hand it to `SandboxedEval` along with your scorers and `ctx=ctx`.
 
 ```python
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 
 
 async def eval_my_thing(ctx: EvalContext) -> None:
-    await SandboxedPrivateEval(
+    await SandboxedEval(
         experiment_name="sandboxed-my-thing-cli",
         cases=[SandboxedEvalCase(name="my_case", prompt="...")],
         scorers=[],
@@ -366,13 +379,13 @@ async def eval_my_thing(ctx: EvalContext) -> None:
 The harness automatically adds the `ExitCodeZero` scorer to every sandboxed experiment.
 Do not add it to a suite's `scorers` list; the harness rejects duplicates.
 
-For a one-shot suite, declare the kind, build `BaseEvalCase`s, and pass a task function to `OneShotPrivateEval` / `OneShotPublicEval` — the task runs once per case under the global one-shot limiter and returns the scorer `output` dict directly:
+For a one-shot suite, declare the kind, build `BaseEvalCase`s, and pass a task function to `OneShotEval` — the task runs once per case under the global one-shot limiter and returns the scorer `output` dict directly:
 
 ```python
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPrivateEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
@@ -381,7 +394,7 @@ async def eval_my_generation(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         return {"answer": ...}  # one model invocation; JSON-serializable
 
-    await OneShotPrivateEval(
+    await OneShotEval(
         experiment_name="my-generation",
         cases=[BaseEvalCase(name="my_case", prompt="...")],
         scorers=[...],
@@ -391,9 +404,9 @@ async def eval_my_generation(ctx: EvalContext) -> None:
 ```
 
 Bundle related cases into one suite function rather than splitting them across many.
-One suite is one Braintrust experiment, which is what makes cross-case comparison and `--eval` filtering useful.
+One suite is one experiment, which is what makes cross-case comparison and `--eval` filtering useful.
 
-`experiment_name` is the Braintrust experiment key, so changing it starts a fresh history.
+`experiment_name` identifies the run in local output and PostHog; keep it stable across runs.
 Existing suites end in `-cli` because the MCP server serves the `cli` surface; that suffix is kept so history lines up with earlier runs.
 
 Confirm discovery picked your suite up:
@@ -415,7 +428,7 @@ Use `--verbose` to show detailed service and agent logs in the console. The tran
 Warnings and errors use short console messages, including the exception type and message when available.
 Open the transcript for full tracebacks.
 
-The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog and Braintrust URLs, and the agent-log directory.
+The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog URLs, and the agent-log directory.
 Each scorer line shows its score with a 95% confidence interval clustered by case. With `--trials N` a second line adds pass^N (every trial passed), pass@N (any trial passed) and the number of flaky cases, counting only cases scored on all N trials, so a noisy suite is distinguishable from a real score change.
 A crashed suite is labeled `CRASH` and makes the run exit nonzero without taking down the other suites.
 Its full traceback stays in the transcript. `--verbose` also shows the traceback in the final summary.
@@ -436,19 +449,18 @@ The harness shortens long case names in filenames to stay within 255 bytes. It k
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.
 
-`SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when the suite has offline publishing configured.
-`SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service by default; local logs are still written.
-Both sandboxed and one-shot suites can set `send_to_posthog=True` with `offline_suite` to publish only to PostHog while Braintrust uploads remain disabled, or `send_to_posthog=False` to disable PostHog uploads independently.
-The 11 experiment-skill suites use this PostHog-only mode.
-PostHog result uploads default to following `no_send_logs`, independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
+`SandboxedEval` and `OneShotEval` always execute locally through Braintrust without reporting to its service.
+Configure `offline_suite` and `POSTHOG_OFFLINE_EVAL_API_KEY` to publish completed results to PostHog.
+`send_to_posthog` defaults to `True`; set it to `False` for local-only results.
+PostHog result uploads are independent of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
 
 ### SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
-It publishes the same completed case results through the Python SDK and keeps sending to Braintrust.
-PostHog AI and Slack app public suites also opt into offline publishing with their own tagged scorer versions.
-Agent and judge trace capture remains available. `no_send_logs=True` suppresses offline result uploads unless `send_to_posthog=True` is explicitly set.
+It publishes the same completed case results through the Python SDK.
+PostHog AI and product-owned suites also opt into offline publishing with their own tagged scorer versions.
+Agent and judge trace capture remains available. `send_to_posthog=False` suppresses offline result uploads.
 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal key with `offline_evaluation_ingestion:write`, `evaluation:write`, and access to project `2` to upload and tag results. An ingestion-only personal or project secret key can upload results, but tagging will warn and leave the run untagged.
 The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
@@ -469,10 +481,10 @@ hogli evals sql/eval_sql::eval_sql
 ```
 
 With no API key, the SQL run reports that offline uploads are disabled.
-Invalid configuration and upload failures produce warnings while Braintrust and local reporting continue.
+Invalid configuration and upload failures produce warnings while local reporting continues.
 Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
-Raw agent logs stay in the existing local and Braintrust outputs. The SDK validates payloads; invalid or oversized optional fields are omitted as a whole, with their names recorded in metadata.
+Raw agent logs stay in the existing local outputs. The SDK validates payloads; invalid or oversized optional fields are omitted as a whole, with their names recorded in metadata.
 
 Failed or interrupted uploads and uploads rejected by a full queue are not saved for later retry.
 To try publishing again, correct the configuration or connectivity problem and rerun the suite.
-Existing local logs, enabled case exports, and Braintrust results remain available; upload failures do not change the score gate.
+Existing local logs and enabled case exports remain available; upload failures do not change the score gate.

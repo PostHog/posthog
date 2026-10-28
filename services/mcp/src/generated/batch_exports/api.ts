@@ -681,17 +681,11 @@ export const BatchExportsCreateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -1430,17 +1424,11 @@ export const BatchExportsPartialUpdateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -1910,17 +1898,11 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -2216,17 +2198,11 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                         'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                     ),
                 useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                useNewEventsCluster: zod
-                    .union([zod.boolean(), zod.null()])
-                    .optional()
-                    .describe(
-                        'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
-                    ),
                 useNewEventsSchema: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
                     .describe(
-                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                     ),
                 usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                 usePreaggregatedTableTransforms: zod

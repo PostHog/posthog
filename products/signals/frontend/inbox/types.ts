@@ -7,6 +7,7 @@ import {
     type ReportPlanApi,
     type ReportRankingApi,
     type ReportSourceSuggestionApi,
+    type ReviewerRemovalReasonEnumApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -23,6 +24,12 @@ import {
 // The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
 // Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+/** Why a person removed a reviewer, sent with the remove edit. The web app sends a reason only. */
+export interface ReviewerRemoval {
+    reason: ReviewerRemovalReasonEnumApi | null
+    note?: string
+}
 
 // Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
 // field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
@@ -125,6 +132,10 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     source_products?: string[]
     /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
     scout_name?: string | null
+    /** Whether the report proposes an improvement to a scout. */
+    is_self_improvement_report?: boolean
+    /** Selected code repository, when the report has one. */
+    repo_slug?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a
@@ -152,7 +163,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     billing_exempt_reason?: string | null
     /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
     refund_ineligibility_reason?: string | null
-    /** The served ranking model's score. Null for users outside staff and the model sort flag, and for unscored reports. Raw scores and model metadata are staff only. */
+    /** The served ranking model's predictions. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     ranking?: ReportRankingApi | null
     /** Coarse sort key from the list response's ranker, for the Recommended sort only. Lower keys rank first. */
     inbox_merge_key?: number | null
@@ -164,6 +175,7 @@ export enum SignalReportStatus {
     IN_PROGRESS = 'in_progress',
     PENDING_INPUT = 'pending_input',
     READY = 'ready',
+    MONITORING = 'monitoring',
     RESOLVED = 'resolved',
     FAILED = 'failed',
     // Out-of-inbox terminal states (backend: SignalReport.Status). Excluded from every tab.
@@ -339,10 +351,14 @@ export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'St
  */
 export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
-/** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
-export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`
+/**
+ * `for-you` (suggested-reviewer reports), `claimed-by-you` (reports the user claimed), `entire-project`
+ * (all), or `teammate:<uuid>`.
+ */
+export type InboxScope = 'for-you' | 'claimed-by-you' | 'entire-project' | `teammate:${string}`
 
 export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
+export const INBOX_SCOPE_CLAIMED_BY_YOU: InboxScope = 'claimed-by-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────

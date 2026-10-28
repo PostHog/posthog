@@ -138,6 +138,17 @@ class TaskRunTokenUsage:
     complete: bool
 
 
+@dataclass(frozen=True, kw_only=True)
+class TaskRunSpend:
+    created_at: datetime
+    run_id: UUID
+    task_id: UUID
+    cost_microusd: int | None
+    complete: bool
+    is_terminal: bool
+    stage: str
+
+
 @dataclass(frozen=True)
 class TaskRunCost:
     """Provider costs in integer USD cents, or None while a source is unavailable or incomplete."""
@@ -1044,38 +1055,6 @@ class WarmTaskDTO:
 
     task_id: UUID
     run_id: UUID
-
-
-@dataclass(frozen=True)
-class TaskRunPeerDTO:
-    """One peer agent run visible to a sender run (agent peer messaging discovery)."""
-
-    run_id: str
-    task_id: str
-    task_title: str
-    created_by_email: str | None
-    runtime: str
-    model: str | None
-    repository: str | None
-    stage: str | None
-    status: str
-    sendable: bool
-    updated_at: str | None
-
-
-PeerSendResultKind = Literal["accepted", "target_finished", "rejected"]
-
-
-@dataclass(frozen=True)
-class PeerMessageSendResultDTO:
-    """Synchronous result of a peer-message send. ``result`` is the public contract:
-    ``accepted`` means queued for delivery (never "delivered" — the sandbox handoff
-    happens later inside the workflow), ``target_finished`` means the target's
-    workflow is gone, ``rejected`` covers throttles and validation failures."""
-
-    result: PeerSendResultKind
-    detail: str
-    message_id: str | None = None
 
 
 @dataclass(frozen=True)

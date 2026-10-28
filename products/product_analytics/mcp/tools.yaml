@@ -10,6 +10,17 @@ ui_apps:
         type: detail
         view_prop: data
         link_prop: openLink
+    explain-chart:
+        type: custom
+        app_name: PostHog Chart Walkthrough
+        description: A trends chart with the moments that stand out highlighted, explained one chapter at a time.
+        render_ui:
+            component_import: ../components/ExplainChart
+            view_component: ExplainChart
+            view_prop: data
+            data_type: ExplainChartData
+            link_prop: openLink
+            app_prop: app
 tools:
     elements-stats-retrieve:
         operation: elements_stats_retrieve
@@ -65,6 +76,15 @@ tools:
 
             Bare `TrendsQuery`, `HogQLQuery`, and `EventsQuery` definitions are accepted too. They are wrapped for you,
             so a query you just ran through one of the `query-*` tools can be passed straight through.
+
+
+            A saved SQL insight must follow the dashboard and insight date range. Before you save a `HogQLQuery`,
+            replace its fixed date window, such as `timestamp >= now() - INTERVAL 30 DAY`, with the `{filters}`
+            placeholder: `WHERE event = 'signed_up' AND {filters}`. Then put the requested window in
+            `query.source.filters.dateRange`, for example `{"date_from": "-30d"}`. A fixed window ignores the date
+            picker, and `{filters}` without a `dateRange` shows all time. `{filters}` also applies the property and
+            test-account filters. For a table without a `timestamp` column, bind its date column with
+            `{filters(created_at AS timestamp)}`.
 
 
             Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
@@ -129,7 +149,9 @@ tools:
             pageview or event-volume counts, and skip high-cardinality breakdowns. Judge the metric, not the request. A
             newly created insight, or one the user just asked to see, is not throwaway for that reason. If the user
             already declined an alert in this conversation, do not offer again. If alert-create is unavailable, say
-            nothing about alerts. Wait for the user to accept before creating an alert.
+            nothing about alerts. Wait for the user to accept before creating an alert. After substantial visual
+            changes, check the final saved insight once if browser access is already available. Skip browser checks for
+            small edits.
         exclude_params:
             - query
         include_params:
@@ -147,7 +169,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result
@@ -229,7 +251,8 @@ tools:
             status, and dashboards. Returns insight metadata only — after updating the query, call the insight-query
             tool with the same identifier if you want to see the recomputed results. Query uses the same format as
             insight-create. Replacing query replaces the entire definition; include all filters and visualization
-            settings you want to retain.
+            settings you want to retain. After substantial visual changes, check the final saved insight once if browser
+            access is already available. Skip browser checks for small edits.
         agent_note:
             If this update added the insight to a dashboard through the `dashboards` field, consider offering the user a
             recurring delivery of that dashboard as a next step. `dashboards` is a full replacement, so only offer when
@@ -269,7 +292,7 @@ tools:
                     existing dashboard IDs when adding a new one.
             description:
                 description: |
-                    Human-readable summary of what the insight shows. Max 400 characters (longer values are rejected).
+                    Optional, about 15 words. Omit if the name is enough. No change notes. Max 400 characters.
         response:
             exclude:
                 - result

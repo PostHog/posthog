@@ -2,6 +2,7 @@ import json
 import time
 import shlex
 import threading
+from collections.abc import Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -23,6 +24,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
+from products.mcp_store.backend.facade.contracts import UnmountedInstallation
 from products.tasks.backend.constants import SUBSCRIPTION_PLAN_NAMES
 from products.tasks.backend.exceptions import (
     OAuthTokenError,
@@ -40,7 +42,6 @@ from products.tasks.backend.logic.services.launch_preparation_metrics import lau
 from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 from products.tasks.backend.logic.services.sandbox import (
     REPO_READY_FILE,
-    SNAPSHOT_KIND_DIRECTORY,
     SUBSCRIPTION_CLI_FLAGS,
     SandboxBase,
     get_sandbox_class_for_sandbox_id,
@@ -77,13 +78,14 @@ from products.tasks.backend.temporal.process_task.utils import (
     loop_mcp_installation_allowlist,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_from_state,
+    unmounted_mcp_installations_log_fields,
+    unmounted_mcp_installations_notice,
 )
 
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
 
-AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
 
 PROTECTED_BASE_BRANCH_JOIN_TIMEOUT_SECONDS = 30.0
 
@@ -211,23 +213,6 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
             )
 
 
-def _is_agent_shadow_enabled(ctx: TaskProcessingContext) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                AGENT_SERVER_SHADOW_FEATURE_FLAG,
-                distinct_id=ctx.distinct_id,
-                groups={"organization": ctx.organization_id},
-                group_properties={"organization": {"id": ctx.organization_id}},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.exception("agent_shadow_flag_check_failed", run_id=ctx.run_id)
-        return False
-
-
 def _has_agent_shadow_launch_marker(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
     try:
         result = sandbox.execute(
@@ -241,11 +226,11 @@ def _has_agent_shadow_launch_marker(ctx: TaskProcessingContext, sandbox: Sandbox
 
 
 def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
-    if sandbox.config.snapshot_restored and sandbox.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
+    if sandbox.config.snapshot_restored and sandbox.config.resume_snapshot_external_id is None:
         return False
     if current_activity_attempt() > 1 and _has_agent_shadow_launch_marker(ctx, sandbox):
         return True
-    if not _is_agent_shadow_enabled(ctx):
+    if not ctx.agent_shadow_enabled:
         return False
     quoted_run_id = shlex.quote(ctx.run_id)
     command = (
@@ -421,6 +406,21 @@ def _record_network_enforcement_observation(ctx: TaskProcessingContext) -> None:
     record_network_enforcement("startup_observed", runtime, observation, "success")
 
 
+def _report_unmounted_mcp_installations(ctx: TaskProcessingContext, unmounted: Sequence[UnmountedInstallation]) -> None:
+    if not unmounted:
+        return
+    logger.info(
+        "mcp_installations_not_mounted",
+        team_id=ctx.team_id,
+        task_id=ctx.task_id,
+        run_id=ctx.run_id,
+        unmounted=unmounted_mcp_installations_log_fields(unmounted),
+    )
+    notice = unmounted_mcp_installations_notice(unmounted)
+    if notice:
+        emit_agent_log(ctx.run_id, "warn", notice)
+
+
 def _include_personal_mcp_for_task(task: Task) -> bool:
     """Whether a run may pull the task creator's *personal* MCP installations.
 
@@ -533,7 +533,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         exclude_tools=mcp_exclude_tools_from_state(ctx.state),
     )
     include_personal = _include_personal_mcp_for_task(task)
-    user_mcp_configs = get_user_mcp_server_configs(
+    user_mcp = get_user_mcp_server_configs(
         token=access_token,
         team_id=ctx.team_id,
         user_id=actor_user.id if actor_user else None,
@@ -546,8 +546,9 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbo
         credential_owner_id=task.mcp_credential_owner_id,
         allowed_gateway_server_ids=task.mcp_gateway_server_allowlist,
     )
-    if user_mcp_configs:
-        mcp_configs = mcp_configs + user_mcp_configs
+    if user_mcp.configs:
+        mcp_configs = mcp_configs + user_mcp.configs
+    _report_unmounted_mcp_installations(ctx, user_mcp.unmounted)
 
     imported_mcp_configs = get_imported_mcp_server_configs(task_run, {config.name for config in mcp_configs})
     if imported_mcp_configs:
@@ -644,7 +645,6 @@ def _invoke_start_agent_server(
             wait_for_health=wait_for_health,
             rtk_enabled=ctx.rtk_enabled,
             benjamin_enabled=ctx.benjamin_enabled,
-            peer_messaging=ctx.peer_messaging_enabled,
             pi_acp_conversation=ctx.pi_acp_conversation_enabled,
             claude_model_access=ctx.model_access.access_for("claude"),
             codex_model_access=ctx.model_access.access_for("codex"),
@@ -784,7 +784,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     """Start the agent-server HTTP server in the sandbox.
 
     Sandbox credentials (sandbox_url, connect_token) are passed directly via input
-    from get_sandbox_for_repository output.
+    from the sandbox provisioning output.
     """
     ctx = input.context
 

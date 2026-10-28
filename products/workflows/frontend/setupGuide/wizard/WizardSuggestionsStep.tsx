@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconArrowRight, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -8,8 +9,14 @@ import { WorkflowSuggestionCard } from '../suggestions/WorkflowSuggestionCard'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
 export function WizardSuggestionsStep({ fallback }: { fallback: JSX.Element }): JSX.Element {
-    const { cards, generating } = useValues(workflowDataSuggestionsLogic({ surface: 'onboarding_wizard' }))
+    const suggestionsLogic = workflowDataSuggestionsLogic({ surface: 'onboarding_wizard' })
+    const { cards, generating } = useValues(suggestionsLogic)
+    const { reportCardsShown } = useActions(suggestionsLogic)
     const { setTemplatesShown } = useActions(workflowsOnboardingWizardLogic)
+
+    useEffect(() => {
+        reportCardsShown()
+    }, [cards, reportCardsShown])
 
     if (!generating && cards.length === 0) {
         return fallback

@@ -39,7 +39,8 @@ from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
     TYPES_WITH_TRANSPILED_FILTERS,
 )
-from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.cohort import Cohort, CohortType
+from products.cohorts.backend.realtime_state import CohortRealtimeState, has_realtime_state, resolve_realtime_readiness
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
@@ -1348,7 +1349,9 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             cohort_membership_supported = bool(self.context.get("cohort_membership_supported"))
             validated_cohort_ids: Optional[set[int]] = None
             if cohort_membership_supported:
-                validated_cohort_ids = self._validate_realtime_cohorts(data, team)
+                validated_cohort_ids = self._validate_realtime_cohorts(
+                    data, team, require_ready=not self.context.get("is_draft")
+                )
             data = compile_filters_bytecode(
                 data,
                 team,
@@ -1363,7 +1366,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
 
         return data
 
-    def _validate_realtime_cohorts(self, data: dict, team: Team) -> set[int]:
+    def _validate_realtime_cohorts(self, data: dict, team: Team, *, require_ready: bool) -> set[int]:
         """Validate every cohort these filters reference, including inside referenced Actions.
 
         Returns the validated ids so the compiler can reject any IN COHORT operand outside them.
@@ -1375,12 +1378,33 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             for action in Action.objects.filter(id__in=action_ids, team__project_id=team.project_id, deleted=False):
                 for step in action.steps:
                     collected |= collect_property_cohort_ids(step.properties or [])
-        validate_realtime_cohorts(collected, team)
+        validate_realtime_cohorts(collected, team, require_ready=require_ready)
         return collected
 
 
-def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team) -> None:
+COHORT_NOT_READY_CODE = "cohort_not_ready"
+
+
+def _cohort_not_ready_error(cohort: Cohort) -> serializers.ValidationError:
+    readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
+    if readiness is not None and readiness.state in (CohortRealtimeState.BUILDING, CohortRealtimeState.REBUILDING):
+        percent = readiness.build.percent_complete if readiness.build is not None else None
+        progress = f" ({percent}% done)" if percent is not None else ""
+        return serializers.ValidationError(
+            f"Cohort {cohort.pk} is still calculating{progress}. Workflows can use it once it finishes.",
+            code=COHORT_NOT_READY_CODE,
+        )
+    return serializers.ValidationError(
+        f"Cohort {cohort.pk} isn't ready for realtime evaluation. "
+        f"Workflows can only use realtime cohorts that have finished calculating."
+    )
+
+
+def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team, *, require_ready: bool = True) -> None:
     """Reject any cohort without maintained cohort_membership rows, which would treat everyone as a non-member.
+
+    With `require_ready=False` a realtime cohort that is still calculating passes, so a draft can reference
+    it before its history finishes. A cohort that can never become ready is rejected either way.
 
     Error messages carry the id rather than the name: they surface to callers holding only workflow
     scopes, and a name would hand them a cohort-metadata oracle.
@@ -1397,11 +1421,11 @@ def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team) -> None:
             raise serializers.ValidationError(
                 f"Cohort {cohort_id} is a static cohort. Workflows can only use realtime cohorts."
             )
-        if not cohort.is_flag_compatible:
-            raise serializers.ValidationError(
-                f"Cohort {cohort_id} isn't ready for realtime evaluation. "
-                f"Workflows can only use realtime cohorts that have finished calculating."
-            )
+        if cohort.is_flag_compatible:
+            continue
+        can_become_ready = cohort.cohort_type == CohortType.REALTIME and has_realtime_state(cohort)
+        if require_ready or not can_become_ready:
+            raise _cohort_not_ready_error(cohort)
 
 
 class FunctionInputsSerializer(serializers.Serializer):

@@ -18,7 +18,12 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import {
+    MAX_FETCH_RESPONSE_BYTES,
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    isFetchResponseRetriable,
+} from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -29,7 +34,7 @@ import { HogInputsService } from './hog-inputs.service'
 import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
     getSelfLoopDepth,
@@ -245,10 +250,10 @@ export class HogExecutorAsyncService {
                 functions: {
                     generateMessagingPreferencesUrl: (identifier): string | null => {
                         return identifier && typeof identifier === 'string'
-                            ? this.deps.recipientTokensService.generatePreferencesUrl({
-                                  team_id: invocation.teamId,
-                                  identifier,
-                              })
+                            ? this.deps.recipientTokensService.generatePreferencesUrl(
+                                  { team_id: invocation.teamId, identifier },
+                                  preferencesTokenSourceForInvocation(invocation)
+                              )
                             : null
                     },
                     ...options.functions,
@@ -590,7 +595,12 @@ export class HogExecutorAsyncService {
                 }
             }
         } catch (e) {
-            addLog('error', `Failed to parse response body: ${e.message}`)
+            addLog(
+                'error',
+                e.name === 'ResponseTooLargeError'
+                    ? `The response body is larger than ${MAX_FETCH_RESPONSE_BYTES / 1024 / 1024} MB, so it was not read.`
+                    : `Failed to parse response body: ${e.message}`
+            )
             body = undefined
         }
 

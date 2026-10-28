@@ -309,6 +309,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.WebPageDirectoryQuery]: {
+        name: 'Page directory',
+        description: 'See how each page earns its traffic, from search engines through to AI crawlers.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.WebVitalsQuery]: {
         name: 'Web vitals',
         description: 'View web vitals.',
@@ -355,6 +361,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'Error Tracking Correlation',
         description: 'Explore issues affecting other events.',
         icon: IconCorrelationAnalysis,
+        inMenu: false,
+    },
+    [NodeKind.ErrorTrackingIssueEventsQuery]: {
+        name: 'Error Tracking Issue Exceptions',
+        description: "List an issue's exceptions, optionally only the ones with a session recording.",
+        icon: IconWarning,
         inMenu: false,
     },
     [NodeKind.ErrorTrackingSimilarIssuesQuery]: {
@@ -432,6 +444,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ExperimentExposureNode]: {
         name: 'Experiment Exposure',
         description: 'Retention metric start resolved to the experiment exposure.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentWarehouseNativeNode]: {
+        name: 'Experiment Warehouse-native Node',
+        description: 'Experiment metric source run in the customer warehouse.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentWarehouseNativeExposureConfig]: {
+        name: 'Experiment Warehouse-native Exposure Config',
+        description: 'Experiment exposures run in the customer warehouse.',
         icon: IconFlask,
         inMenu: false,
     },

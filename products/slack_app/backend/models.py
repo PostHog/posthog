@@ -250,6 +250,13 @@ class SlackSettings(UUIDModel):
         blank=True,
         help_text="Let PostHog pick the model for each new task this user starts from Slack.",
     )
+    # Only read on a personal row. NULL means feature tips never evaluated this user.
+    # The shape is ``FeatureTipsState`` in ``logic/feature_tips/state.py``.
+    feature_tips = models.JSONField(
+        null=True,
+        blank=True,
+        help_text="Which Slack app features this user used, saw as a tip, or dismissed.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

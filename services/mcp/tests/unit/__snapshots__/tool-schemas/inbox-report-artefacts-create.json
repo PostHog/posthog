@@ -46,8 +46,7 @@
             "type": "string"
         },
         "reviewer_outcome": {
-            "default": "selected",
-            "description": "A successful selection, a deliberate empty result, or an unavailable lookup.\n\n* `selected` - Selected\n* `no_suitable_owner` - No suitable owner\n* `lookup_failed` - Lookup failed",
+            "description": "A successful selection, a deliberate empty result, or an unavailable lookup. Defaults to selected when omitted.\n\n* `selected` - Selected\n* `no_suitable_owner` - No suitable owner\n* `lookup_failed` - Lookup failed",
             "enum": ["selected", "no_suitable_owner", "lookup_failed"],
             "type": "string"
         },

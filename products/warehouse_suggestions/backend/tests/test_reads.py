@@ -83,7 +83,33 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
                 RollupRead(subject_id=view, day=TODAY - timedelta(days=2), request_id="b", user_id=2, duration_ms=900),
                 RollupRead(subject_id=view, day=TODAY - timedelta(days=40), request_id="old", user_id=3),
                 RollupRead(subject_id=view, day=TODAY, request_id="today", user_id=4),
-                RollupRead(subject_id=view, day=YESTERDAY, request_id="warmup", user_id=0),
+                RollupRead(subject_id=view, day=YESTERDAY, request_id="warmup", user_id=0, duration_ms=50),
+                RollupRead(
+                    subject_id=view,
+                    day=YESTERDAY,
+                    request_id="consumer-refresh",
+                    user_id=0,
+                    lc_kind="temporal",
+                    lc_feature="data_modeling",
+                    duration_ms=4000,
+                ),
+                *(
+                    RollupRead(
+                        subject_id=view,
+                        day=day,
+                        request_id=f"measurement-{duration_ms}",
+                        user_id=0,
+                        lc_kind="temporal",
+                        lc_feature="warehouse_suggestions",
+                        read_alone=True,
+                        duration_ms=duration_ms,
+                        read_bytes=read_bytes,
+                    )
+                    for day, duration_ms, read_bytes in (
+                        (TODAY - timedelta(days=2), 70_000, 50_000),
+                        (YESTERDAY, 2000, 1000),
+                    )
+                ),
                 RollupRead(
                     subject_id=view,
                     day=YESTERDAY,
@@ -136,7 +162,9 @@ class TestReadTeamReads(ClickhouseTestMixin, BaseTest):
         assert rollup_days == RollupDays(days_with_data=3, recent_days_with_data=3)
         assert (reads.readers, reads.view_readers, reads.view_reads) == (3, 2, 2)
         assert (view_reads.human_requests, view_reads.human_users, view_reads.human_days) == (2, 2, 2)
-        assert view_reads.background_reads == 1
+        assert (view_reads.background_reads, view_reads.background_duration_ms) == (4, 76050)
+        assert (view_reads.measured_duration_ms, view_reads.measured_read_bytes) == (2000, 1000)
+        assert view_reads.last_measured_at == datetime.combine(YESTERDAY, time(hour=12), tzinfo=UTC)
         refreshes = reads.refreshes[view]
         assert (refreshes.runs, refreshes.duration_ms) == (2, 4090)
         assert {run.workflow_id: run.duration_ms for run in reads.refresh_runs[view]} == {"run-1": 1000, "run-2": 3090}

@@ -402,8 +402,8 @@ class LoginPrecheckThrottle(IPThrottle):
     """
     Rate limit login precheck requests by IP.
 
-    The response reveals which sign-in methods a passwordless account has, so cap it per-IP to make
-    bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
+    The response reveals whether an account exists and which sign-in methods it has, so cap it
+    per-IP to make bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
     different email on every request.
     """
 
@@ -789,6 +789,13 @@ class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
 class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
     scope = "replay_vision_watch_feed_sustained"
     rate = "600/hour"
+
+
+# Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
+# team's feed bucket.
+class ReplayVisionWatchFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_watch_feed_impressions"
+    rate = "120/minute"
 
 
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over
@@ -1863,6 +1870,18 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     # per team to avoid bypass via rotated API keys, sessions, or integrations.
     scope = "github_repository_refresh"
     rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
+class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Keyed per team, so a large migration cannot flood ingestion by spreading calls across keys.
+    scope = "push_token_import"
+    rate = "60/minute"
 
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)

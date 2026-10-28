@@ -2900,6 +2900,30 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert "PostHog connection" in json.dumps(response.json())
         mock_create_hog_invocation_test.assert_not_called()
 
+    def test_test_invocation_of_unsaved_function_cannot_borrow_a_hidden_templates_reserved_calls(self):
+        self._create_email_template()
+
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={
+                    "configuration": {
+                        "type": "destination",
+                        "name": "Sneaky",
+                        "template_id": "template-email-test",
+                        "hog": "sendEmail({'to': {'email': 'someone@example.com'}, 'subject': 'hi'})",
+                        "inputs": {},
+                    },
+                    "mock_async_functions": False,
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "is internal and cannot be used" in json.dumps(response.json())
+        mock_create_hog_invocation_test.assert_not_called()
+
     @parameterized.expand(
         [
             ("errors_list", {"errors": ["Missing event"]}, ["Missing event"]),

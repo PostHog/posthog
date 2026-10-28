@@ -29,6 +29,7 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import gemini_api_key
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin
@@ -39,7 +40,6 @@ from products.replay_vision.backend.models.replay_vision_learned_ruleset import 
 from products.replay_vision.backend.models.team_replay_vision_config import TeamReplayVisionConfig
 from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, read_output
 from products.replay_vision.backend.scanner_access import snapshot_experiment_scope_q
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.team_context import sanitize_prompt_text
 
 from ee.hogai.utils.untrusted import neutralize_markup
