@@ -246,6 +246,10 @@ class TestIntegrationWithAuth(BaseTest):
         [
             ("all", lambda: Integration.objects.all()._with_auth(ANY)),  # type: ignore[attr-defined]
             ("filter", lambda: Integration.objects.filter(kind="github")._with_auth(AuthType.TOKEN)),
+            (
+                "chained_auth_types",
+                lambda: Integration.objects._with_auth(AuthType.OAUTH)._with_auth(AuthType.TOKEN),
+            ),
         ]
     )
     def test_with_auth_after_an_unqualified_query_raises(self, _name: str, build: Callable[[], Any]) -> None:
