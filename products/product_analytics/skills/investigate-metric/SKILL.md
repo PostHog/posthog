@@ -17,13 +17,9 @@ observed change to explain.
 
 ## Plan first
 
-Right after you load this skill, add these steps to your to-do list and tick each one off:
-
-1. Classify the metric and choose how to show the findings (Step 1).
-2. Confirm the anomaly, check the variance and look for known changes (Step 2).
-3. Run the playbook for the metric's kind (Step 3).
-4. Cross-check against a segment the cause should not affect (Step 4).
-5. Write the findings (Step 5). When the user gave you a trends insight over time, this step is the `posthog:explain-chart` call.
+Make a short plan before you query.
+The steps below are a guide: use the ones that fit the question, in the order that suits it.
+One part is fixed. When the user gave you a trends insight over time, the plan ends with the `posthog:explain-chart` call (Step 5).
 
 ## Tools
 
