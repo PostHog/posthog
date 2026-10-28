@@ -1285,7 +1285,7 @@ class ReplayScannerFilter(django_filters.FilterSet):
         invalid = sorted(t for t in tokens if not t.isdecimal())
         if invalid:
             raise ValidationError({"created_by": f"Non-numeric value(s) {invalid}; user IDs must be integers."})
-        return queryset.filter(created_by_id__in=tokens)
+        return queryset.filter(created_by_id__in=[int(t) for t in tokens])
 
     def _filter_experiment_id(
         self, queryset: QuerySet[ReplayScanner], _name: str, value: str

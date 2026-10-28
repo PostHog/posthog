@@ -10,9 +10,10 @@ errors all the time does not fill the feed.
 import math
 import asyncio
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import timedelta
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.core.cache import cache
 from django.core.exceptions import EmptyResultSet
@@ -401,16 +402,19 @@ def select_embedding_picks(
         .annotate(sessions=Count("id"), people=Count(person, distinct=True))
     }
     # The row-gate reads each row's snapshot JSON, so it runs on the picks only.
-    rows = list(
-        accessible_observations(
-            access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
-        )
-        .annotate(feed_viewed=viewed)
-        .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+    rows = cast(
+        list[dict[str, Any]],
+        list(
+            accessible_observations(
+                access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
+            )
+            .annotate(feed_viewed=viewed)
+            .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+        ),
     )
     for row in rows:
         window = window_values[row["id"]]
-        reach = group_reach.get(window["watch_group_root"], {})
+        reach: Mapping[str, Any] = group_reach.get(window["watch_group_root"], {})
         row["watch_percentile"] = window["watch_percentile"]
         row["watch_group_root"] = window["watch_group_root"]
         row["watch_group_size"] = reach.get("sessions", 1)

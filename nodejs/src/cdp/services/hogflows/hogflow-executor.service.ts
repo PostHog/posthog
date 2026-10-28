@@ -30,6 +30,7 @@ import {
     StoredCohortMembership,
 } from '../cohorts/cohort-membership-repository'
 import { HogExecutorExecuteAsyncOptions } from '../hog-executor-async.service'
+import { EmailStatusService } from '../messaging/email-status.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../usage/cdp-usage-reporter.service'
@@ -133,6 +134,9 @@ export class HogFlowExecutorService {
         emailValidationService: EmailValidationService,
         cohortMembershipRepository: CohortMembershipRepository,
         integrationManager: SlackAppLookup,
+        // Required, so that a caller which builds the executor without it fails to compile. Pass null
+        // only where no email status is recorded.
+        emailStatusService: EmailStatusService | null,
         duplicateObserver?: HogFlowDuplicateObserverService,
         usageReporter?: CdpUsageReporterService,
         options: { awaitedStepsEnabled?: boolean } = {}
@@ -145,6 +149,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'fetch',
+            null,
             usageReporter,
             options
         )
@@ -153,6 +158,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'email',
+            emailStatusService,
             usageReporter
         )
         const hogFunctionSmsHandler = new HogFunctionHandler(
@@ -160,6 +166,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'sms',
+            null,
             usageReporter,
             options
         )
@@ -168,6 +175,7 @@ export class HogFlowExecutorService {
             recipientPreferencesService,
             emailValidationService,
             'push',
+            null,
             usageReporter
         )
 

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -127,6 +127,57 @@ export const SessionRecordingsDestroyParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * Returns the browser console messages captured during a recording, oldest first.
+ * @summary List console logs of a session recording
+ */
+export const SessionRecordingsConsoleLogsRetrieveParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this session recording.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const sessionRecordingsConsoleLogsRetrieveQueryLimitDefault = 100
+export const sessionRecordingsConsoleLogsRetrieveQueryLimitMax = 500
+
+export const sessionRecordingsConsoleLogsRetrieveQueryOffsetDefault = 0
+export const sessionRecordingsConsoleLogsRetrieveQueryOffsetMin = 0
+
+export const SessionRecordingsConsoleLogsRetrieveQueryParams = () => zod.object({
+    after: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Only return entries at or after this ISO 8601 timestamp. The results never extend outside the recording's own start and end time."
+        ),
+    before: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Only return entries at or before this ISO 8601 timestamp. The results never extend outside the recording's own start and end time."
+        ),
+    level: zod
+        .enum(['info', 'warn', 'error'])
+        .optional()
+        .describe(
+            'Only return entries at this level. Omit to return every level.\n\n\* `info` - Info\n\* `warn` - Warn\n\* `error` - Error'
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(sessionRecordingsConsoleLogsRetrieveQueryLimitMax)
+        .default(sessionRecordingsConsoleLogsRetrieveQueryLimitDefault)
+        .describe('Maximum number of entries to return (1-500, default 100).'),
+    offset: zod
+        .number()
+        .min(sessionRecordingsConsoleLogsRetrieveQueryOffsetMin)
+        .default(sessionRecordingsConsoleLogsRetrieveQueryOffsetDefault)
+        .describe('Number of entries to skip. Use with `limit` to page through a long recording.'),
 })
 
 /**
