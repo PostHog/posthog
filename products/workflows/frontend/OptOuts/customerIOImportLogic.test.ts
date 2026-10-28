@@ -1,8 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -41,7 +38,6 @@ describe('customerIOImportLogic', () => {
     let runResponses: [number, ProviderImportRunApi[] | { detail: string }][]
     let listCalls: number
     let startBodies: Record<string, unknown>[]
-    let inRequestImports: number
 
     beforeEach(() => {
         runResponses = [
@@ -51,7 +47,6 @@ describe('customerIOImportLogic', () => {
         ]
         listCalls = 0
         startBodies = []
-        inRequestImports = 0
         useMocks({
             get: {
                 '/api/environments/:team_id/messaging_categories/optout_sync_config/': () => [
@@ -68,10 +63,6 @@ describe('customerIOImportLogic', () => {
                 },
             },
             post: {
-                '/api/:scope/:team_id/messaging_categories/import_from_customerio/': () => {
-                    inRequestImports += 1
-                    return [200, { status: 'completed', topics_found: 0, errors: [] }]
-                },
                 '/api/projects/:team_id/messaging_provider_imports/': async ({ request }) => {
                     startBodies.push((await request.json()) as Record<string, unknown>)
                     return [201, importRun('queued')]
@@ -89,10 +80,6 @@ describe('customerIOImportLogic', () => {
     })
 
     it('starts the selected steps and polls the run until it finishes, through a failed refresh', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_BACKGROUND_IMPORT], {
-            [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_BACKGROUND_IMPORT]: true,
-        })
         await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
         jest.useFakeTimers()
         logic.actions.toggleImportStep('categories')
@@ -121,18 +108,5 @@ describe('customerIOImportLogic', () => {
         await jest.advanceTimersByTimeAsync(10000)
 
         expect(listCalls).toBe(callsWhenFinished)
-    })
-
-    it('keeps the in-request import while the flag is off', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
-        logic.actions.setImportFormValue('app_api_key', 'app-key')
-
-        await expectLogic(logic, () => logic.actions.submitImportForm()).toFinishAllListeners()
-
-        expect(inRequestImports).toBe(1)
-        expect(startBodies).toEqual([])
-        expect(listCalls).toBe(0)
     })
 })
