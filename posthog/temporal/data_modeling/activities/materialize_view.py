@@ -31,7 +31,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.clickhouse.client.execute import ClickHouseExternalTable
+from posthog.clickhouse.client.execute import ClickHouseExternalTable, KillSwitchLevel, resolve_kill_switch_level
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -206,6 +206,8 @@ DELTA_KERNEL_ERROR_RETRY_DELAY = dt.timedelta(minutes=2)
 # A saturated cluster refuses every model a spike reaches at once. The default backoff sends them
 # all back within seconds, so wait longer, and jitter the wait so they do not return together.
 TOO_MANY_SIMULTANEOUS_QUERIES_RETRY_DELAY_SECONDS = (60, 120)
+
+KILL_SWITCH_MAX_THREADS: dict[KillSwitchLevel, int] = {KillSwitchLevel.LIGHT: 16, KillSwitchLevel.FULL: 8}
 
 # Above this many files, the per-run compaction is worth its full-table rewrite. Below it, skipping
 # keeps an incremental run's cost proportional to the rows it changed rather than the table's size.
@@ -613,6 +615,9 @@ async def hogql_table(
 
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+    kill_switch_level = await database_sync_to_async_pool(resolve_kill_switch_level)(team.pk)
+    if kill_switch_level in KILL_SWITCH_MAX_THREADS:
+        settings.max_threads = KILL_SWITCH_MAX_THREADS[kill_switch_level]
 
     modifiers = await database_sync_to_async_pool(create_default_modifiers_for_team)(team)
     context = HogQLContext(
