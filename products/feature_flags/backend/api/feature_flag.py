@@ -3014,15 +3014,24 @@ class FeatureFlagSerializer(
         if not rollback.get("ask_rollback_reason") and reason is None:
             return None
 
-        # A deleted flag serves nobody, the same as a disabled one.
         change = classify_exposure_change(
             before=FlagExposureConfig(
-                active=locked_instance.active and not locked_instance.deleted, filters=locked_instance.filters
+                active=locked_instance.active,
+                deleted=locked_instance.deleted,
+                filters=locked_instance.filters,
+                key=locked_instance.key,
+                bucketing_identifier=locked_instance.bucketing_identifier,
+                ensure_experience_continuity=locked_instance.ensure_experience_continuity,
             ),
             after=FlagExposureConfig(
-                active=validated_data.get("active", locked_instance.active)
-                and not validated_data.get("deleted", locked_instance.deleted),
+                active=validated_data.get("active", locked_instance.active),
+                deleted=validated_data.get("deleted", locked_instance.deleted),
                 filters=validated_data.get("filters", locked_instance.filters),
+                key=validated_data.get("key", locked_instance.key),
+                bucketing_identifier=validated_data.get("bucketing_identifier", locked_instance.bucketing_identifier),
+                ensure_experience_continuity=validated_data.get(
+                    "ensure_experience_continuity", locked_instance.ensure_experience_continuity
+                ),
             ),
         )
         if reason is None:
