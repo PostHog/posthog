@@ -3,6 +3,7 @@ import asyncio
 from contextlib import suppress
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from temporalio import activity
@@ -10,6 +11,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.models import Organization
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.temporal.buffer import (
@@ -22,6 +25,8 @@ from products.signals.backend.temporal.buffer import (
 )
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, SafetyFilterOutput
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
+
+from ee.billing.quota_limiting import QuotaResource
 
 TASK_QUEUE = "test-buffer-queue"
 BUFFER_MODULE = "products.signals.backend.temporal.buffer"
@@ -144,6 +149,8 @@ async def test_safety_failure_requeues_only_failed_signals(mixed_batch: bool):
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@time_machine.travel("2026-06-10", tick=False)
+@pytest.mark.parametrize("spend_billing", [False, True])
 @pytest.mark.parametrize(
     ("billing_limited", "daily_limited", "expected", "expected_reason"),
     [
@@ -154,10 +161,14 @@ async def test_safety_failure_requeues_only_failed_signals(mixed_batch: bool):
     ],
 )
 async def test_check_activity_attributes_drop_to_the_limit_that_fired(
-    ateam, billing_limited, daily_limited, expected, expected_reason
+    ateam, billing_limited, daily_limited, expected, expected_reason, spend_billing
 ):
+    if spend_billing:
+        await Organization.objects.filter(id=ateam.organization_id).aupdate(
+            usage={"signals_spend_credits": {"billing_start_date": "2026-06-10"}}
+        )
     with (
-        patch(f"{BUFFER_MODULE}.is_team_signals_quota_limited", return_value=billing_limited),
+        patch(f"{BUFFER_MODULE}.is_team_signals_quota_limited", return_value=billing_limited) as quota_check,
         patch(
             f"{BUFFER_MODULE}.daily_report_limit_gate",
             return_value=DailyReportLimitGate(limited=daily_limited, limit=2, reports_today=2),
@@ -173,6 +184,9 @@ async def test_check_activity_attributes_drop_to_the_limit_that_fired(
         )
 
     assert result is expected
+    quota_check.assert_called_once_with(
+        ateam.api_token, QuotaResource.SIGNALS_SPEND_CREDITS if spend_billing else QuotaResource.SIGNALS_CREDITS
+    )
     dropped_events = [c.kwargs for c in analytics_capture.call_args_list if c.kwargs["event"] == "signal_dropped"]
     if expected_reason is None:
         dropped.assert_not_called()

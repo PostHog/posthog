@@ -40,7 +40,7 @@ def record_quota_check_failed_open() -> None:
     ).add(1)
 
 
-def is_team_signals_quota_limited(team_api_token: str, resource: QuotaResource = QuotaResource.SIGNALS_CREDITS) -> bool:
+def is_team_signals_quota_limited(team_api_token: str, resource: QuotaResource) -> bool:
     """Whether a team is currently over its Signals credits quota.
 
     Fails open on a quota-limiter read error so an infra blip lets work through rather than stalling.

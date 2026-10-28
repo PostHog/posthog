@@ -2,7 +2,6 @@ import json
 from datetime import UTC, datetime
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from django.db import transaction
 
@@ -621,14 +620,13 @@ class TestReleaseQuotaCancelledImplementation(BaseTest):
             created_at=datetime(2026, 6, 10, tzinfo=UTC),
         )
 
-        with patch(
-            "products.signals.backend.billing.usage_billing_cutoff",
-            return_value=datetime.fromisoformat(cutoff).replace(tzinfo=UTC) if cutoff else None,
-        ):
-            released = release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id))
-            assert (first_billable_pr_run_at(report.id, team_id=report.team_id) is not None) == (
-                cutoff is None and billing_product is None
-            )
+        if cutoff:
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": cutoff}}
+            self.organization.save(update_fields=["usage"])
+        released = release_quota_cancelled_implementation(team_id=self.team.id, task_id=str(task.id))
+        assert (first_billable_pr_run_at(report.id, team_id=report.team_id) is not None) == (
+            cutoff is None and billing_product is None
+        )
 
         assert released == []
         assert SignalReportTask.objects.filter(task_id=task.id, relationship=TASK_RUN_TYPE_IMPLEMENTATION).exists()
