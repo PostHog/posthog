@@ -6,7 +6,7 @@ import asyncio
 import logging
 from collections.abc import Sequence
 from html import escape
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from uuid import UUID
 
 from pydantic import (
@@ -763,25 +763,40 @@ def _render_existing_report_context(previous_report_id: str | None) -> str:
     )
 
 
-def _render_resolved_report_context(resolved_title: str | None, resolved_summary: str | None) -> str:
-    if not resolved_title and not resolved_summary:
+@frozen
+class RecurrenceReportContext:
+    title: str | None
+    summary: str | None
+    status: Literal["resolved", "closed"]
+
+
+def _render_recurrence_report_context(report: RecurrenceReportContext | None) -> str:
+    if report is None or (not report.title and not report.summary):
         return ""
 
-    parts = [
-        "\n---\n\n## Previously closed report",
-        "",
-        "A very similar issue was covered by an earlier report that was marked as **fixed**. "
+    outcome = (
+        "An earlier report covered a very similar issue, but its implementation attempt ended as **Closed** "
+        "without proving resolution. This signal is a recurrence, so investigate whether the attempted fix "
+        "left the issue unresolved, addressed only part of it, or concerns a distinct problem. "
+        "Use the prior investigation as context and establish what the evidence supports."
+        if report.status == "closed"
+        else "A very similar issue was covered by an earlier report that was marked as **fixed**. "
         "Verify this claim: it does not prove that a fix shipped. This signal is a recurrence, so it's a fresh report rather than a "
         "reopening of that one. Take the prior fix into account: figure out whether this is a regression of that "
         "fix, a new dimension of the same underlying issue, or a genuinely distinct problem, and say which in your "
-        "findings.",
+        "findings."
+    )
+    parts = [
+        "\n---\n\n## Previously closed report",
+        "",
+        outcome,
         "",
         "The closed report was:",
     ]
-    if resolved_title:
-        parts.append(f"- **Title:** {resolved_title}")
-    if resolved_summary:
-        parts.append(f"- **Summary:** {resolved_summary}")
+    if report.title:
+        parts.append(f"- **Title:** {report.title}")
+    if report.summary:
+        parts.append(f"- **Summary:** {report.summary}")
     return "\n".join(parts) + "\n"
 
 
@@ -1210,8 +1225,7 @@ def build_initial_research_prompt(
     previous_finding: SignalFinding | None = None,
     has_business_knowledge: bool = False,
     metric_checks_enabled: bool = False,
-    resolved_report_title: str | None = None,
-    resolved_report_summary: str | None = None,
+    recurrence_report: RecurrenceReportContext | None = None,
     linked_reports: list[LinkedReportContext] | None = None,
     steering_section: str = "",
     code_available: bool = True,
@@ -1230,7 +1244,7 @@ def build_initial_research_prompt(
             report_context += f"**Summary:** {summary}\n\n"
 
     existing_report_context = _render_existing_report_context(previous_report_id)
-    resolved_report_context = _render_resolved_report_context(resolved_report_title, resolved_report_summary)
+    recurrence_report_context = _render_recurrence_report_context(recurrence_report)
     linked_report_context = _render_linked_report_context(linked_reports or [])
     previous_finding_context = _render_previous_finding_context(previous_finding)
     investigation_instruction = (
@@ -1255,7 +1269,7 @@ def build_initial_research_prompt(
 {investigation_instruction.format(total_signals=total_signals)}
 {report_context}
 {existing_report_context}
-{resolved_report_context}
+{recurrence_report_context}
 {linked_report_context}
 ---
 
@@ -1741,8 +1755,7 @@ async def run_multi_turn_research(
     signal_report_id: str | None = None,
     spend_signal_id: str | None = None,
     has_business_knowledge: bool = False,
-    resolved_report_title: str | None = None,
-    resolved_report_summary: str | None = None,
+    recurrence_report: RecurrenceReportContext | None = None,
     linked_reports: list[LinkedReportContext] | None = None,
     metrics_enabled: bool = False,
     monitoring_enabled: bool = False,
@@ -1791,8 +1804,7 @@ async def run_multi_turn_research(
         previous_finding=first_previous,
         has_business_knowledge=has_business_knowledge,
         metric_checks_enabled=metrics_enabled,
-        resolved_report_title=resolved_report_title,
-        resolved_report_summary=resolved_report_summary,
+        recurrence_report=recurrence_report,
         linked_reports=linked_reports,
         steering_section=steering_section,
         code_available=code_available,

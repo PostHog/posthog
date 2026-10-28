@@ -32,6 +32,7 @@ import { SessionRecordingSidebarTab } from '~/types'
 import { visionObservationsViewedCreate, visionScannersHighlightFeedRetrieve } from '../generated/api'
 import type { HighlightFeedItemApi } from '../generated/api.schemas'
 import { observationKeyMomentMs, highlightStartSeconds } from './components/HighlightFeedCard'
+import type { HighlightFeedEmptyReason } from './highlightFeedEmptyState'
 import { recordFeedImpressions } from './highlightFeedImpressionCounts'
 import {
     type HighlightFeedLoad,
@@ -90,6 +91,9 @@ export interface highlightPicksLogicActions {
     ) => {
         item: HighlightFeedItemApi
         position: number
+    }
+    emptyStateShown: (reason: HighlightFeedEmptyReason) => {
+        reason: HighlightFeedEmptyReason
     }
     highlightPick: (
         item: HighlightFeedItemApi,
@@ -172,6 +176,7 @@ export const highlightPicksLogic: LogicWrapper<highlightPicksLogicType> = kea<hi
         markPickViewed: (observationId: string) => ({ observationId }),
         setPicksLoad: (load: HighlightFeedLoad) => ({ load }),
         cardSeen: (item: HighlightFeedItemApi, position: number) => ({ item, position }),
+        emptyStateShown: (reason: HighlightFeedEmptyReason) => ({ reason }),
     }),
 
     loaders(({ values, actions }) => ({
@@ -290,6 +295,13 @@ export const highlightPicksLogic: LogicWrapper<highlightPicksLogicType> = kea<hi
             },
             setPicksLoad: ({ load }) => {
                 cache.impressions.start(load)
+            },
+            emptyStateShown: ({ reason }) => {
+                if (cache.emptyStateShownReason === reason) {
+                    return
+                }
+                cache.emptyStateShownReason = reason
+                posthog.capture('replay_vision_highlight_picks_empty_shown', { reason })
             },
             cardSeen: ({ item, position }) => {
                 // Fallback rows below the picks were not served by the ranker, so they are not impressions of this load.

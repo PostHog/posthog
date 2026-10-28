@@ -8,6 +8,7 @@ import botocore.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    _EREMOTEIO,
     TransientObjectStoreError,
     is_invalid_version_race,
     is_missing_scan_file_race,
@@ -43,6 +44,22 @@ class TestIsTransientObjectStoreError:
                 # are exhausted - S3's fixed InternalError message, not a bug in our code.
                 "s3_internal_error_os_error",
                 OSError("[Errno 121] We encountered an internal error. Please try again."),
+                True,
+            ),
+            (
+                # delta-rs's own object_store crate (reqwest/hyper) reports a connection the remote
+                # end dropped mid-response this way, already marked "(temporary)" before this
+                # classifier runs - a retry against a fresh connection self-heals it.
+                "connection_closed_before_message_completed",
+                OSError(
+                    "Generic IoError error: Unexpected (temporary) at read, context: { url: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000002.json, "
+                    "called: http_util::Client::send, service: oss, path: "
+                    "_delta_log/00000000000000000002.json, range: 0-3460 } => send http request, source: "
+                    "error sending request for url (https://example-bucket.oss-us-west-1.aliyuncs.com/"
+                    "_delta_log/00000000000000000002.json) => client error (SendRequest) => connection "
+                    "closed before message completed"
+                ),
                 True,
             ),
             (
@@ -87,6 +104,14 @@ class TestIsTransientObjectStoreError:
             (
                 "s3_service_unavailable_ebusy",
                 OSError(errno.EBUSY, "Service Unavailable"),
+                True,
+            ),
+            (
+                # A non-AWS S3-compatible provider's own wording for the same InternalError/500
+                # response s3fs always maps to this errno (see s3fs/errors.py::translate_boto_error) -
+                # the message needle above only catches AWS's fixed text, so this must match by errno.
+                "s3_compatible_internal_error_non_aws_wording_eremoteio",
+                OSError(_EREMOTEIO, "Please contact the server administrator, oss@service.aliyun.com"),
                 True,
             ),
             (
