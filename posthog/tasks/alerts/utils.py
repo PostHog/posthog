@@ -13,6 +13,7 @@ import structlog
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.dataclasses import frozen
+from posthog.helpers.email_formatting import render_markdown_email_html
 from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
@@ -287,6 +288,7 @@ def send_notifications_for_breaches(
             template_name="alert_check_firing",
             template_context={
                 "match_descriptions": breaches,
+                "match_descriptions_html": [render_markdown_email_html(breach) for breach in breaches],
                 "insight_url": insight_url,
                 "insight_name": alert.insight.name,
                 "alert_url": alert_url,

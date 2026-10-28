@@ -39,7 +39,7 @@ _ALLOWED_EMAIL_TAGS = {
 _ALLOWED_EMAIL_ATTRS = {"a": {"href", "title"}}
 
 
-def render_ai_email_html(markdown: str) -> SafeString:
+def render_markdown_email_html(markdown: str) -> SafeString:
     rendered = _MARKDOWN_RENDERER.render(strip_external_links_markdown(markdown))
     # Raw HTML is disabled and nh3 removes unsafe tags and attributes before email rendering.
     # nosemgrep: python.django.security.audit.avoid-mark-safe.avoid-mark-safe

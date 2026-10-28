@@ -7,11 +7,17 @@
             The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert is firing for <a href="{% absolute_uri insight_url %}">{{ insight_name }}</a> in project <strong>{{ project_name }}</strong>:
         {% endif %}
     </p>
-    <ul>
-        {% for item in match_descriptions %}
-            <li>{{ item }}</li>
+    {% if match_descriptions_html %}
+        {% for item in match_descriptions_html %}
+            <div>{{ item }}</div>
         {% endfor %}
-    </ul>
+    {% else %}
+        <ul>
+            {% for item in match_descriptions %}
+                <li>{{ item }}</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
     <div class="mb mt text-center">
         <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
     </div>

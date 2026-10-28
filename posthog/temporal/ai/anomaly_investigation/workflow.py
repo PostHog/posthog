@@ -6,7 +6,6 @@ Triggered from posthog/temporal/alerts/workflows.py for a firing check the budge
 
 from __future__ import annotations
 
-import re
 import json
 import asyncio
 from dataclasses import dataclass
@@ -70,7 +69,6 @@ ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 40 * 60  # 40 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
 
-MAX_SUMMARY_CHARS = 500
 
 _VERDICT_LABELS = {
     "true_positive": "True positive",
@@ -85,10 +83,6 @@ _VERDICT_CHANGE_FOLLOWUP_KEY = "investigation_verdict_change"
 # (a conservative margin even for token-dense text) so a long agent report can't get the signal
 # rejected and silently dropped.
 _MAX_DESCRIPTION_CHARS = 3000
-
-# Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
-# used to clip the summary teaser on a sentence boundary instead of mid-word.
-_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 
 
 @dataclass
@@ -236,12 +230,11 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # last verdict of an earlier check in the same firing episode.
     episode = await sync_to_async(episode_investigations, thread_sensitive=False)(alert, alert_check)
 
-    summary_for_list = _truncate_summary(result.report.summary)
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_notebook_id=notebook.id,
         investigation_status=InvestigationStatus.DONE,
         investigation_verdict=result.report.verdict,
-        investigation_summary=summary_for_list,
+        investigation_summary=result.report.summary.strip() or None,
         investigation_error=None,
     )
 
@@ -258,7 +251,9 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         alert_check=alert_check,
         verdict=result.report.verdict,
         previous_verdict=episode.previous_verdict,
-        summary=summary_for_list or "",
+        summary=result.report.summary,
+        metric_description=result.report.metric_meaning,
+        next_step=next(iter(result.report.recommendations), None),
         notebook_short_id=notebook.short_id,
         insight_chart_url=insight_chart_url,
     )
@@ -458,6 +453,8 @@ def _deliver_investigation_outcome(
     summary: str,
     notebook_short_id: str | None,
     insight_chart_url: str | None = None,
+    metric_description: str | None = None,
+    next_step: str | None = None,
 ) -> None:
     """Decide what the user gets now that we have the verdict.
 
@@ -489,6 +486,8 @@ def _deliver_investigation_outcome(
                 verdict=verdict,
                 previous_verdict=previous_verdict,
                 summary=summary,
+                metric_description=metric_description,
+                next_step=next_step,
                 notebook_short_id=notebook_short_id,
             )
             return
@@ -515,7 +514,12 @@ def _deliver_investigation_outcome(
         # URL backs the Slack "View Investigation" button (falls back to "View Alert" when
         # absent), and the chart URL renders as an image block of the alerted insight (the
         # block falls back to a divider when absent).
-        extra_properties: dict[str, str] = {}
+        extra_properties: dict[str, str | None] = {
+            "investigation_summary": summary,
+            "investigation_verdict": verdict,
+            "investigation_metric_description": metric_description,
+            "investigation_next_step": next_step,
+        }
         if notebook_short_id:
             extra_properties["investigation_notebook_url"] = absolute_uri(f"/notebooks/{notebook_short_id}")
         if insight_chart_url:
@@ -545,6 +549,8 @@ def _dispatch_verdict_change_followup(
     previous_verdict: str | None,
     summary: str,
     notebook_short_id: str | None,
+    metric_description: str | None = None,
+    next_step: str | None = None,
 ) -> None:
     """Send one follow-up for a check whose notification already went out and whose verdict
     changed since the previous investigation of the same episode.
@@ -576,9 +582,14 @@ def _dispatch_verdict_change_followup(
         summary=summary,
         notebook_short_id=notebook_short_id,
     )
-    extra_properties = (
-        {"investigation_notebook_url": absolute_uri(f"/notebooks/{notebook_short_id}")} if notebook_short_id else None
-    )
+    extra_properties = {
+        "investigation_summary": summary,
+        "investigation_verdict": verdict,
+        "investigation_metric_description": metric_description,
+        "investigation_next_step": next_step,
+    }
+    if notebook_short_id:
+        extra_properties["investigation_notebook_url"] = absolute_uri(f"/notebooks/{notebook_short_id}")
     try:
         # The savepoint keeps a database failure inside the dispatch from poisoning the
         # caller's transaction once the handler below swallows it.
@@ -670,35 +681,6 @@ def _build_breach_descriptions(
         notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}")
         lines.append(f"See {notebook_url} for the full investigation.")
     return lines
-
-
-def _truncate_summary(summary: str | None) -> str | None:
-    """Clamp the agent's summary for list rendering and email/Slack follow-ups.
-
-    The full write-up already lives in the notebook — this field is just a teaser.
-    """
-    if not summary:
-        return None
-    trimmed = summary.strip()
-    if not trimmed:
-        return None
-    if len(trimmed) <= MAX_SUMMARY_CHARS:
-        return trimmed
-
-    window = trimmed[:MAX_SUMMARY_CHARS]
-    # Prefer clipping at the last complete sentence, but only if it keeps enough of the
-    # teaser — otherwise a short lead sentence would drop most of the summary.
-    sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(window)]
-    if sentence_ends and sentence_ends[-1] >= MAX_SUMMARY_CHARS // 2:
-        # Always append the ellipsis: the boundary might be an abbreviation (e.g. "U.S."),
-        # not a real sentence end, so a clean-looking stop would hide that we dropped the rest.
-        return window[: sentence_ends[-1]].rstrip() + " …"
-
-    # No usable sentence boundary — fall back to the last word boundary with an ellipsis.
-    word_end = window.rstrip().rfind(" ")
-    if word_end != -1:
-        return window[:word_end].rstrip() + "…"
-    return trimmed[: MAX_SUMMARY_CHARS - 1].rstrip() + "…"
 
 
 async def _update_status(alert_check, status: str) -> None:

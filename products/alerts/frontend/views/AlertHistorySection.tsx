@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
+    LemonButton,
     LemonSegmentedButton,
     LemonSkeleton,
     LemonTable,
@@ -18,6 +19,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -51,6 +53,7 @@ const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: s
 }
 
 function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
+    const [expanded, setExpanded] = useState(false)
     const status = check.investigation_status
     const shortId = check.investigation_notebook_short_id
     const summary = check.investigation_summary?.trim() || null
@@ -68,17 +71,28 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
                         </LemonTag>
                     </Tooltip>
                 )}
-                <Tooltip title={summary || undefined}>
-                    <div className="text-sm leading-normal line-clamp-2 text-muted">
-                        {verdictCfg && (
-                            <Tooltip title={verdictCfg.tooltip}>
-                                <span className={`font-semibold ${verdictCfg.className}`}>{verdictCfg.label}</span>
-                            </Tooltip>
-                        )}
-                        {verdictCfg && summary && <span> — </span>}
-                        {summary && <span>{summary}</span>}
-                    </div>
-                </Tooltip>
+                {verdictCfg && (
+                    <Tooltip title={verdictCfg.tooltip}>
+                        <span className={`font-semibold ${verdictCfg.className}`}>{verdictCfg.label}</span>
+                    </Tooltip>
+                )}
+                {summary && (
+                    <>
+                        <div className={`text-sm leading-normal text-muted ${expanded ? '' : 'line-clamp-2'}`}>
+                            <LemonMarkdown disableImages="all" disableLinks disableMentions lowKeyHeadings>
+                                {summary}
+                            </LemonMarkdown>
+                        </div>
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            onClick={() => setExpanded(!expanded)}
+                            aria-expanded={expanded}
+                        >
+                            {expanded ? 'Show less' : 'Show more'}
+                        </LemonButton>
+                    </>
+                )}
                 {shortId && (
                     <Link to={`/notebooks/${shortId}`} className="inline-flex items-center gap-1 text-sm">
                         <IconNotebook /> View notebook <IconOpenInNew className="text-xs" />

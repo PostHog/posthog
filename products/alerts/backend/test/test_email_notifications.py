@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, call, patch
 
 from django.template.loader import render_to_string
 
+from posthog.helpers.email_formatting import render_markdown_email_html
+
 from products.alerts.backend.facade.email import send_alert_email
 
 
@@ -67,6 +69,14 @@ def test_alert_firing_email_lists_every_breach_description() -> None:
         "email/alert_check_firing.html",
         {
             "match_descriptions": ["Signups dropped below 100", "Signups dropped below 50"],
+            "match_descriptions_html": [
+                render_markdown_email_html("Signups dropped below 100"),
+                render_markdown_email_html("Signups dropped below 50"),
+                render_markdown_email_html(
+                    "- `signup_count` reached **40** during _09:00–10:00_.\n"
+                    "- Review [the insight](https://us.posthog.com/project/1/insights/example)."
+                ),
+            ],
             "insight_url": "/project/1/insights/example",
             "insight_name": "Example insight",
             "alert_url": "/project/1/insights/example?alert_id=1",
@@ -77,6 +87,10 @@ def test_alert_firing_email_lists_every_breach_description() -> None:
 
     assert "Signups dropped below 100" in html
     assert "Signups dropped below 50" in html
+    assert "<code>signup_count</code>" in html
+    assert "<strong>40</strong>" in html
+    assert "<em>09:00–10:00</em>" in html
+    assert 'href="https://us.posthog.com/project/1/insights/example"' in html
 
 
 def test_alert_evaluation_failure_email_claims_no_cause_for_an_unavailable_detector() -> None:
