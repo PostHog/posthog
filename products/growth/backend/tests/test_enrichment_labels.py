@@ -9,9 +9,10 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 import openai
+from anthropic.types import Message, TextBlock, ToolUseBlock, Usage
 from openai import OpenAI
 from parameterized import parameterized
 
@@ -402,6 +403,104 @@ class TestClassifyPayloadToolLoop(SimpleTestCase):
                 classify_payload(config, {"name": "Acme"}, "example.com", cast(OpenAI, client))
 
         assert len(client.calls) == 3
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.test/v1")
+    def test_claude_on_the_ai_gateway_runs_the_tool_loop_through_anthropic_messages(self):
+        config = self._config()
+        config.model = "claude-haiku-4-5"
+        client = OpenAI(
+            api_key="phs_test", base_url="https://gateway.test/v1", default_headers={"X-PostHog-Product": "growth"}
+        )
+        usage = Usage(input_tokens=10, output_tokens=5)
+        replies = [
+            Message(
+                id="msg_1",
+                type="message",
+                role="assistant",
+                model="claude-haiku-4-5",
+                stop_reason="tool_use",
+                content=[ToolUseBlock(type="tool_use", id="toolu_1", name="web_search", input={"query": "Acme AI"})],
+                usage=usage,
+            ),
+            Message(
+                id="msg_2",
+                type="message",
+                role="assistant",
+                model="claude-haiku-4-5",
+                stop_reason="end_turn",
+                content=[TextBlock(type="text", text=json.dumps({"is_ai": True, "evidence_url": ""}))],
+                usage=usage,
+            ),
+        ]
+        found = FirecrawlSearch(
+            query="Acme AI", results=(FirecrawlSearchResult(url="https://techcrunch.com/acme", title="funding"),)
+        )
+
+        with (
+            patch(f"{_LABELS_MODULE}.anthropic.Anthropic") as anthropic_client,
+            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+        ):
+            create = anthropic_client.return_value.messages.create
+            create.side_effect = replies
+            result = classify_payload(config, {"name": "Acme"}, "example.com", client)
+
+        assert result["is_ai"] is True
+        assert result["meta"]["prompt_tokens"] == 20
+        assert anthropic_client.call_args.kwargs["base_url"] == "https://gateway.test"
+        assert anthropic_client.call_args.kwargs["default_headers"] == {"X-PostHog-Product": "growth"}
+        first_turn, second_turn = (call.kwargs for call in create.call_args_list)
+        assert first_turn["system"].startswith("judge it.")
+        assert [tool["name"] for tool in first_turn["tools"]] == ["web_search", "fetch_page"]
+        assert second_turn["messages"][1]["content"][0]["type"] == "tool_use"
+        tool_result = second_turn["messages"][2]["content"][0]
+        assert tool_result["tool_use_id"] == "toolu_1"
+        assert "techcrunch.com/acme" in tool_result["content"]
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.test/v1")
+    def test_claude_final_turn_after_the_tool_budget_keeps_tools_but_disables_them(self):
+        config = self._config()
+        config.model = "claude-haiku-4-5"
+        client = OpenAI(api_key="phs_test", base_url="https://gateway.test/v1")
+        usage = Usage(input_tokens=10, output_tokens=5)
+        tool_uses = [
+            ToolUseBlock(type="tool_use", id=f"toolu_{i}", name="web_search", input={"query": f"q{i}"})
+            for i in range(5)
+        ]
+        replies = [
+            Message(
+                id="msg_1",
+                type="message",
+                role="assistant",
+                model="claude-haiku-4-5",
+                stop_reason="tool_use",
+                content=tool_uses,
+                usage=usage,
+            ),
+            Message(
+                id="msg_2",
+                type="message",
+                role="assistant",
+                model="claude-haiku-4-5",
+                stop_reason="end_turn",
+                content=[TextBlock(type="text", text=json.dumps({"is_ai": True, "evidence_url": ""}))],
+                usage=usage,
+            ),
+        ]
+        found = FirecrawlSearch(query="q", results=(FirecrawlSearchResult(url="https://x.example"),))
+
+        with (
+            patch(f"{_LABELS_MODULE}.anthropic.Anthropic") as anthropic_client,
+            patch(f"{_TOOLS_MODULE}.search", return_value=found),
+        ):
+            create = anthropic_client.return_value.messages.create
+            create.side_effect = replies
+            result = classify_payload(config, {"name": "Acme"}, "example.com", client)
+
+        assert result["is_ai"] is True
+        final_turn = create.call_args_list[1].kwargs
+        assert [tool["name"] for tool in final_turn["tools"]] == ["web_search", "fetch_page"]
+        assert final_turn["tool_choice"] == {"type": "none"}
+        assert len(final_turn["messages"][-1]["content"]) == 5
 
 
 class TestClassifyPayloadToolEvidenceUrl(SimpleTestCase):
