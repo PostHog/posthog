@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { CustomHarnessIcon } from '../components/CustomHarnessIcon'
 import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
 import { McpCustomHarnessForm } from './McpCustomHarnessForm'
 
@@ -43,6 +44,7 @@ export function McpCustomHarnessesSettings(): JSX.Element {
                             key={harness.id}
                             className="border rounded flex items-center gap-2 p-2 pl-4 bg-surface-primary"
                         >
+                            <CustomHarnessIcon harness={harness.name} />
                             <span className="flex-1 min-w-0 truncate font-semibold" title={harness.name}>
                                 {harness.name}
                             </span>
