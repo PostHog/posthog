@@ -2,7 +2,9 @@
 //! the stored bytes becomes [`UNCHECKED_MARKER`], so no URL the policy would refuse is stored, and the block is kept
 //! instead of dropped.
 //!
-//! A token is a run of URL bytes, CSS escapes included, between JSON or CSS delimiters. The scrub does not know which
+//! The scrub reads the bytes one character at a time through their JSON escapes and CSS escapes, so it never splits an
+//! escape and the stored JSON stays valid. A URL token ends at whitespace or at the end of its JSON string. A URL that
+//! starts after `(`, `'` or `"` also ends at `)`, `'` or `"`, because CSS ends it there. The scrub does not know which
 //! slot a token sits in, so it also replaces URLs outside image slots, such as links and text. It runs only on the few
 //! blocks that need it.
 
@@ -18,122 +20,371 @@ pub const UNCHECKED_MARKER: &str = "imageurl:v4:declined:unchecked";
 pub enum Scrub {
     #[default]
     Nothing,
-    /// Every token that starts with `http:`, `https:` or `//` and a host, in any letter case.
+    /// Every token that `url_policy::is_remote` reads as remote: `http:` or `https:`, or two slashes or backslashes,
+    /// in any letter case and through any escape.
     AllRemote,
     /// Every token that holds one of these hosts, in any letter case.
     Hosts(Vec<String>),
 }
 
 pub struct Scrubber {
-    matcher: Option<AhoCorasick>,
     all_remote: bool,
+    hosts: Option<AhoCorasick>,
 }
 
-/// A byte that a URL token can go on with. A backslash starts a CSS escape, which a browser reads as part of the URL.
-fn token_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || b"-._~/?#@!$&*+=%:;[],\\".contains(&byte)
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    Plain,
+    /// An unescaped `"`, which ends the JSON string.
+    StringEnd,
+    /// A character a CSS escape names. It is part of the URL whatever it is.
+    CssEscaped,
 }
 
-/// Whether a JSON escape that ends the token starts at `at`: an escaped quote or line break, not an escaped backslash.
-fn json_break_at(bytes: &[u8], at: usize) -> bool {
-    bytes.get(at) == Some(&b'\\') && matches!(bytes.get(at + 1), Some(b'"' | b'n' | b'r' | b't'))
+/// One character of the stored bytes and the bytes that spell it.
+#[derive(Clone, Copy)]
+struct Unit {
+    ch: u32,
+    len: usize,
+    kind: Kind,
 }
 
-/// Whether the bytes before `at` end with an escaped quote or line break, which is no part of the token after it.
-fn json_break_before(bytes: &[u8], at: usize) -> bool {
+/// The character that ends a URL besides whitespace and the end of its JSON string.
+#[derive(Clone, Copy)]
+enum Closer {
+    None,
+    Paren,
+    Apostrophe,
+    Quote,
+}
+
+enum Start {
+    Scheme,
+    Slashes,
+}
+
+fn is_space(ch: u32) -> bool {
+    ch <= u32::from(b' ')
+}
+
+fn is_char(ch: u32, byte: u8) -> bool {
+    ch == u32::from(byte)
+}
+
+/// A character that a relative path or a word can hold, so `//` after it starts no URL.
+fn continues_word(ch: u32) -> bool {
+    u8::try_from(ch)
+        .is_ok_and(|b| b.is_ascii_alphanumeric() || b"-._~/?#@!$&*+=%:;[]\\".contains(&b))
+}
+
+/// The character at `at` after its JSON escape, and its length in bytes.
+fn json_unit(bytes: &[u8], at: usize) -> (u32, usize) {
+    let byte = bytes[at];
+    if byte != b'\\' {
+        return (u32::from(byte), 1);
+    }
+    match bytes.get(at + 1) {
+        Some(b'u') => bytes
+            .get(at + 2..at + 6)
+            .and_then(|hex| std::str::from_utf8(hex).ok())
+            .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+            .map_or((u32::from(byte), 1), |code| (code, 6)),
+        Some(&escaped) => {
+            let ch = match escaped {
+                b'n' => b'\n',
+                b'r' => b'\r',
+                b't' => b'\t',
+                b'b' => 0x08,
+                b'f' => 0x0c,
+                other => other,
+            };
+            (u32::from(ch), 2)
+        }
+        None => (u32::from(byte), 1),
+    }
+}
+
+/// The character at `at` after its JSON escape and a CSS escape inside it. A CSS hex escape takes the one whitespace
+/// after it, as CSS reads it.
+fn unit(bytes: &[u8], at: usize) -> Unit {
+    let (ch, len) = json_unit(bytes, at);
+    if len == 1 && is_char(ch, b'"') {
+        return Unit {
+            ch,
+            len,
+            kind: Kind::StringEnd,
+        };
+    }
+    let plain = Unit {
+        ch,
+        len,
+        kind: Kind::Plain,
+    };
+    if len == 1 || !is_char(ch, b'\\') {
+        return plain;
+    }
+    let mut end = at + len;
+    let (mut code, mut digits) = (0u32, 0);
+    while digits < 6 && end < bytes.len() {
+        let (next, next_len) = json_unit(bytes, end);
+        let Some(digit) = char::from_u32(next).and_then(|c| c.to_digit(16)) else {
+            break;
+        };
+        code = code * 16 + digit;
+        digits += 1;
+        end += next_len;
+    }
+    if digits > 0 {
+        if end < bytes.len() {
+            let (next, next_len) = json_unit(bytes, end);
+            if is_space(next) {
+                end += next_len;
+            }
+        }
+        return Unit {
+            ch: code,
+            len: end - at,
+            kind: Kind::CssEscaped,
+        };
+    }
+    if end >= bytes.len() {
+        return plain;
+    }
+    let (next, next_len) = json_unit(bytes, end);
+    if is_space(next) || (next_len == 1 && is_char(next, b'"')) {
+        return plain;
+    }
+    Unit {
+        ch: next,
+        len: len + next_len,
+        kind: Kind::CssEscaped,
+    }
+}
+
+fn lower(ch: u32) -> u32 {
+    u8::try_from(ch).map_or(ch, |b| u32::from(b.to_ascii_lowercase()))
+}
+
+/// Whether a remote URL starts at `at`, and how.
+fn remote_start(bytes: &[u8], at: usize) -> Option<Start> {
+    let mut chars = [0u32; 6];
+    let (mut pos, mut count) = (at, 0);
+    while count < chars.len() && pos < bytes.len() {
+        let next = unit(bytes, pos);
+        if next.kind == Kind::StringEnd {
+            break;
+        }
+        chars[count] = lower(next.ch);
+        pos += next.len;
+        count += 1;
+    }
+    let slash = |ch: u32| is_char(ch, b'/') || is_char(ch, b'\\');
+    if count >= 2 && slash(chars[0]) && slash(chars[1]) {
+        return Some(Start::Slashes);
+    }
+    // Outside CSS, `\\` is two backslashes rather than one escaped backslash, and a browser reads both as slashes.
+    let (first, first_len) = json_unit(bytes, at);
+    if slash(first) && at + first_len < bytes.len() && slash(json_unit(bytes, at + first_len).0) {
+        return Some(Start::Slashes);
+    }
+    let http = chars[..4]
+        .iter()
+        .zip(b"http")
+        .all(|(&ch, &b)| is_char(ch, b));
+    let colon_at = if is_char(chars[4], b's') { 5 } else { 4 };
+    (count > colon_at && http && is_char(chars[colon_at], b':')).then_some(Start::Scheme)
+}
+
+fn closer_after(prev: Option<Unit>) -> Closer {
+    match prev {
+        Some(Unit {
+            ch,
+            kind: Kind::Plain,
+            ..
+        }) if is_char(ch, b'(') => Closer::Paren,
+        Some(Unit {
+            ch,
+            kind: Kind::Plain,
+            ..
+        }) if is_char(ch, b'\'') => Closer::Apostrophe,
+        Some(Unit {
+            ch,
+            kind: Kind::Plain,
+            ..
+        }) if is_char(ch, b'"') => Closer::Quote,
+        _ => Closer::None,
+    }
+}
+
+fn ends_url(next: Unit, closer: Closer) -> bool {
+    match next.kind {
+        Kind::StringEnd => true,
+        Kind::CssEscaped => false,
+        Kind::Plain => {
+            is_space(next.ch)
+                || match closer {
+                    Closer::None => false,
+                    Closer::Paren => is_char(next.ch, b')'),
+                    Closer::Apostrophe => is_char(next.ch, b'\''),
+                    Closer::Quote => is_char(next.ch, b'"'),
+                }
+        }
+    }
+}
+
+/// The spans of the remote URL tokens, in order.
+fn url_spans(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut spans = Vec::new();
+    let mut prev: Option<Unit> = None;
+    let mut at = 0;
+    while at < bytes.len() {
+        let current = unit(bytes, at);
+        let first = lower(current.ch);
+        let starts = (is_char(first, b'h') || is_char(first, b'/') || is_char(first, b'\\'))
+            && match remote_start(bytes, at) {
+                Some(Start::Scheme) => true,
+                Some(Start::Slashes) => !prev.is_some_and(|p| continues_word(p.ch)),
+                None => false,
+            };
+        if !starts {
+            prev = Some(current);
+            at += current.len;
+            continue;
+        }
+        let closer = closer_after(prev);
+        let mut end = at;
+        while end < bytes.len() {
+            let next = unit(bytes, end);
+            if ends_url(next, closer) {
+                break;
+            }
+            end += next.len;
+        }
+        spans.push((at, end));
+        prev = None;
+        at = end;
+    }
+    spans
+}
+
+/// Whether the byte before `at` closes a JSON escape that ends a token, such as `\n`, rather than an escaped backslash.
+fn escape_ends_at(bytes: &[u8], at: usize) -> bool {
     at >= 2
-        && matches!(bytes[at - 1], b'"' | b'n' | b'r' | b't')
-        && bytes[at - 2] == b'\\'
-        && !(at >= 3 && bytes[at - 3] == b'\\')
+        && matches!(bytes[at - 1], b'n' | b'r' | b't' | b'b' | b'f')
+        && bytes[..at - 1]
+            .iter()
+            .rev()
+            .take_while(|&&b| b == b'\\')
+            .count()
+            % 2
+            == 1
+}
+
+/// The span around a host that no URL token holds, such as a bare host in text. It ends at whitespace and quotes, which
+/// never sit inside an escape, so the span keeps every escape whole.
+fn bare_span(bytes: &[u8], start: usize, end: usize) -> (usize, usize) {
+    let mut first = start;
+    while first > 0
+        && bytes[first - 1] > b' '
+        && bytes[first - 1] != b'"'
+        && !escape_ends_at(bytes, first)
+    {
+        first -= 1;
+    }
+    let mut last = end;
+    while last < bytes.len() && bytes[last] > b' ' && bytes[last] != b'"' {
+        if bytes[last] == b'\\' {
+            let (ch, len) = json_unit(bytes, last);
+            if len > 1 && (is_space(ch) || is_char(ch, b'"')) {
+                break;
+            }
+            last += len;
+        } else {
+            last += 1;
+        }
+    }
+    (first, last.min(bytes.len()))
 }
 
 impl Scrubber {
     pub fn new(scrub: &Scrub) -> Self {
-        let (patterns, all_remote): (Vec<String>, bool) = match scrub {
-            Scrub::Nothing => (Vec::new(), false),
-            Scrub::AllRemote => (vec!["http".to_owned(), "//".to_owned()], true),
-            Scrub::Hosts(hosts) => (hosts.clone(), false),
+        let hosts = match scrub {
+            Scrub::Hosts(hosts) if !hosts.is_empty() => AhoCorasickBuilder::new()
+                .ascii_case_insensitive(true)
+                .match_kind(MatchKind::LeftmostFirst)
+                .build(hosts)
+                .ok(),
+            _ => None,
         };
-        let matcher = (!patterns.is_empty())
-            .then(|| {
-                AhoCorasickBuilder::new()
-                    .ascii_case_insensitive(true)
-                    .match_kind(MatchKind::LeftmostFirst)
-                    .build(&patterns)
-                    .ok()
-            })
-            .flatten();
         Self {
-            matcher,
-            all_remote,
+            all_remote: *scrub == Scrub::AllRemote,
+            hosts,
         }
     }
 
     /// The bytes with each URL token replaced, and how many were.
     pub fn apply<'b>(&self, bytes: &'b [u8]) -> (Cow<'b, [u8]>, u64) {
-        let Some(matcher) = &self.matcher else {
-            return (Cow::Borrowed(bytes), 0);
+        let spans = if self.all_remote {
+            url_spans(bytes)
+        } else if let Some(hosts) = &self.hosts {
+            Self::host_spans(hosts, bytes)
+        } else {
+            Vec::new()
         };
-        let mut out: Option<Vec<u8>> = None;
+        if spans.is_empty() {
+            return (Cow::Borrowed(bytes), 0);
+        }
+        let mut out = Vec::with_capacity(bytes.len());
         let mut copied_to = 0;
         let mut replaced = 0;
-        for found in matcher.find_iter(bytes) {
-            if found.start() < copied_to {
+        for (start, end) in spans {
+            if end <= copied_to {
                 continue;
             }
-            let Some((start, end)) = self.token(bytes, found.start(), found.end()) else {
-                continue;
-            };
-            if start < copied_to {
-                continue;
+            if start >= copied_to {
+                out.extend_from_slice(&bytes[copied_to..start]);
+                out.extend_from_slice(UNCHECKED_MARKER.as_bytes());
+                replaced += 1;
             }
-            let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
-            out.extend_from_slice(&bytes[copied_to..start]);
-            out.extend_from_slice(UNCHECKED_MARKER.as_bytes());
             copied_to = end;
-            replaced += 1;
         }
-        match out {
-            Some(mut out) => {
-                out.extend_from_slice(&bytes[copied_to..]);
-                (Cow::Owned(out), replaced)
-            }
-            None => (Cow::Borrowed(bytes), 0),
-        }
+        out.extend_from_slice(&bytes[copied_to..]);
+        (Cow::Owned(out), replaced)
     }
 
-    /// The URL token around a match, or `None` when the match does not start a remote URL.
-    fn token(&self, bytes: &[u8], start: usize, end: usize) -> Option<(usize, usize)> {
-        let mut first = start;
-        if self.all_remote {
-            // A remote URL starts its token: `http` and `//` inside a longer word or path are no URL start.
-            if first > 0 && token_byte(bytes[first - 1]) && !json_break_before(bytes, first) {
-                return None;
-            }
-            let rest = &bytes[end..];
-            let starts_url = if bytes[start] == b'/' {
-                rest.first().is_some_and(u8::is_ascii_alphanumeric)
-            } else {
-                let rest = if rest.first().is_some_and(|b| b.eq_ignore_ascii_case(&b's')) {
-                    &rest[1..]
-                } else {
-                    rest
-                };
-                matches!(rest.first(), Some(b':' | b'\\'))
-            };
-            if !starts_url {
-                return None;
-            }
-        } else {
-            while first > 0 && token_byte(bytes[first - 1]) && !json_break_before(bytes, first) {
-                first -= 1;
-            }
+    /// The URL tokens that hold a host, and a bare span around each host no URL token holds, by start.
+    fn host_spans(hosts: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, usize)> {
+        let found: Vec<(usize, usize)> = hosts
+            .find_iter(bytes)
+            .map(|m| (m.start(), m.end()))
+            .collect();
+        if found.is_empty() {
+            return Vec::new();
         }
-        let mut last = end;
-        while last < bytes.len() && token_byte(bytes[last]) && !json_break_at(bytes, last) {
-            last += 1;
-        }
-        Some((first, last))
+        let holds = |(start, end): (usize, usize)| {
+            let first = found.partition_point(|&(_, found_end)| found_end <= start);
+            found
+                .get(first)
+                .is_some_and(|&(found_start, _)| found_start < end)
+        };
+        let mut spans: Vec<(usize, usize)> = url_spans(bytes)
+            .into_iter()
+            .filter(|&span| holds(span))
+            .collect();
+        let in_url = |(start, end): (usize, usize)| {
+            let first = spans.partition_point(|&(_, span_end)| span_end <= start);
+            spans
+                .get(first)
+                .is_some_and(|&(span_start, _)| span_start <= start && end <= spans[first].1)
+        };
+        let bare: Vec<(usize, usize)> = found
+            .iter()
+            .filter(|&&host| !in_url(host))
+            .map(|&(start, end)| bare_span(bytes, start, end))
+            .collect();
+        spans.extend(bare);
+        spans.sort_unstable();
+        spans
     }
 }
 
@@ -143,7 +394,9 @@ mod tests {
 
     fn scrub(scrub: Scrub, bytes: &str) -> (String, u64) {
         let (out, count) = Scrubber::new(&scrub).apply(bytes.as_bytes());
-        (String::from_utf8(out.into_owned()).unwrap(), count)
+        let out = String::from_utf8(out.into_owned()).unwrap();
+        serde_json::from_str::<serde_json::Value>(&out).unwrap_or_else(|e| panic!("{out}: {e}"));
+        (out, count)
     }
 
     #[test]
@@ -163,11 +416,33 @@ mod tests {
                 r#"{"style":"background:url(\"//cdn.example.com/a.png\")"}"#.to_owned(),
                 format!(r#"{{"style":"background:url(\"{m}\")"}}"#),
             ),
-            // A CSS escape is part of the URL a browser loads. The space that ends the escape splits the token, and both
-            // parts go.
+            (
+                r#"{"style":"url('https://cdn.example.com/a.png') no-repeat"}"#.to_owned(),
+                format!(r#"{{"style":"url('{m}') no-repeat"}}"#),
+            ),
+            // A CSS escape is part of the URL a browser loads, the whitespace that ends a hex escape included.
             (
                 r#"{"style":"url(https\\3a //cdn.example.com/a.png)"}"#.to_owned(),
-                format!(r#"{{"style":"url({m} {m})"}}"#),
+                format!(r#"{{"style":"url({m})"}}"#),
+            ),
+            // A browser reads a backslash as a slash, and the inspector reads any host after two of them as remote.
+            (
+                r#"{"src":"\\\\10.0.0.7/a.png"}"#.to_owned(),
+                format!(r#"{{"src":"{m}"}}"#),
+            ),
+            (
+                r#"{"src":"\/\/[::1]/a.png"}"#.to_owned(),
+                format!(r#"{{"src":"{m}"}}"#),
+            ),
+            // Outside CSS, an apostrophe or a parenthesis is part of the URL, so the query after it goes too.
+            (
+                r#"{"src":"https://cdn.example.com/a'b(c).png?token=x"}"#.to_owned(),
+                format!(r#"{{"src":"{m}"}}"#),
+            ),
+            // An escaped backslash at the end goes whole, so the quote after it still ends the string.
+            (
+                r#"{"src":"https://cdn.example.com/a\\"}"#.to_owned(),
+                format!(r#"{{"src":"{m}"}}"#),
             ),
             // `http` inside a word, and a path's `//`, start no URL.
             (
@@ -181,18 +456,15 @@ mod tests {
 
     #[test]
     fn replaces_the_tokens_that_hold_a_host_in_any_form() {
-        // The space that ends a CSS escape ends the token, so the path after it stays without its host.
         let m = UNCHECKED_MARKER;
         let (out, count) = scrub(
             Scrub::Hosts(vec!["internal.example.com".to_owned()]),
-            r#"{"style":"url(https\\3a \\2f \\2f Internal.example.com\\2f a.png)","alt":"other.example.com"}"#,
+            r#"{"style":"url(https\\3a \\2f \\2f Internal.example.com\\2f a.png)","alt":"see internal.example.com/a'b?token=x\nnow","title":"other.example.com"}"#,
         );
         assert_eq!(
             out,
-            format!(
-                r#"{{"style":"url(https\\3a \\2f \\2f {m} a.png)","alt":"other.example.com"}}"#
-            )
+            format!(r#"{{"style":"url({m})","alt":"see {m}\nnow","title":"other.example.com"}}"#)
         );
-        assert_eq!(count, 1);
+        assert_eq!(count, 2);
     }
 }

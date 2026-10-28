@@ -240,6 +240,9 @@ pub fn write_block<W: Write>(
             "a declined URL stayed inside a longer token"
         );
     }
+    // The second pass copies every image again, so the first pass's output and images go before it starts.
+    drop(out);
+    drop(images);
     let mut out = open()?;
     let (images, mut counts, report) =
         prepare_block(block, team_key, key_month, &second, &mut out)?;
