@@ -755,10 +755,17 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
             current = current.table_type
         elif isinstance(current, ast.LazyJoinType):
             # A join reads another table. The tables can define a join of the same name differently, so the
-            # binding names the join and its table. Under PERSON_ID_OVERRIDE_PROPERTIES_JOINED, events.person joins
-            # persons, while flag_evaluations.person reads the person properties stored with the call.
-            join_table = current.lazy_join.join_table
-            return ("join", current.field, join_table if isinstance(join_table, str) else type(join_table).__name__)
+            # binding names the join recipe and what it joins on. Under PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            # events.person joins persons, while flag_evaluations.person reads the person properties stored with the
+            # call. join_table can name the same table as an instance or as a string, so the binding leaves it out.
+            join = current.lazy_join
+            return (
+                "join",
+                current.field,
+                join.resolver,
+                json.dumps(join.resolver_params, sort_keys=True, default=str),
+                ".".join(str(part) for part in join.from_field),
+            )
         elif isinstance(current, ast.TableType):
             return (
                 ("scan",)

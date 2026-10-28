@@ -702,6 +702,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("event_person_id", "event_person_id"),
             ("pdi", "pdi.person_id"),
             ("group_key", "goe_0.key"),
+            ("group_properties", "group_0.properties.industry"),
         ]
     )
     def test_query_reading_an_events_only_name_reads_flag_evaluations(self, _name: str, field: str):
