@@ -511,3 +511,22 @@ class RunningExperiment:
     name: str
     started_at: datetime
     flag_key: str
+
+
+@frozen
+class ExperimentChanged:
+    """One save or delete of an experiment, as `connect_experiment_changed` receivers get it."""
+
+    team_id: int
+    experiment_id: int
+    # True only on the save that inserted the row.
+    created: bool
+    # True when the save soft-deletes the experiment, and on every hard delete of the row.
+    deleted: bool
+    # The values the write left on the experiment, so a receiver that mirrors the experiment elsewhere, such as the
+    # Vercel sync, does not read the row back.
+    name: str
+    description: str | None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
