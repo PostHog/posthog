@@ -15,6 +15,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
@@ -63,6 +64,7 @@ from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, R
 from products.signals.backend.supersession import ImplementationResearchContext
 from products.signals.backend.temporal.agentic.report import (
     RESEARCH_MCP_SCOPES,
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
     RunAgenticReportInput,
     _load_linked_report_context,
     _load_previous_research,
@@ -84,6 +86,7 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed
 from products.tasks.backend.models import Task  # tach-ignore
 
 
@@ -743,6 +746,48 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "sandbox_error_type,expected_transient",
+    [("RepositoryCloneError", True), ("RepositoryAccessError", False)],
+)
+async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
+    monkeypatch, ateam, sandbox_error_type, expected_transient
+):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+    )
+    monkeypatch.setattr("products.signals.backend.temporal.agentic.report.resolve_user_id_for_team", lambda team_id: 1)
+
+    async def fake_run_multi_turn_research(*args, **kwargs):
+        raise SandboxRunFailed("TaskRun reached terminal status=failed", error_type=sandbox_error_type)
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.report.run_multi_turn_research", fake_run_multi_turn_research
+    )
+
+    with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
+        with pytest.raises((ApplicationError, SandboxRunFailed)) as error:
+            await run_agentic_report_activity(
+                RunAgenticReportInput(
+                    team_id=ateam.id,
+                    report_id=str(report.id),
+                    signals=_build_signals(),
+                    repo_selection=RepoSelectionResult(repository="posthog/posthog", reason="single repository"),
+                )
+            )
+
+    if expected_transient:
+        assert isinstance(error.value, ApplicationError)
+        assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+    else:
+        assert isinstance(error.value, SandboxRunFailed)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -1248,6 +1293,54 @@ async def test_mark_report_ready_activity_applies_charts(ateam, name, charts, ex
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@pytest.mark.parametrize("pending", [False, True])
+@pytest.mark.parametrize(
+    "tags,expected",
+    [
+        (["Session Replay", "!!!"], ["session-replay"]),
+        ([], []),
+        (None, ["billing", "api"]),
+    ],
+)
+async def test_report_transition_replaces_tags_with_the_prose(ateam, pending, tags, expected):
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=2,
+        total_weight=1.3,
+        tags=["billing", "api"],
+    )
+
+    if pending:
+        await mark_report_pending_input_activity(
+            MarkReportPendingInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                reason="Requires human input",
+                tags=tags,
+            )
+        )
+    else:
+        await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                title="Title",
+                summary="Summary",
+                processed_signal_count=2,
+                tags=tags,
+            )
+        )
+
+    stored = await database_sync_to_async(lambda: SignalReport.objects.get(id=report.id))()
+    assert stored.title == "Title"
+    assert stored.tags == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     "name,metrics,expected",
     [
@@ -1476,7 +1569,16 @@ async def test_report_transition_discards_legacy_goal_fields(ateam: Team, pendin
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(monkeypatch, ateam):
+@pytest.mark.parametrize(
+    "error,raised_type,error_type",
+    [
+        (RuntimeError("sandbox failed"), RuntimeError, None),
+        (ValueError("No JSON in initial turn: end-turn text was prose"), ApplicationError, "output_parse_failed"),
+    ],
+)
+async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(
+    monkeypatch, ateam, error: Exception, raised_type: type[Exception], error_type: str | None
+):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
         status=SignalReport.Status.IN_PROGRESS,
@@ -1489,8 +1591,11 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
         lambda team_id: 1,
     )
 
-    async def fake_run_multi_turn_research(*args, **kwargs):
-        raise RuntimeError("sandbox failed")
+    contexts: list[CustomPromptSandboxContext] = []
+
+    async def fake_run_multi_turn_research(signals, context, **kwargs):
+        contexts.append(context)
+        raise error
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.run_multi_turn_research",
@@ -1498,7 +1603,7 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
     )
 
     with patch("products.signals.backend.temporal.agentic.report.Heartbeater"):
-        with pytest.raises(RuntimeError, match="sandbox failed"):
+        with pytest.raises(raised_type, match=str(error)) as raised:
             await run_agentic_report_activity(
                 RunAgenticReportInput(
                     team_id=ateam.id,
@@ -1512,6 +1617,8 @@ async def test_run_agentic_report_activity_does_not_persist_partial_artefacts(mo
             lambda: SignalReportArtefact.objects.filter(report=report).count()
         )()
         assert artefact_count == 0
+    assert getattr(raised.value, "type", None) == error_type
+    assert contexts[0].disable_repo_hooks
 
 
 @pytest.mark.parametrize("enabled", [False, True])

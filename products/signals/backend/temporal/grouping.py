@@ -41,7 +41,8 @@ from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at
 from products.signals.backend.report_merge import signal_target_report
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
-from products.signals.backend.spend import signal_spend_summaries
+from products.signals.backend.spend import begin_report_spend, complete_signal_pipeline, signal_spend_summaries
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -66,7 +67,7 @@ from products.signals.backend.temporal.signal_queries import (
     soft_delete_report_signals,
     wait_for_signal_in_clickhouse_activity,
 )
-from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import RESEARCH_SANDBOX_RETRY_BUDGET, SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import (
     IMPLEMENTATION_DEBOUNCE_SECONDS,
     RESEARCH_DEBOUNCE_SECONDS,
@@ -793,6 +794,7 @@ class AssignAndEmitSignalOutput:
     # The title the report holds after assignment. It differs from `updated_title` when assignment keeps a
     # researched title. None when no title is known, which includes results recorded before this field existed.
     report_title: Optional[str] = None
+    triggering_signal_id: str | None = None
 
 
 @frozen
@@ -813,6 +815,7 @@ class AssignAndEmitDbResult:
     # What the report's last completed pass covered, for the same reason.
     report_signals_researched: int = 0
     report_title: Optional[str] = None
+    triggering_signal_id: str | None = None
 
 
 def _link_check_follow_up(*, team_id: int, report_id: str, source_product: str, extra: dict) -> None:
@@ -966,6 +969,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                 )
 
+            # Persist source exemptions before a summary can see and finalize this trigger.
+            if system_source_exempt(input.source_product):
+                begin_report_spend(
+                    team_id=input.team_id,
+                    report_id=str(report.id),
+                    signal_id=input.signal_id,
+                    billing_exempt=True,
+                )
+
             # Promotion rules by status:
             # - SUPPRESSED: never promoted. A report dismissed as fixed never receives new signals
             #   either (a recurrence spawns a fresh report above).
@@ -1005,14 +1017,15 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     # first matching signal after the limit lifts re-evaluates promotion under the
                     # same rules.
                     promotion_suppressed = True
-                # If candidate got here - it usually means CH issue down the way
-                # (e.g. CH wait raised before start_child_workflow)
-                elif report.status != SignalReport.Status.CANDIDATE:
-                    updated_fields = report.transition_to(SignalReport.Status.CANDIDATE)
-                    report.triggering_signal_id = input.signal_id
-                    report.save(update_fields=[*updated_fields, "triggering_signal_id"])
-                    promoted = True
                 else:
+                    updated_fields = (
+                        report.transition_to(SignalReport.Status.CANDIDATE)
+                        if report.status != SignalReport.Status.CANDIDATE
+                        else []
+                    )
+                    if updated_fields or report.triggering_signal_id is None:
+                        report.triggering_signal_id = input.signal_id
+                        report.save(update_fields=[*updated_fields, "triggering_signal_id"])
                     promoted = True
 
             pending_bucket = next_research_bucket(report.researching_signal_count or 0)
@@ -1074,6 +1087,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             return AssignAndEmitDbResult(
                 report_id=report_id,
                 promoted=promoted,
+                triggering_signal_id=str(report.triggering_signal_id) if report.triggering_signal_id else None,
                 timestamp=ts,
                 matched_deleted_report=False,
                 run_count=report.run_count,
@@ -1238,6 +1252,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         return AssignAndEmitSignalOutput(
             report_id=db_result.report_id,
             promoted=db_result.promoted,
+            triggering_signal_id=db_result.triggering_signal_id,
             timestamp=db_result.timestamp,
             run_count=db_result.run_count,
             research_debounce_seconds=RESEARCH_DEBOUNCE_SECONDS,
@@ -1316,6 +1331,51 @@ def _augment_candidates_with_batch(
     return augmented
 
 
+@frozen
+class SignalGroupingCompletion:
+    team_id: int
+    signal_id: str
+    report_id: str | None
+    billing_exempt: bool
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def complete_signal_grouping_activity(signals: list[SignalGroupingCompletion]) -> None:
+    for signal in signals:
+        await database_sync_to_async(complete_signal_pipeline)(
+            team_id=signal.team_id,
+            signal_id=signal.signal_id,
+            report_id=signal.report_id,
+            billing_exempt=signal.billing_exempt,
+        )
+
+
+async def _complete_signal_batch(batch: list[EmitSignalInputs], reports: dict[str, str]) -> None:
+    if not workflow.patched("signals-owner-spend-grouping-completion"):
+        return
+    try:
+        await workflow.execute_activity(
+            complete_signal_grouping_activity,
+            [
+                SignalGroupingCompletion(
+                    team_id=signal.team_id,
+                    signal_id=signal.signal_id,
+                    report_id=reports.get(signal.signal_id),
+                    billing_exempt=system_source_exempt(signal.source_product),
+                )
+                for signal in batch
+                if signal.signal_id
+            ],
+            start_to_close_timeout=timedelta(minutes=1),
+            schedule_to_close_timeout=timedelta(minutes=20),
+            retry_policy=RetryPolicy(initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)),
+        )
+    except temporalio.exceptions.ActivityError:
+        workflow.logger.exception("signals.spend.accounting_failed", extra={"stage": "grouping_completion"})
+
+
 async def _process_signal_batch(
     batch: list[EmitSignalInputs],
     cached_type_examples: Optional[FetchSignalTypeExamplesOutput] = None,
@@ -1330,6 +1390,7 @@ async def _process_signal_batch(
     within a batch.
     """
     team_id = batch[0].team_id
+    original_batch = batch
     # Purely defensive
     if not all(signal.team_id == team_id for signal in batch):
         raise ValueError("All signals in a batch must belong to the same team")
@@ -1413,6 +1474,7 @@ async def _process_signal_batch(
             signal_embeddings = [signal_embeddings[i] for i in retained_indices]
             query_gen_results = [query_gen_results[i] for i in retained_indices]
             if not batch:
+                await _complete_signal_batch(original_batch, {})
                 return dropped, type_examples_result
 
         # Step 3: Embed all queries across all signals (flatten → parallel embed)
@@ -1661,6 +1723,7 @@ async def _process_signal_batch(
                         team_id=signal.team_id,
                         report_id=assign_result.report_id,
                         debounce_seconds=assign_result.research_debounce_seconds,
+                        signal_id=assign_result.triggering_signal_id,
                     ),
                     assign_result.run_count,
                 )
@@ -1716,7 +1779,8 @@ async def _process_signal_batch(
                 # outlive this; it's a backstop, and the report stays READY and re-promotes.
                 execution_timeout=timedelta(
                     hours=1, seconds=report_input.debounce_seconds + IMPLEMENTATION_DEBOUNCE_SECONDS
-                ),
+                )
+                + RESEARCH_SANDBOX_RETRY_BUDGET,
             )
         except temporalio.exceptions.WorkflowAlreadyStartedError:
             metrics.increment_research_run_collapsed()
@@ -1729,6 +1793,7 @@ async def _process_signal_batch(
                 report_id=report_input.report_id,
             )
 
+    await _complete_signal_batch(original_batch, {signal_id: result.report_id for signal_id, result in emitted_signals})
     return dropped, type_examples_result
 
 

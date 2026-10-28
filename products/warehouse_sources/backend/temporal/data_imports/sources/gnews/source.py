@@ -86,6 +86,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="query",
+                        sync_setting=True,
                         label="Search query",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -94,6 +95,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldSelectConfig(
                         name="category",
+                        sync_setting=True,
                         label="Category",
                         required=True,
                         defaultValue="general",
@@ -104,6 +106,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="language",
+                        sync_setting=True,
                         label="Language (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -112,6 +115,7 @@ The **Search query** drives the `articles` table (keyword search), and the **Cat
                     ),
                     SourceFieldInputConfig(
                         name="country",
+                        sync_setting=True,
                         label="Country (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
