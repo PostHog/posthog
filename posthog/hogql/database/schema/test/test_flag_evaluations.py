@@ -499,7 +499,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         # there too, or every flag calls insight that filters out test accounts fails.
         create_person(team=self.team, uuid=str(self.person_id), properties={"email": "probe@example.com"})
         create_group_type_mapping(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=self.occurred_at - timedelta(days=1),
         )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"industry": "software"})
         _create_event(
@@ -560,7 +564,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     ):
         # Without the key bound, the groups subquery reads every group of the type that the team has.
         create_group_type_mapping(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=self.occurred_at - timedelta(days=1),
         )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"industry": "software"})
 
@@ -602,7 +610,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         # The outer WHERE bounds only the outer table's rows. It can also name the joined table. A key bound is
         # correct only for a group of the outer table and a WHERE that names no other table.
         create_group_type_mapping(
-            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=self.occurred_at - timedelta(days=1),
         )
         create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"industry": "software"})
         _create_event(team=self.team, event="$pageview", distinct_id="probe-distinct-id", timestamp=self.occurred_at)
@@ -885,6 +897,26 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             assert swapped.results[0][2] == json.dumps(response)[1:-1]
             return
         assert swapped.results == from_events
+
+    def test_group_key_of_a_call_from_before_its_group_type_existed_reads_as_on_events(self):
+        create_group_type_mapping(
+            team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
+        )
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="probe-distinct-id",
+            timestamp=self.occurred_at,
+            properties={"$feature_flag": "probe-flag", "$group_0": "acme"},
+            event_uuid=str(self.row_uuid),
+        )
+        flush_persons_and_events()
+        query = f"SELECT `$group_0`, goe_0.key FROM events WHERE {FLAG_CALL_CONJUNCTS}"
+
+        from_events = self._query_events(query, rewrite=False).results
+
+        assert from_events == [("", "acme")]
+        assert self._query_events(query).results == from_events
 
     def test_swapped_prewhere_that_reads_an_overridden_person_id_runs(self):
         response = self._query_events(

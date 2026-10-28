@@ -3193,7 +3193,10 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
     group_mappings = {mapping["group_type_index"]: mapping for mapping in group_types}
-    table = database.get_table("events")
+    tables = [database.get_table("events")]
+    # A flag call query on events can read flag_evaluations instead, so its group keys take the same cutoff.
+    if database.has_table(["posthog", "flag_evaluations"]):
+        tables.append(database.get_table(["posthog", "flag_evaluations"]))
 
     for group_index in range(5):
         field_name = f"$group_{group_index}"
@@ -3201,11 +3204,6 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
         group_mapping = group_mappings.get(group_index, None)
         # If no mapping exists or the mapping predated this feature, leave the original field unchanged
         if group_mapping and group_mapping["created_at"]:
-            # Store the original field as a "raw" version before replacing
-            original_field = table.fields[field_name]
-            raw_field_name = f"_{field_name}_raw"
-            table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
-
             # Must stay a datetime constant: a naive string literal would be parsed by ClickHouse in the
             # project's timezone (the comparison is against toTimeZone(timestamp, <project tz>)), shifting
             # the cutoff by the project's UTC offset.
@@ -3213,22 +3211,29 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=UTC)
 
-            table.fields[field_name] = ExpressionField(
-                name=field_name,
-                expr=ast.Call(
-                    name="if",
-                    args=[
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["timestamp"]),
-                            op=ast.CompareOperationOp.Lt,
-                            right=ast.Constant(value=created_at),
-                        ),
-                        ast.Constant(value=""),
-                        ast.Field(chain=[raw_field_name]),
-                    ],
-                ),
-                isolate_scope=True,
-            )
+            for table in tables:
+                # Store the original field as a "raw" version before replacing
+                original_field = table.fields[field_name]
+                raw_field_name = f"_{field_name}_raw"
+                table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
+
+                table.fields[field_name] = ExpressionField(
+                    name=field_name,
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["timestamp"]),
+                                op=ast.CompareOperationOp.Lt,
+                                right=ast.Constant(value=created_at),
+                            ),
+                            ast.Constant(value=""),
+                            ast.Field(chain=[raw_field_name]),
+                        ],
+                    ),
+                    isolate_scope=True,
+                    description=original_field.description,
+                )
 
 
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
