@@ -32,7 +32,7 @@ from .constants import (
     SAMPLING_REDUCTION_FACTOR,
     SPECIAL_BLOCK_TYPES,
 )
-from .media_blocks import media_block_marker
+from .media_blocks import parse_media_block
 from .otel_parts import flatten_parts_message
 from .tool_formatter import format_tools
 
@@ -362,8 +362,8 @@ def safe_extract_text(content: Any) -> str:
                 return str(content["text"])
             if "content" in content:
                 return safe_extract_text(content["content"])
-            if (marker := media_block_marker(content)) is not None:
-                return marker
+            if (media := parse_media_block(content)) is not None:
+                return media.marker()
             # Fallback to JSON representation
             return json.dumps(content)
 
@@ -386,10 +386,10 @@ def safe_extract_text(content: Any) -> str:
                             text_parts.append("")  # Blank line after label
 
                         text_parts.append(str(text_value))
-                    elif (marker := media_block_marker(item)) is not None:
+                    elif (media := parse_media_block(item)) is not None:
                         if i > 0 and text_parts:
                             text_parts.append("")
-                        text_parts.append(marker)
+                        text_parts.append(media.marker())
                 elif isinstance(item, str):
                     # Add spacing before string items too
                     if i > 0 and text_parts:

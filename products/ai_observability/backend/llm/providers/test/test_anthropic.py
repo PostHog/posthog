@@ -12,12 +12,13 @@ from products.ai_observability.backend.llm.errors import (
     OutputTokenLimitError,
     ProviderConfigurationError,
 )
+from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.llm.providers.anthropic import (
     AnthropicAdapter,
     AnthropicConfig,
     error_field_for_validation_message,
 )
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, ImagePart, OutputSchema
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
 class TestAnthropicListModels:

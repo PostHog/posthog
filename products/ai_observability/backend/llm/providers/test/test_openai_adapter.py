@@ -19,8 +19,9 @@ from products.ai_observability.backend.llm.errors import (
     QuotaExceededError,
     StructuredOutputParseError,
 )
+from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, ImagePart, OutputSchema
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
 class TestOpenAIRecommendedModels:

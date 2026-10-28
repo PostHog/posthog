@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from posthog.temporal.ai_observability.judge_images import MAX_IMAGES, OVER_LIMIT_MARKER, JudgeImages
 
-from products.ai_observability.backend.llm.types import ImagePart
+from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
@@ -28,9 +28,9 @@ class TestJudgeImagesMarkers:
             pytest.param(MediaBlock(modality="audio", base64_data="aGk="), "[audio]", id="not_an_image"),
             pytest.param(_pointer("a", mime="image%2Fsvg%2Bxml"), "[image]", id="unsupported_format"),
             pytest.param(
-                MediaBlock(modality="image", url="https://example.com/a"),
-                "[image: https://example.com/a]",
-                id="link_without_type",
+                MediaBlock(modality="image", mime_type="image/png", url="https://example.com/a.png"),
+                "[image: https://example.com/a.png]",
+                id="customer_link",
             ),
             pytest.param(_pointer("a", size=4_000_000), OVER_LIMIT_MARKER, id="too_large"),
         ],
@@ -84,12 +84,6 @@ class TestJudgeImagesContent:
             pytest.param("openai", "gpt-5.5", _pointer("a"), id="blob_missing"),
             pytest.param(
                 "gemini", "gemini-3-flash", _pointer("a", mime="image%2Fgif"), id="format_rejected_by_provider"
-            ),
-            pytest.param(
-                "together_ai",
-                "any",
-                MediaBlock(modality="image", mime_type="image/png", url="https://example.com/a.png"),
-                id="customer_link_without_link_support",
             ),
         ],
     )

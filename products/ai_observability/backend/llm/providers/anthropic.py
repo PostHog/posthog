@@ -34,13 +34,12 @@ from products.ai_observability.backend.llm.errors import (
     is_output_limit_error_message,
     stream_error_chunk,
 )
-from products.ai_observability.backend.llm.images import convert_image_parts
+from products.ai_observability.backend.llm.images import ImagePart, convert_image_parts
 from products.ai_observability.backend.llm.providers.azure_openai import is_allowed_azure_endpoint
 from products.ai_observability.backend.llm.types import (
     AnalyticsContext,
     CompletionRequest,
     CompletionResponse,
-    ImagePart,
     StreamChunk,
     Usage,
 )

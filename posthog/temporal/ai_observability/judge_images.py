@@ -6,8 +6,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 from products.ai_observability.backend.ai_blobs import BlobPointer
-from products.ai_observability.backend.llm.images import IMAGE_MIME_TYPES, image_transport
-from products.ai_observability.backend.llm.types import ImagePart
+from products.ai_observability.backend.llm.images import IMAGE_MIME_TYPES, ImagePart, image_transport
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
 
 # Above 20 images Anthropic lowers its per-image size limit.
@@ -26,8 +25,9 @@ OVER_LIMIT_MARKER = "[image: not attached, over the judge's image limit]"
 class _Image:
     number: int
     mime_type: str
-    media: MediaBlock
+    # An offloaded image has a pointer, a small one stays inline as base64.
     pointer: BlobPointer | None
+    base64_data: str | None
 
 
 class JudgeImages:
@@ -42,7 +42,8 @@ class JudgeImages:
     def marker(self, media: MediaBlock) -> str:
         pointer = BlobPointer.parse(media.url) if media.url else None
         mime_type = media.mime_type or (pointer.mime_type if pointer else None)
-        key = pointer.sha256 if pointer else media.url or media.base64_data
+        # Links from the customer's app keep a plain marker: we never fetch them.
+        key = pointer.sha256 if pointer else media.base64_data
         if media.modality != "image" or mime_type not in IMAGE_MIME_TYPES or key is None:
             return media.marker()
         if (number := self._numbers.get(key)) is not None:
@@ -54,7 +55,7 @@ class JudgeImages:
         self._total_bytes += size
         number = len(self._images) + 1
         self._numbers[key] = number
-        self._images.append(_Image(number=number, mime_type=mime_type, media=media, pointer=pointer))
+        self._images.append(_Image(number=number, mime_type=mime_type, pointer=pointer, base64_data=media.base64_data))
         return f"[image {number}]"
 
     def content(self, user_prompt: str, provider: str, model: str) -> str | list[Any]:
@@ -78,14 +79,11 @@ class JudgeImages:
         transport = image_transport(provider, model, image.mime_type)
         if transport is None:
             return None
-        if image.pointer is not None:
-            if transport == "url":
-                url = image.pointer.presigned_url(self._team_id, PRESIGNED_URL_SECONDS)
-                return ImagePart(mime_type=image.mime_type, url=url) if url else None
-            # ponytail: sequential reads, a thread pool if traces with many images get slow
-            data = image.pointer.read(self._team_id)
-            return ImagePart(mime_type=image.mime_type, base64_data=base64.b64encode(data).decode()) if data else None
-        if image.media.base64_data is not None:
-            return ImagePart(mime_type=image.mime_type, base64_data=image.media.base64_data)
-        # A customer's own link: the provider may download it, but we never fetch it ourselves.
-        return ImagePart(mime_type=image.mime_type, url=image.media.web_url) if transport == "url" else None
+        if image.pointer is None:
+            return ImagePart(mime_type=image.mime_type, base64_data=image.base64_data)
+        if transport == "url":
+            url = image.pointer.presigned_url(self._team_id, PRESIGNED_URL_SECONDS)
+            return ImagePart(mime_type=image.mime_type, url=url) if url else None
+        # ponytail: sequential reads, a thread pool if traces with many images get slow
+        data = image.pointer.read(self._team_id)
+        return ImagePart(mime_type=image.mime_type, base64_data=base64.b64encode(data).decode()) if data else None

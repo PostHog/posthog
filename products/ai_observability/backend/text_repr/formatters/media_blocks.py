@@ -19,13 +19,11 @@ class MediaBlock:
     url: str | None = None
     base64_data: str | None = None
 
-    @property
-    def web_url(self) -> str | None:
-        return self.url if self.url is not None and self.url.startswith(("https://", "http://")) else None
-
     def marker(self) -> str:
         # A web link can tell the judge what the media shows. Base64 and pointers are token noise.
-        return f"[{self.modality}: {self.web_url}]" if self.web_url else f"[{self.modality}]"
+        if self.url is not None and self.url.startswith(("https://", "http://")):
+            return f"[{self.modality}: {self.url}]"
+        return f"[{self.modality}]"
 
 
 def parse_media_block(block: dict) -> MediaBlock | None:
@@ -48,11 +46,6 @@ def parse_media_block(block: dict) -> MediaBlock | None:
                 modality = "file"
             return _with_source(modality, mime_type, data.get("data") or data.get("file_uri") or data.get("fileUri"))
     return None
-
-
-def media_block_marker(block: dict) -> str | None:
-    media = parse_media_block(block)
-    return media.marker() if media is not None else None
 
 
 def _image_block(block: dict) -> MediaBlock:
