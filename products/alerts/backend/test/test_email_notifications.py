@@ -10,13 +10,21 @@ from products.alerts.backend.facade.email import send_alert_email
 from products.alerts.backend.models import AlertConfiguration
 
 
-@pytest.mark.parametrize("summary_length", [20, 2976, 2977, 2978, 12000])
-def test_long_investigations_keep_full_email_text_and_fit_chat_delivery(summary_length: int) -> None:
+@pytest.mark.parametrize(
+    "description_length,is_investigation",
+    [(100, False), (100, True), (2999, True), (3000, True), (3001, True), (12000, True)],
+)
+def test_breach_delivery_preserves_email_text_and_bounds_destination_text(
+    description_length: int, is_investigation: bool
+) -> None:
     alert = MagicMock(spec=AlertConfiguration)
     alert.get_subscribed_users_emails.return_value = ["reader@example.com"]
-    summary = "x" * summary_length
-    breaches = ["Investigation summary:", summary]
+    label = "Anomaly detected in [metric](https://example.com) **count** <value>."
+    summary = "x" * (description_length - len(label) - 1)
+    breaches = [label, summary]
     properties = {"investigation_notebook_url": "https://example.com/notebooks/example"}
+    if is_investigation:
+        properties["investigation_summary"] = summary
 
     with (
         patch("posthog.tasks.alerts.utils.send_alert_email") as email,
@@ -26,11 +34,15 @@ def test_long_investigations_keep_full_email_text_and_fit_chat_delivery(summary_
 
     context = email.call_args.kwargs["template_context"]
     assert context["match_descriptions"] == breaches
-    assert summary in context["match_descriptions_html"][1]
+    if is_investigation:
+        assert summary in context["match_descriptions_html"][1]
+        assert "[metric](https://example.com) **count** &lt;value&gt;" in context["match_descriptions_html"][0]
+    else:
+        assert context["match_descriptions_html"] == []
     sent = destinations.call_args.kwargs["properties"]
     assert sent["investigation_notebook_url"] == properties["investigation_notebook_url"]
     assert len(sent["breaches"]) <= 3000
-    assert sent["breaches"].startswith("Investigation summary:\n")
+    assert sent["breaches"].startswith(label + "\n")
     if len("\n".join(breaches)) <= 3000:
         assert sent["breaches"] == "\n".join(breaches)
     else:

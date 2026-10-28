@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 
 import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
@@ -52,8 +52,11 @@ const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: s
     },
 }
 
-function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: AlertType['id'] }): JSX.Element {
+    const logic = alertLogic({ alertId })
+    const { expandedInvestigationChecks } = useValues(logic)
+    const { toggleInvestigationSummary } = useActions(logic)
+    const expanded = !!expandedInvestigationChecks[check.id]
     const status = check.investigation_status
     const shortId = check.investigation_notebook_short_id
     const summary = check.investigation_summary?.trim() || null
@@ -86,7 +89,7 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
-                            onClick={() => setExpanded(!expanded)}
+                            onClick={() => toggleInvestigationSummary(check.id)}
                             aria-expanded={expanded}
                         >
                             {expanded ? 'Show less' : 'Show more'}
@@ -249,7 +252,7 @@ export function AlertHistorySection({
         if (investigationAgentEnabled) {
             columns.push({
                 title: 'Investigation',
-                render: (_value, check) => <InvestigationCell check={check} />,
+                render: (_value, check) => <InvestigationCell check={check} alertId={alertId} />,
             })
         }
         if (isAnyRowSqlAlert) {
@@ -309,6 +312,7 @@ export function AlertHistorySection({
         })
         return columns
     }, [
+        alertId,
         alertHistoryIsAnomalyDetection,
         investigationAgentEnabled,
         isAnyRowSqlAlert,

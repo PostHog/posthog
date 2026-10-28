@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.html import format_html
 
 import pytz
 import structlog
@@ -274,6 +275,7 @@ def send_notifications_for_breaches(
     destinations render (e.g. the anomaly investigation notebook URL for the Slack button).
     """
     deliveries: list[AlertDelivery] = []
+    investigation_summary = (extra_properties or {}).get("investigation_summary")
     email_targets = alert.get_subscribed_users_emails()
     if email_targets:
         subject = f"PostHog alert {alert.name} is firing for {alert.team.name}"
@@ -281,6 +283,14 @@ def send_notifications_for_breaches(
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
+        match_descriptions_html = []
+        if investigation_summary:
+            match_descriptions_html = [
+                render_markdown_email_html(breach)
+                if breach == investigation_summary
+                else format_html("<p>{}</p>", breach)
+                for breach in breaches
+            ]
         email_sent = send_alert_email(
             recipients=email_targets,
             campaign_key=campaign_key,
@@ -288,7 +298,7 @@ def send_notifications_for_breaches(
             template_name="alert_check_firing",
             template_context={
                 "match_descriptions": breaches,
-                "match_descriptions_html": [render_markdown_email_html(breach) for breach in breaches],
+                "match_descriptions_html": match_descriptions_html,
                 "insight_url": insight_url,
                 "insight_name": alert.insight.name,
                 "alert_url": alert_url,
