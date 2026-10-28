@@ -1229,7 +1229,8 @@ describe('insightDataLogic', () => {
                     variables: { latest: { variableId: 'latest', code_name: 'mult', value: 3, isNull: null } },
                     filters: { dateRange: { date_from: '-30d' } },
                 },
-            } as DataVisualizationNode
+                // The API serializes `isNull` as null, which the schema types as boolean.
+            } as unknown as DataVisualizationNode
             logic.actions.syncQueryFromProps(dashboardQuery)
 
             await expectLogic(logic, () => {
