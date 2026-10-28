@@ -1,3 +1,10 @@
+// Pings #support-agent-infra until the automated LLM cost PR merges. Runs hourly on weekdays.
+//
+// Pings when the PR is posted, again at 8h, then every 24h.
+// The clock starts at the first unmerged PR, since each cost refresh replaces the open one.
+// The support hero is always tagged. AI observability joins once new prices have waited 24h.
+// Each run covers the time since the last successful run, so a missed run catches up on the next.
+
 const COST_PR_BRANCH = 'chore/llma-update-ai-costs'
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
