@@ -5,6 +5,8 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { HomeDashboardMenu } from 'products/product_analytics/frontend/insights/home/HomeDashboardMenu'
+import { HomeDashboardModals } from 'products/product_analytics/frontend/insights/home/HomeDashboardModals'
 import { HomeTab } from 'products/product_analytics/frontend/insights/home/HomeTab'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
@@ -26,8 +28,10 @@ export function AnalyticsProductHome(): JSX.Element {
                 name="Product analytics"
                 description="How people use your product, ready-made by PostHog."
                 resourceType={{ type: 'analytics', forceIcon: <AnalyticsTypeIcon type="insight" /> }}
+                actions={<HomeDashboardMenu />}
             />
             <HomeTab />
+            <HomeDashboardModals />
             <AnalyticsCreateModals />
         </SceneContent>
     )

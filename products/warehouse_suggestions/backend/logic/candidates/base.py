@@ -155,6 +155,7 @@ class CandidateResult:
     drafts: tuple[SuggestionDraft, ...]
     rejections: tuple[Rejection, ...]
     skipped_reason: str | None = None
+    measurement_requests: tuple[Subject, ...] = ()
 
 
 class Candidate(ABC):

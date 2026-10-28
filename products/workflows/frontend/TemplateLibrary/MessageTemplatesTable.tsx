@@ -22,13 +22,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import MaxTool from 'scenes/max/MaxTool'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic, saveTemplateTags } from './messageTemplatesLogic'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { templateSectionFor, templateUrlInSection } from './templateSection'
 
 const HedgehogReadingIsMagic = pngHoggie(readingIsMagicPng)
 
@@ -148,7 +148,14 @@ export function MessageTemplatesTable(): JSX.Element {
                             key={template.id}
                             template={template}
                             index={index}
-                            onClick={() => router.actions.push(urls.workflowsLibraryTemplate(template.id))}
+                            onClick={() =>
+                                router.actions.push(
+                                    templateUrlInSection(
+                                        template.id,
+                                        templateSectionFor(router.values.location.pathname)
+                                    )
+                                )
+                            }
                             onTagClick={(tag) => !tagsFilter.includes(tag) && setTagsFilter([...tagsFilter, tag])}
                             actions={
                                 <More

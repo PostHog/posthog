@@ -370,6 +370,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     // The experiment whose recordings list the player was opened from. Its first in-session exposure
     // becomes a target for the initial skip, alongside any filtered events.
     exposureSkipExperimentId?: number
+    // Only the replay playlist offers the watch layout. Embedded, modal and single-recording players keep the classic chrome.
+    watchLayout?: boolean
 }
 
 export type MatchingEventSkipTarget = 'filtered-event' | 'experiment-exposure'
@@ -1135,6 +1137,9 @@ export interface sessionRecordingPlayerLogicActions {
     playerFrameDocumentLoadFailed: (iframe: HTMLIFrameElement | null) => {
         iframe: HTMLIFrameElement | null
     }
+    playerFrameDocumentLoaded: (iframe: HTMLIFrameElement | null) => {
+        iframe: HTMLIFrameElement | null
+    }
     restartIframePlayback: () => {
         value: true
     }
@@ -1639,6 +1644,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         // the error is emitted from code we don't control in rrweb, so we can't guarantee it's really an Error
         playerErrorSeen: (error: any) => ({ error }),
         playerFrameDocumentLoadFailed: (iframe: HTMLIFrameElement | null) => ({ iframe }),
+        playerFrameDocumentLoaded: (iframe: HTMLIFrameElement | null) => ({ iframe }),
         retryPlayerFrameLoad: true,
         stopRetryingPlayerFrameLoad: true,
         restartPlayerFrameLoad: true,
@@ -2689,6 +2695,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 sessionRecordingId: props.sessionRecordingId,
                 attempt: values.playerFrameLoadFailures,
                 restarts: values.playerFrameLoadRestarts,
+                // The playback loop keeps running without a frame, so this tells whether it ran during the failure.
+                playingState: values.playingState,
                 ...getPlayerFrameLoadDiagnostics(iframe),
             }
             // A load retried while offline fails again, and a connection can stay away for the rest of the
@@ -2714,6 +2722,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 // show, so a frame that failed in a hidden tab would never get its retry.
                 { pauseOnPageHidden: false }
             )
+        },
+        playerFrameDocumentLoaded: ({ iframe }) => {
+            // Only a frame that loaded after a failure, so its report can be compared with the failures.
+            if (!values.playerFrameLoadRetries) {
+                return
+            }
+            posthog.capture('replay player frame load recovered', {
+                sessionRecordingId: props.sessionRecordingId,
+                attempt: values.playerFrameLoadFailures,
+                restarts: values.playerFrameLoadRestarts,
+                playingState: values.playingState,
+                ...getPlayerFrameLoadDiagnostics(iframe),
+            })
         },
         restartPlayerFrameLoad: () => {
             posthog.capture('replay player frame load restarted', {

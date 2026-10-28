@@ -143,6 +143,7 @@ from products.dashboards.backend.api.widget_openapi_serializers import (
 )
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
     MAX_GROUPS,
     MAX_TEXT_TILE_AGENT_CONTEXT_LENGTH,
@@ -153,6 +154,7 @@ from products.dashboards.backend.constants import (
 )
 from products.dashboards.backend.customization import (
     normalize_dashboard_customization,
+    normalized_group_key,
     stored_customization,
     stored_groups,
     validate_template_groups,
@@ -166,7 +168,6 @@ from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_SPACING_GAPS,
     DASHBOARD_TILE_GROUP_DISPLAY_MODES,
     Dashboard,
-    TileGroupDisplay,
 )
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, DashboardTileBadge, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -259,10 +260,6 @@ class _GroupDictField(serializers.DictField):
 def _effective_layout_compaction(customization: Any) -> str:
     layout_compaction = normalize_dashboard_customization(customization).get("layout_compaction")
     return layout_compaction if layout_compaction in DASHBOARD_GRID_COMPACTION_MODES else "vertical"
-
-
-def _effective_group_display(customization: Any) -> str:
-    return stored_customization(customization).get("group_display", TileGroupDisplay.SECTIONS)
 
 
 logger = structlog.get_logger(__name__)
@@ -530,6 +527,14 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         return order, tile_data
 
 
+def serialize_tile_in_request_context(
+    request_context: contextvars.Context, tile: DashboardTile, order: int, context: dict
+) -> tuple[int, dict]:
+    # A streamed response body runs after the middleware chain has returned, so the request's context variables,
+    # the events table switch among them, reach a tile's queries only through a copy taken inside the view.
+    return request_context.run(serialize_tile_with_context, tile, order, context)
+
+
 class ReorderLayout(StrEnum):
     PRESERVE = "preserve"
     TWO_COLUMN = "two_column"
@@ -641,6 +646,11 @@ class ReorderTilesRequestSerializer(serializers.Serializer):
 class CopyDashboardTileRequestSerializer(serializers.Serializer):
     fromDashboardId = serializers.IntegerField(help_text="Dashboard id the tile currently belongs to.")
     tileId = serializers.IntegerField(help_text="Dashboard tile id to copy.")
+
+
+class CopyDashboardGroupRequestSerializer(serializers.Serializer):
+    fromDashboardId = serializers.IntegerField(help_text="Dashboard id the group currently belongs to.")
+    groupKey = serializers.CharField(max_length=MAX_GROUP_KEY_LENGTH, help_text="Key of the tile group to copy.")
 
 
 class TileLayoutBoxSerializer(serializers.Serializer):
@@ -1321,7 +1331,12 @@ class DashboardBasicSerializer(
         read_only_fields = fields
         extra_kwargs = {
             "name": {"help_text": "Name of the dashboard."},
-            "description": {"help_text": "Description of the dashboard."},
+            "description": {
+                "help_text": (
+                    "Short note for people who open the dashboard. Say what it shows in one or two sentences, "
+                    "about 30 words. Leave it empty when the name already says it. Do not write how it was built or changed."
+                )
+            },
             "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
         }
 
@@ -2160,7 +2175,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
         previous_layout_compaction = _effective_layout_compaction(instance.customization)
-        previous_group_display = _effective_group_display(instance.customization)
+        previous_group_display = instance.group_display
         self._check_delivered_dashboard_filters_access(
             cast(User, self.context["request"].user), instance, self.initial_data
         )
@@ -2238,6 +2253,8 @@ class DashboardSerializer(DashboardMetadataSerializer):
         # so a later tile failing validation must roll that back too, or a retry with the
         # original text_id can no longer find the tile.
         tile_results: list[tuple[DashboardTile | None, bool]] = []
+        tracks_groups = any("group_key" in tile_data for tile_data in tiles)
+        group_keys_before = instance.tile_group_keys if tracks_groups else set()
         with transaction.atomic():
             tile_ids = [tile["id"] for tile in tiles if tile.get("id") is not None]
             list(
@@ -2263,6 +2280,21 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     widget_type=widget_type,
                     request=self.context["request"],
                     tile=tile,
+                )
+
+        if tracks_groups and "request" in self.context:
+            group_keys_after = instance.tile_group_keys
+            for _ in group_keys_after - group_keys_before:
+                report_user_action(
+                    user,
+                    "dashboard tile group created",
+                    {
+                        "dashboard_id": instance.id,
+                        "group_display": instance.group_display,
+                        "group_count": len(group_keys_after),
+                    },
+                    team=instance.team,
+                    request=self.context["request"],
                 )
 
         duplicate_tiles = initial_data.pop("duplicate_tiles", [])
@@ -2504,7 +2536,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
         tile_defaults = DashboardSerializer._extract_display_defaults(tile_data)
         # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
         return DashboardTile.objects_including_soft_deleted.update_or_create(
-            id=tile_data.get("id", None),
+            id=tile_data.get("id", None),  # type: ignore[misc]  # id=None matches no row, so a new tile is created
             dashboard=instance,
             defaults={**tile_defaults, **extra_defaults, "dashboard": instance},
         )
@@ -3327,6 +3359,8 @@ class DashboardsViewSet(
         # below runs no queries for them.
         team_configs_for_cache_key(self.team)
 
+        request_context = contextvars.copy_context()
+
         # Async generator that handles progressive tile serialization and streaming
         async def async_tile_stream_generator() -> AsyncGenerator[bytes]:
             renderer = SafeJSONRenderer()
@@ -3340,8 +3374,8 @@ class DashboardsViewSet(
                     tile = sorted_tiles[order]
                     try:
                         order_result, tile_data = await database_sync_to_async(
-                            serialize_tile_with_context, thread_sensitive=True
-                        )(tile, order, context)
+                            serialize_tile_in_request_context, thread_sensitive=True
+                        )(request_context, tile, order, context)
                         initial_tiles.append(tile_data)
                     except Exception:
                         logger.exception("Error serializing initial dashboard tile", tile_id=tile.id)
@@ -3363,8 +3397,8 @@ class DashboardsViewSet(
                     tile = sorted_tiles[order]
                     try:
                         order_result, tile_data = await database_sync_to_async(
-                            serialize_tile_with_context, thread_sensitive=True
-                        )(tile, order, context)
+                            serialize_tile_in_request_context, thread_sensitive=True
+                        )(request_context, tile, order, context)
                         tile_json = renderer.render({"type": "tile", "order": order, "tile": tile_data}).decode()
                         yield f"data: {tile_json}\n\n".encode()
                     except Exception:
@@ -3546,6 +3580,116 @@ class DashboardsViewSet(
                 context=self.get_serializer_context(),
             ).data
         )
+
+    def _copy_group_tiles(self, request: Request, destination: Dashboard, source_id: int, group_key: str) -> None:
+        if source_id == destination.pk:
+            raise exceptions.ValidationError("Destination must be a different dashboard than the source.")
+
+        source = get_object_or_404(Dashboard, id=source_id, team__project_id=self.team.project_id, deleted=False)
+        access = UserAccessControl(user=cast(User, request.user), team=self.team)
+        if not access.check_access_level_for_object(source, "viewer"):
+            raise exceptions.PermissionDenied("You don't have permission to view the source dashboard.")
+        tiles = list(
+            DashboardTile.objects.filter(dashboard=source, group_key=group_key).select_related("insight", "widget")
+        )
+        if not tiles:
+            raise exceptions.NotFound("Tile group not found.")
+
+        new_key = uuid.uuid4().hex
+        for tile in tiles:
+            if tile.widget_id:
+                if tile.widget is None:
+                    raise exceptions.ValidationError("Widget tile is missing its widget.")
+                DashboardSerializer._check_widget_tile_product_access(tile.widget, access)
+            elif tile.insight_id:
+                insight = tile.insight
+                if insight is None:
+                    raise exceptions.ValidationError("Insight tile is missing its insight.")
+                if not access.check_access_level_for_object(insight, "viewer"):
+                    raise exceptions.PermissionDenied("You don't have permission to view an insight in this group.")
+                if DashboardTile.objects.filter(dashboard=destination, insight_id=tile.insight_id).exists():
+                    raise exceptions.ValidationError(
+                        "An insight in this group is already on the destination dashboard."
+                    )
+                check_can_add_insight_to_dashboard(cast(User, request.user), destination, insight.query, access)
+            elif tile.text_id:
+                if DashboardTile.objects.filter(dashboard=destination, text_id=tile.text_id).exists():
+                    raise exceptions.ValidationError(
+                        "A text card in this group is already on the destination dashboard."
+                    )
+            elif tile.button_tile_id:
+                if DashboardTile.objects.filter(dashboard=destination, button_tile_id=tile.button_tile_id).exists():
+                    raise exceptions.ValidationError("A button in this group is already on the destination dashboard.")
+            else:
+                raise exceptions.ValidationError("This group contains an empty tile.")
+
+        source_tops = {
+            size: min(tile.layouts[size].get("y", 0) for tile in tiles if size in tile.layouts)
+            for size in ("sm", "xs")
+            if any(size in tile.layouts for tile in tiles)
+        }
+        try:
+            with transaction.atomic():
+                # Without this lock, two copies into the same dashboard would overwrite each other's groups.
+                try:
+                    destination.refresh_from_db(
+                        fields=["customization"], from_queryset=Dashboard.objects.select_for_update(no_key=True)
+                    )
+                except Dashboard.DoesNotExist:
+                    raise exceptions.NotFound()
+                groups = stored_groups(destination.customization)
+                if len(groups) >= MAX_GROUPS:
+                    raise exceptions.ValidationError({"groups": f"A dashboard can have at most {MAX_GROUPS} groups."})
+                destination_tiles = list(DashboardTile.objects.filter(dashboard=destination).only("layouts"))
+                destination_bottoms = {
+                    size: max(
+                        (
+                            tile.layouts[size].get("y", 0) + tile.layouts[size].get("h", 0)
+                            for tile in destination_tiles
+                            if size in tile.layouts
+                        ),
+                        default=0,
+                    )
+                    for size in source_tops
+                }
+                for tile in tiles:
+                    if tile.widget_id:
+                        copied = DashboardSerializer._clone_widget_tile_to_dashboard(
+                            tile, destination, cast(User, request.user), keep_group_key=False
+                        )
+                        copied.group_key = new_key
+                    else:
+                        copied = tile.copy_to_dashboard(destination, keep_group_key=False)
+                        copied.group_key = new_key
+                    copied.layouts = {
+                        size: {**layout, "y": layout.get("y", 0) - source_tops[size] + destination_bottoms[size]}
+                        if size in source_tops
+                        else layout
+                        for size, layout in tile.layouts.items()
+                    }
+                    copied.save(update_fields=["group_key", "layouts"])
+                groups[new_key] = stored_groups(source.customization).get(group_key, {})
+                destination.customization = _with_groups(
+                    normalize_dashboard_customization(destination.customization), groups
+                )
+                destination.save(update_fields=["customization"])
+        except (DjangoValidationError, IntegrityError):
+            raise exceptions.ValidationError("Unable to copy this group to the destination dashboard.")
+
+    @extend_schema(request=CopyDashboardGroupRequestSerializer, responses={200: DashboardSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def copy_group(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Copy a group of tiles and its settings to another dashboard."""
+        destination = self.get_object()
+        if destination.deleted:
+            raise exceptions.NotFound()
+        serializer = CopyDashboardGroupRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        source_id = serializer.validated_data["fromDashboardId"]
+        group_key = normalized_group_key(serializer.validated_data["groupKey"])
+        self._copy_group_tiles(request, destination, source_id, group_key)
+
+        return Response(DashboardSerializer(destination, context=self.get_serializer_context()).data)
 
     @extend_schema(request=ReorderTilesRequestSerializer, responses={200: DashboardSerializer})
     @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])

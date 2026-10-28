@@ -101,6 +101,15 @@ def _customer(billing_response: dict[str, Any]) -> dict[str, Any]:
     return customer
 
 
+def current_period_amount(alert: BillingAlertConfiguration, billing_response: dict[str, Any]) -> Decimal | None:
+    """The alert's metric for the current billing period, or None when the billing service has
+    no total yet."""
+    _validate_supported_metric(alert)
+    amount_field = _METRIC_AMOUNT_FIELD[alert.metric]
+    raw_amount = _customer(billing_response).get(amount_field)
+    return None if raw_amount is None else _decimal(raw_amount, field=amount_field)
+
+
 def evaluate_billing_alert(
     alert: BillingAlertConfiguration,
     *,
@@ -126,7 +135,7 @@ def evaluate_billing_alert(
     period_end = _parse_period_boundary(billing_period.get("current_period_end")) or (default_start + timedelta(days=1))
 
     amount_field = _METRIC_AMOUNT_FIELD[alert.metric]
-    raw_amount = customer.get(amount_field)
+    current_value = current_period_amount(alert, billing_response)
 
     payload: dict[str, Any] = {
         "expected_evaluation_date": expected_date.isoformat(),
@@ -154,13 +163,11 @@ def evaluate_billing_alert(
         }
         return BillingAlertEvaluation(reason=reason, **values)
 
-    if raw_amount is None:
+    if current_value is None:
         return result(
             reason="Billing status did not include a spend total for this billing period yet.",
             is_inconclusive=True,
         )
-
-    current_value = _decimal(raw_amount, field=amount_field)
 
     if current_value < alert.minimum_value:
         return result(
