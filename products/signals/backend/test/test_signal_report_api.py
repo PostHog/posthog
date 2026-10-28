@@ -2146,15 +2146,16 @@ class TestSignalReportListAPI(APIBaseTest):
         pr_merged: bool = False,
     ) -> SignalReportAssignment:
         parts = pr_url.rstrip("/").split("/") if pr_url else []
-        return SignalReportAssignment.all_teams.create(
-            team=self.team,
-            report=report,
-            pr_url=pr_url,
-            repository="/".join(parts[-4:-2]) if parts else None,
-            pr_number=int(parts[-1]) if parts else None,
-            pr_state=pr_state if pr_url else None,
-            pr_merged=pr_merged,
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            return SignalReportAssignment.all_teams.create(
+                team=self.team,
+                report=report,
+                pr_url=pr_url,
+                repository="/".join(parts[-4:-2]) if parts else None,
+                pr_number=int(parts[-1]) if parts else None,
+                pr_state=pr_state if pr_url else None,
+                pr_merged=pr_merged,
+            )
 
     def test_implementation_pr_fields_come_from_assignment(self):
         report = self._create_report()
@@ -2652,7 +2653,8 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [row["id"] for row in response.json()["results"]] == [str(dismissed.id)]
 
-    def test_needs_decision_includes_failures_without_an_actionability_judgment(self):
+    @parameterized.expand([("live_filters", False), ("cached_columns", True)])
+    def test_needs_decision_includes_failures_without_an_actionability_judgment(self, _name: str, cached: bool) -> None:
         failed = self._create_report(title="Failed research", status=SignalReport.Status.FAILED)
         actionable = self._create_report(title="Ready for a decision")
         self._actionability_artefact(actionable, actionability="immediately_actionable")
@@ -2669,7 +2671,11 @@ class TestSignalReportListAPI(APIBaseTest):
         failed_with_pr = self._create_report(title="Failed with a PR", status=SignalReport.Status.FAILED)
         self._create_assignment(failed_with_pr, pr_url="https://github.com/org/repo/pull/43")
 
-        response = self.client.get(self._list_url(view="needs_decision", scope="entire_project"))
+        with patch("products.signals.backend.views.organization_inbox_cached_filters_enabled", return_value=cached):
+            response = self.client.get(self._list_url(view="needs_decision", scope="entire_project"))
+            count_response = self.client.get(
+                self._list_url(view="needs_decision", scope="entire_project", count_only="true")
+            )
 
         assert response.status_code == status.HTTP_200_OK
         assert {row["id"] for row in response.json()["results"]} == {
@@ -2678,7 +2684,7 @@ class TestSignalReportListAPI(APIBaseTest):
             str(needs_input.id),
             str(failed_with_pr.id),
         }
-        response = self.client.get(self._list_url(view="needs_decision", scope="entire_project", count_only="true"))
+        response = count_response
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["count"] == 4
 
