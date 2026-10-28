@@ -5640,6 +5640,16 @@ export interface WebhookInfoResponseApi {
     missing_inputs?: string[]
 }
 
+export interface MigrationTableOverrideApi {
+    /** A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`. */
+    vendor_table: string
+    /**
+     * The PostHog table to sync it as. Null leaves the table out.
+     * @nullable
+     */
+    posthog_table: string | null
+}
+
 export interface ApplyMigrationItemApi {
     /** The migration item to create a PostHog source for. */
     item_id: string
@@ -5649,6 +5659,8 @@ export interface ApplyMigrationItemApi {
     prefix?: string
     /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
     destination_ids?: string[]
+    /** Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched table, or leave a table out. */
+    table_overrides?: MigrationTableOverrideApi[]
     /** Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.
      *
      * * `web` - web

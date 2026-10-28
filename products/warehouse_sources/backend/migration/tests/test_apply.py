@@ -5,7 +5,12 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
-from products.warehouse_sources.backend.migration.apply import build_planned_schemas
+from products.warehouse_sources.backend.migration.apply import (
+    TableOverride,
+    TableOverrideError,
+    build_planned_schemas,
+    with_table_overrides,
+)
 from products.warehouse_sources.backend.migration.types import ItemProposal, ProposedRowFilter, ProposedSchema
 from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
 
@@ -125,3 +130,45 @@ class TestBuildPlannedSchemas(SimpleTestCase):
             ("events",),
             ("orders", "events"),
         )
+
+
+_CONTACTS = ProposedSchema(name="contacts", should_sync=True, sync_type=None, vendor_table="contact")
+_DEALS = ProposedSchema(name="deals", should_sync=True, sync_type=None, vendor_table="deals")
+
+
+class TestTableOverrides(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("rename_an_inferred_pair", [("contact", "contact_list")], ["contact_list", "deals"]),
+            ("map_an_unmatched_table", [("email_event", "email_events")], ["contacts", "deals", "email_events"]),
+            ("leave_a_table_out", [("deals", None)], ["contacts"]),
+            ("swap_two_names", [("contact", "deals"), ("deals", "contacts")], ["deals", "contacts"]),
+        ]
+    )
+    def test_overrides_change_the_plan(
+        self, _name: str, overrides: list[tuple[str, str | None]], expected: list[str]
+    ) -> None:
+        proposal = _proposal(_CONTACTS, _DEALS, unmatched_tables=("email_event",))
+
+        result = with_table_overrides(proposal, [TableOverride(vendor_table=v, posthog_table=p) for v, p in overrides])
+
+        assert result.schemas is not None
+        assert [schema.name for schema in result.schemas] == expected
+
+    @parameterized.expand(
+        [
+            ("unknown_vendor_table", (_CONTACTS,), [("not_a_table", "x")], "not a Fivetran table"),
+            ("two_tables_one_name", (_CONTACTS, _DEALS), [("deals", "contacts")], "maps to `contacts`"),
+            ("default_tables_plan", None, [("contact", "x")], "default tables"),
+        ]
+    )
+    def test_overrides_that_do_not_fit_are_refused(
+        self,
+        _name: str,
+        schemas: tuple[ProposedSchema, ...] | None,
+        overrides: list[tuple[str, str | None]],
+        message: str,
+    ) -> None:
+        proposal = _proposal(*(schemas or ()), schemas=schemas)
+        with self.assertRaisesRegex(TableOverrideError, message):
+            with_table_overrides(proposal, [TableOverride(vendor_table=v, posthog_table=p) for v, p in overrides])

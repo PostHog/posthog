@@ -13,7 +13,12 @@ from rest_framework.response import Response
 from posthog.api.utils import action
 
 from products.warehouse_sources.backend.facade import warehouse_migration as migrations
-from products.warehouse_sources.backend.facade.contracts import ClaimedWarehouseMigrationItem, PlannedMigrationSchemas
+from products.warehouse_sources.backend.facade.contracts import (
+    ClaimedWarehouseMigrationItem,
+    MigrationTableOverride,
+    PlannedMigrationSchemas,
+    WarehouseMigrationTableOverrideError,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
 from products.warehouse_sources.backend.presentation.views.destination_links import EMPTY_SET_MESSAGE
@@ -24,6 +29,16 @@ from .source_setup import ExternalDataSourceCreateCreatedVia, ExternalDataSource
 
 # Source creation gives every table this cadence, so a plan that matches it needs no second pass.
 _CREATED_SYNC_FREQUENCY = "6hour"
+
+
+class MigrationTableOverrideSerializer(serializers.Serializer):
+    vendor_table = serializers.CharField(
+        help_text="A Fivetran table from the item: a planned table's `vendor_table`, or one of `unmatched_tables`."
+    )
+    posthog_table = serializers.CharField(
+        allow_null=True,
+        help_text="The PostHog table to sync it as. Null leaves the table out.",
+    )
 
 
 class ApplyMigrationItemSerializer(serializers.Serializer):
@@ -40,6 +55,12 @@ class ApplyMigrationItemSerializer(serializers.Serializer):
         child=serializers.UUIDField(),
         required=False,
         help_text="Destinations to write the new source to. Omit to write to the PostHog warehouse.",
+    )
+    table_overrides = MigrationTableOverrideSerializer(
+        many=True,
+        required=False,
+        help_text="Changes to the planned tables that the user confirmed: rename an inferred pair, map an unmatched "
+        "table, or leave a table out.",
     )
     created_via = serializers.ChoiceField(
         choices=ExternalDataSourceCreateCreatedVia.choices,
@@ -72,7 +93,18 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        item = migrations.claim_migration_item(self.team_id, data["item_id"], prefix_override=data.get("prefix"))
+        try:
+            item = migrations.claim_migration_item(
+                self.team_id,
+                data["item_id"],
+                prefix_override=data.get("prefix"),
+                table_overrides=[
+                    MigrationTableOverride(vendor_table=o["vendor_table"], posthog_table=o["posthog_table"])
+                    for o in data.get("table_overrides", [])
+                ],
+            )
+        except WarehouseMigrationTableOverrideError as error:
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(error)})
         if item is None:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,

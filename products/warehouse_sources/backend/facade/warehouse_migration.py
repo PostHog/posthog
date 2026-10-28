@@ -1,7 +1,7 @@
 """Fivetran migration import, for the warehouse presentation endpoints."""
 
 import dataclasses
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import timedelta
 from uuid import UUID
 
@@ -13,7 +13,12 @@ from pydantic import ValidationError
 from products.warehouse_sources.backend.facade import contracts
 from products.warehouse_sources.backend.facade.source_management import SourceSchema
 from products.warehouse_sources.backend.migration import service
-from products.warehouse_sources.backend.migration.apply import build_planned_schemas
+from products.warehouse_sources.backend.migration.apply import (
+    TableOverride,
+    TableOverrideError,
+    build_planned_schemas,
+    with_table_overrides,
+)
 from products.warehouse_sources.backend.migration.flags import is_migration_import_enabled
 from products.warehouse_sources.backend.migration.types import ItemProposal
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
@@ -118,12 +123,17 @@ def find_migration_item(team_id: int, item_id: UUID) -> contracts.WarehouseMigra
 
 
 def claim_migration_item(
-    team_id: int, item_id: UUID, *, prefix_override: str | None = None
+    team_id: int,
+    item_id: UUID,
+    *,
+    prefix_override: str | None = None,
+    table_overrides: Sequence[contracts.MigrationTableOverride] = (),
 ) -> contracts.ClaimedWarehouseMigrationItem | None:
     """Mark the item as being applied. Returns None when it is unsupported, done, skipped, or claimed.
 
     When an earlier attempt created the source and then failed or died, the claim links that source and
     applies the item, and returns it in `recovered_source_id` instead of letting the caller create another.
+    Raises `WarehouseMigrationTableOverrideError` when the table overrides do not fit the plan.
     """
     items = _WarehouseMigrationItem.objects.for_team(team_id).filter(id=item_id, proposal__isnull=False)
     item = items.first()
@@ -144,6 +154,13 @@ def claim_migration_item(
             updated_at=now,
         )
         return None
+    try:
+        proposal = with_table_overrides(
+            proposal,
+            [TableOverride(vendor_table=o.vendor_table, posthog_table=o.posthog_table) for o in table_overrides],
+        )
+    except TableOverrideError as error:
+        raise contracts.WarehouseMigrationTableOverrideError(str(error)) from error
     prefix = (proposal.prefix if prefix_override is None else prefix_override) or None
     if not items.filter(claimable).update(
         status=_WarehouseMigrationItem.Status.APPLYING, updated_at=now, claimed_at=now, claimed_prefix=prefix
@@ -159,7 +176,7 @@ def claim_migration_item(
         description=_source_description(item),
         sync_frequency=proposal.sync_frequency,
         start_paused=proposal.start_paused,
-        proposal=item.proposal or {},
+        proposal=proposal.to_json(),
     )
     # `item` still holds the previous claim, which is the attempt that may have left a source behind.
     leftover = _source_created_since_claim(item, proposal.source_type)

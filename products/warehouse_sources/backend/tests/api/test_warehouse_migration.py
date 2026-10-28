@@ -359,6 +359,28 @@ class TestApplyMigrationItem(APIBaseTest):
         self.item.refresh_from_db()
         assert self.item.status == expected_status
 
+    def test_table_overrides_change_the_created_tables(self) -> None:
+        bad = {"table_overrides": [{"vendor_table": "not_a_table", "posthog_table": "Invoice"}]}
+        response = self.client.post(
+            self.url,
+            {"item_id": str(self.item.id), "credential_id": str(self._credential().id), **bad},
+            format="json",
+        )
+        assert response.status_code == 400
+        self.item.refresh_from_db()
+        assert self.item.status == WarehouseMigrationItem.Status.PENDING
+
+        overrides = {"table_overrides": [{"vendor_table": "NotAStripeTable", "posthog_table": "Invoice"}]}
+        response = self.client.post(
+            self.url,
+            {"item_id": str(self.item.id), "credential_id": str(self._credential().id), **overrides},
+            format="json",
+        )
+
+        assert response.status_code == 201, response.json()
+        synced = ExternalDataSchema.objects.filter(source_id=response.json()["source_id"], should_sync=True)
+        assert sorted(schema.name for schema in synced) == ["Customer", "Invoice"]
+
     def test_a_source_created_before_a_failure_is_linked_not_created_again(self) -> None:
         # Raises after the source row exists, as revenue view setup or a database error can.
         with patch(f"{_SOURCE_SETUP}.report_user_action", side_effect=RuntimeError("after create")):
