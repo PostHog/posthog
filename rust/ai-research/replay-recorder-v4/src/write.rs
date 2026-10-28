@@ -820,6 +820,11 @@ mod tests {
         let svg =
             "data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%2F%3E";
         let remote_svg = "https://cdn.example.com/a.svg";
+        let shared = "https://cdn.example.com/shared.webp";
+        let other_avif = format!(
+            "data:image/avif;base64,{}",
+            STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1other")
+        );
         // The dataset keeps no AVIF, so an inline one leaves the list too.
         let inline_avif = format!(
             "data:image/avif;base64,{}",
@@ -831,6 +836,10 @@ mod tests {
             source(3, json!({"type": "image/avif", "srcset": format!("{avif} 1x, {inline_avif} 2x")})),
             // A bare srcset equal to the img's src below: only the srcset empties.
             source(8, json!({"type": "image/avif", "srcset": bare})),
+            // Values that read the same once their inline AVIFs leave merge their policies, so the WebP source keeps
+            // the shared candidate.
+            source(11, json!({"type": "image/avif", "srcset": format!("{shared} 1x, {inline_avif} 2x")})),
+            source(12, json!({"type": "image/webp", "srcset": format!("{shared} 1x, {other_avif} 2x")})),
             // An empty type gives no hint, so the source keeps its candidate.
             source(9, json!({"type": "", "srcset": format!("{typeless} 1x")})),
             source(4, json!({"type": "image/webp", "srcset": format!("{signed} 2x, {webp} 1x")})),
@@ -874,6 +883,10 @@ mod tests {
             "{lines}"
         );
         assert!(lines.contains(&reference(fallback)), "{lines}");
+        assert!(
+            lines.contains(&format!(r#""srcset":"{} 1x""#, reference(shared))),
+            "{lines}"
+        );
         assert!(
             lines.contains(&format!(r#""src":"{}""#, reference(bare))),
             "{lines}"

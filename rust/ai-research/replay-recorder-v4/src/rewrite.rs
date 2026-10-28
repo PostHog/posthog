@@ -169,18 +169,24 @@ impl UrlRewrite {
             .map(|(index, url)| (url.as_str(), index))
             .collect();
         let content_key = image_content_key(team_key);
+        // The writer moves inline images out before this rewrite runs, so each pattern is the value as it reads then.
+        // Two values can read the same then, for example with different inline AVIFs, so their sources' policies merge
+        // as the inspector merges identical values: a supported source keeps its candidates.
+        let mut extracted: HashMap<Vec<u8>, bool> = HashMap::new();
         for srcset in srcsets {
-            // The writer moves inline images out before this rewrite runs, so the pattern is the value as it reads then.
             let mut original = Vec::with_capacity(srcset.text.len() + 2);
             write_json_string(&srcset.text, &mut original);
             let mut sink = ImageSink::new(&content_key, team_id, key_month, ImageLimits::default());
             let pattern = extract_images(&original, &mut sink).into_owned();
+            *extracted.entry(pattern).or_insert(true) &= srcset.unfetched_type;
+        }
+        for (pattern, unfetched_type) in extracted {
             let Ok(text) = unescape(&pattern, (0, pattern.len())) else {
                 continue;
             };
             let Some((value, outcome, covers)) = rebuilt_srcset(
                 &text,
-                srcset.unfetched_type,
+                unfetched_type,
                 &url_targets,
                 team_id,
                 key_month,

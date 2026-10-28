@@ -223,14 +223,51 @@ enum DataUri {
     Avif(usize),
 }
 
-/// Whether the base64 payload starts with an ISO-BMFF `ftyp` box of an AVIF brand.
-fn is_avif_payload(payload: &[u8]) -> bool {
-    let head = &payload[..payload.len().min(16)];
-    STANDARD
-        .decode(&head[..head.len() / 4 * 4])
-        .is_ok_and(|bytes| {
-            bytes.get(4..8) == Some(b"ftyp") && matches!(bytes.get(8..12), Some(b"avif" | b"avis"))
-        })
+/// The longest `ftyp` box the scan reads for its brands. Real files list a handful of brands in far fewer bytes.
+const MAX_FTYP_BYTES: usize = 256;
+
+/// The first bytes of a base64 payload, decoded across the line breaks, whitespace and escaped slashes that
+/// [`wrapped_end`] also reads, so that a break inside the header does not hide it.
+fn payload_head(bytes: &[u8], start: usize, decoded: usize) -> Vec<u8> {
+    let want = decoded.div_ceil(3) * 4;
+    let mut base64 = Vec::with_capacity(want);
+    let mut position = start;
+    while base64.len() < want {
+        match bytes.get(position..) {
+            Some([b'\\', b'n' | b'r' | b't', ..]) => position += 2,
+            Some([b'\\', b'/', ..]) => {
+                base64.push(b'/');
+                position += 2;
+            }
+            Some([b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', ..]) => {
+                base64.push(b'/');
+                position += 6;
+            }
+            Some([b' ' | b'\t' | b'\n' | b'\r', ..]) => position += 1,
+            Some([byte, ..]) if is_base64(*byte) => {
+                base64.push(*byte);
+                position += 1;
+            }
+            _ => break,
+        }
+    }
+    base64.truncate(base64.len() / 4 * 4);
+    STANDARD.decode(&base64).unwrap_or_default()
+}
+
+/// Whether the bytes start with an ISO-BMFF `ftyp` box that names an AVIF brand, as its major brand or as one of its
+/// compatible brands.
+fn is_avif_header(bytes: &[u8]) -> bool {
+    if bytes.get(4..8) != Some(b"ftyp") {
+        return false;
+    }
+    let size = u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]) as usize;
+    let ftyp = &bytes[..size.clamp(8, MAX_FTYP_BYTES).min(bytes.len())];
+    let is_avif = |brand: &[u8]| matches!(brand, b"avif" | b"avis");
+    ftyp.get(8..12).is_some_and(is_avif)
+        || ftyp
+            .get(16..)
+            .is_some_and(|brands| brands.chunks_exact(4).any(is_avif))
 }
 
 /// Where a base64 payload that `continues_past` its first break really ends: after the line breaks, whitespace and
@@ -289,7 +326,9 @@ fn read_data_uri(bytes: &[u8], start: usize, sink: &mut ImageSink<'_>) -> DataUr
         .position(|&b| !is_base64(b))
         .map_or(bytes.len(), |length| payload_start + length);
     // The label or the bytes can name AVIF, so both count.
-    if subtype.starts_with("avif") || is_avif_payload(&bytes[payload_start..end]) {
+    if subtype.starts_with("avif")
+        || is_avif_header(&payload_head(bytes, payload_start, MAX_FTYP_BYTES))
+    {
         return match wrapped_end(bytes, end) {
             Some(end) => DataUri::Avif(end),
             None => DataUri::Inline,
@@ -487,7 +526,12 @@ mod tests {
     #[test]
     fn replaces_every_avif_data_uri_with_the_marker() {
         let avif = STANDARD.encode(b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf");
+        // AVIF as a compatible brand only, under the major brand `mif1`.
+        let compatible = STANDARD.encode(b"\x00\x00\x00\x18ftypmif1\x00\x00\x00\x00miafavif");
         for uri in [
+            format!("data:image/png;base64,{compatible}"),
+            // A break inside the header under another label.
+            format!("data:image/png;base64,{}\\n{}", &avif[..8], &avif[8..]),
             format!("data:image/avif;base64,{avif}"),
             // The bytes name AVIF under another label.
             format!("data:image/png;base64,{avif}"),
