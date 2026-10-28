@@ -151,10 +151,11 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
             return values
         return {**values, "config": config_for_write(kind, values.get("config"), requirement)}
 
-    def create(self, **kwargs: Any) -> "Integration":
+    # The django-stubs plugin rebinds this subclass to its own TypeVar, so a concrete signature cannot match.
+    def create(self, **kwargs: Any) -> "Integration":  # type: ignore[override]
         return super().create(**self._with_config_for_write(kwargs, kwargs.get("kind")))
 
-    def bulk_create(self, objs: Iterable["Integration"], *args: Any, **kwargs: Any) -> list["Integration"]:
+    def bulk_create(self, objs: Iterable["Integration"], *args: Any, **kwargs: Any) -> list["Integration"]:  # type: ignore[override]
         objs = list(objs)
         requirement = self._write_requirement()
         for obj in objs:
@@ -162,9 +163,9 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
                 obj.config = config_for_write(obj.kind, obj.config, requirement)
             # bulk_create does not call save(), so normalize here too.
             obj.config = normalized_config(obj.kind, obj.config)
-        return super().bulk_create(objs, *args, **kwargs)
+        return cast(list[Integration], super().bulk_create(cast(Iterable[Any], objs), *args, **kwargs))
 
-    def update_or_create(
+    def update_or_create(  # type: ignore[override]
         self,
         defaults: Mapping[str, Any] | None = None,
         create_defaults: Mapping[str, Any] | None = None,
