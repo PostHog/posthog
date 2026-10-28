@@ -74,21 +74,31 @@ def _schedule_for(kind: str, every: timedelta, offset: timedelta, schedule_id: s
 
 
 async def create_intent_topics_schedules(client: Client) -> None:
-    enabled, check_succeeded = await asyncio.to_thread(_schedule_enabled)
-    if not enabled:
-        if not check_succeeded:
-            logger.info("mcpa.intent_topics.schedule.feature_flag_check_failed_preserving_state")
-            return
-        for entry in SCHEDULES:
-            if await a_schedule_exists(client, entry.schedule_id):
-                logger.info("mcpa.intent_topics.schedule.disabled_removing_existing", schedule_id=entry.schedule_id)
-                await a_delete_schedule(client, entry.schedule_id)
-        return
+    """Register, update or remove the three schedules. Never raises.
 
+    Every product's schedules are set up in one task group, so an error that escaped here would cancel them all.
+    """
+    enabled, check_succeeded = await asyncio.to_thread(_schedule_enabled)
+    if not enabled and not check_succeeded:
+        logger.info("mcpa.intent_topics.schedule.feature_flag_check_failed_preserving_state")
+        return
     for entry in SCHEDULES:
-        schedule = _schedule_for(entry.kind, entry.every, entry.offset, entry.schedule_id)
-        if await a_schedule_exists(client, entry.schedule_id):
-            await a_update_schedule(client, entry.schedule_id, schedule)
-        else:
-            await a_create_schedule(client, entry.schedule_id, schedule, trigger_immediately=False)
-        logger.info("mcpa.intent_topics.schedule.registered", schedule_id=entry.schedule_id, every=str(entry.every))
+        try:
+            await _apply_schedule(client, entry, enabled=enabled)
+        except Exception:
+            logger.exception("mcpa.intent_topics.schedule.apply_failed", schedule_id=entry.schedule_id)
+
+
+async def _apply_schedule(client: Client, entry: TopicsSchedule, *, enabled: bool) -> None:
+    exists = await a_schedule_exists(client, entry.schedule_id)
+    if not enabled:
+        if exists:
+            logger.info("mcpa.intent_topics.schedule.disabled_removing_existing", schedule_id=entry.schedule_id)
+            await a_delete_schedule(client, entry.schedule_id)
+        return
+    schedule = _schedule_for(entry.kind, entry.every, entry.offset, entry.schedule_id)
+    if exists:
+        await a_update_schedule(client, entry.schedule_id, schedule)
+    else:
+        await a_create_schedule(client, entry.schedule_id, schedule, trigger_immediately=False)
+    logger.info("mcpa.intent_topics.schedule.registered", schedule_id=entry.schedule_id, every=str(entry.every))
