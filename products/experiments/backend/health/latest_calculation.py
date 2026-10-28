@@ -45,7 +45,9 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
     if run is None:
         return LatestCalculation(metric_count=len(configs), finished_at=None, failures=())
     metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
-    rows = {row.metric_uuid: row for row in MetricResultStore(experiment_id=experiment.id).for_run(run)}
+    rows = {
+        row.metric_uuid: row for row in MetricResultStore(experiment_id=experiment.id).for_run(run, with_result=False)
+    }
     failures = (
         _shown_failure(experiment, calculation_config, metric_errors.get(metric_id), rows.get(metric_id))
         for metric_id, calculation_config in configs.items()
