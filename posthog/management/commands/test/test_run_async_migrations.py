@@ -7,7 +7,9 @@ from django.core.management import call_command
 from semantic_version.base import Version
 
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import FROZEN_POSTHOG_VERSION
+from posthog.models.event.sql import TRUNCATE_EVENTS_TABLE_SQL
 
 pytestmark = pytest.mark.django_db
 
@@ -75,3 +77,10 @@ def test_complete_noop_migrations(caplog):
 @pytest.fixture(autouse=True)
 def set_log_level(caplog):
     caplog.set_level(logging.INFO)
+
+
+@pytest.fixture(autouse=True)
+def empty_events_table():
+    # The backfill migrations check every event in ClickHouse, and earlier tests in a shard can
+    # leave events without person data, which fails their postcheck.
+    sync_execute(TRUNCATE_EVENTS_TABLE_SQL())
