@@ -842,8 +842,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pardot/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/partnerstack/partnerstack.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/partnerstack/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/payfit/payfit.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/payfit/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pendo/pendo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pendo/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/perigon/perigon.py
