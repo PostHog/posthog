@@ -152,6 +152,19 @@ class TestIsTransientObjectStoreError:
                 ),
                 False,
             ),
+            (
+                # Table-level operations (vacuum, optimize, commit) wrap the identical underlying
+                # object-store error in `DeltaError` instead of a bare `OSError` - the same OSS 500
+                # must still classify as transient through that wrapper.
+                "oss_internal_error_wrapped_in_delta_error",
+                deltalake.exceptions.DeltaError(
+                    "Generic error: Unexpected (temporary) at commit, context: { uri: "
+                    "https://example-bucket.oss-us-west-1.aliyuncs.com/_delta_log/00000000000000000001.json } => "
+                    'OssError { code: "InternalError", message: "Please contact the server administrator, '
+                    'oss@service.aliyun.com", request_id: "6AE261CD76EC4B363925E507" }'
+                ),
+                True,
+            ),
             # `get_delta_table` re-raises a recognized transient blip as this wrapper (see
             # `_capture_unless_transient`) instead of the original OSError/DeltaError. A caller
             # further up the stack that catches broadly and re-runs this classifier on the caught

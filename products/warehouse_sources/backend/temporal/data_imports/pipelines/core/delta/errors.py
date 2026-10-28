@@ -57,7 +57,10 @@ _OSS_INTERNAL_ERROR_NEEDLE = 'OssError { code: "InternalError"'
 
 
 def _is_oss_internal_error(error: BaseException) -> bool:
-    return isinstance(error, OSError) and _OSS_INTERNAL_ERROR_NEEDLE in str(error)
+    # `is_deltatable()` exposes the raw `OSError`, but table-level operations (vacuum, optimize,
+    # commit) wrap the identical underlying object-store error in `deltalake.exceptions.DeltaError`
+    # instead - same split the S3 needles above already account for.
+    return isinstance(error, OSError | deltalake.exceptions.DeltaError) and _OSS_INTERNAL_ERROR_NEEDLE in str(error)
 
 
 class TransientObjectStoreError(NonReportableError):
