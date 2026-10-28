@@ -80,7 +80,8 @@ def collect_due_final_checks(
         .filter(_member_version__isnull=False, _window_end__lte=now)
     )
     if kind == SignalReportCheck.Kind.AGENT:
-        candidates = candidates.filter(
+        # Scout history and memory belong to the parent project, so child evidence must wait.
+        candidates = candidates.filter(report__team__parent_team_id__isnull=True).filter(
             Q(monitoring_dispatch_after__isnull=True) | Q(monitoring_dispatch_after__lte=now)
         )
     results = SignalReportMonitoringResult.objects.unscoped().filter(

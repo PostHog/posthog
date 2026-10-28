@@ -925,7 +925,12 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         errored=final.errored,
         deferred=final.deferred,
     )
-    agents = run_due_final_agents(now=now, deadline=deadline, limit=max(0, limit - sum(counts.values())))
+    remaining = max(0, limit - sum(counts.values()))
+    # Reserve both slots and time for interim measurements, including when agents only defer.
+    agent_limit = max(1, remaining // 2) if remaining else 0
+    agent_started = time.monotonic()
+    agent_deadline = agent_started + max(0, deadline - agent_started) / 2
+    agents = run_due_final_agents(now=now, deadline=agent_deadline, limit=agent_limit)
     counts["dispatched"] += agents.dispatched
     counts["deferred"] += agents.deferred
     remaining = max(0, limit - sum(counts.values()))

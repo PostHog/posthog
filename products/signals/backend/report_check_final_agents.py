@@ -13,7 +13,7 @@ from django.db.models.functions import MD5
 from django.utils import timezone
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
@@ -127,6 +127,7 @@ def ready_monitoring_scout_check(binding: MonitoringScoutCheck) -> SignalReportC
     attempt = current_monitoring_attempt(report)
     if (
         report.status != SignalReport.Status.MONITORING
+        or report.team.parent_team_id is not None
         or not team_report_monitoring_enabled(binding.team_id)
         or attempt is None
         or attempt.id != binding.attempt_id
@@ -187,36 +188,6 @@ def bound_monitoring_scout_run(canonical_team_id: int, run_note: str) -> SignalS
     )
 
 
-def monitoring_environment_for_task_run(*, team_id: int, task_id: UUID, run_id: UUID | str) -> int | None:
-    try:
-        task_run_id = UUID(str(run_id))
-    except ValueError:
-        return None
-    run = (
-        SignalScoutRun.objects.for_team(team_id)
-        .filter(task_run_id=task_run_id, task_run__task_id=task_id, metadata__triggered_by=TRIGGERED_BY_MONITORING)
-        .first()
-    )
-    if run is None or not isinstance(run.metadata, dict):
-        return None
-    note = run.metadata.get("run_note")
-    if not isinstance(note, str):
-        return None
-    try:
-        data = json.loads(note)
-        binding = TypeAdapter(MonitoringScoutCheck).validate_python(
-            {**data, "window_start_iso": data["window_start"], "window_end_iso": data["window_end"]}
-        )
-        check = ready_monitoring_scout_check(binding)
-        if (check.report.team.parent_team_id or check.team_id) != team_id:
-            return None
-        if note != build_monitoring_run_note(binding, check):
-            return None
-        return binding.team_id if binding.team_id != team_id else None
-    except (KeyError, TypeError, ValueError, SignalReportCheck.DoesNotExist):
-        return None
-
-
 def _save_scout_evaluation(evaluation: MonitoringEvaluation) -> None:
     with transaction.atomic():
         save_monitoring_result(evaluation)
@@ -233,7 +204,7 @@ def save_monitoring_scout_result(
     run_note: str,
     run_id: str | None,
     failed: bool = False,
-) -> None:
+) -> bool:
     previous = (
         SignalReportMonitoringResult.objects.for_team(binding.team_id)
         .filter(
@@ -245,7 +216,7 @@ def save_monitoring_scout_result(
         .first()
     )
     if previous is not None:
-        return
+        return True
     try:
         check = ready_monitoring_scout_check(binding)
         if (check.report.team.parent_team_id or binding.team_id) != canonical_team_id:
@@ -256,14 +227,14 @@ def save_monitoring_scout_result(
         if run is None:
             if failed:
                 _save_scout_evaluation(binding.incomplete_evaluation(max(timezone.now(), binding.window_end)))
-            return
+            return True
         if (run_id is not None and str(run.id) != run_id) or run.skill_name != skill_name:
             raise InvalidMonitoringResult("The result must come from the dispatched scout run.")
         if (
             run.task_run.status in {"queued", "in_progress"}
             and (timezone.now() - run.created_at).total_seconds() < STALE_RUN_CUTOFF_S
         ):
-            return
+            return False
         evaluated_at = max(run.updated_at or run.created_at, binding.window_end)
         evaluation = binding.incomplete_evaluation(evaluated_at)
         try:
@@ -282,7 +253,9 @@ def save_monitoring_scout_result(
             pass
         _save_scout_evaluation(evaluation)
     except (InvalidMonitoringResult, MonitoringResultConflict, SignalReportCheck.DoesNotExist):
-        return
+        return True
+
+    return True
 
 
 @frozen

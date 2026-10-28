@@ -450,7 +450,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
 @close_db_connections
 def deliver_monitoring_scout_result(input: RunSignalsScoutInput, run_id: str | None, failed: bool = False) -> None:
     if input.monitoring_check is not None and input.run_note is not None:
-        save_monitoring_scout_result(
+        settled = save_monitoring_scout_result(
             input.monitoring_check,
             canonical_team_id=input.team_id,
             skill_name=input.skill_name,
@@ -458,6 +458,12 @@ def deliver_monitoring_scout_result(input: RunSignalsScoutInput, run_id: str | N
             run_id=run_id,
             failed=failed,
         )
+        if not settled:
+            raise ApplicationError(
+                "The scout task is still finalizing.",
+                type="MonitoringScoutRunPending",
+                next_retry_delay=timedelta(seconds=5),
+            )
 
 
 @temporalio.workflow.defn

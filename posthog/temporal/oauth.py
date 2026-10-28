@@ -616,34 +616,14 @@ def get_sandbox_oauth_app(application: SandboxOAuthApplication = "array") -> OAu
 
 
 def _mint_run_access_token(
-    user,
-    team_id: int,
-    *,
-    app: OAuthApplication,
-    scopes: list[str],
-    sandbox_task_id: UUID | None = None,
-    environment_id: int | None = None,
+    user, team_id: int, *, app: OAuthApplication, scopes: list[str], sandbox_task_id: UUID | None = None
 ) -> str:
-    scoped_teams = [team_id]
-    if environment_id is not None and environment_id != team_id:
-        environment = (
-            Team.objects.select_related("parent_team").filter(id=environment_id, parent_team_id=team_id).first()
-        )
-        if (
-            environment is None
-            or environment.parent_team is None
-            or environment.organization_id != environment.parent_team.organization_id
-            or not environment.all_users_with_access().filter(id=user.id, is_active=True).exists()
-            or not environment.parent_team.all_users_with_access().filter(id=user.id, is_active=True).exists()
-        ):
-            raise ValueError("The sandbox environment must belong to its project and be accessible to its user.")
-        scoped_teams.append(environment_id)
     access_token = mint_oauth_access_token(
         application=app,
         user=user,
         scope=" ".join(dict.fromkeys(scopes)),
         lifetime=timedelta(seconds=TOKEN_EXPIRATION_SECONDS),
-        scoped_teams=scoped_teams,
+        scoped_teams=[team_id],
         sandbox_task_id=sandbox_task_id,
     )
     return access_token.token
@@ -661,7 +641,6 @@ def create_oauth_access_token_for_user(
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
     withhold_scopes: Collection[str] = (),
-    environment_id: int | None = None,
 ) -> str:
     resolved = [
         scope
@@ -680,9 +659,7 @@ def create_oauth_access_token_for_user(
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
     app = get_sandbox_oauth_app(application)
-    return _mint_run_access_token(
-        user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id, environment_id=environment_id
-    )
+    return _mint_run_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
 
 def get_wizard_app() -> OAuthApplication:

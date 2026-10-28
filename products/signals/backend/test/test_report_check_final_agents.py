@@ -17,14 +17,11 @@ from django.utils import timezone
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
-from rest_framework.exceptions import PermissionDenied
 from temporalio.converter import default
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from posthog.auth import OAuthAccessTokenAuthentication
-from posthog.models import OAuthAccessToken, OAuthApplication, Team
-from posthog.permissions import APIScopePermission
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import (
@@ -41,12 +38,12 @@ from products.signals.backend.report_check_final_agents import (
     MonitoringScoutCheck,
     MonitoringScoutResult,
     build_monitoring_run_note,
-    monitoring_environment_for_task_run,
     monitoring_scout_check,
     run_due_final_agents,
     save_monitoring_scout_result,
 )
 from products.signals.backend.report_check_final_candidates import DueFinalCheck, collect_due_final_checks
+from products.signals.backend.report_metric_refresh import MetricMeasurement
 from products.signals.backend.report_monitoring_attempts import check_definition_version, complete_implementation
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, TRIGGERED_BY_MONITORING
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary
@@ -57,9 +54,9 @@ from products.signals.backend.temporal.agentic.scout_scheduler import (
     deliver_monitoring_scout_result,
     run_signals_scout_activity,
 )
+from products.signals.backend.test.report_metric_test_fixtures import trends_metric_query
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
-from products.tasks.backend.facade.testing import create_task_run_oauth_access_token
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -291,15 +288,34 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
         assert result.evidence_status == "errored" and result.expectation_matches is None
 
-    @parameterized.expand(["queued", "in_progress"])
-    def test_recovery_waits_for_live_runs_and_records_orphaned_runs_as_errors(self, status: str) -> None:
+    @parameterized.expand([("queued", False), ("in_progress", False), ("in_progress", True)])
+    def test_recovery_waits_for_live_runs_and_records_orphaned_runs_as_errors(
+        self, status: str, finalizes: bool
+    ) -> None:
         run = self._run(self._payload("sufficient", True), status=status)
-        self._deliver(run)
+        input = RunSignalsScoutInput(
+            team_id=self.team.id,
+            skill_name=self.skill.name,
+            triggered_by=TRIGGERED_BY_MONITORING,
+            monitoring_check=self.binding,
+            run_note=self.note,
+        )
+        environment = ActivityEnvironment()
+        with self.assertRaises(ApplicationError) as pending:
+            environment.run(deliver_monitoring_scout_result, input, str(run.id))
+        assert pending.exception.type == "MonitoringScoutRunPending"
+        assert pending.exception.next_retry_delay == timedelta(seconds=5)
         assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
-        with time_machine.travel(self.now + timedelta(seconds=STALE_RUN_CUTOFF_S + 1), tick=False):
-            self._deliver(run)
+        if finalizes:
+            run.task_run.status = "completed"
+            run.task_run.save(update_fields=["status"])
+            environment.run(deliver_monitoring_scout_result, input, str(run.id))
+        else:
+            with time_machine.travel(self.now + timedelta(seconds=STALE_RUN_CUTOFF_S + 1), tick=False):
+                environment.run(deliver_monitoring_scout_result, input, str(run.id))
         result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
-        assert result.evidence_status == "errored" and result.expectation_matches is None
+        assert result.evidence_status == ("sufficient" if finalizes else "errored")
+        assert result.expectation_matches is (True if finalizes else None)
         assert SignalScoutRun.objects.for_team(self.team.id).count() == 1
 
     def test_completed_summary_recovers_without_activity_output_and_preserves_accepted_result(self) -> None:
@@ -402,6 +418,81 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         with time_machine.travel(self.now + MONITORING_AGENT_DISPATCH_BACKOFF, tick=False):
             assert self._due()
 
+    def test_paused_agent_batches_leave_capacity_for_interim_measurements_on_consecutive_ticks(self) -> None:
+        self.scout.enabled = False
+        self.scout.save(update_fields=["enabled"])
+        for team_index in range(10):
+            team = (
+                self.team
+                if team_index == 0
+                else Team.objects.create(organization=self.organization, name=f"Scout project {team_index}")
+            )
+            report = (
+                self.report
+                if team_index == 0
+                else SignalReport.objects.create(team=team, title="Checkout recovery", status=SignalReport.Status.READY)
+            )
+            for check_index in range(9 if team_index == 0 else 10):
+                SignalReportCheck.objects.for_team(team.id).create(
+                    team_id=team.id,
+                    report=report,
+                    title=f"Deferred agent {check_index}",
+                    kind="agent",
+                    config=self.check.config,
+                    soak_minutes=60,
+                    next_run_at=self.now,
+                    expires_at=self.now + timedelta(days=30),
+                )
+            if team_index == 0:
+                checks = SignalReportCheck.objects.for_team(team.id).filter(report=report)
+                self.attempt.check_versions = {str(check.id): check_definition_version(check) for check in checks}
+                self.attempt.save(update_fields=["check_versions"])
+            else:
+                complete_implementation(team_id=team.id, report_id=report.id, monitoring_started_at=self.start)
+        metric_reports: list[SignalReport] = []
+        for offset in (0, 30, 60):
+            start = self.now + timedelta(minutes=offset) - timedelta(hours=6)
+            report = SignalReport.objects.create(
+                team=self.team, title=f"Interim metric {offset}", status=SignalReport.Status.READY
+            )
+            SignalReportCheck.objects.for_team(self.team.id).create(
+                team_id=self.team.id,
+                report=report,
+                title="Interim checkout measurement",
+                kind="metric_threshold",
+                config={
+                    "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "checkout"}]),
+                    "comparison": {"operator": "gte", "value": 1},
+                    "monitoring": {"reference_period_minutes": 120, "threshold_scaling": "linear"},
+                },
+                soak_minutes=24 * 60,
+                run_interval_minutes=6 * 60,
+                next_run_at=start + timedelta(hours=6),
+                expires_at=self.now + timedelta(days=30),
+                runs_remaining=5,
+            )
+            complete_implementation(team_id=self.team.id, report_id=report.id, monitoring_started_at=start)
+            metric_reports.append(report)
+        for offset in (0, 30, 60):
+            tick = self.now + timedelta(minutes=offset)
+            with (
+                time_machine.travel(tick, tick=False),
+                patch(
+                    "products.signals.backend.scout_harness.run_gates._read_flag_payload",
+                    return_value={"guaranteed_team_ids": [self.team.id]},
+                ),
+                patch(
+                    "products.signals.backend.report_check_monitoring.measure_metric",
+                    return_value=MetricMeasurement(value=8, measured_at=tick, series=None),
+                ),
+            ):
+                summary = run_due_report_checks(now=tick, limit=50)
+            assert summary.dispatched == 0
+            assert summary.deferred == 25
+            assert summary.observed == 1
+        assert all(report.artefacts.filter(type="check_observation").count() == 1 for report in metric_reports)
+        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+
     @parameterized.expand(["paused", "not_enrolled", "daily_budget"])
     def test_dispatch_respects_normal_scout_controls(self, gate: str) -> None:
         payload = {"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 10}}
@@ -442,8 +533,11 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         assert input.check_id is None
         assert json.loads(input.run_note)["team_id"] == self.team.id
 
-    @parameterized.expand(["current", "changed", "resolved", "malformed_note", "wrong_task", "wrong_run"])
-    def test_environment_check_runs_on_parent_scout_and_stores_environment_result(self, state: str) -> None:
+
+class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_child_environment_checks_remain_deferred_without_execution_artifacts(self) -> None:
         child = Team.objects.create(
             organization=self.organization, parent_team=self.team, name="Verification environment"
         )
@@ -458,80 +552,44 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
             next_run_at=self.now,
             expires_at=self.now + timedelta(days=30),
         )
-        complete_implementation(team_id=child.id, report_id=report.id, monitoring_started_at=self.start)
+        attempt = complete_implementation(team_id=child.id, report_id=report.id, monitoring_started_at=self.start)
+        assert attempt is not None
         self.check.status = SignalReportCheck.Status.CANCELLED
         self.check.save(update_fields=["status"])
-        client = MagicMock()
-        client.start_workflow = AsyncMock()
-        with (
-            patch("posthog.temporal.common.client.sync_connect", return_value=client),
-            patch(
-                "products.signals.backend.scout_harness.run_gates._read_flag_payload",
-                return_value={"guaranteed_team_ids": [self.team.id]},
-            ),
-        ):
-            summary = run_due_final_agents(now=self.now, deadline=time.monotonic() + 30, limit=10)
-        assert summary.dispatched == 1
-        input = client.start_workflow.call_args.args[1]
-        assert input.team_id == self.team.id
-        assert input.monitoring_check.team_id == child.id
-        assert isinstance(input.run_note, str)
-        assert json.loads(input.run_note)["team_id"] == child.id
-        self.note = input.run_note
-        run = self._run(self._payload())
-        if state == "changed":
-            check.title = "A changed expectation"
-            check.save(update_fields=["title"])
-        elif state == "resolved":
-            report.status = SignalReport.Status.RESOLVED
-            report.save(update_fields=["status"])
-        elif state == "malformed_note":
-            run.metadata = {"triggered_by": TRIGGERED_BY_MONITORING, "run_note": "not json"}
-            run.save(update_fields=["metadata"])
-        environment_id = monitoring_environment_for_task_run(
-            team_id=self.team.id,
-            task_id=uuid4() if state == "wrong_task" else run.task_run.task_id,
-            run_id=uuid4() if state == "wrong_run" else run.task_run_id,
+        binding = MonitoringScoutCheck(
+            team_id=child.id,
+            report_id=report.id,
+            attempt_id=attempt.id,
+            check_id=check.id,
+            submission_id=uuid4(),
+            definition_version=check_definition_version(check),
+            window_start_iso=self.start.isoformat(),
+            window_end_iso=self.start.isoformat(),
         )
-        if state != "current":
-            assert environment_id is None
-            assert not SignalReportMonitoringResult.objects.for_team(child.id).exists()
-            return
-        assert environment_id == child.id
-        deliver_monitoring_scout_result(input, str(run.id))
-        result = SignalReportMonitoringResult.objects.for_team(child.id).get()
-        assert result.team_id == child.id and result.report_check_id == check.id
-        assert not SignalReportMonitoringResult.objects.for_team(self.team.id).exists()
+        with patch("posthog.temporal.common.client.sync_connect") as connect:
+            summary = run_due_final_agents(now=self.now, deadline=time.monotonic() + 30, limit=10)
+        assert summary.dispatched == 0
+        connect.assert_not_called()
+        input = RunSignalsScoutInput(
+            team_id=self.team.id,
+            skill_name=self.skill.name,
+            triggered_by=TRIGGERED_BY_MONITORING,
+            monitoring_check=binding,
+            run_note=build_monitoring_run_note(binding, check),
+        )
 
+        async def execute() -> RunSignalsScoutOutput:
+            return await ActivityEnvironment().run(run_signals_scout_activity, input)
 
-class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBaseTest):
-    CLASS_DATA_LEVEL_SETUP = False
+        output = async_to_sync(execute)()
+        assert output.skip_reason == "monitoring_check_unavailable"
+        assert not SignalScoutRun.all_teams.exists()
+        assert not TaskRun.objects.exists()
+        assert not SignalReportMonitoringResult.objects.for_team(child.id).exists()
+        check.refresh_from_db()
+        assert check.monitoring_dispatch_after is None
 
-    @parameterized.expand([False, True])
-    def test_monitoring_uses_the_full_normal_runner_and_reuses_its_stored_run(self, child_environment: bool) -> None:
-        environment = self.team
-        if child_environment:
-            environment = Team.objects.create(
-                organization=self.organization, parent_team=self.team, name="Verification environment"
-            )
-            self.check.status = SignalReportCheck.Status.CANCELLED
-            self.check.save(update_fields=["status"])
-            self.report = SignalReport.objects.create(
-                team=environment, title="Environment checkout errors", status=SignalReport.Status.READY
-            )
-            self.check = SignalReportCheck.objects.for_team(environment.id).create(
-                team_id=environment.id,
-                report=self.report,
-                title="Checkout failures stopped",
-                kind="agent",
-                config=self.check.config,
-                soak_minutes=60,
-                next_run_at=self.now,
-                expires_at=self.now + timedelta(days=30),
-            )
-            complete_implementation(team_id=environment.id, report_id=self.report.id, monitoring_started_at=self.start)
-            self.binding = monitoring_scout_check(self._due()[0])
-            self.note = build_monitoring_run_note(self.binding, self.check)
+    def test_monitoring_uses_the_full_normal_runner_and_reuses_its_stored_run(self) -> None:
         memory = SignalScratchpad.objects.for_team(self.team.id).create(
             team_id=self.team.id,
             key="checkout-context",
@@ -596,32 +654,6 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
         assert context.team_id == self.team.id
         assert output.run_id is not None
         run = SignalScoutRun.objects.for_team(self.team.id).get(id=output.run_id)
-        application = OAuthApplication.objects.create(
-            name="Synthetic scout verification",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="http://localhost:8237/callback",
-            algorithm="RS256",
-        )
-        with patch("posthog.temporal.oauth.get_sandbox_oauth_app", return_value=application):
-            token = create_task_run_oauth_access_token(
-                team_id=self.team.id,
-                task_run_id=run.task_run_id,
-                user_id=self.user.id,
-                scopes=context.posthog_mcp_scopes or "read_only",
-            )
-        authenticator = OAuthAccessTokenAuthentication()
-        authenticator.access_token = OAuthAccessToken.objects.get(token=token)
-        request = MagicMock(successful_authenticator=authenticator)
-        view = MagicMock(scope_object="query", dangerously_skip_scoped_team_enforcement=False, team=environment)
-        APIScopePermission().check_team_and_org_permissions(request, view)
-        view.team = self.team
-        APIScopePermission().check_team_and_org_permissions(request, view)
-        view.team = Team.objects.create(
-            organization=self.organization, parent_team=self.team, name="Unbound environment"
-        )
-        with self.assertRaises(PermissionDenied):
-            APIScopePermission().check_team_and_org_permissions(request, view)
         assert context.github_read_access is True
         assert context.posthog_mcp_scopes == {
             "preset": "signals_scout_reports",
@@ -637,7 +669,9 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
         memory.refresh_from_db()
         assert memory.content == "Compare failures with completed checkouts."
         assert "Authored Monitoring check" in prompt
-        assert "scout-check-record-result" not in prompt
+        assert "sole assignment and takes precedence" in prompt
+        assert "Do not call scout-check-record-result" in prompt
+        assert "Skip the skill's scheduled queues, empty-queue early exits" in prompt
         assert json.dumps(MonitoringScoutResult.model_json_schema(), sort_keys=True) in prompt
         assert output.run_id is not None
         run = SignalScoutRun.objects.for_team(self.team.id).get(id=output.run_id)
@@ -652,7 +686,7 @@ class TestFinalAuthoredAgentExecution(FinalAuthoredAgentChecksSetup, NonAtomicBa
         second_start.assert_not_called()
         assert replay.run_id == output.run_id
         deliver_monitoring_scout_result(input, output.run_id)
-        result = SignalReportMonitoringResult.objects.for_team(environment.id).get()
+        result = SignalReportMonitoringResult.objects.for_team(self.team.id).get()
         assert result.outcome == "failed" and result.report_check_id == self.check.id
         assert run.team_id == self.team.id and run.task_run.team_id == self.team.id
 
