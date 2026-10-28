@@ -1108,6 +1108,7 @@ class TestModalSandboxAgentServer:
         assert mock_sandbox.execute.call_count == 1
 
     def test_start_agent_server_skips_relaunch_when_already_healthy(self, mock_sandbox: Any):
+        before_launch = MagicMock()
         mock_sandbox.execute = MagicMock(
             return_value=ExecutionResult(stdout=_preflight_stdout(reused=True), stderr="", exit_code=0, error=None)
         )
@@ -1123,9 +1124,11 @@ class TestModalSandboxAgentServer:
                 run_id="run-456",
                 mode="background",
                 allowed_domains=["example.com"],
+                before_launch=before_launch,
             )
 
         assert health_ms == 0
+        before_launch.assert_not_called()
         wait_for_ready.assert_not_called()
         mock_free.assert_not_called()
         commands = [call.args[0] for call in mock_sandbox.execute.call_args_list]

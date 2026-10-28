@@ -1,5 +1,5 @@
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any, TypeVar
 from uuid import UUID
@@ -73,6 +73,12 @@ from products.signals.backend.report_steering import ReportSteering, load_resear
 from products.signals.backend.report_tags import team_tag_vocabulary
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.source_suggestions import unused_suggestable_products
+from products.signals.backend.startup_failure import (
+    RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE as RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
+    RESEARCH_STARTUP_FAILURE,
+    reconcile_research_startups,
+    startup_failure_message,
+)
 from products.signals.backend.supersession import research_implementation_context
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -86,7 +92,12 @@ from products.signals.backend.typed_report_links import (
     outgoing_links,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.agents import CustomPromptSandboxContext, SandboxRunFailed, turn_failure_error_type
+from products.tasks.backend.facade.agents import (
+    AgentStartupFailed,
+    CustomPromptSandboxContext,
+    SandboxRunFailed,
+    turn_failure_error_type,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -1115,9 +1126,6 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
         logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
 
 
-RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE = "ResearchSandboxUnavailable"
-
-
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
@@ -1300,6 +1308,18 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             charts_enabled=True,
             tags=result.tags,
         )
+    except AgentStartupFailed as error:
+        raise ApplicationError(
+            startup_failure_message(error.failure),
+            {
+                "failure": asdict(error.failure),
+                "task_id": error.task_id,
+                "run_id": error.run_id,
+                "repository": input.repo_selection.repository,
+            },
+            type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE if error.transient else RESEARCH_STARTUP_FAILURE,
+            non_retryable=error.failure.retryability == "requires_action",
+        ) from error
     except SandboxRunFailed as error:
         logger.exception(
             "signals agentic report failed",
@@ -1324,3 +1344,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
         if error_type is not None:
             raise ApplicationError(str(error), type=error_type) from error
         raise
+    finally:
+        if input.repo_selection.repository:
+            try:
+                await database_sync_to_async(reconcile_research_startups, thread_sensitive=False)(
+                    input.team_id, input.repo_selection.repository
+                )
+            except Exception:
+                logger.warning("signals_startup_recovery_failed", team_id=input.team_id, exc_info=True)
