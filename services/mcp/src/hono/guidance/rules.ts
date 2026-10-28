@@ -33,7 +33,6 @@ export type GuidanceRule = z.infer<typeof guidanceRuleSchema>
 
 export const MCP_GUIDANCE_REPLAY_VISION_FLAG = 'mcp-guidance-replay-vision'
 export const MCP_GUIDANCE_SQL_SCHEMA_FLAG = 'mcp-guidance-sql-schema'
-export const MCP_GUIDANCE_SEARCH_SWITCH_FLAG = 'mcp-guidance-search-switch'
 
 const RULES: GuidanceRule[] = [
     {
@@ -76,27 +75,6 @@ const RULES: GuidanceRule[] = [
             'Before another attempt, check the schema: query `system.information_schema.tables` and',
             '`system.information_schema.columns` for table and column names, or call `read-data-schema` for',
             'event and property names. Then rewrite the query against that schema.',
-        ].join(' '),
-    },
-    {
-        id: 'search-to-switch',
-        flag: MCP_GUIDANCE_SEARCH_SWITCH_FLAG,
-        trigger: {
-            tool: 'exec',
-            execVerb: 'search',
-            argPath: 'command',
-            argPattern: /\b(projects?|orgs?|organizations?|teams?|workspaces?)\b/i,
-            outcome: 'any',
-            presets: ['user'],
-        },
-        threshold: 2,
-        maxPerSession: 1,
-        suppressIfCalled: ['switch-project', 'switch-organization'],
-        requiresTool: ['switch-project'],
-        text: [
-            'To work in a different project or organization, call `projects-get` or `organizations-get` to find it,',
-            'then `switch-project` or `switch-organization`.',
-            'Searching the tool list again will not find another way to change project.',
         ].join(' '),
     },
 ]
