@@ -13,6 +13,7 @@ mod tests {
     use crate::{
         api::{
             errors::FlagError,
+            request_outcome::DbPrep,
             types::{FlagValue, LegacyFlagsResponse},
         },
         cohorts::{
@@ -8332,6 +8333,8 @@ mod tests {
             "a persons call that starts after the deadline must not take a connection"
         );
         assert_eq!(log.persons_db_deadline_exceeded, Some(first_stopped_call));
+        assert_eq!(log.outcome_marks.db_prep(), DbPrep::Persons);
+        assert!(log.outcome_marks.degraded());
         for operation in [first_stopped_call, "fetch_properties"] {
             assert_eq!(
                 counter_total(
