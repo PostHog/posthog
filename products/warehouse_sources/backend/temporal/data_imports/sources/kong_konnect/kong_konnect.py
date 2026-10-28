@@ -292,10 +292,7 @@ def _iter_core_entities(
 
             if parent_config is None or endpoint_config.parent_id_field is None:
                 for rows in _iter_offset(session, f"{control_plane_url}{endpoint_config.path}", logger):
-                    yield [
-                        {**_without_fields(row, endpoint_config.excluded_fields), "control_plane_id": control_plane_id}
-                        for row in rows
-                    ]
+                    yield [{**row, "control_plane_id": control_plane_id} for row in rows]
                 resumable_source_manager.safe_point()
                 continue
 
@@ -304,11 +301,7 @@ def _iter_core_entities(
                     child_url = f"{control_plane_url}{endpoint_config.path.replace('{id}', parent['id'])}"
                     for rows in _iter_offset(session, child_url, logger):
                         yield [
-                            {
-                                **_without_fields(row, endpoint_config.excluded_fields),
-                                "control_plane_id": control_plane_id,
-                                endpoint_config.parent_id_field: parent["id"],
-                            }
+                            {**row, "control_plane_id": control_plane_id, endpoint_config.parent_id_field: parent["id"]}
                             for row in rows
                         ]
                     resumable_source_manager.safe_point()
@@ -364,11 +357,12 @@ def get_lookup_rows(
     )
 
     if endpoint_config.kind == "core_entity":
-        yield from _iter_core_entities(
-            session, _get_base_url(region), endpoint_config, logger, resumable_source_manager
-        )
+        pages = _iter_core_entities(session, _get_base_url(region), endpoint_config, logger, resumable_source_manager)
     else:
-        yield from _iter_top_level(session, region, endpoint_config, logger, resumable_source_manager)
+        pages = _iter_top_level(session, region, endpoint_config, logger, resumable_source_manager)
+
+    for rows in pages:
+        yield [_without_fields(row, endpoint_config.excluded_fields) for row in rows]
 
 
 def validate_credentials(api_token: str, region: str) -> bool:
