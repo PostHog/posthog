@@ -8,6 +8,8 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
 from products.data_modeling.backend.logic.saved_query_reads import (
     dependent_saved_query_ids,
@@ -67,6 +69,8 @@ def _upstream_first(team_id: int, view_ids: set[UUID]) -> list[UUID]:
 def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None") -> bool:
     try:
         columns = view.get_columns(user=user)
+    except ConcurrencyLimitExceeded:
+        raise
     except Exception:
         logger.warning("view_column_refresh_failed", team_id=view.team_id, saved_query_id=str(view.id), exc_info=True)
         return False
