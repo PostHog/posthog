@@ -104,7 +104,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import RunOptions, TaskProfile, resolve_task_origin
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, resolve_task_origin
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
@@ -2265,7 +2265,7 @@ def create_task_without_run(
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     channel: Channel | None = None,
-    options: RunOptions | None = None,
+    options: TaskRunOptions | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
