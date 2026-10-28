@@ -4,6 +4,8 @@ export type SparklineDatum = {
     color?: string
     /** With `color`, flags the bar as a detected spike: its own color plus animated stripes. */
     isSpike?: boolean
+    /** For a spike, how many times the detection baseline its bucket reached. */
+    spikeMultiplier?: number
 }
 
 export type SparklineData = SparklineDatum[]

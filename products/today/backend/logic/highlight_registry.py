@@ -1,13 +1,10 @@
-import pkgutil
-import importlib
-from collections.abc import Iterator
+from collections.abc import Mapping
 from functools import cache
-from types import ModuleType
 
+from posthog.dataclasses import frozen
 from posthog.products import load_product_modules
 
 from ..facade.contracts import HighlightSource
-from . import highlight_sources
 
 SOURCES_MODULE = "facade.today_highlights"
 SOURCES_ATTRIBUTE = "HIGHLIGHT_SOURCES"
@@ -17,30 +14,28 @@ class HighlightRegistryError(Exception):
     pass
 
 
-def _legacy_modules() -> Iterator[ModuleType]:
-    for name in sorted(module.name for module in pkgutil.iter_modules(highlight_sources.__path__)):
-        yield importlib.import_module(f"{highlight_sources.__name__}.{name}")
+@frozen
+class HighlightRegistry:
+    sources: tuple[HighlightSource, ...]
+    products: Mapping[str, str]
 
 
-def _declared(module: ModuleType) -> object:
-    if module.__name__.startswith(f"{highlight_sources.__name__}."):
-        source = getattr(module, "SOURCE", None)
-        return None if source is None else (source,)
-    return getattr(module, SOURCES_ATTRIBUTE, None)
+def _product(module_name: str) -> str:
+    # Product apps are named `products.<product>.backend`.
+    return module_name.split(".")[1]
 
 
 @cache
-def load_sources() -> tuple[HighlightSource, ...]:
+def load_registry() -> HighlightRegistry:
     """Every source that a product declares in `backend/facade/today_highlights.py`, sorted by name.
 
-    A product depends on Today's facade to declare a source, so Today needs no import of that product.
-    Sources still in the legacy `highlight_sources/` package declare a module-level `SOURCE` and load too.
+    Today imports no product by name, so the dependency points from the product to Today's facade.
     A broken declaration raises instead of dropping the source without a trace.
     """
     sources: dict[str, HighlightSource] = {}
     owners: dict[str, str] = {}
-    for module in [*load_product_modules(SOURCES_MODULE), *_legacy_modules()]:
-        declared = _declared(module)
+    for module in load_product_modules(SOURCES_MODULE):
+        declared = getattr(module, SOURCES_ATTRIBUTE, None)
         if not isinstance(declared, tuple | list):
             raise HighlightRegistryError(f"{module.__name__}.{SOURCES_ATTRIBUTE} must be a tuple of HighlightSource")
         for source in declared:
@@ -54,4 +49,16 @@ def load_sources() -> tuple[HighlightSource, ...]:
                 )
             sources[source.name] = source
             owners[source.name] = module.__name__
-    return tuple(sources[name] for name in sorted(sources))
+    return HighlightRegistry(
+        sources=tuple(sources[name] for name in sorted(sources)),
+        products={name: _product(module_name) for name, module_name in owners.items()},
+    )
+
+
+def load_sources() -> tuple[HighlightSource, ...]:
+    return load_registry().sources
+
+
+def source_product(name: str) -> str | None:
+    """None for a name that no product declares, such as a source removed after a result was stored."""
+    return load_registry().products.get(name)

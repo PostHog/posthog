@@ -149,6 +149,7 @@ The campaign and flow performance tables (campaign_values_reports, flow_values_r
                     ),
                     SourceFieldInputConfig(
                         name="conversion_metric_id",
+                        sync_setting=True,
                         label="Conversion metric ID (optional)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

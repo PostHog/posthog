@@ -307,15 +307,11 @@ def _parse_retry_after(response: Response) -> Optional[float]:
     return None
 
 
-def _retry_after_limit(client: Any) -> float:
-    limit = getattr(client, "_retry_after_max", None)
-    return max_retry_after_seconds() if limit is None else limit
-
-
 def _retry_after_exceeds_limit(client: Any, exc: Optional[BaseException]) -> bool:
     if not isinstance(exc, RESTClientRetryableError) or exc.retry_after is None:
         return False
-    return exc.retry_after > _retry_after_limit(client)
+    limit = getattr(client, "_retry_after_max", None)
+    return exc.retry_after > (max_retry_after_seconds() if limit is None else limit)
 
 
 def _stop_after_client_attempts(state: RetryCallState) -> bool:
@@ -402,7 +398,6 @@ class RESTClient:
         capture: bool = True,
         retry_budget_seconds: Optional[float] = None,
         retry_after_max_seconds: Optional[float] = None,
-        cap_retry_after: bool = False,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
@@ -416,10 +411,6 @@ class RESTClient:
         # does not fail the run.
         self._retry_budget = retry_budget_seconds
         self._retry_after_max = retry_after_max_seconds
-        # When True, a server delay above the limit becomes a wait of the limit, and the request
-        # does not fail at once. Use it for a vendor whose advertised delay is longer than the
-        # time the client must wait before a retry can succeed.
-        self._cap_retry_after = cap_retry_after
         # Per-request (connect, read) timeout in seconds handed to ``session.send``. Left None,
         # the session's own default applies, and after that the tracked adapter's
         # ``default_request_timeout()``. Sources talking to a customer-controlled host should set
@@ -704,8 +695,6 @@ class RESTClient:
             # the percent-encoded form an `api_key` query credential takes in the URL, so scheme/
             # host/path-only is what keeps an encoded credential out of the persisted `latest_error`.
             retry_after = _parse_retry_after(response)
-            if retry_after is not None and self._cap_retry_after:
-                retry_after = min(retry_after, _retry_after_limit(self))
             message = f"HTTP {response.status_code} for {_safe_url(response.url)}"
             error = RESTClientRetryableError(self._redact(message), retry_after=retry_after)
             if _retry_after_exceeds_limit(self, error):

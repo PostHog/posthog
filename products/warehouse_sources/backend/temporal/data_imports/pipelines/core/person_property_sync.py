@@ -34,7 +34,7 @@ from django.conf import settings
 
 import structlog
 import pyarrow.parquet as pq
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -757,6 +757,7 @@ def _record(
     finished_at: str,
     ps: PerSourceResult,
     error: str | None,
+    count_failure: bool = True,
 ) -> None:
     record_person_property_sync_run(
         PersonPropertySyncRunRecord(
@@ -775,6 +776,7 @@ def _record(
             produced=ps.produced,
             skipped_missing_person=ps.skipped_missing_person,
             error=error,
+            count_failure=count_failure,
         )
     )
 
@@ -859,6 +861,7 @@ async def record_failed_runs(
     started_at: str,
     finished_at: str,
     error: str,
+    count_failure: bool = True,
 ) -> None:
     """Persist a failed run row per source the binding feeds, so a failure is visible in the UI (not
     only in error tracking). Never raises — this runs on the already-failing path, so any error here
@@ -879,6 +882,7 @@ async def record_failed_runs(
                 finished_at=finished_at,
                 ps=PerSourceResult(source_id=str(source.source_id)),
                 error=error,
+                count_failure=count_failure,
             )
     except Exception as e:
         logger.exception(
@@ -894,6 +898,13 @@ async def record_failed_runs(
 # Failure types Temporal sets when it stops an activity from outside. The activity's own exception
 # handler does not run for these, so there is no message from the activity to show.
 _INTERRUPTION_FAILURE_TYPES = frozenset({"WorkerShutdown", "ActivityPause", "ActivityReset"})
+
+
+def is_worker_interruption(error: ActivityError) -> bool:
+    cause = error.cause
+    return isinstance(cause, CancelledError) or (
+        isinstance(cause, ApplicationError) and cause.type in _INTERRUPTION_FAILURE_TYPES
+    )
 
 
 def failed_run_error(error: ActivityError, next_step: str) -> str:
