@@ -494,7 +494,9 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
 - Time window: PRESERVE the original query's window tokens or literal `toDateTime('…')` bounds
   verbatim — those are the report's fixed analysis window. `{{date_range}}` and `{{compare_date_range}}`
   are whole time filters (`timestamp >= … AND timestamp < …`); `{{window_start}}`, `{{window_end}}` and
-  `{{compare_window_start}}` are single timestamps. Do NOT introduce `now()` /
+  `{{compare_window_start}}` are single timestamps. `{{compare_date_range}}` covers the previous and the
+  current period together; for the previous period alone, use
+  `timestamp >= {{compare_window_start}} AND timestamp < {{window_start}}`. Do NOT introduce `now()` /
   `now() - INTERVAL …` / `today()`, and do NOT resolve a placeholder into dates yourself.
 - The normal result ceiling is `LIMIT 250`. If the error specifically indicates memory pressure,
   excessive result size, or a timeout, simplify or preaggregate the query and lower the final `LIMIT`
