@@ -19,7 +19,7 @@ from posthog.models import Team
 from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery import delivery_paths, episode_paths, legacy_webhook
-from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
+from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups, list_recipient_groups
 from products.alerts_platform.backend.delivery.discord import DiscordTransport
 from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.email import EmailTransport
@@ -560,7 +560,17 @@ def _destinations(
     would get wrong.
     """
     if platform_destinations is not None:
-        return _platform_subscribers(event_id, platform_destinations)
+        recipients = list_recipient_groups(
+            team_id=request.team_id, alert_id=request.destination_alert_id, allowed_event_ids=[event_id]
+        )
+        return [
+            *_platform_subscribers(event_id, platform_destinations),
+            *(
+                _SubscribedDestination(id=None, data=group.data, receives_emitted_events=False)
+                for group in recipients
+                if group.fully_enabled
+            ),
+        ]
     groups = list_alert_destination_groups(
         team_id=request.team_id,
         alert_id=request.destination_alert_id,

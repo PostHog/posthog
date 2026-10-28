@@ -298,6 +298,13 @@ def list_delivery_destination_groups(
     )
 
 
+def list_registered_email_groups(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> list[AlertDestinationGroup]:
+    """The email recipients that the resolvers registered for these events return for the alert."""
+    return alert_email.registered_email_groups(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
+
+
 def register_email_recipient_resolver(*, event_ids: Collection[str], resolver: AlertEmailRecipientResolver) -> None:
     """Platform delivery of these events also emails the addresses `resolver` returns for the alert.
 

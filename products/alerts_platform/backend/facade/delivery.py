@@ -30,6 +30,10 @@ def register_destination_resolver(resolver: DestinationResolver) -> None:
     destinations.register(resolver)
 
 
+def register_recipient_resolver(resolver: DestinationResolver) -> None:
+    destinations.register_recipients(resolver)
+
+
 def register_source_describer(source: SourceKind, describer: SourceDescriber) -> None:
     describers.register(source, describer)
 

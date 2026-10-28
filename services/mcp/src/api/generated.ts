@@ -122637,6 +122637,18 @@ export namespace Schemas {
       Pagerduty: 'pagerduty',
     } as const;
 
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     */
+    export type WarehouseAlertEventKindChoicesEnum = typeof WarehouseAlertEventKindChoicesEnum[keyof typeof WarehouseAlertEventKindChoicesEnum];
+
+
+    export const WarehouseAlertEventKindChoicesEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+    } as const;
+
     export interface WarehouseAlertCreateDestination {
       /** Notification destination type.
        *
@@ -122646,6 +122658,11 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: WarehouseAlertDestinationTypeEnum;
+      /**
+         * Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.
+         * @minItems 1
+         */
+      event_kinds?: WarehouseAlertEventKindChoicesEnum[];
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -122672,16 +122689,16 @@ export namespace Schemas {
 
     export interface WarehouseAlertDeleteDestination {
       /**
-         * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+         * IDs of the alert's destinations to delete, as the list endpoint returns them.
          * @minItems 1
-         * @maxItems 100
+         * @maxItems 5
          */
-      hog_function_ids: string[];
+      destination_ids: string[];
     }
 
     export interface WarehouseAlertDestination {
-      /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
-      hog_function_ids: string[];
+      /** Destination ID. Send it to the delete endpoint to remove the destination. */
+      id: string;
       /** Notification destination type.
        *
        * * `slack` - slack
@@ -122690,8 +122707,10 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: WarehouseAlertDestinationTypeEnum;
-      /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+      /** Whether the destination is sent to. */
       enabled: boolean;
+      /** Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. */
+      event_kinds: WarehouseAlertEventKindChoicesEnum[];
       /** Integration ID of the Slack workspace. Set when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Set when type=slack. */
@@ -122714,11 +122733,6 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
-    }
-
-    export interface WarehouseAlertDestinationCreated {
-      /** HogFunction IDs created for the destination, one per event kind. */
-      hog_function_ids: string[];
     }
 
     export interface WarehouseConnection {
