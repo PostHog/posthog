@@ -2,6 +2,8 @@ import json
 from datetime import datetime
 from typing import Any
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+
 import pydantic
 from rest_framework import serializers
 
@@ -12,7 +14,8 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.facade.constants import MAX_CUSTOM_HARNESSES
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 _PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
     list[AnyPropertyFilterDiscriminated]
@@ -858,3 +861,41 @@ class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializ
         default=True,
         help_text="Whether the missing capability blocked the user's progress.",
     )
+
+
+class MCPCustomHarnessSerializer(serializers.ModelSerializer):
+    match_pattern = serializers.CharField(
+        max_length=100,
+        help_text=(
+            "Text to look for in the client name or User-Agent product that the harness reports. "
+            "Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent/1.2`."
+        ),
+    )
+
+    class Meta:
+        model = MCPCustomHarness
+        fields = ["id", "name", "match_pattern", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+        extra_kwargs = {"name": {"help_text": "Name to show for calls from this harness."}}
+
+    def validate_match_pattern(self, value: str) -> str:
+        pattern = value.strip().lower()
+        try:
+            MCPCustomHarness._meta.get_field("match_pattern").run_validators(pattern)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(error.messages)
+        return pattern
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        team_id = self.context["get_team"]().id
+        others = MCPCustomHarness.objects.for_team(team_id)
+        if self.instance is not None:
+            others = others.exclude(pk=self.instance.pk)
+        if "match_pattern" in attrs and others.filter(match_pattern=attrs["match_pattern"]).exists():
+            raise serializers.ValidationError({"match_pattern": "A custom harness already uses this pattern."})
+        if self.instance is None and others.count() >= MAX_CUSTOM_HARNESSES:
+            raise serializers.ValidationError(f"A project can have at most {MAX_CUSTOM_HARNESSES} custom harnesses.")
+        return attrs
+
+    def create(self, validated_data: dict[str, Any]) -> MCPCustomHarness:
+        return MCPCustomHarness.objects.create(team_id=self.context["get_team"]().id, **validated_data)

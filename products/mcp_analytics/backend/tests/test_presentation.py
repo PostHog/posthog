@@ -20,7 +20,12 @@ from posthog.temporal.mcp_analytics.intent_clustering.constants import (
 )
 
 from products.mcp_analytics.backend import intent_generation
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
+from products.mcp_analytics.backend.models import (
+    MCPAnalyticsSubmission,
+    MCPCustomHarness,
+    MCPIntentClusterSnapshot,
+    MCPSession,
+)
 from products.mcp_analytics.backend.presentation.serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
     MCP_SESSION_LIST_MAX_LIMIT,
@@ -629,6 +634,60 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["count"] == 101
         assert len(data["results"]) == 100
         assert data["next"] is not None
+
+
+class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/environments/{self.team.id}/mcp_analytics/custom_harnesses/{suffix}"
+
+    def test_create_lowercases_the_pattern_and_lists_it(self) -> None:
+        response = self.client.post(self._url(), {"name": "Acme Agent", "match_pattern": " Acme-Agent "}, format="json")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["match_pattern"] == "acme-agent"
+        listed = self.client.get(self._url()).json()
+        assert [(row["name"], row["match_pattern"]) for row in listed] == [("Acme Agent", "acme-agent")]
+
+    @parameterized.expand(
+        [
+            ("quote_in_name", {"name": "Bad'name", "match_pattern": "ok"}),
+            ("brace_in_name", {"name": "Bad{name}", "match_pattern": "ok"}),
+            ("quote_in_pattern", {"name": "Ok", "match_pattern": "bad'pattern"}),
+            ("empty_pattern", {"name": "Ok", "match_pattern": " "}),
+        ]
+    )
+    def test_create_rejects_unsafe_values(self, _name: str, payload: dict[str, str]) -> None:
+        response = self.client.post(self._url(), payload, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_rejects_duplicate_pattern_and_enforces_the_limit(self) -> None:
+        self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json")
+        duplicate = self.client.post(self._url(), {"name": "Again", "match_pattern": "ONE"}, format="json")
+        assert duplicate.status_code == status.HTTP_400_BAD_REQUEST
+
+        MCPCustomHarness.objects.bulk_create(
+            [MCPCustomHarness(team=self.team, name=f"H{i}", match_pattern=f"h{i}") for i in range(19)]
+        )
+        over_limit = self.client.post(self._url(), {"name": "Extra", "match_pattern": "extra"}, format="json")
+        assert over_limit.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_update_and_delete(self) -> None:
+        created = self.client.post(self._url(), {"name": "One", "match_pattern": "one"}, format="json").json()
+
+        updated = self.client.patch(self._url(f"{created['id']}/"), {"name": "Uno"}, format="json")
+        assert updated.status_code == status.HTTP_200_OK
+        assert updated.json()["name"] == "Uno"
+
+        deleted = self.client.delete(self._url(f"{created['id']}/"))
+        assert deleted.status_code == status.HTTP_204_NO_CONTENT
+        assert self.client.get(self._url()).json() == []
+
+    def test_other_teams_harnesses_are_not_listed(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other-team")
+        MCPCustomHarness.objects.create(team=other_team, name="Elsewhere", match_pattern="elsewhere")
+
+        assert self.client.get(self._url()).json() == []
 
 
 class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):

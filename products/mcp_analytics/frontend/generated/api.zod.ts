@@ -10,6 +10,74 @@
 import * as zod from 'zod'
 
 /**
+ * A team's own harness names, shown in place of "Other" in MCP analytics.
+ */
+export const mcpAnalyticsCustomHarnessesCreateBodyNameMax = 100
+
+export const mcpAnalyticsCustomHarnessesCreateBodyNameRegExp = new RegExp('^[\\w .+&()\/-]+$')
+export const mcpAnalyticsCustomHarnessesCreateBodyMatchPatternMax = 100
+
+export const McpAnalyticsCustomHarnessesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(mcpAnalyticsCustomHarnessesCreateBodyNameMax)
+        .regex(mcpAnalyticsCustomHarnessesCreateBodyNameRegExp)
+        .describe('Name to show for calls from this harness.'),
+    match_pattern: zod
+        .string()
+        .max(mcpAnalyticsCustomHarnessesCreateBodyMatchPatternMax)
+        .describe(
+            'Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent\/1.2`.'
+        ),
+})
+
+/**
+ * A team's own harness names, shown in place of "Other" in MCP analytics.
+ */
+export const mcpAnalyticsCustomHarnessesUpdateBodyNameMax = 100
+
+export const mcpAnalyticsCustomHarnessesUpdateBodyNameRegExp = new RegExp('^[\\w .+&()\/-]+$')
+export const mcpAnalyticsCustomHarnessesUpdateBodyMatchPatternMax = 100
+
+export const McpAnalyticsCustomHarnessesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(mcpAnalyticsCustomHarnessesUpdateBodyNameMax)
+        .regex(mcpAnalyticsCustomHarnessesUpdateBodyNameRegExp)
+        .describe('Name to show for calls from this harness.'),
+    match_pattern: zod
+        .string()
+        .max(mcpAnalyticsCustomHarnessesUpdateBodyMatchPatternMax)
+        .describe(
+            'Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent\/1.2`.'
+        ),
+})
+
+/**
+ * A team's own harness names, shown in place of "Other" in MCP analytics.
+ */
+export const mcpAnalyticsCustomHarnessesPartialUpdateBodyNameMax = 100
+
+export const mcpAnalyticsCustomHarnessesPartialUpdateBodyNameRegExp = new RegExp('^[\\w .+&()\/-]+$')
+export const mcpAnalyticsCustomHarnessesPartialUpdateBodyMatchPatternMax = 100
+
+export const McpAnalyticsCustomHarnessesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(mcpAnalyticsCustomHarnessesPartialUpdateBodyNameMax)
+        .regex(mcpAnalyticsCustomHarnessesPartialUpdateBodyNameRegExp)
+        .optional()
+        .describe('Name to show for calls from this harness.'),
+    match_pattern: zod
+        .string()
+        .max(mcpAnalyticsCustomHarnessesPartialUpdateBodyMatchPatternMax)
+        .optional()
+        .describe(
+            'Text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name, so `acme-agent` matches `Acme-Agent\/1.2`.'
+        ),
+})
+
+/**
  * Create a new MCP feedback submission for the current project.
  */
 export const mcpAnalyticsFeedbackCreateBodyAttemptedToolDefault = ``

@@ -21,7 +21,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 
 from products.mcp_analytics.backend import mcp_harness
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
+from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -46,6 +48,17 @@ def test_harness_expressions_are_parseable_hogql(_name: str, sql: str) -> None:
     # runner, so a syntax slip (an inline comment the grammar rejects, an unbalanced
     # paren) would otherwise surface as a broken dashboard rather than a failing test.
     parse_expr(sql)
+
+
+def test_custom_rules_come_before_built_in_buckets_and_are_escaped() -> None:
+    rule = CustomHarnessRule(name="O'Brien \\ Agent", pattern="Acme'Agent")
+
+    for sql in (
+        mcp_harness.harness_label_sql("h", [rule]),
+        mcp_harness.harness_label_or_token_sql("h", custom_rules=[rule]),
+    ):
+        parse_expr(sql)
+        assert sql.index("O\\'Brien") < sql.index("'Claude Code',")
 
 
 def test_label_or_token_keeps_the_bounded_label_set_reachable() -> None:
@@ -103,6 +116,22 @@ class TestMCPHarnessBreakdownQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Click
         self.assertEqual(response.columns, ["client", "calls"])
         self.assertEqual(response.column_formats, ["mcp_harness", None])
         self.assertEqual(response.results, [("OpenAI Codex", 2), ("Claude Code", 1)])
+
+    def test_custom_harness_names_calls_everywhere_the_label_shows(self) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
+        self._emit(properties={"$mcp_client_name": "Acme-Agent/1.2"})
+        self._emit(properties={"$mcp_client_name": "Acme-Agent/1.2"}, distinct_id="d2")
+        self._emit(properties={"$mcp_client_name": "something-else"}, distinct_id="d3")
+        flush_persons_and_events()
+
+        virtual = execute_hogql_query(
+            "SELECT properties.$virt_mcp_harness AS client, count() AS calls "
+            "FROM events WHERE event = '$mcp_tool_call' GROUP BY client ORDER BY calls DESC",
+            team=self.team,
+        )
+
+        self.assertEqual(virtual.results, [("Acme Agent", 2), ("Other", 1)])
+        self.assertEqual(set(self._breakdown()), {"Acme Agent", "Other"})
 
     def test_virtual_harness_property_is_empty_on_other_events(self) -> None:
         _create_event(team=self.team, event="$pageview", distinct_id="d1", properties={"$mcp_client_name": "codex"})

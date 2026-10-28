@@ -28,6 +28,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_MISSING_CAPABILITY_EVENT
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     display_person_properties,
@@ -132,7 +133,9 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
             LIMIT {limit} OFFSET {offset}
             """,
             placeholders={
-                "harness_label": parse_expr(mcp_harness.harness_label_or_token_sql("h", "client_display")),
+                "harness_label": parse_expr(
+                    mcp_harness.harness_label_or_token_sql("h", "client_display", custom_harness_rules(self.team))
+                ),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "display_name": parse_expr(mcp_harness.HARNESS_DISPLAY_NAME_SQL),
                 "report_text": parse_expr(_REPORT_TEXT),

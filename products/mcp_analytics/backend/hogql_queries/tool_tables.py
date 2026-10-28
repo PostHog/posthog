@@ -5,6 +5,7 @@ Both resolve the client harness to a customer label server-side via `mcp_harness
 the dashboard donut — the frontend only maps a resolved label to its logo.
 """
 
+from collections.abc import Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -54,6 +55,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
+from products.mcp_analytics.backend.facade.contracts import CustomHarnessRule
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
     EFFECTIVE_DESCRIPTION_SQL,
@@ -76,10 +79,13 @@ if TYPE_CHECKING:
 # pipeline resolves descriptions identically to the Descriptions table here.
 _EFFECTIVE_DESCRIPTION = EFFECTIVE_DESCRIPTION_SQL
 
+
 # A per-row distinct-and-sorted list of resolved harness labels, collected from the
 # token computed in the inner subquery. groupArray evaluates the label per row, so the
 # token only has to be materialized once as `h`.
-_HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h')})))"
+def _harness_labels_agg(custom_rules: Sequence[CustomHarnessRule]) -> str:
+    return f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h', custom_rules)})))"
+
 
 # Raw failure-bucket parts of an errored $mcp_tool_call: the SDK stamps a semantic bucket
 # ($mcp_error_type: internal, validation, api_4xx, api_5xx, permission, timeout, rate_limited,
@@ -175,7 +181,7 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
             LIMIT 5
             """,
             placeholders={
-                "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
+                "_HARNESS_LABELS_AGG": parse_expr(_harness_labels_agg(custom_harness_rules(self.team))),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
@@ -266,7 +272,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
             LIMIT 20
             """,
             placeholders={
-                "_HARNESS_LABELS_AGG": parse_expr(_HARNESS_LABELS_AGG),
+                "_HARNESS_LABELS_AGG": parse_expr(_harness_labels_agg(custom_harness_rules(self.team))),
                 "_COMPOSED_FAILURE_LABEL": parse_expr(_COMPOSED_FAILURE_LABEL),
                 "_RAW_ERROR_TYPE": parse_expr(_RAW_ERROR_TYPE),
                 "_RAW_ERROR_STATUS": parse_expr(_RAW_ERROR_STATUS),
@@ -381,7 +387,7 @@ class MCPToolFailureOccurrencesQueryRunner(AnalyticsQueryRunner[MCPToolFailureOc
             LIMIT 50
             """,
             placeholders={
-                "harness_label": parse_expr(mcp_harness.harness_label_sql("h")),
+                "harness_label": parse_expr(mcp_harness.harness_label_sql("h", custom_harness_rules(self.team))),
                 "_CONVERSATION_ID": parse_expr(CONVERSATION_ID_SQL),
                 "_ERROR_MESSAGE": parse_expr(_ERROR_MESSAGE),
                 "_RAW_ERROR_STATUS": parse_expr(_RAW_ERROR_STATUS),
@@ -707,7 +713,7 @@ class MCPToolSampleIntentsQueryRunner(AnalyticsQueryRunner[MCPToolSampleIntentsQ
             LIMIT 5
             """,
             placeholders={
-                "harness_label": parse_expr(mcp_harness.harness_label_sql("h")),
+                "harness_label": parse_expr(mcp_harness.harness_label_sql("h", custom_harness_rules(self.team))),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": where,
             },

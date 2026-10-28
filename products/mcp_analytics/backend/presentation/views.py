@@ -11,6 +11,9 @@ from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
+
+from posthog.hogql.database.sources_cache import clear_sources_cache
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -20,7 +23,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.facade import api, contracts, enums
-from products.mcp_analytics.backend.models import MCPAnalyticsSubmission
+from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 from .serializers import (
     MCP_SESSION_LIST_DEFAULT_LIMIT,
@@ -28,6 +31,7 @@ from .serializers import (
     MCPActivityOverviewQuerySerializer,
     MCPActivityOverviewSerializer,
     MCPAnalyticsSubmissionSerializer,
+    MCPCustomHarnessSerializer,
     MCPFeedbackCreateSerializer,
     MCPIntentClusterSnapshotSerializer,
     MCPIntentDigestSerializer,
@@ -398,3 +402,27 @@ class MCPMissingCapabilityViewSet(BaseMCPAnalyticsSubmissionViewSet):
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return self._list_response(request, enums.SubmissionKind.MISSING_CAPABILITY)
+
+
+class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """A team's own harness names, shown in place of "Other" in MCP analytics."""
+
+    serializer_class = MCPCustomHarnessSerializer
+    scope_object = "mcp_analytics"
+    queryset = MCPCustomHarness.objects.unscoped()
+    pagination_class = None
+
+    def safely_get_queryset(self, queryset: QuerySet[MCPCustomHarness]) -> QuerySet[MCPCustomHarness]:
+        return queryset.filter(team_id=self.team_id)
+
+    def perform_create(self, serializer: BaseSerializer[Any]) -> None:
+        super().perform_create(serializer)
+        clear_sources_cache()
+
+    def perform_update(self, serializer: BaseSerializer[Any]) -> None:
+        super().perform_update(serializer)
+        clear_sources_cache()
+
+    def perform_destroy(self, instance: MCPCustomHarness) -> None:
+        super().perform_destroy(instance)
+        clear_sources_cache()
