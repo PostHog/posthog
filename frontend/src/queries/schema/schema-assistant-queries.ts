@@ -1183,6 +1183,7 @@ export interface AssistantPathsFilter {
      * `custom_event` - custom events (any event not starting with `$`). Path values are event names.
      * `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression.
      * You can combine multiple types. If not specified, all events are included without type filtering.
+     * Paths never include `$feature_flag_called` events, whichever types are set.
      */
     includeEventTypes?: PathType[]
     /**
