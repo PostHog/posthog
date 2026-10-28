@@ -1,4 +1,5 @@
 from django.core.cache import cache
+from django.db.models.functions import Length
 
 import structlog
 
@@ -24,7 +25,12 @@ def _canonical_team_id(team: Team) -> int:
 
 
 def _rule_pairs_from_db(team_id: int) -> RulePairs:
-    return tuple(MCPCustomHarness.objects.for_team(team_id, canonical=True).values_list("name", "match_pattern"))
+    # The first matching rule wins, so the most specific pattern goes first.
+    return tuple(
+        MCPCustomHarness.objects.for_team(team_id, canonical=True)
+        .order_by(Length("match_pattern").desc(), "created_at")
+        .values_list("name", "match_pattern")
+    )
 
 
 def _log_cache_error(op_name: str, team_id: int, error: Exception) -> None:
