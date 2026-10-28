@@ -182,6 +182,12 @@ Reopening implementation clears the measurement anchor so a later Monitoring per
 
 New metric checks validate numeric goals and baselines against their metric kind, format, unit, and query. Existing check configurations remain readable.
 
+## Research without code
+
+Research without a repository retains the writing rules, attached-image inspection, remediation guidance, report history, intent checks, work-in-flight checks, and per-signal tool budget. The opening prompt states once that no repository is checked out. It uses project data and connected sources to find a concrete engineering starting point. Code-specific instructions are omitted, findings allow empty code and commit evidence, and the output omits pull request planning. Later turns use the same evidence-based verification guidance without repeating access warnings.
+
+With `signals-research-reviewer-selection` enabled, project context, report evidence, and scoped human corrections can identify reviewers without GitHub. Research verifies their project membership with `scout-members-list` and suggests nobody when evidence is insufficient. A GitHub identity is not required to receive a report.
+
 ## Repository selection
 
 For reports built from GitHub issues, the issue repository is a default when it is an eligible candidate.
@@ -202,6 +208,32 @@ The shared repository selection prompt also asks the agent to check other source
 For information from a private repository or another explicitly private source, it prefers a relevant private candidate and returns no repository if none is suitable or its visibility cannot be confirmed.
 Each candidate carries a private, public, or unknown label from the cached GitHub repository list, so the agent does not query GitHub for visibility.
 These broader context checks remain prompt guidance; the source-repository restriction does not validate selections made outside the shared selector.
+
+### GitHub-optional pilot
+
+The boolean `self-driving-github-optional` flag targets the canonical project group (project UUID, with its numeric `id` as a group property). It defaults to off, including in development.
+
+Pilot activation stores `activation_mode: github_optional` in the existing onboarding draft and completes through the existing activation API. It leaves `autostart_enabled` false regardless of pricing flags. Completed pilot activation also admits the project to scout discovery and dispatch while the flag is enabled, respecting fleet exclusions, withheld skills, permissions, and budgets. Fleet admission uses loaded local flag definitions and retries admission on later ticks when definitions are unavailable. Enabling the flag alone never creates scouts or enables sources. Already-active projects keep their settings.
+
+An explicit `guaranteed_team_ids: []` in the `signals-scout` payload drains pilot teams too, blocking both scheduled and manual scout runs.
+
+Activation in a child environment requires task editor access on the parent project and disables automatic implementation there. Scout-authored reports record code availability from the run's saved repository, GitHub posture, and pilot eligibility at dispatch. Repository checks distinguish missing access from temporary GitHub failures: automatic work can retry temporary failures, and manual requests return a retryable 503.
+
+Flagged research continues without code when no repository is selected or GitHub is unavailable. Its `repo_selection` artefact records `research_context.mode` (`code` or `data_only`) and `repository_status`. Recognized repository authentication and clone failures can retry once without a checkout or GitHub credentials. Other failures keep their normal handling. Findings remain code-focused; missing code access alone is not a product decision requiring human input.
+
+Research without a repository preserves structured agent startup failures and clears their health issues after a successful startup, using the same provider and runtime scope as research with code.
+
+A saved repository is reused before checking GitHub availability. A data-only fallback leaves that selection and its recorded context unchanged, so a transient failure cannot replace a reviewer's pinned target.
+
+The report remains readable and supports discussion, assignment, resolution, and eligible monitoring. Implement offers prompts for the customer's own agents even without GitHub access, including while access checks are pending or have failed. Choosing Implement with PostHog requires usable repository access and opens the GitHub connection flow when access is missing. Both report details and triage use these choices, with retry available after temporary failures. The access check probes GitHub directly, and any installation that confirms access enables PostHog implementation without waiting for other installations. Report controls use the server's canonical project eligibility. Authorization returns to the report; existing installations can be linked without leaving it. Recovery tracking records the report, surface, retry, and outcome. GitHub access improves research by connecting project data to code; opening pull requests is optional. Connecting or repairing GitHub does not enable automatic implementation; the user must opt in separately. Previous blocked reports are not automatically rerun.
+
+Report access checks share pending and recent results by project, installation, and repository for up to 30 seconds. Explicit retries invalidate the project cache. A pending request is canceled when its last report reader leaves or after 30 seconds, allowing stalled checks to be retried; temporary failures are not cached. The backend still checks live access before creating an implementation task.
+
+Client-side access controls apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+
+Disable the flag to remove pilot activation and restore legacy behavior on subsequent research passes. Running passes finish with their recorded decision. Reports and saved source/scout settings remain intact; fleet dispatch still applies its ordinary enrollment and exclusion gates.
+
+Without a repository, legacy ownership lookup is skipped. Existing human assignments remain intact.
 
 ## Reviewer notifications
 
