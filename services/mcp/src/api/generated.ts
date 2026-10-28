@@ -65925,6 +65925,8 @@ export namespace Schemas {
       inferred_tables?: TablePair[];
       /** Fivetran tables with no PostHog table. Compare them with the source's PostHog tables and propose one, or leave them out. */
       unmatched_tables?: string[];
+      /** The source's PostHog tables that no Fivetran table maps to. Choose from these for the unmatched tables. Empty when every table matched. */
+      unused_posthog_tables?: string[];
     }
 
     export interface ItemReceipt {

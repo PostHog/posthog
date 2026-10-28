@@ -97,6 +97,12 @@ class ItemProposalSerializer(serializers.Serializer):
         help_text="Fivetran tables with no PostHog table. Compare them with the source's PostHog tables and "
         "propose one, or leave them out.",
     )
+    unused_posthog_tables = serializers.ListField(
+        child=serializers.CharField(),
+        default=list,
+        help_text="The source's PostHog tables that no Fivetran table maps to. Choose from these for the unmatched "
+        "tables. Empty when every table matched.",
+    )
 
 
 class WarehouseMigrationCreateSerializer(serializers.Serializer):
