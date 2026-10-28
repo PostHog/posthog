@@ -156,6 +156,6 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={200: ImportProviderOptionSerializer(many=True)},
         summary="List the providers and what each can import",
     )
-    @action(detail=False, methods=["get"])
+    @action(detail=False, methods=["get"], required_scopes=["hog_flow:read"])
     def providers(self, request: Request, **kwargs: Any) -> Response:
         return Response(ImportProviderOptionSerializer(list_import_providers(), many=True).data)

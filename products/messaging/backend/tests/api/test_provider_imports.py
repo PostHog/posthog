@@ -67,3 +67,14 @@ class TestProviderImportsAPI(APIBaseTest):
         assert expected_error in response.json()["error"]
         start_workflow.assert_not_called()
         assert not Integration.objects.filter(team_id=self.team.id, kind="customerio-app").exists()
+
+    @parameterized.expand([("providers", "providers/"), ("list", "")])
+    def test_reads_with_a_personal_api_key(
+        self, _mock_client_class: MagicMock, _start_workflow: MagicMock, _name: str, path: str
+    ) -> None:
+        key = self.create_personal_api_key_with_scopes(["hog_flow:read"])
+        self.client.logout()
+
+        response = self.client.get(f"{self._url()}{path}", HTTP_AUTHORIZATION=f"Bearer {key}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
