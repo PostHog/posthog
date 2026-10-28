@@ -312,12 +312,36 @@ Duplicate, expired, and mismatched replies do not update suppression or emit res
 
 ## MCP UI hosts
 
-In CLI mode, Claude web and desktop, Cowork, Codex, and ChatGPT receive a separate `render-ui` tool beside `exec`.
+In CLI mode, clients that declare MCP Apps UI support receive a separate `render-ui` tool beside `exec`.
+The declaration must include `text/html;profile=mcp-app` in `extensions["io.modelcontextprotocol/ui"].mimeTypes`.
+Legacy clients declare capabilities during `initialize`; the server retains UI support for later requests in that session.
+Stateless clients declare capabilities in each request's `_meta["io.modelcontextprotocol/clientCapabilities"]`.
+An explicit request declaration takes precedence over stored session support.
+Claude web and desktop and Cowork keep their existing compatibility fallback.
 The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
 The schema stays the same across accounts; execution checks the tools available to the current account.
-`MCPClientProfile.isRenderUiHost()` identifies these clients from the existing Claude detection, the client name, or the user agent.
-The OpenAI check includes the shared `openai-mcp` client because requests can omit the product name and share a cached tool list.
+Codex, ChatGPT, and the shared `openai-mcp` name or user agent do not establish UI support by themselves.
+The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
 This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
+
+### Check a client locally
+
+Follow the [local MCP setup](../../../../../services/mcp/CONTRIBUTING.md#local-development), then start the development server:
+
+```bash
+pnpm --filter=@posthog/mcp dev
+```
+
+The development server prints `[MCP dev]` request diagnostics.
+The `mcpClient` object includes the client name, version, protocol version, `uiCapabilityDeclared`, `uiMimeTypes`, and `uiSupported`.
+The logger excludes credentials, unrelated capability fields, and full request bodies. Production does not enable this logger.
+Later legacy requests can omit capability fields because the server retains the initialization declaration.
+
+Connect ChatGPT UI, Codex UI, and Codex CLI separately through a test endpoint that each client can reach.
+Use separate test connections and confirm that fresh requests reach the development server.
+Check the declaration during initialization for legacy clients and on each stateless request.
+Confirm that `render-ui` appears only for a client with UI support, then request a chart and check that it renders.
+If an OpenAI UI client does not declare support, keep `render-ui` disabled and record that result before changing detection.
 
 ## Claude web and desktop exec schema budget
 

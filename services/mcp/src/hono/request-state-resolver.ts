@@ -279,6 +279,7 @@ export class RequestStateResolver {
             oauthClientName: oauthClientName || undefined,
             vendorClient: clientContext.mcpVendorClient,
             userAgent: props.clientUserAgent,
+            uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
         })
 
         const renderUiEnabled = clientProfile.isRenderUiHost()

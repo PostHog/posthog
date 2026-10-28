@@ -46,7 +46,14 @@ vi.mock('@/lib/posthog/flags', () => ({
 vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
     McpSessionRedisStore: class {
         async resolve(requestContext: Record<string, unknown>): Promise<Record<string, unknown>> {
-            const keys = ['mcpClientName', 'mcpClientVersion', 'mcpProtocolVersion', 'mcpConsumer', 'mcpVendorClient']
+            const keys = [
+                'mcpClientName',
+                'mcpClientVersion',
+                'mcpProtocolVersion',
+                'mcpConsumer',
+                'mcpVendorClient',
+                'mcpUiSupported',
+            ]
             const resolved = Object.fromEntries(
                 keys.map((key) => [key, mockSessionStore.get(key) ?? requestContext[key]])
             )
@@ -550,13 +557,10 @@ describe('RequestStateResolver MCP client contexts', () => {
     it.each([
         { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' },
         { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'Cowork' },
-        { mcpClientName: 'codex' },
-        { mcpClientName: 'Codex CLI' },
-        { mcpClientName: 'ChatGPT' },
-        { mcpClientName: 'openai-mcp' },
-        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' },
-        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (Codex)' },
-        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' },
+        { mcpClientName: 'codex', mcpUiSupported: true },
+        { mcpClientName: 'ChatGPT', mcpUiSupported: true },
+        { mcpClientName: 'openai-mcp', mcpUiSupported: true },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0', mcpUiSupported: true },
     ])('puts UI host %j in single-exec and enables render-ui', async (clientProps) => {
         const props = makeProps(clientProps)
         const result = await makeResolver().resolve(props)
@@ -581,15 +585,32 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it('does not enable render-ui for Claude Code', async () => {
-        // Claude Code is a single-exec CLI client but not an MCP Apps host — it can't
-        // mount the iframe. It must stay in single-exec while `renderUiEnabled` resolves
-        // to false, so the tool-executor never advertises or accepts `render-ui` for it.
-        const props = makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' })
+    it.each([
+        { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' },
+        { mcpClientName: 'Codex CLI' },
+        { mcpClientName: 'codex', mcpUiSupported: false },
+        { mcpClientName: 'ChatGPT' },
+        { mcpClientName: 'openai-mcp' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (Codex)' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0 (ChatGPT)' },
+    ])('does not enable render-ui without UI support for %j', async (clientProps) => {
+        const props = makeProps(clientProps)
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(false)
         expect(result.useSingleExec).toBe(true)
+    })
+
+    it.each([
+        { cached: true, live: undefined, expected: true },
+        { cached: true, live: false, expected: false },
+        { cached: false, live: true, expected: true },
+    ])('resolves UI support from the live declaration before the legacy session: %j', async (testCase) => {
+        await makeResolver().resolve(makeProps({ mcpClientName: 'openai-mcp', mcpUiSupported: testCase.cached }))
+
+        const result = await makeResolver().resolve(makeProps({ mcpUiSupported: testCase.live }))
+
+        expect(result.renderUiEnabled).toBe(testCase.expected)
     })
 
     it('detects Claude web/desktop via the Claude-User user agent and enables render-ui', async () => {

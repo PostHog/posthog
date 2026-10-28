@@ -1,6 +1,7 @@
 import { type MiddlewareHandler } from 'hono'
 
 import { httpRequestDurationSeconds, httpRequestsTotal, inflightRequests, routeLabel } from './metrics'
+import { parseClientInfo } from './request-utils'
 
 const DEV_LOG_VISIBLE_HEADERS = new Set([
     'accept',
@@ -17,11 +18,16 @@ export const devRequestLogger: MiddlewareHandler = async (c, next) => {
     })
 
     const url = new URL(c.req.url)
+    const mcpClient =
+        c.req.method === 'POST' && url.pathname.startsWith('/mcp')
+            ? parseClientInfo(await c.req.raw.clone().text())
+            : undefined
     console.info('[MCP dev]', {
         method: c.req.method,
         pathname: url.pathname,
         queryParameters: [...new Set(url.searchParams.keys())],
         headers,
+        ...(mcpClient ? { mcpClient } : {}),
         body: {
             present: c.req.raw.body !== null,
             contentLength: c.req.header('content-length') ?? 'unknown',
