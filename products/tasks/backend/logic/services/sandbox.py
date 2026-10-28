@@ -37,9 +37,6 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_IMAGE_NAME,
     SANDBOX_REPOSITORIES_ROOT,
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-    SnapshotKind,
 )
 from products.tasks.backend.logic.services.local_skills import BUNDLED_SKILLS_PATHS, ENV_DISABLE_BUNDLED_SKILLS
 from products.tasks.backend.logic.services.sandbox_config import (
@@ -217,7 +214,7 @@ class SandboxConfig(BaseModel):
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
     snapshot_external_id: str | None = None
-    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_FILESYSTEM
+    resume_snapshot_external_id: str | None = None
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
     snapshot_restored: bool = False
@@ -533,16 +530,15 @@ class SandboxBase(ABC):
         # its author code execution with another member's secrets. Two checks:
         #   - the reserved name (user images always publish as posthog-sandbox-custom-*),
         #     with the absolute path below avoiding PATH shadowing;
-        #   - not a filesystem-snapshot restore: such a resume boots a mutable snapshot
+        #   - not a filesystem-snapshot restore: such a restore boots a mutable snapshot
         #     of a prior run — one that processed untrusted repo content and could have
         #     replaced the helper file itself. Directory restores only mount the workspace
         #     dir (ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS), leaving the helper the
         #     vetted image's own binary, so the warmup stays on for them — but the
         #     workspace is still attacker-controlled, so the launcher below scrubs the
-        #     environment (fixed PATH, no credentials) rather than trusting it. Anything
-        #     not explicitly a directory restore is treated as filesystem — fail closed.
+        #     environment (fixed PATH, no credentials) rather than trusting it.
         restored_untrusted_filesystem = (
-            self.config.snapshot_restored and self.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY
+            self.config.snapshot_restored and self.config.resume_snapshot_external_id is None
         )
         if (
             not self.config.is_vm

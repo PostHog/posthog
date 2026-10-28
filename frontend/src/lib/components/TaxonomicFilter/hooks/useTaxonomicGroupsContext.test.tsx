@@ -172,18 +172,20 @@ describe('useTaxonomicGroupsContext', () => {
     })
 
     it.each([
-        [TaxonomicFilterGroupType.Events, true, false, 'true'],
-        [TaxonomicFilterGroupType.CustomEvents, true, false, 'true'],
-        [TaxonomicFilterGroupType.Events, true, true, 'false'],
-        [TaxonomicFilterGroupType.CustomEvents, true, true, 'false'],
+        [TaxonomicFilterGroupType.Events, 'test', false, 'true'],
+        [TaxonomicFilterGroupType.CustomEvents, 'test', false, 'true'],
+        [TaxonomicFilterGroupType.Events, 'test', true, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, 'test', true, 'false'],
+        [TaxonomicFilterGroupType.Events, 'control', false, 'false'],
+        [TaxonomicFilterGroupType.CustomEvents, 'control', false, 'false'],
         [TaxonomicFilterGroupType.Events, false, false, 'false'],
         [TaxonomicFilterGroupType.CustomEvents, false, false, 'false'],
     ])(
         'for %s with the flag %p and allowNonCapturedEvents %p, fuzzy_search is %p',
-        (groupType, flagEnabled, allowNonCapturedEvents, expected) => {
+        (groupType, flagValue, allowNonCapturedEvents, expected) => {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH]: flagEnabled,
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH]: flagValue,
             })
             const { result } = renderHook(() => useTaxonomicGroupsContext({ allowNonCapturedEvents }), { wrapper })
             const group = buildTaxonomicGroups(result.current).find((item) => item.type === groupType)

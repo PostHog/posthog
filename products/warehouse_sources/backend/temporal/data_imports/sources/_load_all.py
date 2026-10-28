@@ -1172,6 +1172,7 @@ from .solarwinds_service_desk.source import SolarwindsServiceDeskSource
 from .sonar_cloud.source import SonarCloudSource
 from .sonarqube.source import SonarqubeSource
 from .sonatype_nexus.source import SonatypeNexusSource
+from .soniox.source import SonioxSource
 from .sourcegraph.source import SourcegraphSource
 from .spacelift.source import SpaceliftSource
 from .sparkpost.source import SparkPostSource
