@@ -401,6 +401,28 @@ export const MessagingPreferencesRemoveOptOutCreateBody = /* @__PURE__ */ zod.ob
 })
 
 /**
+ * Background imports from other messaging tools, such as c.io suppressions and global unsubscribes.
+ *
+ * A run executes outside the request, so a long provider list does not time out. Poll a run to show its progress.
+ * @summary Start a background import from another messaging tool
+ */
+export const messagingProviderImportsCreateBodyStepsItemMax = 64
+
+export const MessagingProviderImportsCreateBody = /* @__PURE__ */ zod.object({
+    provider: zod.enum(['cio']).describe('\* `cio` - c.io').describe('The provider to import from.\n\n\* `cio` - c.io'),
+    steps: zod
+        .array(zod.string().max(messagingProviderImportsCreateBodyStepsItemMax))
+        .min(1)
+        .describe(
+            "Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send."
+        ),
+    api_key: zod
+        .string()
+        .optional()
+        .describe("The provider's API key. For c.io, an App API key. Leave it out to reuse the stored key."),
+})
+
+/**
  * Manually suppress an email address so no workflow sends to it.
  * @summary Manually add an email address to the suppression list
  */

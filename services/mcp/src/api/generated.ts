@@ -63703,6 +63703,77 @@ export namespace Schemas {
     }
 
     /**
+     * * `cio` - c.io
+     */
+    export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
+
+
+    export const ImportProviderKeyEnum = {
+      Cio: 'cio',
+    } as const;
+
+    export interface ImportStepOption {
+      /** Step key to send in `steps` when starting an import, for example `suppressions`. */
+      key: string;
+      /** Display name of the step. */
+      label: string;
+      /** What the step imports and where it lands in PostHog. */
+      description: string;
+    }
+
+    export interface ImportProviderOption {
+      /** Provider key to send when starting an import.
+       *
+       * * `cio` - c.io */
+      key: ImportProviderKeyEnum;
+      /** Display name of the provider. */
+      label: string;
+      /** What the provider can import, in the order the steps run. */
+      steps: ImportStepOption[];
+    }
+
+    /**
+     * * `pending` - Not started
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed
+     */
+    export type ImportStepStatusEnum = typeof ImportStepStatusEnum[keyof typeof ImportStepStatusEnum];
+
+
+    export const ImportStepStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ImportStepProgress {
+      /** Step key, for example `suppressions`. */
+      key: string;
+      /** Display name of the step. */
+      label: string;
+      /** `pending` until the step starts, `running` while it imports or waits to retry, then `completed` or `failed`.
+       *
+       * * `pending` - Not started
+       * * `running` - Importing
+       * * `completed` - Imported
+       * * `failed` - Failed */
+      status: ImportStepStatusEnum;
+      /** How many records the step read from the provider so far. */
+      processed: number;
+      /** How many records the step added or updated in PostHog so far. Records that already existed and need no change may not count. */
+      imported: number;
+      /** Problems with single records that did not fail the step. */
+      warnings: string[];
+      /**
+         * The error from the step's most recent failed attempt. A running step retries after an error; a failed step stopped.
+         * @nullable
+         */
+      last_error: string | null;
+    }
+
+    /**
      * * `signals` - Signals
      * * `scouts` - Scouts
      * * `github` - GitHub
@@ -98093,6 +98164,57 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ProviderImportError {
+      /** Why the import did not start. */
+      error: string;
+    }
+
+    /**
+     * * `queued` - Waiting to start
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed
+     */
+    export type ProviderImportStatusEnum = typeof ProviderImportStatusEnum[keyof typeof ProviderImportStatusEnum];
+
+
+    export const ProviderImportStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ProviderImportRun {
+      /** Import run ID. */
+      id: string;
+      /** The provider the run imports from.
+       *
+       * * `cio` - c.io */
+      provider: ImportProviderKeyEnum;
+      /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
+       *
+       * * `queued` - Waiting to start
+       * * `running` - Importing
+       * * `completed` - Imported
+       * * `failed` - Failed */
+      status: ProviderImportStatusEnum;
+      /** Progress of each selected step, in run order. */
+      steps: ImportStepProgress[];
+      /** When the run was requested. */
+      created_at: string;
+      /**
+         * When the first step started.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the last step ended.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
     export interface ProvisionWarehouseRequest {
       /** Name for the new database */
       database_name: string;
@@ -116305,6 +116427,21 @@ export namespace Schemas {
       readonly app_not_installed: boolean;
       /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
       readonly installations: readonly StamphogDiscoveredInstallation[];
+    }
+
+    export interface StartProviderImport {
+      /** The provider to import from.
+       *
+       * * `cio` - c.io */
+      provider: ImportProviderKeyEnum;
+      /**
+         * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
+         * @minItems 1
+         * @items.maxLength 64
+         */
+      steps: string[];
+      /** The provider's API key. For c.io, an App API key. Leave it out to reuse the stored key. */
+      api_key?: string;
     }
 
     export interface StartTrainingRequest {
