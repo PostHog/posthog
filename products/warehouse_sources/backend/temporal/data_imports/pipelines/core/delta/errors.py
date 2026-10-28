@@ -22,6 +22,10 @@ from posthog.temporal.common.errors import NonReportableError
 #   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
 #   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
 #   identical request succeeds moments later.
+# - "connection closed before message completed" is delta-rs's own object_store crate (reqwest/hyper)
+#   reporting a connection the remote end dropped mid-response - it already prefixes this with its own
+#   "Unexpected (temporary)" classification before this classifier even runs, so a retry against a fresh
+#   connection is exactly what self-heals it, the same as any other blip in this list.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -31,6 +35,7 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
     "The difference between the request time and the current time is too large.",
+    "connection closed before message completed",
 )
 
 # pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed
