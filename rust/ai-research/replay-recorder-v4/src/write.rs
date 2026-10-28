@@ -757,6 +757,7 @@ mod tests {
         for backslashed in [
             r"https:\\user:secret@cdn.example.com/a.png",
             r"https:/\user:secret@cdn.example.com/a.png",
+            "https:user:secret@cdn.example.com/a.png",
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
                 "attributes": [{"id": 99, "attributes": {"src": backslashed}}]}}])

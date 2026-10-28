@@ -655,6 +655,7 @@ mod tests {
             r"https:\\example.com/A.png",
             r"https:/\example.com/A.png",
             "https:/example.com/A.png",
+            "https:example.com/A.png",
         ] {
             assert_eq!(canonicalize(raw).unwrap(), c, "{raw}");
         }
