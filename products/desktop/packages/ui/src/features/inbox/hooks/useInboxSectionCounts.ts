@@ -1,18 +1,18 @@
+import { inboxReportKeys } from "@posthog/core/inbox/inboxQuery";
 import {
   buildPriorityFilterParam,
   buildSuggestedReviewerFilterParam,
-  INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-  INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
 } from "@posthog/core/inbox/reportFiltering";
 import {
   INBOX_SCOPE_FOR_YOU,
   parseTeammateInboxScope,
 } from "@posthog/core/inbox/reportMembership";
+import type { SignalReportSectionCounts } from "@posthog/shared/types";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
-import { useInboxReports } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useInboxReviewerScopeStore } from "@posthog/ui/features/inbox/stores/inboxReviewerScopeStore";
 import { useInboxSignalsFilterStore } from "@posthog/ui/features/inbox/stores/inboxSignalsFilterStore";
+import { useAuthenticatedQuery } from "@posthog/ui/hooks/useAuthenticatedQuery";
 
 export interface InboxSectionCounts {
   reviewAndMerge: number;
@@ -25,12 +25,13 @@ export interface InboxSectionCounts {
 /**
  * Server-side counts for the inbox's sections and badges.
  *
- * Loaded pages only contain a window of the inbox, so each number uses a
- * count-only query with the same server-side filters as its section.
+ * Loaded pages only contain a window of the inbox, so the counts come from the
+ * backend, which applies each section's own status, actionability and PR
+ * condition in one request.
  *
- * Scope and the priority filter are mirrored into every query so the counts
- * move with what the list shows. Search is a client-side title match, so
- * surfaces showing searched rows must count those rows instead.
+ * Scope and the priority filter are sent with the request so the counts move
+ * with what the list shows. Search is a client-side title match, so surfaces
+ * showing searched rows must count those rows instead.
  */
 export function useInboxSectionCounts(): InboxSectionCounts {
   const scope = useInboxReviewerScopeStore((s) => s.scope);
@@ -42,58 +43,29 @@ export function useInboxSectionCounts(): InboxSectionCounts {
   const teammateUuid = parseTeammateInboxScope(scope);
   const reviewerUuid =
     teammateUuid ?? (isForYou ? (currentUser?.uuid ?? null) : null);
+  const scopeReady = !isForYou || reviewerUuid != null;
 
-  const shared = {
+  const params = {
     priority: buildPriorityFilterParam(priorityFilter),
     suggested_reviewers: reviewerUuid
       ? buildSuggestedReviewerFilterParam([reviewerUuid])
       : undefined,
-    count_only: true,
   };
-  const scopeReady = !isForYou || reviewerUuid != null;
-  const options = {
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: false,
-  };
-
-  const reviewAndMergeQuery = useInboxReports(
-    { ...shared, status: "ready", has_implementation_pr: true },
-    { ...options, enabled: scopeReady },
-  );
-  const needsPrQuery = useInboxReports(
+  const query = useAuthenticatedQuery<SignalReportSectionCounts>(
+    inboxReportKeys.sectionCounts(params),
+    (apiClient) => apiClient.getSignalReportSectionCounts(params),
     {
-      ...shared,
-      status: INBOX_ACTIONABLE_REPORT_STATUS_FILTER,
-      actionability: INBOX_ACTIONABLE_ACTIONABILITY_FILTER,
-      has_implementation_pr: false,
+      enabled: scopeReady,
+      refetchInterval: 60_000,
+      refetchIntervalInBackground: false,
     },
-    { ...options, enabled: scopeReady },
-  );
-  const resolvedQuery = useInboxReports(
-    {
-      ...shared,
-      status: "resolved",
-    },
-    { ...options, enabled: scopeReady },
-  );
-  const dismissedQuery = useInboxReports(
-    {
-      ...shared,
-      status: "suppressed",
-    },
-    { ...options, enabled: scopeReady },
   );
 
   return {
-    reviewAndMerge: reviewAndMergeQuery.data?.count ?? 0,
-    needsPr: needsPrQuery.data?.count ?? 0,
-    resolved: resolvedQuery.data?.count ?? 0,
-    dismissed: dismissedQuery.data?.count ?? 0,
-    isLoading:
-      reviewAndMergeQuery.isLoading ||
-      needsPrQuery.isLoading ||
-      resolvedQuery.isLoading ||
-      dismissedQuery.isLoading ||
-      (isForYou && reviewerUuid == null),
+    reviewAndMerge: query.data?.review_and_merge ?? 0,
+    needsPr: query.data?.needs_pr ?? 0,
+    resolved: query.data?.resolved ?? 0,
+    dismissed: query.data?.dismissed ?? 0,
+    isLoading: query.isLoading || (isForYou && reviewerUuid == null),
   };
 }

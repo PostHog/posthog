@@ -1182,6 +1182,19 @@ export interface SignalReportsResponse {
   count: number;
 }
 
+/** Filters shared by every inbox section count. Each section sets its own status, actionability and PR condition. */
+export interface SignalReportSectionCountsParams {
+  priority?: string;
+  suggested_reviewers?: string;
+}
+
+export interface SignalReportSectionCounts {
+  review_and_merge: number;
+  needs_pr: number;
+  resolved: number;
+  dismissed: number;
+}
+
 export interface SignalProcessingStateResponse {
   paused_until: string | null;
 }
