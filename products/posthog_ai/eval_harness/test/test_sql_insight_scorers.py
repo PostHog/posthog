@@ -64,6 +64,7 @@ def _output(*calls: tuple) -> dict:
             DEFAULT_RANGE,
             0.0,
         ),
+        ("SELECT count() FROM events WHERE timestamp BETWEEN {filters.dateRange.from} AND now()", DEFAULT_RANGE, 0.0),
     ],
     ids=[
         "filters_placeholder",
@@ -77,6 +78,7 @@ def _output(*calls: tuple) -> dict:
         "column_bound_null_timestamp",
         "interval_placeholder_only",
         "date_literal_inside_conversion",
+        "placeholder_and_clock_in_one_window",
     ],
 )
 def test_sql_follows_date_filter(sql: str, filters: dict | None, expected_score: float) -> None:
@@ -123,6 +125,12 @@ DAY_SERIES_JOIN = (
             1.0,
         ),
         ("WITH events AS (SELECT timestamp FROM events) SELECT timestamp FROM events ORDER BY timestamp", 1.0),
+        (
+            DAILY_BY_FILE_TYPE
+            + "ORDER BY day WITH FILL FROM toStartOfDay({filters.dateRange.from}) TO {filters.dateRange.to} "
+            + "STEP toIntervalDay(1)",
+            1.0,
+        ),
         (DAILY_BY_FILE_TYPE + "ORDER BY day DESC", 0.0),
         (DAY_SERIES_JOIN + "ORDER BY day DESC", 0.0),
         (DAILY_BY_FILE_TYPE + "ORDER BY uploads DESC", 0.0),
@@ -139,6 +147,7 @@ DAY_SERIES_JOIN = (
         "generated_week_series_cte",
         "bucket_projected_through_cte",
         "cte_shadows_events_table",
+        "with_fill_bounded_by_placeholders",
         "desc",
         "generated_day_series_join_desc",
         "no_time_key",

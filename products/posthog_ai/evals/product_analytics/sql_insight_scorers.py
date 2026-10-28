@@ -81,6 +81,18 @@ def _parse(source: dict[str, Any]) -> ast.SelectQuery | ast.SelectSetQuery | Non
         return None
 
 
+def _hogql_text(node: ast.Expr) -> str:
+    """The expression as HogQL for score metadata.
+
+    The printer cannot print a placeholder such as ``{filters.dateRange.from}``, and a failed
+    print must not turn a graded case into a scorer error.
+    """
+    try:
+        return node.to_hogql()
+    except BaseHogQLError:
+        return f"<{type(node).__name__} with a placeholder>"
+
+
 def _outer_select(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
     while isinstance(node, ast.SelectSetQuery):
         node = node.initial_select_query
@@ -139,7 +151,7 @@ class _HardCodedWindows(TraversingVisitor):
 
     def _check(self, node: ast.Expr, bounds: list[ast.Expr]) -> None:
         if any(_calls_in(bound).names & _CLOCK_FUNCTIONS or _has_date_literal(bound) for bound in bounds):
-            self.found.append(node.to_hogql())
+            self.found.append(_hogql_text(node))
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> None:
         if node.op in _RANGE_OPS:
@@ -398,13 +410,13 @@ class SqlTimeAxisAscending(Scorer):
         time_positions = [index for index, (_, kind) in enumerate(kinds) if kind == "time"]
         if not time_positions:
             return Score(name=self._name(), score=0.0, metadata={"reason": "No ORDER BY on the time column"})
-        descending = [order.expr.to_hogql() for order, kind in kinds if kind == "time" and order.order == "DESC"]
-        values_first = [order.expr.to_hogql() for order, kind in kinds[: time_positions[0]] if kind == "value"]
+        descending = [_hogql_text(order.expr) for order, kind in kinds if kind == "time" and order.order == "DESC"]
+        values_first = [_hogql_text(order.expr) for order, kind in kinds[: time_positions[0]] if kind == "value"]
         return Score(
             name=self._name(),
             score=0.0 if descending or values_first else 1.0,
             metadata={
-                "order_keys": [f"{order.to_hogql()} ({kind})" for order, kind in kinds],
+                "order_keys": [f"{_hogql_text(order)} ({kind})" for order, kind in kinds],
                 "descending": descending,
                 "values_before_time": values_first,
             },
