@@ -636,6 +636,7 @@ CREATE TABLE posthog.platform_alert_events (
   labels Map(String, String),
   condition_snapshot String,
   source_config_snapshot String,
+  source_detail String,
   query_duration_ms Nullable(UInt32),
   error_message String,
   consecutive_failures UInt32,
@@ -1171,7 +1172,7 @@ CREATE TABLE posthog.sharded_flag_evaluations (
   INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter GRANULARITY 1,
   INDEX person_properties_map_custom_keys_bf mapKeys(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1,
   INDEX person_properties_map_custom_values_bf mapValues(person_properties_map_custom) TYPE bloom_filter GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}', _timestamp) ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/posthog.flag_evaluations', '{replica}', _timestamp) ORDER BY (team_id, flag_key, toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)) PARTITION BY toYYYYMM(timestamp) TTL toDate(timestamp) + toIntervalDay(92) SETTINGS index_granularity = 8192, materialize_ttl_recalculate_only = 1, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.sharded_heatmaps (
   session_id String,
   team_id Int64,

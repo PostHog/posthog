@@ -198,6 +198,34 @@ A `function` node with `template_id: "template-posthog-replay-vision"` scans the
 - **Daily caps.** Each workflow can start 100 scans a day, and the project 500, unless the project settings change `replay_vision_scan_rate_limit_per_day` and `replay_vision_scan_team_rate_limit_per_day`. Past a cap the step returns `state: "skipped"` and the workflow continues.
 - **Access.** The token needs `session_recording:read` (or `:write`) and `replay_scanner:write`, and the user needs access to recordings and to the saved scanner. Without them, the save fails with a message that names what is missing.
 
+### Opt out of messages step
+
+A `function` node with `template_id: "template-posthog-opt-out-of-messages"` adds the run's recipient to the opt-out list for one message category, or for all marketing messages. Later email, SMS and push steps for that category skip the recipient. Use it whenever a workflow has to opt someone out. Don't build this with a `webhook` step that calls `messaging_preferences/add_opt_out/` with an API key: that call breaks when the key's owner leaves or the key rotates, and its failures only show as webhook errors.
+
+```json
+{
+  "id": "opt_out_1",
+  "name": "Opt out of product updates",
+  "type": "function",
+  "on_error": "abort",
+  "config": {
+    "template_id": "template-posthog-opt-out-of-messages",
+    "inputs": {
+      "category_id": { "value": "<message category id>" },
+      "identifier": { "value": "{person.properties.email}" }
+    }
+  }
+}
+```
+
+- **`category_id` is a literal, not a template.** Use a marketing message category's `id` (UUID), listed by `message-categories-list`, or `"$all"` for all marketing messages. If the category doesn't exist yet and the user's request covers creating it, for example an import that brings its own categories, create it with `message-categories-create`. Otherwise ask the user for it rather than guess. Never put `{...}` expressions in it. A save with a category the project doesn't have fails.
+- `identifier` is who to opt out. It defaults to `{person.properties.email}`. Use the same value as the recipient of the email step it should suppress, because opt-outs match the recipient exactly.
+- Only marketing categories work, because transactional messages ignore opt-outs. A save with a transactional category fails.
+- The step fails, and the workflow log says why, when `identifier` is empty or the category was deleted. It never passes silently.
+- Set `"on_error": "abort"` on the node. Without it, a failed opt-out continues to the next step, which may send the message the person asked to stop.
+- Running it again for someone who is already opted out succeeds and logs "Already opted out".
+- The step is behind the `workflow-opt-out-of-messages-action` feature flag. Without the flag, the save fails with "Template not found".
+
 ## Duration strings (`delay_duration`, `max_wait_duration`)
 
 Must match `^\d*\.?\d+[dhms]$` — a number plus unit `s` | `m` | `h` | `d`. Examples: `30s`, `30m`, `2h`, `1d`, `1.5d` (=36h).

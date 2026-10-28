@@ -19,6 +19,7 @@ import { useEffect, useState } from 'react'
 import api from 'lib/api'
 import type { SupportTicketExceptionEvent } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { listenForGoldRingsKeys } from 'lib/holidayGoldRings'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -55,7 +56,7 @@ import { isSharedView } from '~/exporter/exporterViewLogic'
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, UserType } from '~/types'
 
-import { handleLoginRedirect } from './authentication/login/loginLogic'
+import { handleLoginRedirect } from './authentication/auth/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
@@ -187,6 +188,7 @@ function isRefusedProjectPath(pathname: string): boolean {
 function isFirstProjectWithoutData(user: UserType): boolean {
     const { currentTeam, hasOnboardedAnyProduct } = teamLogic.values
     return (
+        !user.is_impersonated &&
         user.organization?.teams.length === 1 &&
         !!currentTeam &&
         !currentTeam.is_demo &&
@@ -455,6 +457,11 @@ export const sceneLogic = kea<sceneLogicType>([
         cache.lastTrackedScene = null as { sceneId?: string; sceneKey?: string } | null
         cache.homepageSave = Promise.resolve()
         cache.homepageRequest = 0
+        cache.disposables.add(() =>
+            listenForGoldRingsKeys(
+                () => featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CHRISTMAS_GOLD_RINGS] === true
+            )
+        )
     }),
     actions({
         /* 1. Prepares to open the scene, as the listener may override and do something

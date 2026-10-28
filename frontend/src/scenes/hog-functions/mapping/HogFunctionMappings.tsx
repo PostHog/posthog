@@ -130,6 +130,7 @@ export function HogFunctionMapping({
                                 type: 'secondary',
                             }}
                             buttonCopy="Add event matcher"
+                            includeHiddenEvents
                         />
                     </>
                 )}

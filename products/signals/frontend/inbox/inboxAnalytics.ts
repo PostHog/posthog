@@ -49,6 +49,9 @@ export const INBOX_EVENTS = {
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
+    INTERVIEW_INVITE_SHOWN: 'Inbox interview invite shown',
+    INTERVIEW_INVITE_CLICKED: 'Inbox interview invite clicked',
+    INTERVIEW_INVITE_DISMISSED: 'Inbox interview invite dismissed',
     // Cloud-only for now: the desktop inbox has no model sorts.
     RANKING_DETAILS_VIEWED: 'Inbox ranking details viewed',
     SETTINGS_CHANGED: 'Inbox settings changed',
@@ -122,6 +125,7 @@ export type InboxReportOpenMethod = 'click' | 'deeplink' | 'triage' | 'unknown'
  * `ReportLinkSource` in `products/signals/backend/report_urls.py`.
  */
 export const INBOX_REPORT_LINK_SOURCES = [
+    'first_report_email',
     'mcp',
     'slack',
     'slack_scout',
@@ -161,7 +165,7 @@ export type InboxReportFeedbackSentiment = 'positive' | 'negative'
  * section), `resolve` (marking a report done without an inbox PR), `resume_discussion` (reopening the
  * last Ask AI run from the report composer), `view_diff`, `show_more` (a list
  * section widening its window), and the section expand/collapse pair (desktop splits those per
- * section instead).
+ * section instead). `expand_preview` is a Today list row opened in place, which no ranking head reads yet.
  * Desktop-only variants we don't fire yet are intentionally omitted.
  */
 export type InboxReportActionType =
@@ -181,6 +185,9 @@ export type InboxReportActionType =
     | 'collapse_section'
     | 'add_suggested_reviewer'
     | 'remove_suggested_reviewer'
+    | 'claim'
+    | 'unclaim'
+    | 'expand_preview'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -483,6 +490,7 @@ export function captureInboxReportsImpressed(params: {
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
         ranker_id: params.rankerId,
+        has_pr: params.reports.some((report) => reportPullRequests(report).length > 0),
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
             ...baseReportProperties(report),
@@ -492,7 +500,7 @@ export function captureInboxReportsImpressed(params: {
             signal_count: report.signal_count,
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
-            ...(rankingSort ? { ranking_served_key: report.ranking?.served_key ?? null } : {}),
+            ...(rankingSort ? { ranking_served_key: report.ranking?.model ?? null } : {}),
         })),
     })
 }
@@ -667,18 +675,24 @@ export function captureTodayReportsImpressed(params: {
     })
 }
 
-/** The Today home version of {@link captureInboxReportOpened}. `source` is the control the person clicked. */
+/**
+ * The Today home version of {@link captureInboxReportOpened}. `source` is the control the person clicked. A deep-link
+ * has no `list`, `rank`, `list_size` or `source`.
+ */
 export function captureTodayReportOpened(params: {
     report: TodayReportSnapshot
-    list: TodayReportList
+    openMethod: InboxReportOpenMethod
+    linkSource: InboxReportLinkSource | null
+    list: TodayReportList | null
     rank: number | null
     listSize: number | null
-    source: string
+    source: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_OPENED, {
         ...todayReportProperties(params.report),
         surface: 'today' satisfies InboxReportActionSurface,
-        open_method: 'click' satisfies InboxReportOpenMethod,
+        open_method: params.openMethod,
+        link_source: params.linkSource,
         list: params.list,
         rank: params.rank,
         list_size: params.listSize,
@@ -770,6 +784,15 @@ export function captureInboxReportFeedbackNote(params: {
     })
 }
 
+export function captureInboxInterviewInvite(action: 'shown' | 'clicked' | 'dismissed'): void {
+    const event = {
+        shown: INBOX_EVENTS.INTERVIEW_INVITE_SHOWN,
+        clicked: INBOX_EVENTS.INTERVIEW_INVITE_CLICKED,
+        dismissed: INBOX_EVENTS.INTERVIEW_INVITE_DISMISSED,
+    }[action]
+    captureInboxEvent(event, { surface: 'report_feedback_note' })
+}
+
 export function captureSignalSourceConnected(params: {
     sourceProduct: string
     sourceType: string
@@ -830,18 +853,29 @@ export function captureSignalSourceInterest(source: string): void {
     captureInboxEvent(INBOX_EVENTS.SOURCE_INTEREST, { source })
 }
 
-export type SignalSourceCatalogOrigin = 'catalog'
+export type SignalSourceCatalogOrigin = 'catalog' | 'recommendation'
 
 /** The add-source catalog opened. Pairs with {@link captureSignalSourceConnected} to show how many opens end in a connection. */
-export function captureSignalSourceCatalogOpened(params: { connectedCount: number }): void {
-    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, { connected_count: params.connectedCount })
+export function captureSignalSourceCatalogOpened(params: {
+    recommendationCount: number
+    connectedCount: number
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_OPENED, {
+        recommendation_count: params.recommendationCount,
+        connected_count: params.connectedCount,
+    })
 }
 
 export function captureSignalSourceCatalogSourceSelected(params: {
     source: string
     origin: SignalSourceCatalogOrigin
+    reason: string | null
 }): void {
-    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_SOURCE_SELECTED, { source: params.source, origin: params.origin })
+    captureInboxEvent(INBOX_EVENTS.SOURCE_CATALOG_SOURCE_SELECTED, {
+        source: params.source,
+        origin: params.origin,
+        recommendation_reason: params.reason,
+    })
 }
 
 /**

@@ -128,6 +128,13 @@ _CREDENTIAL_STEP_COUNT: dict[str, int] = {
 }
 
 
+def has_connection_test(destination_type: str) -> bool:
+    """Whether creating a destination of this type tests its connection first."""
+    return destination_type in (ExternalDataDestination.Type.POSTGRES, ExternalDataDestination.Type.S3) or (
+        destination_type in _TEST_TYPES
+    )
+
+
 def connection_test_type(destination_type: str, integration: Integration) -> str | None:
     """The batch exports test that covers this destination, or None when there is none."""
     if destination_type == ExternalDataDestination.Type.S3:

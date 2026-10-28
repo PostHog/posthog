@@ -105,7 +105,7 @@ Adding counts is right because each live event was folded into exactly one of th
 One narrow race breaks that: a backfill tile scanned after the merge, which already counts the old person's events under the survivor, can land on the survivor before the transfer does.
 
 The replay-marks rule matters for late events.
-An event for the old person that is re-addressed to the survivor keeps its own firehose coordinates, the event's partition and offset on the ingestion topic.
+An event for the old person that is re-addressed to the survivor keeps its own source coordinates, the event's `source_partition` and `source_offset`.
 The survivor checks them against the marks kept under the old person's id.
 An event the old person already counted is skipped, and a new one is counted.
 

@@ -1,5 +1,7 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
@@ -13,6 +15,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DateRange,
     EventsNode,
+    HogQLQueryModifiers,
     MultipleBreakdownType,
     PropertyMathType,
     TrendsFilter,
@@ -436,3 +439,18 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         runner = TrendsQueryRunner(query=query, team=self.team)
 
         self.assertEqual(len(runner.series), 150)
+
+    @parameterized.expand([(False,), (True,)])
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_actor_options_read_the_selected_events_table(self, native: bool) -> None:
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=native),
+        )
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
+            result = TrendsQueryRunner(query=query, team=self.team).to_actors_query_options()
+        assert result.breakdown == []
+        execute.assert_called_once()
+        assert ("events_json" in execute.call_args.args[0]) is native

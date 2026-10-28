@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -22,6 +24,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
+from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueSummary, IssueSummaryCategory
 from products.error_tracking.backend.facade.query_utils import (
     ISSUE_BREAKDOWN_TOP_VALUES,
     MAX_STACK_FRAMES,
@@ -262,6 +265,28 @@ def test_breakdown_query_date_range(
     assert breakdown_query_date_range(date_range, ZoneInfo("UTC"), BREAKDOWN_NOW) == (expected, expected_limited)
 
 
+SUMMARIES_FACADE = "products.error_tracking.backend.facade.summaries"
+STORED_SUMMARY = ErrorTrackingIssueSummary(
+    issue_id=UUID("01936e7f-d7ff-7314-b2d4-7627981e34f0"),
+    what_happened="Checkout throws a TypeError when the cart is empty.",
+    likely_cause="The cart total reads a property of an undefined line item.",
+    who_is_affected="Users who open checkout with an empty cart.",
+    suggested_next_step="Guard the line item lookup in the cart total.",
+    category=IssueSummaryCategory.OWN_CODE,
+    model="test-model",
+    generated_at=datetime(2026, 4, 24, 11, 0, tzinfo=UTC),
+    checked_at=datetime(2026, 4, 24, 11, 0, tzinfo=UTC),
+)
+STORED_SUMMARY_PAYLOAD = {
+    "what_happened": STORED_SUMMARY.what_happened,
+    "likely_cause": STORED_SUMMARY.likely_cause,
+    "who_is_affected": STORED_SUMMARY.who_is_affected,
+    "suggested_next_step": STORED_SUMMARY.suggested_next_step,
+    "category": "own_code",
+    "generated_at": "2026-04-24T11:00:00+00:00",
+}
+
+
 class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
     issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f0"
     fingerprint = "issue-fingerprint"
@@ -333,22 +358,25 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={
-                "status": "all",
-                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
-                "library": "posthog-js",
-                "release": "2026.04.24",
-                "fingerprint": self.fingerprint,
-                "url": "/checkout",
-                "filterGroup": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
-            },
-            format="json",
-        )
+        with patch(f"{SUMMARIES_FACADE}.start_issue_summary_generation") as start_generation:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issues",
+                data={
+                    "status": "all",
+                    "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                    "library": "posthog-js",
+                    "release": "2026.04.24",
+                    "fingerprint": self.fingerprint,
+                    "url": "/checkout",
+                    "filterGroup": [{"key": "$browser", "type": "event", "operator": "exact", "value": ["Chrome"]}],
+                },
+                format="json",
+            )
 
         assert response.status_code == 200
         assert [row["id"] for row in response.json()["results"]] == [self.issue_id]
+        assert "summary" not in response.json()["results"][0]
+        start_generation.assert_not_called()
 
         project_response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
@@ -362,6 +390,66 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert project_response.status_code == 200
         assert project_response.json()["results"] == []
+
+    @parameterized.expand(
+        [
+            ("relative", {"firstSeenAfter": "-1d"}, {"new"}),
+            ("relative_minutes", {"firstSeenAfter": "-180M"}, {"new"}),
+            ("absolute", {"firstSeenAfter": "2026-04-23T12:00:00Z"}, {"new"}),
+            ("milliseconds", {"firstSeenAfter": "2026-04-24T10:00:00.500Z"}, set()),
+            ("before_both", {"firstSeenAfter": "-3d"}, {"new", "old"}),
+            (
+                "filter_group_before",
+                {
+                    "filterGroup": [
+                        {
+                            "key": "first_seen",
+                            "type": "error_tracking_issue",
+                            "operator": "lt",
+                            "value": "2026-04-23T12:00:00Z",
+                        }
+                    ]
+                },
+                {"old"},
+            ),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issues_list_filters_by_merged_issue_first_seen(
+        self, _name: str, request_fields: dict[str, object], expected: set[str]
+    ) -> None:
+        old_issue_id = "01936e7f-d7ff-7314-b2d4-7627981e34f1"
+        self.create_issue()
+        self.create_issue(issue_id=old_issue_id, fingerprint="old-fingerprint")
+        for issue_id, first_seen in [
+            (self.issue_id, (now() - timedelta(hours=2)).replace(microsecond=200000)),
+            (old_issue_id, now() - timedelta(days=2)),
+        ]:
+            ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, issue_id=issue_id).update(
+                first_seen=first_seen
+            )
+        ErrorTrackingIssueFingerprintV2.objects.create(
+            team=self.team, issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue"
+        )
+        with time_machine.travel("2026-04-24T12:00:01Z", tick=False):
+            sync_issues_to_clickhouse(issue_ids=[self.issue_id, old_issue_id], team_id=self.team.pk)
+        self.create_exception_event()
+        self.create_exception_event(issue_id=old_issue_id, fingerprint="new-fingerprint-on-old-issue")
+        flush_persons_and_events()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/query/issues",
+            data={
+                "status": "all",
+                "dateRange": {"date_from": "-1d", "date_to": "2026-04-25T00:00:00Z"},
+                **request_fields,
+            },
+            format="json",
+        )
+
+        assert response.status_code == 200
+        ids_by_name = {"new": self.issue_id, "old": old_issue_id}
+        assert {row["id"] for row in response.json()["results"]} == {ids_by_name[name] for name in expected}
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_queries_return_severity(self) -> None:
@@ -385,15 +473,42 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         assert detail_response.status_code == 200
         assert detail_response.json()["severity"] == "high"
 
-    def test_rejects_hogql_property_filters(self) -> None:
+    @parameterized.expand(
+        [
+            ({"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]}, "HogQL property filters"),
+            *(
+                (
+                    {
+                        "filterGroup": [
+                            {"key": "first_seen", "type": "error_tracking_issue", "operator": op, "value": v}
+                        ]
+                    },
+                    "firstSeenAfter",
+                )
+                for op, v in [
+                    ("gt", "-24h"),
+                    ("gte", "-24h"),
+                    ("lt", "-24h"),
+                    ("lte", "-24h"),
+                    ("is_date_after", "-24h"),
+                    ("is_date_before", "-24h"),
+                    ("gt", "-24H"),
+                    ("gt", "yesterday"),
+                ]
+            ),
+            ({"firstSeenAfter": "yesterday"}, "firstSeenAfter"),
+            ({"firstSeenAfter": "-100000y"}, "firstSeenAfter"),
+        ]
+    )
+    def test_rejects_unsupported_filters(self, request_fields: dict[str, object], message: str) -> None:
         response = self.client.post(
             f"/api/environments/{self.team.id}/error_tracking/query/issues",
-            data={"filterGroup": [{"key": "1 = 1", "type": "hogql", "value": "1"}]},
+            data=request_fields,
             format="json",
         )
 
         assert response.status_code == 400
-        assert "HogQL property filters are not supported here" in str(response.json())
+        assert message in str(response.json())
 
     def test_rejects_invalid_person_id(self) -> None:
         response = self.client.post(
@@ -818,9 +933,39 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("issue", True, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
-            ("issue", False, {"includeSparkline": True}, {"include_breakdown": False, "include_sparkline": True}),
-            ("issue_events", True, {}, {}),
+            (
+                "issue",
+                True,
+                ErrorTrackingIssue.Severity.HIGH,
+                {"includeSparkline": True},
+                {
+                    "include_breakdown": False,
+                    "include_sparkline": True,
+                    "summary_status": "unavailable",
+                    "issue_created_at": "2026-04-01T00:00:00+00:00",
+                    "issue_severity": "high",
+                },
+            ),
+            (
+                "issue",
+                False,
+                None,
+                {"includeSparkline": True},
+                {
+                    "include_breakdown": False,
+                    "include_sparkline": True,
+                    "summary_status": "unavailable",
+                    "issue_created_at": "2026-04-01T00:00:00+00:00",
+                    "issue_severity": None,
+                },
+            ),
+            (
+                "issue_events",
+                True,
+                ErrorTrackingIssue.Severity.HIGH,
+                {},
+                {"issue_created_at": "2026-04-01T00:00:00+00:00", "issue_severity": "high"},
+            ),
         ]
     )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
@@ -828,10 +973,12 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         self,
         endpoint: str,
         has_exceptions: bool,
+        severity: str | None,
         extra_body: dict[str, object],
         expected_properties: dict[str, object],
     ) -> None:
-        self.create_issue()
+        self.create_issue(severity=severity)
+        ErrorTrackingIssue.objects.filter(id=self.issue_id).update(created_at=datetime(2026, 4, 1, tzinfo=UTC))
         if has_exceptions:
             self.create_exception_event()
             flush_persons_and_events()
@@ -867,6 +1014,91 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 **expected_properties,
             }
         ]
+        if endpoint == "issue":
+            assert isinstance(read_events[0]["facts_ms"], int)
+            assert isinstance(read_events[0]["summary_wait_ms"], int)
+
+    @parameterized.expand(
+        [
+            ("stored", STORED_SUMMARY, True, None, None, False, "ready", STORED_SUMMARY_PAYLOAD),
+            (
+                "stored_without_category",
+                replace(STORED_SUMMARY, category=None),
+                False,
+                None,
+                None,
+                False,
+                "ready",
+                {key: value for key, value in STORED_SUMMARY_PAYLOAD.items() if key != "category"},
+            ),
+            ("generated_within_the_wait", None, True, STORED_SUMMARY, None, True, "ready", STORED_SUMMARY_PAYLOAD),
+            ("wait_times_out", None, True, None, None, True, "generating", None),
+            ("gates_off", None, False, None, None, False, "unavailable", None),
+            (
+                "saved_before_the_start",
+                [None, STORED_SUMMARY],
+                False,
+                None,
+                None,
+                False,
+                "ready",
+                STORED_SUMMARY_PAYLOAD,
+            ),
+            ("facade_fails", None, None, None, RuntimeError("broker down"), False, "unavailable", None),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_issue_detail_returns_the_summary(
+        self,
+        _name: str,
+        stored: ErrorTrackingIssueSummary | None | list[ErrorTrackingIssueSummary | None],
+        started: bool | None,
+        waited: ErrorTrackingIssueSummary | None,
+        start_error: Exception | None,
+        expect_wait: bool,
+        expected_status: str,
+        expected_summary: dict[str, object] | None,
+    ) -> None:
+        self.create_issue()
+        self.create_exception_event()
+        flush_persons_and_events()
+        clock = [100.0]
+
+        def wait(*_args: object, **_kwargs: object) -> ErrorTrackingIssueSummary | None:
+            clock[0] += 2.5
+            return waited
+
+        with (
+            patch("products.error_tracking.backend.presentation.views.query.time") as view_time,
+            patch(
+                f"{SUMMARIES_FACADE}.get_issue_summary",
+                side_effect=stored if isinstance(stored, list) else lambda *_args, **_kwargs: stored,
+            ),
+            patch(
+                f"{SUMMARIES_FACADE}.start_issue_summary_generation", return_value=started, side_effect=start_error
+            ) as start_generation,
+            patch(f"{SUMMARIES_FACADE}.wait_for_issue_summary", side_effect=wait) as wait_for_summary,
+            patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
+        ):
+            view_time.monotonic.side_effect = lambda: clock[0]
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/issue",
+                data={"issueId": self.issue_id},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json()["summary_status"] == expected_status
+        assert response.json().get("summary") == expected_summary
+        assert response.json()["impact"]["occurrences"] == 1
+        start_generation.assert_called_once_with(self.team.id, self.issue_id, user=self.user)
+        assert wait_for_summary.called == expect_wait
+        [read_event] = [
+            call.kwargs["properties"]
+            for call in mock_capture.call_args_list
+            if call.kwargs.get("event") == "error_tracking_issue_read"
+        ]
+        assert (read_event["facts_ms"], read_event["summary_wait_ms"]) == (0, 2500 if expect_wait else 0)
 
     def test_issue_read_succeeds_when_capture_fails(self) -> None:
         self.create_issue()

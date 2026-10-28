@@ -87,8 +87,8 @@ export interface ciExplorerContextLogicActions {
     setLocation: (location: import('./ciExplorerLogic').CIExplorerLocation) => {
         location: import('./ciExplorerLogic').CIExplorerLocation
     } // ciExplorerLogic
-    setView: (view: CIExplorerView) => {
-        view: CIExplorerView
+    setView: (view: 'activity' | 'overview' | 'timeline') => {
+        view: 'activity' | 'overview' | 'timeline'
     } // ciExplorerLogic
     hoverStep: (stepNumber: number | null) => {
         stepNumber: number | null
@@ -123,7 +123,11 @@ export interface ciExplorerContextLogicActions {
 export interface ciExplorerContextLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        active: (drawerOpen: boolean, drawerTab: CIExplorerDrawerTab, view: CIExplorerView) => boolean
+        active: (
+            drawerOpen: boolean,
+            drawerTab: CIExplorerDrawerTab,
+            view: 'activity' | 'overview' | 'timeline'
+        ) => boolean
         selection: (
             workflows: CIExplorerWorkflow[],
             focusedNodeId: string | null,

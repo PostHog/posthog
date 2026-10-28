@@ -14,6 +14,7 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
     CustomPromptSandboxContext,
     EmptyAgentTurnError,
     OutputFn,
+    SandboxRunFailed,
     TruncatedAgentOutputError,
     TurnPollResult,
     TurnPollTimeout,
@@ -31,6 +32,7 @@ from products.tasks.backend.logic.services.local_skills import (
     ENV_LOCAL_SKILLS_HOST_PATH,
     LocalSkillsCache,
 )
+from products.tasks.backend.logic.services.startup_failure import AgentStartupFailed
 from products.tasks.backend.models import SandboxEnvironment
 
 
@@ -52,11 +54,13 @@ __all__ = [
     "MCP_EXEC_SKILLS_FEATURE_FLAG",
     "ENV_LOCAL_SKILLS_HOST_PATH",
     "AgentTurnFailed",
+    "AgentStartupFailed",
     "CustomPromptSandboxContext",
     "EmptyAgentTurnError",
     "LocalSkillsCache",
     "MultiTurnSession",
     "OutputFn",
+    "SandboxRunFailed",
     "TruncatedAgentOutputError",
     "TurnPollResult",
     "TurnPollTimeout",

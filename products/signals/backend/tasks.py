@@ -12,7 +12,9 @@ from celery import Task, shared_task
 from celery.exceptions import SoftTimeLimitExceeded
 from slack_sdk.errors import SlackApiError
 
+from posthog.celery_queues import CeleryQueue
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.cloud_utils import get_cached_instance_license
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -27,6 +29,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.first_report_notification_tasks import (
     dispatch_first_report_notification as dispatch_first_report_notification,
@@ -38,7 +41,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
-from products.signals.backend.inbox_summary import sync_pull_request_participants
+from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
@@ -52,13 +55,13 @@ from products.signals.backend.models import (
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
-from products.signals.backend.pull_requests import update_pull_request_review_decision
+from products.signals.backend.pull_requests import update_pull_request_review_decision, update_pull_request_state
 from products.signals.backend.report_generation.repo_activity import (
     ACTIVITY_KEEP_WARM_WINDOW,
     rebuild_repository_activity,
     repository_activity_needs_rebuild,
 )
-from products.signals.backend.reviewer_pr_assignment import assign_reviewers_to_pull_request
+from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
@@ -77,15 +80,39 @@ from products.signals.backend.scout_harness.slack_delivery import (
     post_scout_report_to_slack,
     slack_api_error_code,
 )
+from products.signals.backend.signal_metadata import fetch_signals_for_report_sync
 from products.signals.backend.slack_inbox_notifications import dispatch_reviewer_added_notifications
 from products.signals.backend.slack_report_threads import record_scout_report_slack_replies, scout_report_slack_message
+from products.signals.backend.support_writeback import (
+    post_pull_request_to_tickets,
+    task_can_write_support_ticket_update,
+)
 from products.signals.backend.tracker_issues import close_tracker_issue_for_report, link_pull_request_to_tracker_issue
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
 
 
-@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+    if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
+        return
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return
+    signals = fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
+    post_pull_request_to_tickets(team, report_id, pr_url, signals)
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
 @with_team_scope()
 def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
     from products.signals.backend.onboarding_activation import (
@@ -114,6 +141,24 @@ def reconcile_inbox_onboarding(team_id: int, failed_checks: int = 0) -> None:
         return
     if pending:
         reconcile_inbox_onboarding.apply_async(args=[team_id], countdown=60)
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=10,
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
+@with_team_scope(canonical=True)
+def settle_scout_spend(team_id: int, run_id: str) -> None:
+    from products.signals.backend.spend import (
+        complete_task_spend,  # noqa: PLC0415 - keeps spend accounting off the task registration import path
+    )
+
+    complete_task_spend(team_id=team_id, run_id=run_id)
 
 
 @shared_task(
@@ -161,6 +206,14 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
     )
     if github is None:
         return
+    if pr.state == SignalReportPullRequest.State.MERGED and pr.merged_at is None:
+        details = github.get_pull_request(pr.repository, pr.number)
+        merged_at = github_datetime(details.get("merged_at"))
+        if not details.get("success") or details.get("merged") is not True or merged_at is None:
+            raise GitHubIntegrationError("Could not verify the pull request merge time")
+        update_pull_request_state(
+            team_id=team_id, repository=pr.repository, number=pr.number, state="merged", merged_at=merged_at
+        )
     snapshot = github.get_pull_request_snapshot(pr.url)
     if not snapshot.get("success"):
         logger.warning(
@@ -353,6 +406,8 @@ def deliver_scout_slack_thread_replies(
     report_revision: str | None = None,
 ) -> None:
     """Continue a rate-limited report thread without holding or retrying the lead-message worker."""
+    if report_id is not None and not assignment_side_effects_allowed(team_id=team_id, report_id=report_id):
+        return
     team = Team.objects.only("project_id").get(id=team_id)
     integration = _slack_integration_for_project(integration_id=integration_id, project_id=team.project_id)
     slack = SlackIntegration(integration, source="signals_scout")
@@ -519,6 +574,8 @@ def deliver_scout_slack_output(
                 channel=channel,
             )
         elif output_type == "report":
+            if not assignment_side_effects_allowed(team_id=team_id, report_id=output_id):
+                return
             report = SignalReport.objects.select_related("team").filter(id=output_id, team_id=team_id).first()
             run = SignalScoutRun.objects.select_related("team").filter(id=run_id, team_id=team_id).first()
             if report is None or run is None:
@@ -623,6 +680,8 @@ def enqueue_scout_slack_delivery(
     # report message to the delivery that is still building it.
     supersedes = output_type == "report" and edit_note is None
     try:
+        if output_type == "report" and not assignment_side_effects_allowed(team_id=team_id, report_id=output_id):
+            return
         # Claim before publishing: an earlier delivery of the same report reads this marker to decide
         # whether to yield, and between the two calls it would see no claim and post the report that
         # this delivery is about to post again.
@@ -718,20 +777,43 @@ def send_reviewer_added_slack_notifications(
     )
 
 
+# Bounded recovery for a transient GitHub failure on the first shared assignment: 1m, 2m, 4m, 8m,
+# 15m, about half an hour in total. A later pull request event still queues a fresh attempt, so an
+# exhausted retry is final only for this attempt and never sweeps other reports.
+_FIRST_ASSIGNMENT_MAX_RETRIES = 5
+_FIRST_ASSIGNMENT_RETRY_BASE_SECONDS = 60
+_FIRST_ASSIGNMENT_RETRY_MAX_SECONDS = 900
+
+
 @shared_task(
     name="products.signals.backend.tasks.assign_reviewers_on_implementation_pr",
     ignore_result=True,
-    max_retries=0,
+    bind=True,
+    max_retries=_FIRST_ASSIGNMENT_MAX_RETRIES,
 )
 @with_team_scope()
-def assign_reviewers_on_implementation_pr(team_id: int, report_id: str, pr_url: str) -> None:
-    """Put a report's opted-in reviewers, or else one DRI, on its implementation PR as GitHub assignees.
+def assign_reviewers_on_implementation_pr(self, team_id: int, report_id: str, pr_url: str) -> None:
+    """Assign an owner to the implementation PR and request a review.
 
     Runs on a worker because the GitHub calls (integration probe, PR read, assign) must not hold up
-    the claim, sync, or reviewer edit that queued it. Best-effort end to end, so the assigner
-    reports its own failures and this never retries: the next pull request event queues it again.
+    the claim, sync, or reviewer edit that queued it. Every attempt re-reads the accepted list,
+    corrections, access, delivery flags, and GitHub state, so a retry respects anything that changed
+    in between and finds a write that did land as an existing assignment. A skipped attempt, such as
+    one a disabled flag suppressed, is a decision and is never retried or replayed.
     """
-    assign_reviewers_to_pull_request(team_id=team_id, report_id=report_id, pr_url=pr_url)
+    outcome = deliver_pull_request_assignment(team_id=team_id, report_id=report_id, pr_url=pr_url)
+    if not outcome.retryable:
+        return
+    log = logger.bind(team_id=team_id, report_id=report_id, status=outcome.status, reason=outcome.reason)
+    if self.request.retries >= self.max_retries:
+        log.warning("signals.reviewer_pr_assignment.recovery_exhausted", attempts=self.request.retries + 1)
+        return
+    countdown = min(
+        _FIRST_ASSIGNMENT_RETRY_BASE_SECONDS * (2**self.request.retries), _FIRST_ASSIGNMENT_RETRY_MAX_SECONDS
+    )
+    countdown = max(countdown, outcome.retry_after or 0)
+    log.info("signals.reviewer_pr_assignment.recovery_scheduled", attempt=self.request.retries + 1, countdown=countdown)
+    raise self.retry(countdown=countdown)
 
 
 @shared_task(

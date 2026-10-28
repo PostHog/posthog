@@ -66,7 +66,7 @@ V2_BOOLEAN_ALL_RULE_TYPES: dict[str, Any] = {
                 {"key": "control", "weight": 50, "value": True},
                 {"key": "test", "weight": 50, "value": True},
             ],
-            "holdout": {"id": 7, "seed": "holdout-", "exclusion_percentage": 5},
+            "holdout": {"seed": "holdout-", "exclusion_percentage": 5},
         },
     ],
 }
@@ -145,6 +145,7 @@ class TestParseV2Config:
                     id="44444444-4444-4444-8444-444444444444",
                     rule_type="experiment",
                     value=None,
+                    variant_values=(True, True),
                 ),
             ),
             aggregation_group_type_index=None,

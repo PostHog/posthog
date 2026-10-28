@@ -330,7 +330,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("outage_without_code", ExposedHogQLError("Warehouse connection failed"), "internal", None),
+            ("outage", ExposedHogQLError("Warehouse connection failed"), "internal", "hogql_error"),
             ("unresolved_field", QueryError("Unable to resolve field: plan"), "validation", "hogql_unresolved_field"),
             ("syntax", HogQLSyntaxError("mismatched input 'FORM'"), "validation", "hogql_syntax_error"),
             (
@@ -356,7 +356,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("unknown", ExposedCHQueryError("ClickHouse error"), "ClickHouse error", "internal", None),
+            ("unknown", ExposedCHQueryError("ClickHouse error"), "ClickHouse error", "internal", "unknown_exception"),
             (
                 "argument_type",
                 CHQueryErrorIllegalTypeOfArgument("Expected an integer argument", code=43),
@@ -383,7 +383,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 ExposedCHQueryError("Server failure", code=99999, code_name="caller-supplied-name"),
                 "Server failure",
                 "internal",
-                None,
+                "unknown_exception",
             ),
         ]
     )
@@ -449,6 +449,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertEqual(str(context.exception), "Query has hit the max execution time before completing.")
         self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, "query_result_error")
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -508,7 +509,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 "Query memory limit exceeded",
                 "clickhouse_memory_limit_exceeded",
                 "Query memory limit exceeded",
-                None,
+                "clickhouse_memory_limit_exceeded",
                 expected_error_type="memory_limit",
             ),
             ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed", None),
@@ -671,10 +672,19 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             self.assertEqual(context.exception.error_code, expected_code)
             self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
 
-    @parameterized.expand([("keeper_exception",), ("syntax_error",), (None,)])
+    @parameterized.expand(
+        [
+            ("keeper_exception", "keeper_exception"),
+            ("syntax_error", "syntax_error"),
+            ("UNKNOWN_EXCEPTION", "unknown_exception"),
+            (None, None),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
     @patch("ee.hogai.context.insight.query_executor.get_query_status")
-    async def test_async_server_fault_stays_unknown(self, error_code, mock_get_query_status, mock_process_query):
+    async def test_async_server_fault_stays_unknown(
+        self, error_code, expected_code, mock_get_query_status, mock_process_query
+    ):
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
         mock_get_query_status.return_value = Mock(
             model_dump=lambda mode: {
@@ -686,10 +696,11 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
             }
         )
         with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
-            with self.assertRaises(Exception) as context:
+            with self.assertRaises(MaxToolRetryableError) as context:
                 await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
-        self.assertIs(type(context.exception), Exception)
-        self.assertEqual(str(context.exception), "There was an unknown error running this query: Query failed")
+        self.assertEqual(str(context.exception), "The query failed because of an internal error")
+        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [

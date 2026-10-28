@@ -298,11 +298,12 @@ export type AppMetricType = MinimalAppMetric & {
  * Where an event stopped, for a record on a dead-letter topic.
  *
  * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
- * `parse` and `process` are the ones it does not: a message it cannot read, and anything else
- * that throws while an event is being turned into invocations. Those two exist so an unanticipated
- * bug parks the event rather than stalling the partition it arrived on.
+ * `parse`, `lookup` and `process` are the ones it does not: a message it cannot read, a team, hog
+ * function or hog flow lookup that failed with an error that is not retriable, and anything else
+ * that throws while the pipeline turns an event into invocations. Those three park a lone
+ * unanticipated failure rather than stalling the partition it arrived on.
  */
-export type DeadLetterStep = 'parse' | 'filter' | 'inputs' | 'process'
+export type DeadLetterStep = 'parse' | 'lookup' | 'filter' | 'inputs' | 'process'
 
 export type InvocationBuildFailure = {
     sourceId: string
@@ -362,6 +363,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
      * flag nor an error, so nothing else on the result tells the two apart.
      */
     deliveredToRecipient?: boolean
+    emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.
@@ -443,6 +445,12 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
+export type MessageOptOutRecord = {
+    identifier: string
+    // A message category id, or '$all' for all marketing messages.
+    categoryId: string
+}
+
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
@@ -468,6 +476,9 @@ export type HogFlowInvocationContext = {
     // Absent on runs parked before this was introduced — those attribute to no version at all
     // rather than to a wrong one.
     flowVersion?: number
+    // Opt-outs this run's "Opt out of messages" steps made. Message steps check them before the recipient cache,
+    // because a worker that resumes the run can hold the recipient's preferences from before the opt-out.
+    messageOptOuts?: MessageOptOutRecord[]
     // Stamped at run start and persisted with the state, so a recovery path that holds only the
     // workflow id still keeps a sensitive run's message data out of its snapshot.
     sensitive?: boolean

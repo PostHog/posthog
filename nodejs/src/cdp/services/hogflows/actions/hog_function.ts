@@ -14,9 +14,11 @@ import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
+    MessageOptOutRecord,
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor-async.service'
+import { EmailSkipReason, EmailStatusService } from '../../messaging/email-status.service'
 import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { CdpUsageReporterService } from '../../usage/cdp-usage-reporter.service'
@@ -25,6 +27,24 @@ import { HogFlowFunctionsService } from '../hogflow-functions.service'
 import { actionIdForLogging, findContinueAction } from '../hogflow-utils'
 import { observeMissingVariableReferences } from '../hogflow-variable-usage'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
+
+const OPT_OUT_OF_MESSAGES_TEMPLATE_ID = 'template-posthog-opt-out-of-messages'
+
+/** The run's recorded opt-outs after a step that succeeded, adding the one an "Opt out of messages" step made. */
+export function messageOptOutsAfterStep(
+    optOuts: MessageOptOutRecord[] | undefined,
+    templateId: string,
+    inputs: Record<string, unknown> | undefined
+): MessageOptOutRecord[] | undefined {
+    if (
+        templateId !== OPT_OUT_OF_MESSAGES_TEMPLATE_ID ||
+        typeof inputs?.identifier !== 'string' ||
+        typeof inputs.category_id !== 'string'
+    ) {
+        return optOuts
+    }
+    return [...(optOuts ?? []), { identifier: inputs.identifier.trim(), categoryId: inputs.category_id }]
+}
 
 type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
@@ -143,6 +163,9 @@ export class HogFunctionHandler implements ActionHandler {
         private recipientPreferencesService: RecipientPreferencesService,
         private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: HogFlowActionBillingType,
+        // Required, so that a caller which builds an email handler without it fails to compile. The
+        // handlers for other channels pass null.
+        private emailStatusService: EmailStatusService | null,
         private usageReporter?: Pick<CdpUsageReporterService, 'reportBillableInvocation'>,
         private options: { awaitedStepsEnabled?: boolean } = {}
     ) {}
@@ -167,6 +190,10 @@ export class HogFunctionHandler implements ActionHandler {
         }
 
         const functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
+
+        if (functionResult.emailSendResult) {
+            result.emailSendResult = functionResult.emailSendResult
+        }
 
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
@@ -212,6 +239,14 @@ export class HogFunctionHandler implements ActionHandler {
             return {
                 scheduledAt: functionResult.invocation.queueScheduledAt ?? DateTime.now(),
             }
+        }
+
+        if (!functionResult.error) {
+            result.invocation.state.messageOptOuts = messageOptOutsAfterStep(
+                result.invocation.state.messageOptOuts,
+                action.config.template_id,
+                functionResult.invocation.state.globals?.inputs
+            )
         }
 
         // Add billable_invocation metric only if the function actually executed (not skipped)
@@ -371,6 +406,18 @@ export class HogFunctionHandler implements ActionHandler {
         return { scheduledAt: deadline }
     }
 
+    // These checks skip the send before the email service runs, so the email's status is recorded here.
+    private recordSkippedEmail(
+        invocation: CyclotronJobInvocationHogFunction,
+        action: Action,
+        reason: EmailSkipReason,
+        hogExecutorOptions?: HogExecutorExecuteAsyncOptions
+    ): void {
+        if (action.type === 'function_email') {
+            this.emailStatusService?.queueSkippedSend(invocation, reason, hogExecutorOptions?.isTest ?? false)
+        }
+    }
+
     private async executeHogFunction(
         invocation: CyclotronJobInvocationHogFlow,
         action: Action,
@@ -393,7 +440,12 @@ export class HogFunctionHandler implements ActionHandler {
 
         const skipReason = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.recipientPreferences', sendException: false },
-            () => this.recipientPreferencesService.shouldSkipAction(hogFunctionInvocation, action)
+            () =>
+                this.recipientPreferencesService.shouldSkipAction(
+                    hogFunctionInvocation,
+                    action,
+                    invocation.state.messageOptOuts
+                )
         )
         if (skipReason) {
             // Suppression and opt-out both short-circuit the send, but a customer reading the run
@@ -417,9 +469,16 @@ export class HogFunctionHandler implements ActionHandler {
                           },
                       ]
                     : []
+            this.recordSkippedEmail(
+                hogFunctionInvocation,
+                action,
+                skipReason === 'suppressed' ? 'recipient_suppressed' : 'recipient_opted_out',
+                hogExecutorOptions
+            )
             return {
                 finished: true,
                 skipped: true,
+                emailSendResult: action.type === 'function_email' ? { status: 'skipped', reason: message } : undefined,
                 invocation: hogFunctionInvocation,
                 logs: [{ level: 'info', timestamp: DateTime.now(), message }],
                 metrics,
@@ -438,9 +497,11 @@ export class HogFunctionHandler implements ActionHandler {
             () => this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
         )
         if (emailSkipReason) {
+            this.recordSkippedEmail(hogFunctionInvocation, action, 'recipient_unreachable', hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,
+                emailSendResult: { status: 'skipped', reason: emailSkipReason },
                 invocation: hogFunctionInvocation,
                 logs: [{ level: 'info', timestamp: DateTime.now(), message: emailSkipReason }],
                 metrics: [
@@ -466,6 +527,7 @@ export class HogFunctionHandler implements ActionHandler {
             !hogExecutorOptions?.isTest &&
             (await this.recipientPreferencesService.isFrequencyCapped(hogFunctionInvocation, action))
         ) {
+            this.recordSkippedEmail(hogFunctionInvocation, action, 'frequency_capped', hogExecutorOptions)
             return {
                 finished: true,
                 skipped: true,

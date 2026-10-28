@@ -16,10 +16,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
     FILE_MODIFIED_AT_COLUMN,
     FILE_PATH_COLUMN,
+    uses_brotli_compression,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
     FileFormat,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
+    cast_csv_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import is_compressed
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
@@ -70,6 +74,10 @@ class _PrefixedStream(io.RawIOBase):
         data = self._rest.read(len(view))
         view[: len(data)] = data
         return len(data)
+
+
+# How ClickHouse writes a null in a CSV file, and reads one back when it is unquoted.
+CLICKHOUSE_CSV_NULL = "\\N"
 
 
 def csv_column_names(cells: list[str], has_header: bool) -> list[str]:
@@ -147,11 +155,11 @@ def iter_csv_tables(
     file_path: str = "",
     logger: FilteringBoundLogger | None = None,
 ) -> Iterator[pa.Table]:
-    """Stream a CSV file as string columns.
+    """Stream a CSV file as string columns, except the columns `options.column_types` casts.
 
-    Every column is read as text: Arrow fixes a column's type from the first block it sees, so a
-    later value that does not fit would fail the whole file mid-stream, and two files of one table
-    could disagree on a type. Empty unquoted fields are null.
+    Every other column is read as text: Arrow fixes a column's type from the first block it sees,
+    so a later value that does not fit would fail the whole file mid-stream, and two files of one
+    table could disagree on a type. Empty unquoted fields are null.
     """
     first_record, first_fields = _read_first_csv_record(stream, delimiter, options.allow_double_quotes, file_path)
     if not first_record:
@@ -160,11 +168,20 @@ def iter_csv_tables(
     body: IO[bytes] = stream if options.has_header else cast(IO[bytes], _PrefixedStream(first_record, stream))
 
     skipped_rows = 0
+    nulled_values: dict[str, int] = {}
 
     def skip_invalid_row(_row: pa_csv.InvalidRow) -> Literal["skip", "error"]:
         nonlocal skipped_rows
         skipped_rows += 1
         return "skip"
+
+    def typed(table: pa.Table) -> pa.Table:
+        if not options.column_types:
+            return table
+        result = cast_csv_columns(table, options.column_types)
+        for column, count in result.nulled_values.items():
+            nulled_values[column] = nulled_values.get(column, 0) + count
+        return result.table
 
     yielded = False
     try:
@@ -180,7 +197,7 @@ def iter_csv_tables(
             ),
             convert_options=pa_csv.ConvertOptions(
                 column_types=dict.fromkeys(names, pa.string()),
-                null_values=[""],
+                null_values=["", CLICKHOUSE_CSV_NULL] if options.null_marker else [""],
                 strings_can_be_null=True,
                 quoted_strings_can_be_null=False,
             ),
@@ -188,13 +205,22 @@ def iter_csv_tables(
         for batch in reader:
             if batch.num_rows:
                 yielded = True
-                yield pa.Table.from_batches([batch])
+                yield typed(pa.Table.from_batches([batch]))
     except pa.ArrowInvalid as e:
         if options.has_header and not yielded and "Empty CSV file" in str(e):
             # The file holds only its header. It is a table with no rows, not a broken file.
-            yield pa.table({name: pa.array([], pa.string()) for name in names})
+            yield typed(pa.table({name: pa.array([], pa.string()) for name in names}))
             return
         raise ObjectStorageError(f"{FILE_PARSE_ERROR} '{file_path}' as CSV: {e}") from e
+
+    if nulled_values and logger is not None:
+        # The stored column types come from a sample of the files, so a later value can fail to
+        # read as its type. The value becomes null so the rest of the file still imports.
+        logger.warning(
+            "Read CSV values that don't match their column type as null",
+            file=file_path,
+            nulled_values=nulled_values,
+        )
 
     if skipped_rows and logger is not None:
         # A row whose field count differs from the header is malformed, or the file uses another
@@ -260,6 +286,11 @@ def iter_parquet_tables(
 ) -> Iterator[pa.Table]:
     try:
         parquet_file = pq.ParquetFile(stream)
+        if uses_brotli_compression(parquet_file.metadata):
+            raise ObjectStorageError(
+                f"{FILE_PARSE_ERROR} '{file_path}' as Parquet: Brotli compression isn't supported. "
+                "Write the file with Snappy, Gzip, or Zstd compression instead."
+            )
         yielded = False
         for batch in parquet_file.iter_batches(batch_size=batch_rows, use_threads=False):
             if batch.num_rows:
@@ -328,7 +359,7 @@ def iter_file_tables(
     else:
         binary = cast(IO[bytes], gzip.GzipFile(fileobj=stream)) if is_compressed(stored.path) else stream
         if file_format == "csv":
-            delimiter = "\t" if stored.path.lower().endswith(TSV_SUFFIXES) else ","
+            delimiter = csv_options.delimiter or ("\t" if stored.path.lower().endswith(TSV_SUFFIXES) else ",")
             tables = iter_csv_tables(binary, csv_options, delimiter, stored.path, logger)
         else:
             tables = iter_jsonl_tables(binary, stored.path)

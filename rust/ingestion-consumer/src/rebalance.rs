@@ -4,9 +4,10 @@ use std::sync::OnceLock;
 
 use common_kafka_consumer::TopicPartition;
 use metrics::counter;
-use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
+use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext, Rebalance};
+use rdkafka::error::KafkaResult;
 use rdkafka::{ClientContext, Statistics, TopicPartitionList};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 pub type PartitionHook = Box<dyn Fn(&[TopicPartition]) + Send + Sync>;
 
@@ -40,6 +41,14 @@ fn topic_partitions(tpl: &TopicPartitionList) -> Vec<TopicPartition> {
         .collect();
     partitions.sort_unstable_by(|a, b| (&a.topic, a.partition).cmp(&(&b.topic, b.partition)));
     partitions
+}
+
+/// librdkafka's pause and resume return success when they cannot change a
+/// partition. They set the error on that partition's list element.
+pub(crate) fn partition_error(tpl: &TopicPartitionList) -> KafkaResult<()> {
+    tpl.elements()
+        .iter()
+        .try_for_each(|element| element.error())
 }
 
 fn partition_names(partitions: &[TopicPartition]) -> Vec<String> {
@@ -80,7 +89,7 @@ impl ConsumerContext for RebalanceContext {
         }
     }
 
-    fn post_rebalance(&self, _consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
+    fn post_rebalance(&self, consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         if let Rebalance::Assign(tpl) = rebalance {
             counter!("ingestion_consumer_rebalances_total", "event" => "assign").increment(1);
             let partitions = topic_partitions(tpl);
@@ -89,6 +98,11 @@ impl ConsumerContext for RebalanceContext {
                 topic_partitions = ?partition_names(&partitions),
                 "Rebalance: partitions assigned"
             );
+            // librdkafka keeps a partition's pause across a revoke and a
+            // reassignment, and the assign hook forgets the budget that paused it.
+            if let Err(err) = consumer.resume(tpl).and_then(|()| partition_error(tpl)) {
+                error!(error = %err, "Could not resume the assigned partitions");
+            }
             if let Some(hook) = self.on_assign.get() {
                 hook(&partitions);
             }
@@ -158,5 +172,19 @@ mod tests {
         ];
         assert_eq!(*revoked.lock().unwrap(), expected);
         assert_eq!(*assigned.lock().unwrap(), expected);
+    }
+
+    #[test]
+    fn pausing_an_unassigned_partition_is_an_error() {
+        let consumer: BaseConsumer = ClientConfig::new()
+            .set("bootstrap.servers", "127.0.0.1:1")
+            .set("group.id", "test")
+            .create()
+            .expect("a client needs no broker to be built");
+        let mut tpl = TopicPartitionList::new();
+        tpl.add_partition("events", 0);
+
+        assert!(consumer.pause(&tpl).is_ok());
+        assert!(partition_error(&tpl).is_err());
     }
 }

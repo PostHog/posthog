@@ -110,7 +110,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                             <div className="mt-1">
                                 {(() => {
                                     const resourceUrl = getApprovalResourceUrl(
-                                        changeRequest.action_key,
+                                        changeRequest.resource_type,
                                         changeRequest.resource_id
                                     )
                                     const name = getApprovalResourceName(

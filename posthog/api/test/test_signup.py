@@ -920,7 +920,11 @@ class TestSignupAPI(APIBaseTest):
         use_invite: bool = False,
         expired_invite: bool = False,
         asserted_email: str = "jane@hogflix.posthog.com",
+        newer_member_invite: bool = False,
     ):
+        expected_level = (
+            OrganizationMembership.Level.ADMIN if newer_member_invite else OrganizationMembership.Level.MEMBER
+        )
         # Make sure Google Auth is valid for this test instance
         mock_sso_providers.return_value = {"google-oauth2": True}
 
@@ -939,9 +943,15 @@ class TestSignupAPI(APIBaseTest):
                 target_email="jane@hogflix.posthog.com",
                 organization=new_org,
                 first_name="Jane",
-                level=OrganizationMembership.Level.MEMBER,
+                level=expected_level,
                 private_project_access=[{"id": private_project.id, "level": "admin"}],
             )
+            if newer_member_invite:
+                OrganizationInvite.objects.create(
+                    target_email="jane@hogflix.posthog.com",
+                    organization=new_org,
+                    level=OrganizationMembership.Level.MEMBER,
+                )
             if expired_invite:
                 invite.created_at = timezone.now() - timedelta(days=30)  # Set invite to 30 days old
                 invite.save()
@@ -972,7 +982,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.organization_memberships.count(), 1)
         self.assertEqual(
             cast(OrganizationMembership, user.organization_memberships.first()).level,
-            OrganizationMembership.Level.MEMBER,
+            expected_level,
         )
         signup_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "user signed up"]
         assert signup_calls, "expected a 'user signed up' capture call"
@@ -1011,16 +1021,27 @@ class TestSignupAPI(APIBaseTest):
     def test_social_signup_with_allowed_domain_on_self_hosted(self, mock_sso_providers, mock_request, mock_capture):
         self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
 
-    @parameterized.expand(["jane@hogflix.posthog.com", "Jane@Hogflix.posthog.com"])
+    @parameterized.expand(
+        [
+            ("jane@hogflix.posthog.com", False),
+            ("Jane@Hogflix.posthog.com", False),
+            ("jane@hogflix.posthog.com", True),
+        ]
+    )
     @patch("posthoganalytics.capture")
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
     @pytest.mark.ee
     def test_social_signup_with_allowed_domain_uses_invite(
-        self, asserted_email, mock_sso_providers, mock_request, mock_capture
+        self, asserted_email, newer_member_invite, mock_sso_providers, mock_request, mock_capture
     ):
         self.run_test_for_allowed_domain(
-            mock_sso_providers, mock_request, mock_capture, use_invite=True, asserted_email=asserted_email
+            mock_sso_providers,
+            mock_request,
+            mock_capture,
+            use_invite=True,
+            asserted_email=asserted_email,
+            newer_member_invite=newer_member_invite,
         )
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
@@ -3527,14 +3548,15 @@ class TestSignupPrecheckPendingInvite(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("aliased_account", "dupe+old@acme.com", "dupe@acme.com"),
-            ("dotted_gmail_account", "dupe@gmail.com", "d.u.p.e@gmail.com"),
+            ("aliased_account", "dupe+old@acme.com", "dupe@acme.com", True),
+            ("dotted_gmail_account", "dupe@gmail.com", "d.u.p.e@gmail.com", True),
+            ("deactivated_account", "dupe@acme.com", "Dupe@acme.com", False),
         ]
     )
     def test_precheck_reports_collision_with_the_same_mailbox(
-        self, _name: str, stored_email: str, looked_up_email: str
+        self, _name: str, stored_email: str, looked_up_email: str, is_active: bool
     ) -> None:
-        User.objects.create_user(email=stored_email, password=None, first_name="Dupe")
+        User.objects.create_user(email=stored_email, password=None, first_name="Dupe", is_active=is_active)
         response = self.client.post("/api/signup/precheck", {"email": looked_up_email})
         self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
         self.assertTrue(response.json()["email_exists"])
@@ -3640,17 +3662,40 @@ class TestSAMLInviteLookup(APIBaseTest):
         assert config.saml_relay_state is not None
         return config.saml_relay_state
 
-    @parameterized.expand(["joiner@saml-invite.example.com", "Joiner@SAML-Invite.example.com"])
-    def test_finds_the_invite_for_the_config_that_signed_the_assertion(self, asserted_email):
+    @parameterized.expand(
+        [
+            ("joiner@saml-invite.example.com", False, False),
+            ("Joiner@SAML-Invite.example.com", False, False),
+            ("joiner@saml-invite.example.com", True, False),
+            ("joiner@saml-invite.example.com", True, True),
+        ]
+    )
+    def test_finds_the_invite_for_the_config_that_signed_the_assertion(
+        self, asserted_email, newer_member_invite, admin_invite_expired
+    ):
         identifier = self._saml_identifier_for("saml-invite.example.com")
-        invite = OrganizationInvite.objects.create(
-            organization=self.organization, target_email="joiner@saml-invite.example.com"
+        admin_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email="joiner@saml-invite.example.com",
+            level=OrganizationMembership.Level.ADMIN,
         )
+        if admin_invite_expired:
+            admin_invite.created_at = timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY + 5)
+            admin_invite.save()
+        member_invite = None
+        if newer_member_invite:
+            member_invite = OrganizationInvite.objects.create(
+                organization=self.organization,
+                target_email="joiner@saml-invite.example.com",
+                level=OrganizationMembership.Level.MEMBER,
+            )
 
         found = lookup_invite_for_saml(asserted_email, identifier)
 
+        expected_invite = member_invite if admin_invite_expired else admin_invite
         assert found is not None
-        assert found.id == invite.id
+        assert expected_invite is not None
+        assert found.id == expected_invite.id
 
     def test_finds_it_when_the_identifier_no_longer_matches_a_domain(self):
         # The identifier holds a domain id on configs created before it moved onto the config, and

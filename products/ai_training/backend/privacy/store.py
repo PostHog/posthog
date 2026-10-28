@@ -1,85 +1,51 @@
 import re
 import time
-import hashlib
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
-from typing import Protocol, TypedDict, cast
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
-import boto3
 import structlog
-from botocore.config import Config
 
-from products.ai_training.backend.config import key_table_name
+from products.ai_training.backend.config import key_table_name, v4_key_table_name
 from products.ai_training.backend.models import AITrainingDeletionRequest
+from products.ai_training.backend.privacy.keys import (
+    KEY_MATERIAL_ATTRIBUTES,
+    KEY_SHARDS,
+    DeletionTarget,
+    DeletionWork,
+    DynamoItem,
+    DynamoResponse,
+    PrivacyDynamoClient,
+    dynamo_client,
+    item_key,
+    month_end,
+    reachable_months,
+    session_key,
+)
+from products.ai_training.backend.privacy.v4 import V4KeyTarget
 
 logger = structlog.get_logger(__name__)
 
-KEY_SHARDS = 32
 # Equals ML_SESSION_MAX_AGE_DAYS in nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/session-identifier-format.ts: ingestion drops sessions that started earlier than that, so no key for a month can appear after the month end plus this period.
 MONTH_DELETE_GRACE_DAYS = 14
 # A batch admitted just inside the grace period still commits within its 45 s budget, so deletion stays behind that too.
 MONTH_DELETE_IN_FLIGHT_MARGIN = timedelta(hours=1)
-# A per-session deletion keeps the team month key, so it must also remove the seal that the month key opens.
-KEY_MATERIAL_ATTRIBUTES = ("wrapped_key", "sealed_key", "key_nonce")
-DynamoItem = dict[str, dict[str, str | bool | bytes]]
 
 
-class DynamoResponse(TypedDict, total=False):
-    Item: DynamoItem
-    Items: list[DynamoItem]
-    LastEvaluatedKey: DynamoItem
+class V3KeyTarget:
+    cursor_key = "work"
 
-
-class DeletionWork(TypedDict, total=False):
-    op: str
-    team_id: int
-    shard: int
-    after: DynamoItem
-
-
-class PrivacyDynamoClient(Protocol):
-    def put_item(self, **kwargs: object) -> DynamoResponse: ...
-    def get_item(self, **kwargs: object) -> DynamoResponse: ...
-    def query(self, **kwargs: object) -> DynamoResponse: ...
-    def transact_write_items(self, **kwargs: object) -> DynamoResponse: ...
-
-
-def item_key(pk: str, sk: str) -> DynamoItem:
-    return {"pk": {"S": pk}, "sk": {"S": sk}}
-
-
-def month_end(session_month: str) -> datetime:
-    year, month = (int(part) for part in session_month.split("-"))
-    return datetime(year + month // 12, month % 12 + 1, 1, tzinfo=UTC)
-
-
-def identity_digest(value: str) -> str:
-    return hashlib.sha256(value.encode()).hexdigest()
-
-
-def session_key(team_id: int, session_id: str) -> DynamoItem:
-    shard = int(identity_digest(session_id)[:8], 16) % KEY_SHARDS
-    return item_key(f"team:{team_id}:shard:{shard}", f"session:{session_id}")
-
-
-class AITrainingPrivacyStore:
     def __init__(self, client: PrivacyDynamoClient, table_name: str) -> None:
         self.client = client
         self.table_name = table_name
 
     @classmethod
-    def from_settings(cls) -> "AITrainingPrivacyStore":
-        client = boto3.client(
-            "dynamodb",
-            region_name=settings.AI_RESEARCH_REPLAY_AWS_REGION,
-            endpoint_url=settings.AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT or None,
-            config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 4, "mode": "standard"}),
-        )
-        return cls(cast(PrivacyDynamoClient, client), key_table_name())
+    def from_settings(cls) -> "V3KeyTarget":
+        client = dynamo_client(settings.AI_RESEARCH_REPLAY_AWS_REGION, settings.AI_RESEARCH_REPLAY_DYNAMODB_ENDPOINT)
+        return cls(client, key_table_name())
 
     def delete_month(self, session_month: str) -> int:
         if re.fullmatch(r"[0-9]{4}-(0[1-9]|1[0-2])", session_month) is None:
@@ -138,11 +104,7 @@ class AITrainingPrivacyStore:
 
     # A sweep reaches only an image key that already exists, so a team that keeps sending would open a month the sweep never saw. Ingestion admits a session up to ML_SESSION_MAX_AGE_DAYS old, which is inside one month, so these three are every month a later session can still open. An update creates the row, so each one closes whether or not it holds a key.
     def shred_reachable_months(self, team_id: int) -> None:
-        now = timezone.now()
-        current = f"{now:%Y-%m}"
-        previous = f"{datetime(now.year, now.month, 1, tzinfo=UTC) - timedelta(days=1):%Y-%m}"
-        months = (previous, current, f"{month_end(current):%Y-%m}")
-        self.shred([item_key(f"team:{team_id}", f"image:{month}") for month in months])
+        self.shred([item_key(f"team:{team_id}", f"image:{month}") for month in reachable_months(timezone.now()).months])
 
     def initialize(self, request: AITrainingDeletionRequest) -> list[DeletionWork]:
         if request.team_id is None:
@@ -173,16 +135,34 @@ class AITrainingPrivacyStore:
             return [next_work]
         return []
 
+
+class AITrainingPrivacyStore:
+    def __init__(self, targets: Sequence[DeletionTarget]) -> None:
+        self.targets = list(targets)
+
+    @classmethod
+    def from_settings(cls) -> "AITrainingPrivacyStore":
+        targets: list[DeletionTarget] = []
+        if key_table_name():
+            targets.append(V3KeyTarget.from_settings())
+        if v4_key_table_name():
+            targets.append(V4KeyTarget.from_settings())
+        return cls(targets)
+
     def apply(self, request: AITrainingDeletionRequest, deadline: float) -> bool:
-        work = request.cursor.get("work")
-        if work is None:
-            work = self.initialize(request)
-            self.save_cursor(request, work=work)
-        while work:
-            if time.monotonic() >= deadline:
-                return False
-            work = self.advance(work[0]) + work[1:]
-            self.save_cursor(request, work=work)
+        for target in self.targets:
+            work = request.cursor.get(target.cursor_key)
+            if work is None:
+                # Initialization writes with retries, so a target that starts after the deadline can overrun the task time limit.
+                if time.monotonic() >= deadline:
+                    return False
+                work = target.initialize(request)
+                self.save_cursor(request, **{target.cursor_key: work})
+            while work:
+                if time.monotonic() >= deadline:
+                    return False
+                work = target.advance(work[0]) + work[1:]
+                self.save_cursor(request, **{target.cursor_key: work})
         # A key that a batch stores after the sweep passes its shard is sealed under a month key this deletion already tombstoned, so a second sweep finds nothing that is readable. The sweep removes rows to save cost. See products/ai_training/docs/replay-data.md.
         request.completed_at = timezone.now()
         request.identifiers = []

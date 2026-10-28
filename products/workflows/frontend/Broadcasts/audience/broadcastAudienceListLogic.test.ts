@@ -1,8 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -34,64 +31,6 @@ describe('broadcastAudienceListLogic', () => {
         })
         initKeaTests()
         broadcastWizardLogic({ id: 'new' }).mount()
-    })
-
-    it('saves an uploaded list as a cohort and adds it to the audience', async () => {
-        const logic = broadcastAudienceListLogic({ id: 'new' })
-        logic.mount()
-        logic.actions.openListModal()
-        logic.actions.setFile(
-            new File(['email\nada@example.com\ngrace@example.com\n'], 'people.csv', { type: 'text/csv' })
-        )
-
-        await expectLogic(logic, () => {
-            logic.actions.createListCohort()
-        })
-            .toDispatchActions(['closeListModal', 'createListCohortFinished'])
-            .toMatchValues({ isListModalOpen: false, createError: null })
-
-        expect(createdCohorts).toEqual(1)
-        expect(broadcastWizardLogic({ id: 'new' }).values.audienceProperties).toEqual([
-            {
-                type: PropertyFilterType.Cohort,
-                key: 'id',
-                value: 42,
-                operator: PropertyOperator.In,
-                cohort_name: 'Spring sale recipients',
-            },
-        ])
-    })
-
-    it.each([
-        {
-            file: 'a CSV the import would reject',
-            content: 'name,company\nAda,Acme\n',
-            error: 'The file needs a column named email, distinct_id or person_id.',
-        },
-        {
-            // "Zoë" in Windows-1252, which the cohort import can't decode after it saves the cohort.
-            file: 'a CSV that is not UTF-8',
-            content: new Uint8Array([
-                ...new TextEncoder().encode('email\nzo'),
-                0xeb,
-                ...new TextEncoder().encode('@example.com\n'),
-            ]),
-            error: 'This file isn\'t saved as UTF-8. Save it as "CSV UTF-8" and upload it again.',
-        },
-    ])('creates no cohort for $file', async ({ content, error }) => {
-        const logic = broadcastAudienceListLogic({ id: 'new' })
-        logic.mount()
-        logic.actions.openListModal()
-        logic.actions.setFile(new File([content], 'people.csv', { type: 'text/csv' }))
-
-        await expectLogic(logic, () => {
-            logic.actions.createListCohort()
-        })
-            .toDispatchActions(['createListCohortFinished'])
-            .toMatchValues({ isListModalOpen: true, createError: error })
-
-        expect(createdCohorts).toEqual(0)
-        expect(broadcastWizardLogic({ id: 'new' }).values.audienceProperties).toEqual([])
     })
 
     const SPRING_SALE_COHORT = {
@@ -199,37 +138,31 @@ describe('broadcastAudienceListLogic', () => {
             audience: [],
             importedRows: undefined,
         },
-    ])(
-        'with the people import flag on, an upload $outcome',
-        async ({ csv, response, cohortReadFails, expected, audience, importedRows }) => {
-            let sentRows: unknown
-            useMocks({
-                ...(cohortReadFails ? { get: { '/api/projects/:team/cohorts/:id/': () => [500, {}] } } : {}),
-                post: {
-                    '/api/projects/:team_id/workflow_people_imports/': async ({ request }) => {
-                        sentRows = ((await request.json()) as { rows: unknown }).rows
-                        return response as [number, object]
-                    },
+    ])('an upload $outcome', async ({ csv, response, cohortReadFails, expected, audience, importedRows }) => {
+        let sentRows: unknown
+        useMocks({
+            ...(cohortReadFails ? { get: { '/api/projects/:team/cohorts/:id/': () => [500, {}] } } : {}),
+            post: {
+                '/api/projects/:team_id/workflow_people_imports/': async ({ request }) => {
+                    sentRows = ((await request.json()) as { rows: unknown }).rows
+                    return response as [number, object]
                 },
-            })
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_BROADCAST_RECIPIENT_LISTS], {
-                [FEATURE_FLAGS.WORKFLOWS_BROADCAST_RECIPIENT_LISTS]: true,
-            })
-            const logic = broadcastAudienceListLogic({ id: 'new' })
-            logic.mount()
-            logic.actions.openListModal()
-            logic.actions.setCohortName('Spring sale recipients')
-            logic.actions.setFile(new File([csv], 'people.csv', { type: 'text/csv' }))
+            },
+        })
+        const logic = broadcastAudienceListLogic({ id: 'new' })
+        logic.mount()
+        logic.actions.openListModal()
+        logic.actions.setCohortName('Spring sale recipients')
+        logic.actions.setFile(new File([csv], 'people.csv', { type: 'text/csv' }))
 
-            await expectLogic(logic, () => {
-                logic.actions.createListCohort()
-            })
-                .toDispatchActions(['createListCohortFinished'])
-                .toMatchValues(expected)
+        await expectLogic(logic, () => {
+            logic.actions.createListCohort()
+        })
+            .toDispatchActions(['createListCohortFinished'])
+            .toMatchValues(expected)
 
-            expect(sentRows).toEqual(importedRows)
-            expect(createdCohorts).toEqual(0)
-            expect(broadcastWizardLogic({ id: 'new' }).values.audienceProperties).toEqual(audience)
-        }
-    )
+        expect(sentRows).toEqual(importedRows)
+        expect(createdCohorts).toEqual(0)
+        expect(broadcastWizardLogic({ id: 'new' }).values.audienceProperties).toEqual(audience)
+    })
 })

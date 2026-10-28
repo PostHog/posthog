@@ -223,6 +223,28 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
+    it.each([
+        ['hides', 'a report without a pull request', null, 'control', false],
+        ['shows', 'a pull request in the control variant', 'https://github.com/example/repo/pull/123', 'control', true],
+        ['hides', 'a pull request in the test variant', 'https://github.com/example/repo/pull/123', 'test', false],
+    ])('%s a conventional commit tag for %s', (_verb, _name, implementationPrUrl, titleVariant, showsTag) => {
+        cleanup()
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: titleVariant,
+        })
+        render(
+            <ReportCard
+                report={makeReport('r-2', {
+                    title: 'note(example): Example report title',
+                    implementation_pr_url: implementationPrUrl,
+                })}
+            />
+        )
+
+        expect(screen.getByText('Example report title')).toBeInTheDocument()
+        expect(screen.queryByText('note(example)') !== null).toBe(showsTag)
+    })
+
     test.each([
         [
             "a person's reason",
@@ -422,12 +444,12 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_fixed', 'Very likely'],
+        ['with the impact column', true, 'ranking_fix', '2.7x more likely'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
             'ranking_action',
-            '6.2% engage',
+            '6.2% action',
         ],
     ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
@@ -436,15 +458,13 @@ describe('ReportCard', () => {
         const report = makeReport('r-2', {
             metrics: [makeMetric()],
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { fixed: 0.41, action: 0.062 },
-                lifts: { fixed: 2.7 },
-                readable_heads: ['action', 'fixed'],
-                stale: false,
+                predictions: [
+                    { outcome: 'action', probability: 0.062, lift: null, readable: true },
+                    { outcome: 'fix', probability: 0.41, lift: 2.7, readable: true },
+                ],
             },
         })
         const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
@@ -459,25 +479,20 @@ describe('ReportCard', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableImpactColumn()
-        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fixed" />)
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fix" />)
         expect(screen.getByText('Not scored yet')).toBeInTheDocument()
 
         const stale = makeReport('r-2', {
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'stale',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { fixed: 0.41 },
-                lifts: { fixed: 2.7 },
-                readable_heads: ['fixed'],
-                stale: true,
+                predictions: [{ outcome: 'fix', probability: 0.41, lift: 2.7, readable: true }],
             },
         })
-        rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)
+        rerender(<ReportCard report={stale} rankingSortField="ranking_fix" />)
         expect(screen.getByText('Score out of date')).toBeInTheDocument()
-        expect(screen.queryByText('Very likely')).not.toBeInTheDocument()
+        expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()

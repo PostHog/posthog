@@ -90,6 +90,7 @@ export type GatewayEnv = {
   openaiCustomHeaders?: Record<string, string>;
   /** PostHog project ID used to build the gateway project-scope header. */
   posthogProjectId?: string;
+  isAiGateway?: boolean;
 };
 
 export interface BuildOptionsParams {
@@ -135,6 +136,8 @@ export interface BuildOptionsParams {
   /** Session's discriminator for the traceparent hook's stderr; the hook is
    * skipped when absent (see session/traceparent-hook.ts). */
   traceparentHookNonce?: string;
+  /** Keeps hooks from the repo's `.claude/settings*.json` from running. */
+  disableRepoHooks?: boolean;
   machineAuth?: MachineClaudeAuth;
   /** Matched `bedrock-llm-gateway` variant; `test` serves this session from Bedrock. */
   bedrockGatewayVariant?: BedrockGatewayVariant;
@@ -217,6 +220,7 @@ function buildEnvironment(
     ENABLE_TOOL_SEARCH: "auto:0",
     // Enable idle state as end-of-turn signal (required for SDK 0.2.114+)
     CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS: "1",
+    CLAUDE_CODE_STARTUP_FAILURE_RESULTS: "1",
     ...(mcpNonblocking !== undefined && {
       MCP_CONNECTION_NONBLOCKING: mcpNonblocking,
     }),
@@ -710,7 +714,18 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
   // option or a raw `extraArgs` flag — both reach the same CLI flag, and the
   // SDK silently drops the extraArgs one on collision) rather than clobbering
   // it. The hook command is POSIX shell, so Windows Desktop hosts skip it.
+  // A repo's Stop hook can block the final turn of a run that must end with
+  // JSON. `disableAllHooks` at flag level outranks project and local settings,
+  // so the repo cannot turn its hooks back on. It also stops the traceparent
+  // hook, so that hook is skipped for these runs.
+  const repoHooksOffSettings =
+    params.disableRepoHooks &&
+    params.userProvidedOptions?.settings === undefined &&
+    params.userProvidedOptions?.extraArgs?.settings === undefined
+      ? JSON.stringify({ disableAllHooks: true })
+      : undefined;
   const traceparentHookSettings =
+    !params.disableRepoHooks &&
     params.gatewayEnv?.anthropicBaseUrl &&
     params.traceparentHookNonce &&
     process.platform !== "win32" &&
@@ -752,6 +767,7 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     extraArgs: {
       ...params.userProvidedOptions?.extraArgs,
       "replay-user-messages": "",
+      ...(repoHooksOffSettings && { settings: repoHooksOffSettings }),
       ...(traceparentHookSettings && { settings: traceparentHookSettings }),
     },
     // Surfaces the traceparent hook's output as `hook_response` messages.
@@ -822,6 +838,13 @@ export function buildSessionOptions(params: BuildOptionsParams): Options {
     params.logger.warn(
       "Gateway env is not pinned; skipping project and local settings",
     );
+    options.settingSources = options.settingSources?.filter(
+      (source) => source !== "project" && source !== "local",
+    );
+  }
+
+  if (params.disableRepoHooks && !repoHooksOffSettings) {
+    // The caller owns the settings flag, so drop the repo settings instead.
     options.settingSources = options.settingSources?.filter(
       (source) => source !== "project" && source !== "local",
     );

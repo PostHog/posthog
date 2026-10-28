@@ -10,3 +10,4 @@ class OpenalexSourceConfig(config.Config):
     works_filter: str | None = None
     authors_filter: str | None = None
     awards_filter: str | None = None
+    locations_filter: str | None = None

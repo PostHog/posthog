@@ -45,7 +45,7 @@ const getIncrementalSyncSupported = (
         return {
             disabled: true,
             disabledReason:
-                "Incremental replication isn't supported on this table. Use full table replication instead.",
+                "Incremental replication isn't available for this table. Usually this is because the table has no timestamp, date, or auto-incrementing numeric column to track new rows. Some sources also don't support it for every table. Use full table replication instead.",
         }
     }
 
@@ -69,7 +69,7 @@ const getAppendOnlySyncSupported = (
         return {
             disabled: true,
             disabledReason:
-                "Append only replication isn't supported on this table. Use full table replication instead.",
+                "Append only replication isn't available for this table. Usually this is because the table has no timestamp, date, or auto-incrementing numeric column to track new rows. Some sources also don't support it for every table. Use full table replication instead.",
         }
     }
 

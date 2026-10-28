@@ -1,5 +1,6 @@
+from collections.abc import Iterable
 from functools import cached_property
-from typing import Any, Optional, cast
+from typing import Optional, cast
 
 from posthog.schema import (
     ExperimentActorsQuery,
@@ -7,7 +8,6 @@ from posthog.schema import (
     FunnelsActorsQuery,
     FunnelsFilter,
     FunnelsQuery,
-    HogQLQueryModifiers,
     HogQLQueryResponse,
     InsightActorsQuery,
     LifecycleQuery,
@@ -18,14 +18,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
 
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner, query_node_modifiers
-from posthog.models import Team
-from posthog.models.user import User
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.types import InsightActorsQueryNode
 
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
@@ -43,26 +39,8 @@ from products.product_analytics.backend.facade.queries import (
 class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: InsightActorsQueryNode
 
-    def __init__(
-        self,
-        query: InsightActorsQueryNode | dict[str, Any],
-        team: Team,
-        timings: Optional[HogQLTimings] = None,
-        modifiers: Optional[HogQLQueryModifiers] = None,
-        limit_context: Optional[LimitContext] = None,
-        query_id: Optional[str] = None,
-        user: Optional[User] = None,
-    ):
-        super().__init__(
-            query,
-            team=team,
-            timings=timings,
-            modifiers=modifiers,
-            limit_context=limit_context,
-            query_id=query_id,
-            extract_modifiers=lambda query: query_node_modifiers(query.source),
-            user=user,
-        )
+    def _child_runners(self) -> Iterable[QueryRunner]:
+        return [self.source_runner] if "source_runner" in self.__dict__ else []
 
     @cached_property
     def source_runner(self) -> QueryRunner:

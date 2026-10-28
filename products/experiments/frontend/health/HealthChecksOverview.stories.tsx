@@ -108,6 +108,36 @@ export const DraftWithEventsNotReceived: Story = {
     },
 }
 
+export const RunningWithSignificanceOnASmallSample: Story = {
+    args: {
+        checks: [
+            ...FLAG_SETUP_CHECKS,
+            passed('no_metric', 'Metrics'),
+            found('early_significance', 'Sample size behind significant results'),
+        ],
+        notes: [
+            {
+                code: 'early_significance',
+                subcode: 'below_detectable_effect',
+                severity: 'info',
+                title: 'Significant result on a small sample',
+                detail: 'The variant "test" shows a +20% difference on the metric "Checkout", which is significant. With 2,000 users so far, the experiment can reliably detect differences of about 38% or more, so this difference may shrink or go away as more users arrive. The running time estimate needs about 3,201 users to detect a 30% difference. Wait for that sample before you decide.',
+                evidence: {
+                    variant: 'test',
+                    observed_effect: 20,
+                    detectable_effect: 37.9,
+                    minimum_detectable_effect: 30,
+                    samples: 2000,
+                    planned_samples: 3201,
+                },
+                actions: [],
+            },
+        ],
+        isDraft: false,
+        exposureChecksMissing: false,
+    },
+}
+
 export const ChecksThatCouldNotRun: Story = {
     args: {
         checks: [

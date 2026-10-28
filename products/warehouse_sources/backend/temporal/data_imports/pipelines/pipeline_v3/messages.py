@@ -2,12 +2,38 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal, Optional
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
 
 SyncTypeLiteral = Literal["full_refresh", "incremental", "append", "cdc"]
+
+
+@frozen
+class ReplaceScopeRef:
+    """Where the loader finds a run's replace scope (see `ReplaceScope`).
+
+    The value sets can hold every file of a bucket, so they travel in a manifest file next to the
+    run's batches. Only the manifest's path and the column name go into each queue row.
+    """
+
+    column: str
+    manifest_path: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"column": self.column, "manifest_path": self.manifest_path}
+
+    @classmethod
+    def from_dict(cls, raw: object) -> "ReplaceScopeRef | None":
+        if not isinstance(raw, dict):
+            return None
+        column, manifest_path = raw.get("column"), raw.get("manifest_path")
+        if not isinstance(column, str) or not isinstance(manifest_path, str):
+            return None
+        return cls(column=column, manifest_path=manifest_path)
 
 
 @dataclass(frozen=True)
@@ -55,6 +81,10 @@ class ExportSignalMessage:
     # None on a message queued before the producer recorded it, which readers treat as unknown
     # rather than as none. Resolved once per run, because the consumer reads it per batch.
     external_destination_ids: Optional[list[str]] = None
+    replace_scope: Optional[ReplaceScopeRef] = None
+    # Jobs that worker restarts stopped and whose cursor this run continues. Their queued batches
+    # hold the rows before that cursor, so this run must not complete while one of them is unloaded.
+    continued_job_ids: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -92,4 +122,6 @@ class ExportSignalMessage:
             cdc_table_mode=data.get("cdc_table_mode"),
             destination_ids=data.get("destination_ids") or [],
             external_destination_ids=data.get("external_destination_ids"),
+            replace_scope=ReplaceScopeRef.from_dict(data.get("replace_scope")),
+            continued_job_ids=list(data.get("continued_job_ids") or []),
         )

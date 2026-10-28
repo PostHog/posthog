@@ -2524,6 +2524,7 @@ class TestUserAPI(APIBaseTest):
             {
                 "notification_settings": {
                     "plugin_disabled": False,
+                    "mobile_push_tasks_enabled": False,
                     "discussions_mentioned": False,
                     "error_tracking_issue_assigned": False,
                     "project_weekly_digest_disabled": {123: True},
@@ -2542,6 +2543,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},  # Note: JSON converts int keys to strings
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2570,6 +2575,10 @@ class TestUserAPI(APIBaseTest):
                 "plugin_disabled": False,
                 "discussions_mentioned": False,
                 "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": False,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {"123": True},
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": False,
@@ -2845,7 +2854,11 @@ class TestUserAPI(APIBaseTest):
             {
                 "plugin_disabled": True,  # Default value
                 "discussions_mentioned": True,  # Default value
-                "task_comments_slack_dm": True,  # Default value
+                "task_comments_slack_dm": True,
+                "mobile_push_enabled": True,
+                "mobile_push_tasks_enabled": True,
+                "mobile_push_reports_enabled": True,
+                "mobile_push_report_updates_enabled": True,
                 "project_weekly_digest_disabled": {},  # Default value
                 "all_weekly_digest_disabled": True,
                 "error_tracking_issue_assigned": True,  # Default value
@@ -2876,6 +2889,9 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("non_boolean_vim_mode", {"version": 1, "sql_editor": {"vim_mode_enabled": "nope"}}),
             ("non_string_vimrc", {"version": 1, "sql_editor": {"vimrc": ["imap jj <Esc>"]}}),
             ("vimrc_too_long", {"version": 1, "sql_editor": {"vimrc": "x" * 10001}}),
+            ("unknown_analytics_list_sort", {"version": 1, "analytics_list": {"default_sort": "name"}}),
+            ("unknown_analytics_list_key", {"version": 1, "analytics_list": {"columns": ["owner"]}}),
+            ("non_boolean_hide_insights", {"version": 1, "analytics_list": {"hide_insights": "nope"}}),
         ]
     )
     def test_invalid_ui_configuration_is_rejected(self, _name, value):
@@ -2889,6 +2905,10 @@ class TestUserUIConfigurationValidation(SimpleTestCase):
             ("null", None),
             ("minimal", {"version": 1}),
             ("unknown_top_level_key", {"version": 1, "surprise": True}),
+            (
+                "analytics_list",
+                {"version": 1, "analytics_list": {"hide_insights": True, "default_sort": "-created_at"}},
+            ),
             (
                 # Sidebar settings an older client stored. Rejecting them would block every later save.
                 "stored_sidebar_settings",
@@ -3348,7 +3368,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].subject, "Verify your email address")
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
 
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        html_message = cast(str, mail.outbox[0].alternatives[0][0])  # type: ignore
         code = re.search(r"(\d{6}) is your code\.", html_message).group(1)  # type: ignore[union-attr]
         self.validate_basic_html(html_message, "https://my.posthog.net", preheader=f"{code} is your code.")
 
