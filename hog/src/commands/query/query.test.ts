@@ -179,6 +179,13 @@ describe('hog query', () => {
             '  2 | nope\n      ^^^^',
         ],
         [
+            'an error at the very start of a multiline query points at line 1',
+            'nope\nselect 1',
+            { isValid: false, errors: [{ message: 'Unable to resolve field: nope', start: 0, end: 4 }] },
+            1,
+            '  --> line 1, column 1\n  1 | nope\n      ^^^^',
+        ],
+        [
             'a diagnostic without a location prints no source line',
             'select 1',
             { isValid: false, errors: [{ message: 'Query is too complex', start: null, end: null }] },
