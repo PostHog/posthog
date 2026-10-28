@@ -5547,9 +5547,8 @@ def _post_channel_approval_outcome(
         )
 
 
-def _resolve_channel_approval_context(
-    payload: dict,
-) -> tuple[IntegrationRecord, dict, str, str] | None:
+# nosemgrep: tuple-return-prefer-dataclass -- existing shape, only the record type changed
+def _resolve_channel_approval_context(payload: dict) -> tuple[IntegrationRecord, dict, str, str] | None:
     """Decode the click context and load the prompt's integration in one place.
 
     Returns ``(integration, context, channel_id, clicker_slack_user_id)`` on

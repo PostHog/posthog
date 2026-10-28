@@ -101,6 +101,7 @@ def _claim_channel_creation(slack_team_id: str) -> bool:
     )
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- existing shape, only the record type changed
 def ensure_inbox_channel(integration: IntegrationRecord) -> tuple[str, str] | None:
     """Find-or-create #posthog-inbox, persist it as the team's default notification channel,
     and return (channel_id, "#name"). Returns None when the channel must be created but the
