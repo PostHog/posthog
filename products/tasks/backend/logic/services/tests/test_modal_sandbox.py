@@ -33,7 +33,7 @@ from requests.exceptions import (
 
 from posthog.utils import get_instance_region
 
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, SNAPSHOT_KIND_DIRECTORY
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.dev_stack_image_models import DevStackImageTarget
 from products.tasks.backend.exceptions import (
     ProcessTaskFatalError,
@@ -524,23 +524,19 @@ class TestModalSandboxAgentServer:
         write.assert_not_called()
 
     @pytest.mark.parametrize(
-        "enabled,snapshot_kind,compatible",
+        "enabled,restored,compatible",
         [
-            (False, "directory", True),
-            (False, "filesystem", True),
-            (True, "filesystem", True),
-            (True, "filesystem", False),
-            (True, "directory", False),
-            (True, None, True),
-            (True, None, False),
-            (False, None, True),
+            (False, False, True),
+            (True, False, True),
+            (True, False, False),
+            (True, True, True),
+            (True, True, False),
         ],
     )
     def test_initializes_only_compatible_task_filesystems(
-        self, mock_sandbox: Any, enabled: bool, snapshot_kind: str | None, compatible: bool
+        self, mock_sandbox: Any, enabled: bool, restored: bool, compatible: bool
     ) -> None:
-        mock_sandbox.config.snapshot_restored = snapshot_kind is not None
-        mock_sandbox.config.snapshot_kind = snapshot_kind
+        mock_sandbox.config.snapshot_restored = restored
         with (
             override_settings(TASKS_SANDBOX_PERSISTENT_FILESYSTEM_ENABLED=enabled),
             patch.object(
@@ -553,11 +549,11 @@ class TestModalSandboxAgentServer:
             patch.object(mock_sandbox, "_write_required_file") as write,
         ):
             mock_sandbox._prepare_task_filesystem()
-        initialize = compatible and (snapshot_kind is not None or enabled)
+        initialize = compatible and (restored or enabled)
         assert write.call_count == int(initialize)
-        if snapshot_kind is not None or enabled:
+        if restored or enabled:
             assert ("initialize gvisor" in execute.call_args.args[0]) == initialize
-            assert ("test -f" if snapshot_kind else "test -d") in execute.call_args_list[0].args[0]
+            assert ("test -f" if restored else "test -d") in execute.call_args_list[0].args[0]
         else:
             execute.assert_not_called()
 
@@ -2459,8 +2455,7 @@ class TestModalSandboxCreateImageFallback:
             name="t",
             template=SandboxTemplate.VM_BASE,
             custom_image_name="posthog-dev-stack",
-            snapshot_external_id="im-snap-1",
-            snapshot_kind=SNAPSHOT_KIND_DIRECTORY,
+            resume_snapshot_external_id="im-snap-1",
             snapshot_mount_path=DEFAULT_SANDBOX_WORKING_DIR,
         )
         custom_image = MagicMock(name="custom_image")
@@ -2551,8 +2546,7 @@ class TestModalSandboxCreateImageFallback:
             name="t",
             template=SandboxTemplate.VM_BASE,
             custom_image_name="posthog-dev-stack",
-            snapshot_external_id="im-snap-1",
-            snapshot_kind=SNAPSHOT_KIND_DIRECTORY,
+            resume_snapshot_external_id="im-snap-1",
             snapshot_mount_path=DEFAULT_SANDBOX_WORKING_DIR,
         )
         custom_image = MagicMock(name="custom_image")
@@ -2578,7 +2572,7 @@ class TestLaunchDevStackBootstrap:
         vm: bool = True,
         custom_image_name: str | None = "posthog-dev-stack",
         snapshot_restored: bool = False,
-        snapshot_kind: Any = None,
+        resume_snapshot_external_id: str | None = None,
     ) -> Any:
         mock_modal_sandbox = MagicMock()
         mock_modal_sandbox.object_id = "sb-boot"
@@ -2587,7 +2581,7 @@ class TestLaunchDevStackBootstrap:
             vm_runtime=vm,
             custom_image_name=custom_image_name,
             snapshot_restored=snapshot_restored,
-            **({"snapshot_kind": snapshot_kind} if snapshot_kind is not None else {}),
+            resume_snapshot_external_id=resume_snapshot_external_id,
         )
         with patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock()):
             return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
@@ -2659,7 +2653,7 @@ class TestLaunchDevStackBootstrap:
         # Directory resumes only mount the workspace dir, so /usr/local/bin's helper is
         # still the vetted image's own binary — the warmup must not be lost on the
         # primary resume path.
-        sandbox = self._sandbox(snapshot_restored=True, snapshot_kind=SNAPSHOT_KIND_DIRECTORY)
+        sandbox = self._sandbox(snapshot_restored=True, resume_snapshot_external_id="im-dir")
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
         with (
@@ -2674,7 +2668,7 @@ class TestLaunchDevStackBootstrap:
         # launcher must strip the environment (no injected credentials) and pin PATH to
         # system dirs via an absolute /usr/bin/env, so the helper can never resolve or
         # run the workspace binary with the run's POSTHOG_PERSONAL_API_KEY / GITHUB_TOKEN.
-        sandbox = self._sandbox(snapshot_restored=True, snapshot_kind=SNAPSHOT_KIND_DIRECTORY)
+        sandbox = self._sandbox(snapshot_restored=True, resume_snapshot_external_id="im-dir")
         result = ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
 
         with (

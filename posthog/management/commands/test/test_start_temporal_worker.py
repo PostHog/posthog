@@ -4,6 +4,8 @@ import pytest
 
 from django.conf import settings
 
+from posthog.hogql import parser as hogql_parser
+
 from posthog.management.commands.start_temporal_worker import (
     ACTIVITIES_DICT,
     AI_WORKFLOWS,
@@ -15,6 +17,7 @@ from posthog.management.commands.start_temporal_worker import (
     WEEKLY_DIGEST_WORKFLOWS,
     WORKFLOWS_DICT,
     _task_queue_specs,
+    apply_hogql_shadow_sample_rate_override,
     workflows_include_data_import_syncs,
 )
 from posthog.temporal.ai_observability import BatchTraceSummarizationWorkflow
@@ -161,3 +164,24 @@ def test_trace_summary_runs_on_the_llma_queue() -> None:
     queue, workflows, activities = entries[0]
     assert queue == settings.LLMA_TASK_QUEUE and BatchTraceSummarizationWorkflow in workflows
     assert all(activity in activities for activity in AI_OBSERVABILITY_ACTIVITIES)
+
+
+@pytest.mark.parametrize(
+    "env_value, expected",
+    [
+        (None, 0.001),
+        ("0", 0.0),
+        ("0.25", 0.25),
+        ("off", 0.001),
+        ("2", 0.001),
+    ],
+)
+def test_hogql_shadow_sample_rate_override(
+    monkeypatch: pytest.MonkeyPatch, env_value: str | None, expected: float
+) -> None:
+    monkeypatch.delenv("HOGQL_PARSER_SHADOW_SAMPLE_RATE", raising=False)
+    if env_value is not None:
+        monkeypatch.setenv("HOGQL_PARSER_SHADOW_SAMPLE_RATE", env_value)
+    monkeypatch.setattr(hogql_parser, "_SHADOW_SAMPLE_RATE", 0.001)
+    apply_hogql_shadow_sample_rate_override()
+    assert hogql_parser._SHADOW_SAMPLE_RATE == expected

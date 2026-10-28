@@ -34033,6 +34033,7 @@ export namespace Schemas {
      * * `AwsS3Tables` - AwsS3Tables
      * * `Beacons` - Beacons
      * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -35449,6 +35450,7 @@ export namespace Schemas {
       AwsS3Tables: 'AwsS3Tables',
       Beacons: 'Beacons',
       WooPayments: 'WooPayments',
+      Soniox: 'Soniox',
     } as const;
 
     /**
@@ -36878,7 +36880,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -39856,7 +39859,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -52959,7 +52963,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -54409,7 +54414,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -63772,6 +63778,77 @@ export namespace Schemas {
       values: string[];
       /** How the number is worked out, if it is. */
       working: ImpactWorking | null;
+    }
+
+    /**
+     * * `customerio` - Customer.io
+     */
+    export type ImportProviderKeyEnum = typeof ImportProviderKeyEnum[keyof typeof ImportProviderKeyEnum];
+
+
+    export const ImportProviderKeyEnum = {
+      Customerio: 'customerio',
+    } as const;
+
+    export interface ImportStepOption {
+      /** Step key to send in `steps` when starting an import, for example `suppressions`. */
+      key: string;
+      /** Display name of the step. */
+      label: string;
+      /** What the step imports and where it lands in PostHog. */
+      description: string;
+    }
+
+    export interface ImportProviderOption {
+      /** Provider key to send when starting an import.
+       *
+       * * `customerio` - Customer.io */
+      key: ImportProviderKeyEnum;
+      /** Display name of the provider. */
+      label: string;
+      /** What the provider can import, in the order the steps run. */
+      steps: ImportStepOption[];
+    }
+
+    /**
+     * * `pending` - Not started
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed
+     */
+    export type ImportStepStatusEnum = typeof ImportStepStatusEnum[keyof typeof ImportStepStatusEnum];
+
+
+    export const ImportStepStatusEnum = {
+      Pending: 'pending',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ImportStepProgress {
+      /** Step key, for example `suppressions`. */
+      key: string;
+      /** Display name of the step. */
+      label: string;
+      /** `pending` until the step starts, `running` while it imports or waits to retry, then `completed` or `failed`.
+       *
+       * * `pending` - Not started
+       * * `running` - Importing
+       * * `completed` - Imported
+       * * `failed` - Failed */
+      status: ImportStepStatusEnum;
+      /** How many records the step read from the provider so far. */
+      processed: number;
+      /** How many records the step added or updated in PostHog so far. Records that already existed and need no change may not count. */
+      imported: number;
+      /** Problems with single records that did not fail the step. */
+      warnings: string[];
+      /**
+         * The error from the step's most recent failed attempt. A running step retries after an error; a failed step stopped.
+         * @nullable
+         */
+      last_error: string | null;
     }
 
     /**
@@ -98170,6 +98247,52 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    /**
+     * * `queued` - Waiting to start
+     * * `running` - Importing
+     * * `completed` - Imported
+     * * `failed` - Failed
+     */
+    export type ProviderImportStatusEnum = typeof ProviderImportStatusEnum[keyof typeof ProviderImportStatusEnum];
+
+
+    export const ProviderImportStatusEnum = {
+      Queued: 'queued',
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+    } as const;
+
+    export interface ProviderImportRun {
+      /** Import run ID. */
+      id: string;
+      /** The provider the run imports from.
+       *
+       * * `customerio` - Customer.io */
+      provider: ImportProviderKeyEnum;
+      /** `queued` until the first step starts, `running`, then `completed` when every step completed or `failed` when any step failed.
+       *
+       * * `queued` - Waiting to start
+       * * `running` - Importing
+       * * `completed` - Imported
+       * * `failed` - Failed */
+      status: ProviderImportStatusEnum;
+      /** Progress of each selected step, in run order. */
+      steps: ImportStepProgress[];
+      /** When the run was requested. */
+      created_at: string;
+      /**
+         * When the first step started.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * When the last step ended.
+         * @nullable
+         */
+      finished_at: string | null;
+    }
+
     export interface ProvisionWarehouseRequest {
       /** Name for the new database */
       database_name: string;
@@ -112863,7 +112986,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -114344,7 +114468,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -115792,7 +115917,8 @@ export namespace Schemas {
        * * `Dripify` - Dripify
        * * `AwsS3Tables` - AwsS3Tables
        * * `Beacons` - Beacons
-       * * `WooPayments` - WooPayments */
+       * * `WooPayments` - WooPayments
+       * * `Soniox` - Soniox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -116382,6 +116508,21 @@ export namespace Schemas {
       readonly app_not_installed: boolean;
       /** Populated only on the discovery path when the caller can reach MORE than one installation of this App: nothing was bound, and the user must pick which installation to connect. The frontend re-runs the authorize flow and calls back with the chosen installation_id, which the explicit path verifies. Empty whenever a bind happened (or nothing was found). */
       readonly installations: readonly StamphogDiscoveredInstallation[];
+    }
+
+    export interface StartProviderImport {
+      /** The provider to import from.
+       *
+       * * `customerio` - Customer.io */
+      provider: ImportProviderKeyEnum;
+      /**
+         * Keys of the steps to run, from the `providers` endpoint. They run in the provider's order, whatever order you send.
+         * @minItems 1
+         * @items.maxLength 64
+         */
+      steps: string[];
+      /** The provider's API key. For Customer.io, an App API key. Leave it out to reuse the stored key. */
+      api_key?: string;
     }
 
     export interface StartTrainingRequest {

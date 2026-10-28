@@ -2427,13 +2427,29 @@ class TestBreakdownStatsRequests:
         assert fields_param is not None
         requested_fields = set(fields_param.split(","))
         video_fields = {"video_play_actions", "video_thruplay_watched_actions"}
+        # Meta rejects the whole request when `region` asks for these, so they must not leak into
+        # the field list that every breakdown shares.
+        watch_depth_fields = {
+            "video_30_sec_watched_actions",
+            "video_p25_watched_actions",
+            "video_p50_watched_actions",
+            "video_p75_watched_actions",
+            "video_p95_watched_actions",
+            "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+        }
+        breakdowns = schema.extra_params["breakdowns"]
         if (
-            "hourly_stats_aggregated_by_advertiser_time_zone" in schema.extra_params["breakdowns"]
+            "hourly_stats_aggregated_by_advertiser_time_zone" in breakdowns
             or endpoint == MetaAdsResource.AdStatsByLinkUrl
         ):
-            assert video_fields.isdisjoint(requested_fields)
+            assert (video_fields | watch_depth_fields).isdisjoint(requested_fields)
+        elif breakdowns in ("country", "publisher_platform,platform_position,impression_device"):
+            assert video_fields | watch_depth_fields <= requested_fields
         else:
             assert video_fields <= requested_fields
+            if breakdowns == "region":
+                assert watch_depth_fields.isdisjoint(requested_fields)
 
     def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
         result = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)

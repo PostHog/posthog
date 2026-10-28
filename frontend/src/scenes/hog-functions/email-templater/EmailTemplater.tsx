@@ -42,6 +42,7 @@ import { filterMessageTemplates } from 'products/workflows/frontend/TemplateLibr
 import { MessageTemplateCard } from 'products/workflows/frontend/TemplateLibrary/MessageTemplateCard'
 
 import { collapseToolsPanelCustomJs } from './custom-tools/collapseToolsPanel'
+import { linkDialogFocusCustomJs } from './custom-tools/linkDialogFocus'
 import { previewLinkTargetCustomJs } from './custom-tools/previewLinkTarget'
 import { unsubscribeLinkToolCustomJs } from './custom-tools/unsubscribeLinkTool'
 import { EmailSenderSummary } from './EmailSenderSummary'
@@ -229,7 +230,7 @@ function DestinationEmailTemplaterForm({
                                             // paid credits from our Unlayer workspace, so keep them all off.
                                             ai: false,
                                         },
-                                        customJS: [previewLinkTargetCustomJs],
+                                        customJS: [previewLinkTargetCustomJs, linkDialogFocusCustomJs],
                                     }}
                                 />
                             </div>
@@ -811,8 +812,13 @@ function NativeEmailTemplaterForm({
                                                   unsubscribeLinkToolCustomJs,
                                                   collapseToolsPanelCustomJs,
                                                   previewLinkTargetCustomJs,
+                                                  linkDialogFocusCustomJs,
                                               ]
-                                            : [unsubscribeLinkToolCustomJs, previewLinkTargetCustomJs],
+                                            : [
+                                                  unsubscribeLinkToolCustomJs,
+                                                  previewLinkTargetCustomJs,
+                                                  linkDialogFocusCustomJs,
+                                              ],
                                         fonts: unlayerEditorProjectId
                                             ? {
                                                   showDefaultFonts: true,
