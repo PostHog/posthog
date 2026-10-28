@@ -120,6 +120,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
                 destination=None,
                 inferred_tables=(TablePair(vendor_table="contact", posthog_table="contacts"),),
                 unmatched_tables=("email_event",),
+                unused_posthog_tables=("deals",),
             ).to_json(),
         )
         applying = self._item(migration, status=WarehouseMigrationItem.Status.APPLYING)
@@ -138,6 +139,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         (proposal,) = [item["proposal"] for item in items if item["proposal"]]
         assert proposal["inferred_tables"] == [{"vendor_table": "contact", "posthog_table": "contacts"}]
         assert proposal["unmatched_tables"] == ["email_event"]
+        assert proposal["unused_posthog_tables"] == ["deals"]
 
     def test_list_pages_newest_first_without_repeating_tied_rows(self) -> None:
         oldest, *tied = (self._migration() for _ in range(3))

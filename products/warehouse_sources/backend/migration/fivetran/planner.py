@@ -73,6 +73,7 @@ class _PlannedTables:
     schemas: tuple[ProposedSchema, ...] | None
     inferred: tuple[TablePair, ...] = ()
     unmatched: tuple[str, ...] = ()
+    unused: tuple[str, ...] = ()
 
 
 @frozen
@@ -224,6 +225,7 @@ def _plan_connection(
         schemas=tables.schemas,
         inferred_tables=tables.inferred,
         unmatched_tables=tables.unmatched,
+        unused_posthog_tables=tables.unused,
         sync_frequency=sync_frequency,
         sync_time_of_day=sync_time_of_day,
         destination=_plan_destination(provider, destination, catalog, caveats),
@@ -322,10 +324,13 @@ def _plan_tables(
         caveats.append(f"These Fivetran tables have no PostHog table, so they are not planned: {names}.")
     if not schemas:
         caveats.append("No Fivetran table of this connection moves to PostHog, so every table starts with syncing off.")
+    # Only needed to place the unmatched tables, so the payload stays small otherwise.
+    unused = sorted(known.names - {schema.name for schema in schemas}) if known is not None and unmatched else []
     return _PlannedTables(
         schemas=_without_shared_alternative_names(schemas, caveats),
         inferred=tuple(inferred),
         unmatched=tuple(unmatched),
+        unused=tuple(unused),
     )
 
 
