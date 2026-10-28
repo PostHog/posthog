@@ -12,9 +12,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { ActivityChart } from './dashboard/ActivityChart'
-import { MCP_DASHBOARD_CARDS } from './dashboard/dashboardCards'
 import { DashboardCardsMenu } from './dashboard/DashboardCardsMenu'
 import { HarnessBarChart } from './dashboard/HarnessBarChart'
+import { IntentTopicsCard } from './dashboard/IntentTopicsCard'
 import { KpiTiles } from './dashboard/KpiTiles'
 import { mcpDashboardCardsLogic } from './dashboard/mcpDashboardCardsLogic'
 import { ModelBarChart } from './dashboard/ModelBarChart'
@@ -26,6 +26,7 @@ import { ToolUsageChart } from './dashboard/ToolUsageChart'
 import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from './feedback/constants'
 import { MCPAnalyticsFeedbackPrompt } from './feedback/MCPAnalyticsFeedbackPrompt'
 import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
+import { mcpAnalyticsFiltersLogic } from './mcpAnalyticsFiltersLogic'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
@@ -35,6 +36,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         users,
         usersLoading,
         intentClusterCount,
+        intentTopics,
+        intentTopicsLoading,
+        intentTopicsFailed,
         notableSessions,
         sessionRowsLoading,
         harnessRows,
@@ -59,15 +63,18 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         canShowFeedback,
         feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport } = useActions(mcpDashboardOverviewLogic)
-    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadIntentTopics } =
+        useActions(mcpDashboardOverviewLogic)
+    const { allCardsHidden, availableCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { showAllCards } = useActions(mcpDashboardCardsLogic)
     const { timezone } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { hasActiveFilters } = useValues(mcpAnalyticsFiltersLogic)
 
     const theme = useChartTheme()
 
     const showKpis = isCardVisible('kpis')
+    const showIntentTopics = isCardVisible('intent-topics') && availableCards.some(({ id }) => id === 'intent-topics')
     const showActivity = isCardVisible('activity')
     const showToolUsage = isCardVisible('tool-usage')
     const showHarness = isCardVisible('harness')
@@ -78,7 +85,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const showRecentActivity = isCardVisible('recent-activity')
     const showUsage = showActivity || showToolUsage || showHarness || showModel || showProtocolVersion
     const showReliability = showToolErrors || showNotableSessions
-    const showsNoCards = !(showKpis || showUsage || showReliability || showRecentActivity)
+    const showsNoCards = !(showKpis || showIntentTopics || showUsage || showReliability || showRecentActivity)
 
     return (
         <div className="@container/mcp-overview flex min-w-0 flex-col gap-6">
@@ -95,7 +102,8 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                     protocolVersionRowsLoading ||
                     activityRowsLoading ||
                     toolDailyRowsLoading ||
-                    toolRowsLoading
+                    toolRowsLoading ||
+                    intentTopicsLoading
                 }
             >
                 <McpDateFilter
@@ -121,7 +129,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
             />
             <MCPAnalyticsFirstLook />
             {showsNoCards &&
-                (hiddenCards.length === MCP_DASHBOARD_CARDS.length ? (
+                (allCardsHidden ? (
                     <div className="flex flex-col items-start gap-2" data-attr="mcp-dashboard-all-cards-hidden">
                         <p className="mb-0">All cards are hidden.</p>
                         <LemonButton
@@ -151,6 +159,19 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                         theme={theme}
                         interval={interval}
                         incompleteTail={kpiIncompleteTail}
+                    />
+                </section>
+            )}
+            {showIntentTopics && (
+                <section className="flex min-w-0 flex-col gap-4" data-quill>
+                    <IntentTopicsCard
+                        topics={intentTopics}
+                        loading={intentTopicsLoading}
+                        failed={intentTopicsFailed}
+                        onRetry={loadIntentTopics}
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        filtersIgnored={hasActiveFilters}
                     />
                 </section>
             )}

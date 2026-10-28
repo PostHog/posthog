@@ -1219,6 +1219,11 @@
         "params": [],
         "scope": "project"
     },
+    "mcpAnalyticsIntentMap": {
+        "template": "/mcp-analytics/intents",
+        "params": [],
+        "scope": "project"
+    },
     "mcpAnalyticsMissingCapabilities": {
         "template": "/mcp-analytics/missing-capabilities",
         "params": [],

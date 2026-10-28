@@ -13984,6 +13984,14 @@ snapshots:
         hash: v1.k794b7964.dca69b2edf84d19bb67ce3e2cc1a216fe6a63e9a1a36d8edb233b1f8ca60fd47.DJ-_pBzuUihpltpNAimi3dx_FewI6FzyLNKdoMZAMH4
     scenes-app-mcp-analytics--intent-clustering-journey--light:
         hash: v1.k794b7964.ac0eec4da423308decb9fbbd3f220e099b0a0a54dec45784b68c3bea89e7ec4d.vT3XHi6hXU4CIW6_dGDW6ShwhxyN5i1G-w00_qLnx3k
+    scenes-app-mcp-analytics--intent-topics-card--medium--dark:
+        hash: v1.k794b7964.5242e61e5a305cfb5637786a9c729c2b7ea87820ff78cd6a33b421843c45eead.K62-BwUbYmCLTgvWxGwjUIvTx6BR2WKMuBrvXO8lhUE
+    scenes-app-mcp-analytics--intent-topics-card--medium--light:
+        hash: v1.k794b7964.1d3a63ece26d1f15b5f151bb861014a1e9ed5173cd626a230d2c9a8294feef53.zDmUV_0AQUi-nfTIwiMEJ-029iKKbzvPnanIPYuw1BQ
+    scenes-app-mcp-analytics--intent-topics-card--wide--dark:
+        hash: v1.k794b7964.59d9bf84f7c4f97886be8aa35fa8833c960a604389d28f1027b084d498d8067e.WZh6XqaUwN2prVbJQIGmg8VHqtkGgkJ5jQ3NvIOvbxk
+    scenes-app-mcp-analytics--intent-topics-card--wide--light:
+        hash: v1.k794b7964.1884794d1c165295852a68d7ea1ac39cd816943a6e0e88f875da45d58f2afaf0.09ZL4g4jcspGe0aLOZ0XmEzhdgyGbVzbE0YYqa-2mQU
     scenes-app-mcp-analytics--sessions--dark:
         hash: v1.k794b7964.b9da0424c439b93ca4cfee035f623db248bf270c2f35d67fb149913d51357021.MHRBg5VvUtimcxoRkdmXRQmmxfzUts7dkMN-IIoczzI
     scenes-app-mcp-analytics--sessions--light:
@@ -14088,6 +14096,26 @@ snapshots:
         hash: v1.k794b7964.cde31d123df1154b77d782311789498ef95eb052a80801c6b6f235b5c2814a98.9bZUW7OcjSM6dy3YJwnZiGx2_s7iyFxF6OxbQw2d1Wc
     scenes-app-mcp-analytics-dashboard-cards--share-by-protocol-version-many-legacy--light:
         hash: v1.k794b7964.9bf00f4eecd528133975a0d7f0a4515f07fcfe431da47f758ca046efc6fcb0d1.RqXD1jbEi_DMnLmVB1EMN2H-XO4eT5Zg10vvgsNIh0A
+    scenes-app-mcp-analytics-intent-map--intent-map--medium--dark:
+        hash: v1.k794b7964.028f0773a6d9eb466880927673cef76168b5aad97ed821a6232be8727a2b453b.ouUcnVKh-2GINu68cvZmmwFkyWnIEuv6PIBshzAeJcc
+    scenes-app-mcp-analytics-intent-map--intent-map--medium--light:
+        hash: v1.k794b7964.148528e33dc6a3c0efdbf8f85715ffcd8d0439d9eb6e0ed7afdf54b521ba579e.vRufilEuesX3Y43s6an1SpBY9JiuLR1D1i2uQXb2tyE
+    scenes-app-mcp-analytics-intent-map--intent-map--wide--dark:
+        hash: v1.k794b7964.ba27a1e979728a9f4f796b3ffed2d982bcaeed7ceeaaa73f333931e272207c92.LHZec6-e8HqvhCiCCVYwvURTEjz_WZ1-wd9ZzRVETx8
+    scenes-app-mcp-analytics-intent-map--intent-map--wide--light:
+        hash: v1.k794b7964.cff722f4ef4461da8d96cdcd67051172126b18c88da0132fb79a9b1070ffdfc9.1oc7_nPUez__060z0f_YITIfkyHvicEQE2R0T-iRTfI
+    scenes-app-mcp-analytics-intent-map--intent-map-flag-off--dark:
+        hash: v1.k794b7964.655a06bf3009650940f9cea567ccb65f3a990c0d202d790a80b87db5a088b118.yAsvPdQaKL1wKjPVlkjfWDpL6tdeNYyHXUqxQokbba4
+    scenes-app-mcp-analytics-intent-map--intent-map-flag-off--light:
+        hash: v1.k794b7964.e313dad8fe62754e4065d57ca14994c770a20cef984a3adb20c3d44ffdc5b287.KWPW5jPWDtmHgz_Th5PHcJ0NWPT32rPtXPCwLt1kl_I
+    scenes-app-mcp-analytics-intent-map--intent-map-load-failed--dark:
+        hash: v1.k794b7964.9b4e8e0653693c2364f3ae003a78cf22b603522b250497cacfaf6093fbd3392e.fMtZND5n3MpT6GoktfAUjOyU1F9UHD4NN2dMBQutSIk
+    scenes-app-mcp-analytics-intent-map--intent-map-load-failed--light:
+        hash: v1.k794b7964.9cbc19f7215407d476b7d6717a4e58d9397d23c3e9c45ff024f486412c9e199c.ZhZyzHV4qjU_aZMGnY8DRCICKYJAKqq1-mtjHUI5z6w
+    scenes-app-mcp-analytics-intent-map--intent-map-one-topic--wide--dark:
+        hash: v1.k794b7964.5fd13d6ca5107d0abfe33747c1013fe0d3d0ef0472dbb5117c9612e64ec702f9.nr7rAxzV-ERcvNwzxn7zU_aCi318zEF7Xc3OpZrAejo
+    scenes-app-mcp-analytics-intent-map--intent-map-one-topic--wide--light:
+        hash: v1.k794b7964.e4107fcde8570b3e23eaf73c52d937f1ddbbecfe16d6046daef683170393fb33.NPuwRJ6ojEnNgTGaw7UsmmXSR39CoNYAMm3DBFhBoqc
     scenes-app-mcp-analytics-missing-capabilities-preview--example-reports--dark:
         hash: v1.k794b7964.9778984ca7152c43ebdb319e09aad8b935e44ba7229cbac29e0c69005479b292.dn980EAlmnDD30WdY7sLTPM7pVsTurzC5h_3BIk8kd0
     scenes-app-mcp-analytics-missing-capabilities-preview--example-reports--light:
@@ -14124,6 +14152,14 @@ snapshots:
         hash: v1.k794b7964.d16471442b9a4b1f9adf3f0df6152511ac5b59ad628a0496fc6a8f91d08c5a50._eeiIWQ37n85L6iOnx7TmmIxLps7n_lpWsS72ovBMS8
     scenes-app-mcp-analytics-tool-detail--tool-detail--wide--light:
         hash: v1.k794b7964.669a37c3a1c1bcb92622f42e91b6d462a06b60b68ea673f6bbcdef5f92c2bcc5.lT14awb41-asj-hbHh1XoO4UvXvBtO5dBLgM1iGYrcc
+    scenes-app-mcp-analytics-tool-detail--tool-detail-with-intent-topics--medium--dark:
+        hash: v1.k794b7964.1618642b23065df789c0b9ac4a2c76fb2610cb841d4ac4ef5c29ca2afc78fde6.Gt0voKFN3r-DtuHO9Ko1xjgzfoH7o_K9vx__y9tCsso
+    scenes-app-mcp-analytics-tool-detail--tool-detail-with-intent-topics--medium--light:
+        hash: v1.k794b7964.2ac479c562cbbb029e554181f3e88e98de6d812cdb93016dcf50b1cb770a329e.zKEOrLLBjST79Dx4mB5OyOWsDN2nnqxEPAhnqU5dqTQ
+    scenes-app-mcp-analytics-tool-detail--tool-detail-with-intent-topics--wide--dark:
+        hash: v1.k794b7964.f3816e13a3f7c2f5a1168e45e636984a3eeaeeae168d43a1d58b0034425298ef.4Pn7sVobwQ6nB6mFObZYdp3chYVWD3SspKom9yA1uKM
+    scenes-app-mcp-analytics-tool-detail--tool-detail-with-intent-topics--wide--light:
+        hash: v1.k794b7964.17eaf227c75d9a0b37b3ba12aacb06bfa347f6eca19e0bf6c7438e0bc925f1c5.qikBcM5ovYrOENCbbYsISy0t4cWdHLckbmpwC59smKk
     scenes-app-mcp-analytics-tool-quality-charts--alternate-views--dark:
         hash: v1.k794b7964.e9499ed0791ce7c4cbeefa71baec102a4f10bc93b8cc0644cdfb42747defaaae.Ww4jYp5zMAaxTCuXE5Pih3Spu2gbPcjt3WUUSB1dj6A
     scenes-app-mcp-analytics-tool-quality-charts--alternate-views--light:
