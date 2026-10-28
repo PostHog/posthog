@@ -658,12 +658,27 @@ SPECTACULAR_SETTINGS = {
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
+            # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
+            "ImportProviderKeyEnum": "products.messaging.backend.models.provider_import_run.ImportProviderKey.choices",
             # Workflow steps and workflow template steps both take a field named `type` with this set.
             "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # Keeps `EngineEnum` for the warehouse source engines. The saved-query run endpoint
+            # also has an `engine` field, which would otherwise rename this one.
+            "EngineEnum": [
+                "duckdb",
+                "postgres",
+                "mysql",
+                "snowflake",
+                "redshift",
+                "clickhouse",
+                "motherduck",
+                "trino",
+                None,
+            ],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
             # Keeps the name `CodeEnum` for the dataset conflict codes of ai_observability. A second field named
