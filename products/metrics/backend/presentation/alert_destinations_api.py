@@ -26,6 +26,7 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 
 from products.alerts.backend.facade.destinations import (
+    MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
     build_alert_destination_config,
     create_alert_destination_hog_functions,
@@ -48,7 +49,6 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.metrics.backend.alerts.destinations import EVENT_IDS, EVENT_KIND_CONFIG, METRICS_ALERT_DESTINATION_TYPES
 
-MAX_DESTINATION_IDS_PER_DELETE_REQUEST = 100
 METRICS_ALERT_KINDS = (SourceKind.METRICS.value,)
 # The metrics an alert queries are gated by the same resource as the metrics scene.
 METRICS_RESOURCE: Literal["metrics"] = "metrics"
@@ -232,18 +232,18 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         serializer = MetricsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
-        event_kinds = [
-            kind for kind, spec in EVENT_KIND_CONFIG.items() if destination_handles_event_kind(data["type"], spec)
-        ]
+        handled = {
+            kind: spec for kind, spec in EVENT_KIND_CONFIG.items() if destination_handles_event_kind(data["type"], spec)
+        }
         configs = [
             build_alert_destination_config(
-                spec=EVENT_KIND_CONFIG[kind],
+                spec=spec,
                 alert_id=str(alert.destination_alert_id),
                 alert_name=alert.name,
                 data=data,
                 slack_context_elements=_SLACK_CONTEXT_ELEMENTS,
             )
-            for kind in event_kinds
+            for spec in handled.values()
         ]
         try:
             with transaction.atomic():
@@ -277,7 +277,7 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         report_user_action(
             cast(User, request.user),
             "metrics alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": event_kinds},
+            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(handled)},
             team=self.team,
             request=request,
         )
