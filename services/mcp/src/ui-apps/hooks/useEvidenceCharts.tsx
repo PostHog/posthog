@@ -104,7 +104,14 @@ export function useEvidenceCharts(app: App | null, chartClassName: string): Stor
             },
             render: (item) => {
                 if (item.chart) {
-                    return <StoryEvidenceChart chart={item.chart} theme={theme} className={chartClassName} />
+                    return (
+                        <StoryEvidenceChart
+                            key={JSON.stringify(item.chart)}
+                            chart={item.chart}
+                            theme={theme}
+                            className={chartClassName}
+                        />
+                    )
                 }
                 const query = trendsQueryOf(item)
                 if (!query) {
