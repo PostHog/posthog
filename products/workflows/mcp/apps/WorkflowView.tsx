@@ -1,18 +1,27 @@
 import type { ReactElement } from 'react'
 
-import { DescriptionList, formatDate } from '@posthog/mcp-ui'
-import { Badge, Card, CardContent } from '@posthog/quill'
+import { Badge } from '@posthog/quill'
 
+import { WorkflowCanvasPreview } from 'products/workflows/frontend/Workflows/hogflows/editor/tile-canvas/preview/WorkflowCanvasPreview'
+
+import type { HogFlowActionApi, HogFlowEdgeApi } from '../../frontend/generated/api.schemas'
+import { useIsDarkTheme } from './useIsDarkTheme'
 import { STATUS_VARIANTS } from './utils'
 
-export interface WorkflowData {
+interface WorkflowSteps {
+    exit_condition?: string | null
+    actions?: HogFlowActionApi[]
+    edges?: HogFlowEdgeApi[]
+}
+
+export interface WorkflowData extends WorkflowSteps {
     id: string
     name: string
     description?: string | null
     status?: string
     version?: number
     trigger?: Record<string, unknown> | null
-    exit_condition?: string | null
+    draft?: WorkflowSteps | null
     created_at?: string
     updated_at?: string
     created_by?: { first_name?: string; email?: string } | null
@@ -25,6 +34,8 @@ export interface WorkflowViewProps {
 
 export function WorkflowView({ workflow }: WorkflowViewProps): ReactElement {
     const status = workflow.status ?? 'draft'
+    const isDarkTheme = useIsDarkTheme()
+    const steps = workflow.draft ?? workflow
 
     return (
         <div className="p-4">
@@ -36,41 +47,21 @@ export function WorkflowView({ workflow }: WorkflowViewProps): ReactElement {
                             {status.charAt(0).toUpperCase() + status.slice(1)}
                         </Badge>
                         {workflow.version != null && <Badge>v{workflow.version}</Badge>}
+                        {workflow.draft && <Badge variant="warning">Unpublished changes</Badge>}
                     </div>
                     {workflow.description && (
                         <span className="text-sm text-muted-foreground">{workflow.description}</span>
                     )}
                 </div>
 
-                <Card>
-                    <CardContent>
-                        <DescriptionList
-                            columns={2}
-                            items={[
-                                ...(workflow.exit_condition
-                                    ? [{ label: 'Exit condition', value: workflow.exit_condition }]
-                                    : []),
-                                ...(workflow.created_at
-                                    ? [{ label: 'Created', value: formatDate(workflow.created_at) }]
-                                    : []),
-                                ...(workflow.updated_at
-                                    ? [{ label: 'Updated', value: formatDate(workflow.updated_at) }]
-                                    : []),
-                                ...(workflow.created_by
-                                    ? [
-                                          {
-                                              label: 'Created by',
-                                              value:
-                                                  workflow.created_by.first_name ||
-                                                  workflow.created_by.email ||
-                                                  'Unknown',
-                                          },
-                                      ]
-                                    : []),
-                            ]}
-                        />
-                    </CardContent>
-                </Card>
+                {!!steps.actions?.length && (
+                    <WorkflowCanvasPreview
+                        actions={steps.actions}
+                        edges={steps.edges ?? []}
+                        exitCondition={steps.exit_condition}
+                        isDarkModeOn={isDarkTheme}
+                    />
+                )}
 
                 <div className="rounded-md border bg-muted/50 px-3 py-2">
                     <span className="text-xs text-muted-foreground">
