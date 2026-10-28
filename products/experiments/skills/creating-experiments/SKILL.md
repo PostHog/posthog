@@ -61,7 +61,8 @@ If the user said they are away, or asked for a draft without questions, decide w
 
 The user is new if they say so, or if none of the experiments they created in this project has ended.
 That includes a user who has created none.
-Unless they said so, check:
+A user who says they've run experiments before, here or with another tool, isn't new, whatever the check would find.
+Don't ask about their experience. Unless they said something either way, check:
 
 1. `user-get` with the default `@me`. Take the numeric `id`, not the `uuid`: `experiment-list` ignores a `created_by_id` that isn't a number and lists everyone's experiments.
 2. `experiment-list` with `created_by_id` set to that `id` as a string, `status: "stopped"` and `limit: 1`. `count` is the number of their ended experiments.
