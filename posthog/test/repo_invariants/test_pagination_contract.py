@@ -30,6 +30,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.aeo.backend.presentation.views.AEOPromptViewSet",
     # Returns one bounded object (capped at SERVICES_LIMIT services), not a page of rows.
     "products.apm.backend.presentation.views.ServicesHealthViewSet",
+    # Returns one bounded object (capped at ENDPOINTS_LIMIT rows), not a page of rows.
+    "products.apm.backend.presentation.views.EndpointsHealthViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
