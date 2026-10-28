@@ -65,8 +65,6 @@ const hostOf = (url: string): string | null => {
     }
 }
 
-// The URL parser drops leading and trailing C0 controls and spaces, and only those, so a tag appended
-// after them would land inside the path. Other whitespace, such as a non-breaking space, is part of the URL.
 const isStrippedByUrlParser = (char: string): boolean => char <= ' '
 
 const trimUrlWhitespace = (href: string): string => {
@@ -154,8 +152,6 @@ const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): stri
 }
 
 const findAnchorStart = (html: string, from: number): number => {
-    // A case-insensitive search rather than lowercasing the email, because lowercasing can change its
-    // length (`İ` becomes two characters) and every offset after it would point at the wrong tag.
     const anchorStart = /<a/gi
     anchorStart.lastIndex = from
     return anchorStart.exec(html)?.index ?? -1
