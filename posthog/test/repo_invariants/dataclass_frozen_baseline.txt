@@ -1312,7 +1312,6 @@
 2 products/warehouse_sources/backend/temporal/data_imports/sources/mailchimp/settings.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/meta_ads/meta_ads.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/postgres/cdc/decoder.py
-2 products/warehouse_sources/backend/temporal/data_imports/sources/qualtrics/qualtrics.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/reddit_ads/reddit_ads.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/servicenow/servicenow.py
 2 products/warehouse_sources/backend/temporal/data_imports/sources/temporalio/temporalio.py
