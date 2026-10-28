@@ -9,6 +9,7 @@ import pyarrow.parquet as pq
 from google.api_core.exceptions import Forbidden, NotFound, ServiceUnavailable
 from google.auth.exceptions import RefreshError
 from google.cloud import bigquery
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     DestinationBatchContext,
@@ -135,8 +136,18 @@ class TestSchemaLabel:
 
 
 class TestDdlType:
-    def test_a_scalar_field_renders_its_bare_type(self) -> None:
-        assert _ddl_type(bigquery.SchemaField("clicks", "INTEGER")) == "INTEGER"
+    @parameterized.expand(
+        [
+            ("STRING", "STRING"),
+            # The legacy names `get_table` reports have no DDL alias for FLOAT, unlike INTEGER
+            # (INT64) and BOOLEAN (BOOL) — an unmapped FLOAT fails the ALTER TABLE outright.
+            ("INTEGER", "INT64"),
+            ("FLOAT", "FLOAT64"),
+            ("BOOLEAN", "BOOL"),
+        ]
+    )
+    def test_a_scalar_field_renders_its_standard_sql_type(self, field_type: str, expected: str) -> None:
+        assert _ddl_type(bigquery.SchemaField("clicks", field_type)) == expected
 
     def test_a_repeated_field_renders_as_an_array(self) -> None:
         # Dropping `mode` here would add the element type as a scalar column, which is
@@ -153,7 +164,7 @@ class TestDdlType:
             fields=[bigquery.SchemaField("city", "STRING"), bigquery.SchemaField("zip", "INTEGER")],
         )
 
-        assert _ddl_type(field) == "STRUCT<`city` STRING, `zip` INTEGER>"
+        assert _ddl_type(field) == "STRUCT<`city` STRING, `zip` INT64>"
 
     def test_a_repeated_record_field_renders_as_an_array_of_structs(self) -> None:
         field = bigquery.SchemaField(
@@ -411,7 +422,18 @@ class TestIncremental:
         assert table.types["delivered_at"] == "INTEGER"
         assert sorted((row["id"], row["delivered_at"]) for row in table.rows) == [(1, 1700000500), (2, None)]
 
-    async def test_a_column_a_later_batch_grows_is_added_to_the_target_before_merging(self) -> None:
+    @parameterized.expand(
+        [
+            ("clicks", 10),
+            # Regression: FLOAT64 has no "FLOAT" DDL alias, so adding a float column here used
+            # to fail the ALTER TABLE with "Type not found: FLOAT" before `_evolve_table`
+            # normalized the legacy type name `get_table` reports.
+            ("rate", 0.5),
+        ]
+    )
+    async def test_a_column_a_later_batch_grows_is_added_to_the_target_before_merging(
+        self, column: str, value: float
+    ) -> None:
         # MERGE does not evolve schema on its own, so a column only the second batch carries
         # must be added to the target first, or the MERGE fails referencing a column T lacks.
         client = FakeBigQueryClient()
@@ -422,16 +444,16 @@ class TestIncremental:
         await _deliver(
             writer,
             ctx,
-            pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], "clicks": [10]}),
+            pa.RecordBatch.from_pydict({"id": [2], "name": ["b"], column: [value]}),
             1,
             is_final=True,
         )
 
         table = client.get_table("proj.dataset.charges")
-        assert table.columns == ["id", "name", "clicks"]
-        assert sorted((row["id"], row["name"], row.get("clicks")) for row in table.rows) == [
+        assert table.columns == ["id", "name", column]
+        assert sorted((row["id"], row["name"], row.get(column)) for row in table.rows) == [
             (1, "a", None),
-            (2, "b", 10),
+            (2, "b", value),
         ]
 
     async def test_text_that_cannot_convert_to_the_int64_column_is_a_configuration_error(self) -> None:
