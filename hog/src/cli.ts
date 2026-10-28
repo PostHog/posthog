@@ -209,6 +209,10 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
         to: 'error-tracking inject|upload|process',
         hint: 'Pass the folders as arguments instead of --directory, as in `hog error-tracking process dist`.',
     },
+    hermes: {
+        to: 'error-tracking inject|clone|upload',
+        hint: 'Pass paths as arguments instead of --directory, and the two maps to `hog error-tracking clone` instead of -m and -c.',
+    },
     proguard: {
         to: 'error-tracking upload',
         hint: 'Pass the mapping as an argument instead of --path, as in `hog error-tracking upload mapping.txt --map-id <id>`.',

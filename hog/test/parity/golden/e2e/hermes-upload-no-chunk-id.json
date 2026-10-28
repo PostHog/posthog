@@ -1,0 +1,9 @@
+{
+  "exitCode": 1,
+  "requests": [],
+  "files": {
+    "android/hbc/index.android.bundle.hbc.composed.map": "utf8:{\"version\":3,\"sources\":[\"src/App.js\",\"node_modules/react-native/Libraries/polyfill.js\"],\"sourcesContent\":[\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\",null],\"names\":[\"App\",\"<global>\"],\"mappings\":\"AAAA,SACA,cAAAC\",\"x_facebook_sources\":[[{\"names\":[\"<global>\",\"App\"],\"mappings\":\"AAA,CCC\"}],null],\"x_hermes_function_offsets\":{\"0\":[0,28],\"1\":[0]},\"x_google_ignoreList\":[1],\"release_id\":\"11111111-2222-4333-8444-555555555555\",\"x_unicode\":\"😀 </script> \\\"q\\\" \\\\ \\t\"}\n",
+    "android/index.android.bundle": "utf8:var __BUNDLE_START_TIME__=this.nativePerformanceNow?nativePerformanceNow():Date.now();\nfunction App(){return \"héllo\"}App();\n//# sourceMappingURL=index.android.bundle.map",
+    "android/index.android.bundle.map": "utf8:{\n  \"version\": 3,\n  \"sources\": [\"src/App.js\", \"node_modules/react-native/Libraries/polyfill.js\"],\n  \"sourcesContent\": [\"function App() {\\n  return \\\"héllo\\\";\\n}\\nApp();\\n\", null],\n  \"x_facebook_sources\": [[{\"names\": [\"<global>\", \"App\"], \"mappings\": \"AAA,CCC\"}], null],\n  \"names\": [\"App\"],\n  \"mappings\": \"AACA;AAAA,SAAUA\",\n  \"x_google_ignoreList\": [1],\n  \"x_test\": {\"b\": 1.0, \"a\": \" /é\\u0001\\u007f\", \"z\": 1e21, \"n\": -0, \"big\": 18446744073709551616}\n}\n"
+  }
+}

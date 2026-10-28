@@ -4,6 +4,7 @@ import { join, relative, resolve } from 'node:path'
 import type { ArtifactKind } from '@/core/config'
 import { HogError } from '@/core/errors'
 
+import { HERMES_BUNDLE_EXTENSIONS, isComposedMap } from './kinds/hermes'
 import { isJsBundle, JS_EXTENSIONS } from './kinds/js'
 import { isValidProguardMapping } from './kinds/proguard'
 
@@ -50,6 +51,16 @@ const DETECTORS: readonly Detector[] = [
         extensions: JS_EXTENSIONS,
         matches: (path, options) => isJsBundle(path, options.publicPathPrefix),
     },
+    {
+        kind: 'hermes',
+        extensions: HERMES_BUNDLE_EXTENSIONS,
+        matches: (path, options) => isJsBundle(path, options.publicPathPrefix, HERMES_BUNDLE_EXTENSIONS),
+    },
+    {
+        kind: 'hermes',
+        extensions: ['.map'],
+        matches: isComposedMap,
+    },
 ]
 
 function detect(
@@ -63,15 +74,17 @@ function detect(
             (kind === undefined || detector.kind === kind) &&
             (!fromFolder || detector.extensions.some((extension) => path.endsWith(extension)))
     )
-    const matched = candidates.filter((detector) => detector.matches(path, options))
+    const matched = [
+        ...new Set(candidates.filter((detector) => detector.matches(path, options)).map((detector) => detector.kind)),
+    ]
     if (matched.length > 1) {
         throw new HogError(
             'ambiguous_artifact',
-            `${path} looks like more than one artifact type: ${matched.map((detector) => detector.kind).join(', ')}.`,
+            `${path} looks like more than one artifact type: ${matched.join(', ')}.`,
             'Pass --kind to say which one it is.'
         )
     }
-    return matched[0]?.kind
+    return matched[0]
 }
 
 function walk(folder: string, out: string[]): void {

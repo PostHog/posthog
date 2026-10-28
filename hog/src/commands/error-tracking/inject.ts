@@ -1,4 +1,5 @@
 import { defineCommand } from '@/core/command'
+import { plural } from '@/core/text'
 import { inject, select } from '@/error-tracking/run'
 
 import {
@@ -52,8 +53,8 @@ export default defineCommand({
         out.line(
             out.style(
                 result.dryRun
-                    ? `Dry run: ${changed} of ${result.injected.length} bundles would change. No file was written.`
-                    : `${changed} of ${result.injected.length} bundles changed.`,
+                    ? `Dry run: ${changed} of ${plural(result.injected.length, 'bundle')} would change. No file was written.`
+                    : `${changed} of ${plural(result.injected.length, 'bundle')} changed.`,
                 'dim'
             )
         )

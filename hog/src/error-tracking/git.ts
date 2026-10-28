@@ -67,13 +67,18 @@ function fromVercel(env: Env): GitInfo | undefined {
     return info
 }
 
-function isDirectory(path: string): boolean {
-    return statSync(path, { throwIfNoEntry: false })?.isDirectory() ?? false
+// Rust's `Path::is_dir` and `is_file` read any error as false. A walk that starts at a file looks
+// for `<file>/.git`, which fails with ENOTDIR rather than ENOENT.
+function stat(path: string): ReturnType<typeof statSync> | undefined {
+    try {
+        return statSync(path)
+    } catch {
+        return undefined
+    }
 }
 
-function isFile(path: string): boolean {
-    return statSync(path, { throwIfNoEntry: false })?.isFile() ?? false
-}
+const isDirectory = (path: string): boolean => stat(path)?.isDirectory() ?? false
+const isFile = (path: string): boolean => stat(path)?.isFile() ?? false
 
 function readText(path: string): string | undefined {
     try {

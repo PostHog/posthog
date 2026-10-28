@@ -86,6 +86,7 @@ describe('hog', () => {
             'query run',
             'query check',
             'error-tracking inject',
+            'error-tracking clone',
             'error-tracking upload',
             'error-tracking process',
             'config check',

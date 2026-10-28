@@ -1,4 +1,4 @@
-import { realpathSync } from 'node:fs'
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, relative, resolve } from 'node:path'
 
 import type { ArtifactKind } from '@/core/config'
@@ -19,7 +19,17 @@ import {
     savePairs,
     type InjectAction,
 } from './js-flow'
-import { readPair, serializeMapContent, type ReleaseMode, type Skip, type SourcePair } from './kinds/js'
+import { decodeUtf8 } from './json'
+import { cloneMetadata, hermesSkipReason, hermesUpload, isHermesBundlePath } from './kinds/hermes'
+import {
+    loadMapContent,
+    readPair,
+    serializeMapContent,
+    type MapContent,
+    type ReleaseMode,
+    type Skip,
+    type SourcePair,
+} from './kinds/js'
 import { proguardContainer } from './kinds/proguard'
 import { fetchOrCreateRelease, resolveRelease, type Release, type ReleaseFields } from './release'
 import { SymbolSetClient, type SymbolSetUpload, type UploadStatus } from './upload'
@@ -129,6 +139,9 @@ export class Session {
     }
 }
 
+const isBundle = (artifact: Artifact): boolean =>
+    artifact.kind === 'js' || (artifact.kind === 'hermes' && isHermesBundlePath(artifact.path))
+
 function readPairs(
     artifacts: Artifact[],
     options: ErrorTrackingOptions,
@@ -137,7 +150,7 @@ function readPairs(
     const seen = new Set<string>()
     const pairs: SourcePair[] = []
     const owners = new Map<SourcePair, Artifact>()
-    for (const artifact of artifacts.filter((candidate) => candidate.kind === 'js')) {
+    for (const artifact of artifacts.filter(isBundle)) {
         const pair = readPair(artifact.path, options.publicPathPrefix, skipped)
         if (pair && !seen.has(pair.sourcePath)) {
             seen.add(pair.sourcePath)
@@ -170,10 +183,13 @@ export async function inject(
     if (pairs.length === 0) {
         throw new HogError(
             'no_bundles',
-            'hog found no JavaScript bundles with sourcemaps to inject in those paths.',
+            'hog found no JavaScript or Hermes bundles with sourcemaps to inject in those paths.',
             'Check the paths, or pass --public-path-prefix if your sourceMappingURL comments are absolute URLs.'
         )
     }
+    // Hermes bundles never carry a release in event mode: the app's own metadata names it.
+    const hermes = new Set(pairs.filter((pair) => owners.get(pair)?.kind === 'hermes'))
+    const js = pairs.filter((pair) => !hermes.has(pair))
     const fields = await releaseFields(ctx, options)
     let release = preset
     let reported: ReleaseReport | null = release
@@ -181,9 +197,9 @@ export async function inject(
         : null
     if (!release) {
         const needed =
-            options.releaseMode === 'event' ||
-            releaseRequested(fields) ||
-            pairs.some((pair) => pair.map.releaseId === null)
+            options.releaseMode === 'event'
+                ? js.length > 0
+                : releaseRequested(fields) || pairs.some((pair) => pair.map.releaseId === null)
         const resolved = needed ? resolveJsRelease(fields, ctx.runtime.env, selection.cwd, warnings) : undefined
         if (resolved) {
             reported = { name: resolved.name, version: resolved.version, id: null }
@@ -193,17 +209,20 @@ export async function inject(
                 release = await session.releases.get(resolved.name, resolved.version, resolved.git)
                 reported.id = release.id
             }
-        } else if (options.releaseMode === 'event') {
+        } else if (options.releaseMode === 'event' && js.length > 0) {
             warnings.push(
                 'No release could be resolved, so hog injected chunk IDs only and events will carry no release.'
             )
         }
     }
     const releaseId = release?.id ?? null
-    const outcomes =
-        options.releaseMode === 'event'
-            ? injectEventMode(pairs, releaseId, warnings)
+    const byPair = new Map(
+        (options.releaseMode === 'event'
+            ? [...injectEventMode(js, releaseId, warnings), ...injectEventMode([...hermes], null, warnings)]
             : injectSymbolSetMode(pairs, releaseId, randomChunkId(ctx.runtime.now))
+        ).map((outcome) => [outcome.pair, outcome])
+    )
+    const outcomes = pairs.map((pair) => byPair.get(pair)!)
     if (!options.dryRun) {
         savePairs(pairs, (pair) => serializeMapContent(pair.map))
     }
@@ -306,15 +325,19 @@ export async function upload(
     const read = injected
         ? { pairs: injected.pairs, artifacts: injected.owners }
         : readPairs(selection.artifacts, options, skipped)
+    read.pairs = read.pairs.filter((pair) => read.artifacts.get(pair)?.kind === 'js')
     let targets: CleanupTarget[] = []
     // posthog-cli stops before any cleanup when no bundle has an id to upload under.
     let jsUploadable = false
+    const composed = selection.artifacts.filter(
+        (artifact) => artifact.kind === 'hermes' && !isHermesBundlePath(artifact.path)
+    )
+    if (options.releaseMode === 'event' && options.skipOnConflict && (read.pairs.length > 0 || composed.length > 0)) {
+        warnings.push(
+            '--skip-on-conflict is ignored in event mode: every chunk is overwritten, so events never keep an old release.'
+        )
+    }
     if (read.pairs.length > 0) {
-        if (options.releaseMode === 'event' && options.skipOnConflict) {
-            warnings.push(
-                '--skip-on-conflict is ignored in event mode: every chunk is overwritten, so events never keep an old release.'
-            )
-        }
         const uploadable = read.pairs.filter((pair) => pair.chunkId() !== null || pair.debugId() !== null)
         jsUploadable = uploadable.length > 0
         if (!jsUploadable) {
@@ -356,6 +379,60 @@ export async function upload(
                 : { force: options.force, skipOnConflict: options.skipOnConflict }
         for (const { pair, upload: item } of prepared.uploads) {
             planned.push({ artifact: read.artifacts.get(pair)!, upload: item, policy })
+        }
+    }
+
+    if (composed.length > 0) {
+        if (options.releaseMode === 'event' && !(fields.name && fields.version && fields.build)) {
+            warnings.push(
+                'In event mode, exceptions take their release from the app. Pass --release-name, --release-version and --build matching the app identifier, version and build number, or exceptions will report no release.'
+            )
+        }
+        const maps = composed.map((artifact) => ({
+            artifact,
+            map: loadMapContent(decodeUtf8(readFileSync(artifact.path))),
+        }))
+        // posthog-cli creates the release even in event mode, so PostHog has a row to match the
+        // app metadata of an event to.
+        let releaseId: string | null = null
+        if (releaseRequested(fields) || maps.some(({ map }) => map.releaseId === null)) {
+            const start = resolve(selection.cwd, composed[0]!.root.path)
+            const resolved = resolveJsRelease(fields, ctx.runtime.env, start, warnings)
+            if (resolved) {
+                reported = { name: resolved.name, version: resolved.version, id: null }
+                if (!options.dryRun) {
+                    releaseId = (await releases.get(resolved.name, resolved.version, resolved.git)).id
+                    reported.id = releaseId
+                }
+            }
+        }
+        const policy =
+            options.releaseMode === 'event'
+                ? { force: true, skipOnConflict: false }
+                : { force: options.force, skipOnConflict: options.skipOnConflict }
+        let uploadable = 0
+        for (const { artifact, map } of maps) {
+            const reason = hermesSkipReason(map)
+            if (reason) {
+                skipped.push({
+                    path: artifact.display,
+                    reason:
+                        reason === 'no_chunk_id'
+                            ? 'the map has no chunk ID. Run `hog error-tracking clone` after the Hermes build.'
+                            : 'the sourcemap is empty. Check your bundler sourcemap setting.',
+                })
+                continue
+            }
+            map.releaseId = options.releaseMode === 'event' ? null : (releaseId ?? map.releaseId)
+            planned.push({ artifact, upload: hermesUpload(map), policy })
+            uploadable++
+        }
+        if (uploadable === 0) {
+            throw new HogError(
+                'no_hermes_chunk_ids',
+                'None of the Hermes maps has a chunk ID, so nothing was uploaded.',
+                'Run `hog error-tracking inject` on the Metro bundle before the Hermes build, and `hog error-tracking clone` after it.'
+            )
         }
     }
 
@@ -431,8 +508,71 @@ export async function processArtifacts(
             preset = await session.releases.get(resolved.name, resolved.version, resolved.git)
         }
     }
-    const hasJs = selection.artifacts.some((artifact) => artifact.kind === 'js')
-    const injected = hasJs ? await inject(ctx, selection, options, session, preset) : undefined
+    const injected = selection.artifacts.some(isBundle)
+        ? await inject(ctx, selection, options, session, preset)
+        : undefined
     const report = await upload(ctx, selection, options, session, injected)
     return { ...report, injected: injected?.injected ?? [] }
+}
+
+export interface CloneReport {
+    dryRun: boolean
+    release: ReleaseReport | null
+    from: string
+    to: string
+    chunkId: string | null
+    releaseId: string | null
+}
+
+function readMap(cwd: string, path: string, role: string): { path: string; map: MapContent } {
+    const full = resolve(cwd, path)
+    try {
+        return { path: full, map: loadMapContent(decodeUtf8(readFileSync(full))) }
+    } catch (error) {
+        throw new HogError('map_unreadable', `hog couldn't read the ${role} map ${path}: ${(error as Error).message}`)
+    }
+}
+
+export async function cloneMaps(
+    ctx: Context,
+    fromPath: string,
+    toPath: string,
+    options: ErrorTrackingOptions
+): Promise<CloneReport> {
+    const cwd = ctx.runtime.cwd()
+    const from = readMap(cwd, fromPath, 'packager')
+    const to = readMap(cwd, toPath, 'composed')
+    const warnings: string[] = []
+    let reported: ReleaseReport | null = null
+    let releaseId: string | null = null
+    if (options.releaseMode === 'symbol-set') {
+        const fields = await releaseFields(ctx, options)
+        if (releaseRequested(fields) || from.map.releaseId === null) {
+            const resolved = resolveJsRelease(fields, ctx.runtime.env, from.path, warnings)
+            if (resolved) {
+                reported = { name: resolved.name, version: resolved.version, id: null }
+                if (!options.dryRun) {
+                    releaseId = (await new Session(ctx).releases.get(resolved.name, resolved.version, resolved.git)).id
+                    reported.id = releaseId
+                }
+            }
+        }
+    }
+    const fromChanged = from.map.releaseId !== releaseId
+    from.map.releaseId = releaseId
+    cloneMetadata(from.map, to.map)
+    if (!options.dryRun) {
+        if (fromChanged) {
+            writeFileSync(from.path, serializeMapContent(from.map))
+        }
+        writeFileSync(to.path, serializeMapContent(to.map))
+    }
+    return {
+        dryRun: options.dryRun,
+        release: reported,
+        from: fromPath,
+        to: toPath,
+        chunkId: to.map.chunkId,
+        releaseId: to.map.releaseId,
+    }
 }

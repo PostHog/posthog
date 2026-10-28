@@ -19,7 +19,8 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog query run <query>`                 | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
 | `hog query check <query>`               | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
 | `hog error-tracking inject [paths...]`  | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.               |
-| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, and ProGuard and R8 mappings.                         |
+| `hog error-tracking clone <from> <to>`  | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                      |
+| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, and ProGuard and R8 mappings.            |
 | `hog error-tracking process [paths...]` | Runs `inject`, then `upload`. Use it in CI after the build.                                                             |
 | `hog config check`, `hog config schema` | Check `posthog.json` against its schema, or print the schema.                                                           |
 | `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
@@ -62,6 +63,8 @@ Point `$schema` at the published schema to get validation in your editor:
 `hog error-tracking` finds the artifacts in each path and detects their type from the files:
 
 - a `.js`, `.mjs` or `.cjs` file is a JavaScript bundle when its sourcemap exists, through its `sourceMappingURL` comment or a `.map` file next to it
+- a `.bundle` or `.jsbundle` file is a React Native bundle when its sourcemap exists
+- a `.map` file is a Hermes map when it has `x_hermes_function_offsets`, which only the Hermes compiler writes
 - a `.txt` file is a ProGuard or R8 mapping when its content parses as one
 
 Without paths, the commands read `errorTracking.sources` from `posthog.json`, where `ignore` globs skip files.
@@ -72,9 +75,18 @@ JavaScript releases work in two modes, as in posthog-cli:
 - `event`, the default, puts the release in the snippet hog adds to each bundle, so every event carries it. Chunk IDs come from the bundle content, so the same build gets the same IDs.
 - `symbol-set` puts the release in the sourcemap, and gives a bundle a new random chunk ID when its release changes.
 
+React Native with Hermes takes three steps, because the Hermes build runs between them:
+
+```bash
+hog error-tracking inject android/app/build/generated/assets         # before the Hermes build
+hog error-tracking clone index.android.bundle.map index.android.bundle.hbc.composed.map
+hog error-tracking upload android/app/build/generated/sourcemaps     # the composed maps
+```
+
 hog uploads the same bytes and content hashes as posthog-cli, so either CLI can re-upload what the other uploaded. A few things differ on purpose:
 
-- `posthog-cli sourcemap` and `posthog-cli proguard` are `hog error-tracking`, with paths as arguments instead of `--directory` and `--path`
+- `posthog-cli sourcemap`, `hermes` and `proguard` are `hog error-tracking`, with paths as arguments instead of `--directory` and `--path`
+- `upload` sends only Hermes maps it detects. posthog-cli treats every JSON file in the folder as a map, and fails when it finds Metro's map there
 - hog walks folders in sorted order and skips `node_modules`, `.git` and symlinks, so two machines visit the same files in the same order
 - `--dry-run` shows the plan and the content hashes without writing files or contacting PostHog. posthog-cli's `--dry-run` skips the whole command.
 

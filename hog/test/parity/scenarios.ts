@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import type { Scenario } from './fake-server'
 import { GIT_REPO, mappingOfSize, SMALL_MAPPING } from './fixtures'
+import { EXPO_BUILD, HERMES_BUILD, HERMES_BUNDLES } from './hermes-fixtures'
 import { bundles, EDGE_CASES, MALFORMED_MAP_DEBUG_ID, PUBLIC_PATH, STYLESHEETS } from './js-fixtures'
 import { decodeFile, type ParityResult } from './run'
 
@@ -144,4 +145,97 @@ SCENARIOS.push(
         args: [...jsRelease, ...symbolSet, '--skip-on-conflict'],
         server: 'hash-mismatch',
     })
+)
+
+// posthog-cli's `hermes inject|clone|upload` and the hog commands that replace them.
+const hermesArgs = {
+    inject: (path: string, args: string[] = []) => ({
+        rust: ['hermes', 'inject', '-d', path, ...args],
+        hog: ['error-tracking', 'inject', path, ...args],
+    }),
+    clone: (from: string, to: string, args: string[] = []) => ({
+        rust: ['hermes', 'clone', '-m', from, '-c', to, ...args],
+        hog: ['error-tracking', 'clone', from, to, ...args],
+    }),
+    upload: (path: string, args: string[] = []) => ({
+        rust: ['hermes', 'upload', '-d', path, ...args],
+        hog: ['error-tracking', 'upload', path, ...args],
+    }),
+}
+
+const hermes = (
+    name: string,
+    step: { rust: string[]; hog: string[] },
+    files: () => Files,
+    options: Partial<ParityScenario> = {}
+): ParityScenario => ({ name: `hermes-${name}`, server: 'fresh', files, ...step, snapshot: true, ...options })
+
+const ANDROID_MAP = 'android/index.android.bundle.map'
+const ANDROID_COMPOSED = 'android/hbc/index.android.bundle.hbc.composed.map'
+const appRelease = ['--release-name', 'com.example.app', '--release-version', '1.4.0', '--build', '42']
+
+SCENARIOS.push(
+    hermes('inject', hermesArgs.inject('.'), () => HERMES_BUNDLES),
+    hermes('inject-twice', hermesArgs.inject('.'), () => HERMES_BUNDLES, { runs: 2 }),
+    hermes('inject-symbol-set', hermesArgs.inject('.', [...appRelease, ...symbolSet]), () => HERMES_BUNDLES, {
+        randomIds: true,
+    }),
+    hermes('clone', hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED), () => HERMES_BUILD, {
+        before: [hermesArgs.inject('android')],
+    }),
+    hermes(
+        'clone-symbol-set',
+        hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED, [...appRelease, ...symbolSet]),
+        () => HERMES_BUILD,
+        {
+            before: [hermesArgs.inject('android')],
+        }
+    ),
+    hermes(
+        'clone-debug-id',
+        hermesArgs.clone('ios/main.jsbundle.map', 'ios/hbc/main.jsbundle.hbc.composed.map'),
+        () => EXPO_BUILD
+    ),
+    hermes('upload', hermesArgs.upload('android/hbc', appRelease), () => HERMES_BUILD, {
+        before: [hermesArgs.inject('android'), hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED)],
+    }),
+    hermes('upload-from-git', hermesArgs.upload('android/hbc'), () => ({ ...GIT_REPO, ...HERMES_BUILD }), {
+        before: [hermesArgs.inject('android'), hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED)],
+    }),
+    hermes('upload-symbol-set', hermesArgs.upload('android/hbc', [...appRelease, ...symbolSet]), () => HERMES_BUILD, {
+        before: [
+            hermesArgs.inject('android'),
+            hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED, [...appRelease, ...symbolSet]),
+        ],
+    }),
+    hermes('upload-already-present', hermesArgs.upload('android/hbc', appRelease), () => HERMES_BUILD, {
+        before: [hermesArgs.inject('android'), hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED)],
+        runs: 2,
+    }),
+    hermes(
+        'upload-hash-mismatch',
+        hermesArgs.upload('android/hbc', [...appRelease, ...symbolSet, '--skip-on-conflict']),
+        () => HERMES_BUILD,
+        {
+            server: 'hash-mismatch',
+            before: [hermesArgs.inject('android'), hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED)],
+        }
+    ),
+    hermes(
+        'upload-release-mismatch',
+        hermesArgs.upload('android/hbc', [...appRelease, ...symbolSet]),
+        () => HERMES_BUILD,
+        {
+            server: 'release-mismatch',
+            before: [hermesArgs.inject('android'), hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED)],
+        }
+    ),
+    hermes('upload-post-only', hermesArgs.upload('android/hbc', appRelease), () => HERMES_BUILD, {
+        server: 'post-only',
+        before: [hermesArgs.inject('android'), hermesArgs.clone(ANDROID_MAP, ANDROID_COMPOSED)],
+    }),
+    hermes('upload-debug-id', hermesArgs.upload('ios/hbc', appRelease), () => EXPO_BUILD, {
+        before: [hermesArgs.clone('ios/main.jsbundle.map', 'ios/hbc/main.jsbundle.hbc.composed.map')],
+    }),
+    hermes('upload-no-chunk-id', hermesArgs.upload('android/hbc'), () => HERMES_BUILD)
 )

@@ -24,6 +24,9 @@ They run on real bundler output in `bundles/` (esbuild, rollup, webpack and ters
 Symbol-set mode mints random UUIDv7 chunk IDs, so `js-inject-symbol-set` compares where the IDs go, not their values.
 The symbol-set upload scenarios then start from the files posthog-cli wrote in that scenario, so their content hashes are compared exactly.
 
+Hermes scenarios run the React Native steps in order with `before`: inject the Metro bundle, clone into the composed map, then upload.
+The files in `hermes-fixtures.ts` are hand-written, with the Metro and Hermes keys, odd numbers and escapes that the serializer has to reproduce.
+
 ## What is normalized
 
 `normalize.ts` rewrites only values that are random by design:
