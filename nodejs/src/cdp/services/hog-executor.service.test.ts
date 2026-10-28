@@ -2106,7 +2106,7 @@ describe('Hog Executor', () => {
 
             const team = (await createTestTeamFixture(hub.postgres)).team
             const warehouse = await insertIntegration(hub.postgres, team.id, {
-                kind: 'postgresql',
+                kind: 'postgresql' as any,
                 config: { warehouse_source_type: 'Postgres' },
                 sensitive_config: { access_token: hub.encryptedFields.encrypt('warehouse_secret_token') },
             })

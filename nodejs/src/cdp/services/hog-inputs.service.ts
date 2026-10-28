@@ -304,7 +304,15 @@ export class HogInputsService {
         Object.entries(multiInputsToLoad).forEach(([key, ids]) => {
             const usedValue = options?.throwIfMissingIn?.[key]?.value
             const usedIds = Array.isArray(usedValue) ? usedValue : []
-            if (ids.some((id) => usedIds.includes(id) && isWarehouseSourceIntegration(integrations[id]))) {
+            // Only classify this team's rows, so another team's IDs can't be probed through the error.
+            if (
+                ids.some(
+                    (id) =>
+                        usedIds.includes(id) &&
+                        integrations[id]?.team_id === hogFunction.team_id &&
+                        isWarehouseSourceIntegration(integrations[id])
+                )
+            ) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
             }
             returnInputs[key] = { value: ids.map(resolveIntegration).filter((v) => v !== null) }
@@ -321,7 +329,7 @@ export class HogInputsService {
 
 // A row with the `warehouse_source_type` key holds data warehouse source credentials. They are never Hog function
 // inputs. This matches the Python check: the key blocks with any value, and a config that is not an object blocks too.
-const isWarehouseSourceIntegration = (integration: { config?: unknown } | undefined): boolean => {
+const isWarehouseSourceIntegration = (integration: { config?: unknown } | null | undefined): boolean => {
     const config = integration?.config
     if (config === null || config === undefined) {
         return false

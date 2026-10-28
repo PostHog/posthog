@@ -97,7 +97,7 @@ describe('Hog Inputs', () => {
         const id = team.id + 3
         await insertIntegration(hub.postgres, team.id, {
             id,
-            kind: 'postgresql',
+            kind: 'postgresql' as any,
             config: (typeof config === 'string' ? JSON.stringify(config) : config) as any,
             sensitive_config: { password: hub.encryptedFields.encrypt('secret-password') },
         })
@@ -400,7 +400,7 @@ describe('Hog Inputs', () => {
             if (config === null) {
                 const row = (await hub.integrationManager.getMany([warehouseId]))[warehouseId]
                 jest.spyOn(hub.integrationManager, 'getMany').mockResolvedValue({
-                    [warehouseId]: { ...row, config: null as any },
+                    [warehouseId]: { ...row!, config: null as any },
                 })
             }
             hogFunction.inputs = { connection: { value: warehouseId } }
