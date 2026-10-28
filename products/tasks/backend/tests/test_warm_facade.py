@@ -17,6 +17,7 @@ from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 from posthog.models.user_integration import UserIntegration
 
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as facade,
@@ -1706,6 +1707,7 @@ class TestWarmTaskResumeSandbox(APIBaseTest):
             branch="release",
             extra_state={
                 "snapshot_external_id": "snapshot-1",
+                "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 "pr_base_branch": base_branch,
                 "stack_base_branch": "release",
                 "auto_publish": True,
