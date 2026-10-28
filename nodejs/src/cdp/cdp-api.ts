@@ -64,8 +64,10 @@ import { GroupsManagerService } from './services/managers/groups-manager.service
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY } from './services/messaging/email-priority'
+import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
+import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService } from './services/monitoring/hog-function-monitoring.service'
@@ -198,8 +200,10 @@ export class CdpApi {
     private transactionalEmailJwt: ScopedServiceJwt
     private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private emailSuppressionService: EmailSuppressionService
+    private emailValidationService: EmailValidationService
     private teamWorkflowsConfigService: TeamWorkflowsConfigService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
+    private emailStatusService: EmailStatusService
     private resumeBatchJwt: ScopedServiceJwt
 
     constructor(
@@ -214,6 +218,7 @@ export class CdpApi {
         this.hogFlowManager = services.hogFlowManager
         this.recipientTokensService = services.recipientTokensService
         this.emailSuppressionService = services.emailSuppressionService
+        this.emailValidationService = services.emailValidationService
         this.teamWorkflowsConfigService = services.teamWorkflowsConfigService
         this.hogExecutorAsync = services.hogExecutorAsync
         this.hogInputsService = services.hogInputsService
@@ -223,6 +228,7 @@ export class CdpApi {
         this.hogWatcher = services.hogWatcher
         this.hogWatcherMirror = services.hogWatcherMirror
         this.invocationResultsService = services.invocationResultsService
+        this.emailStatusService = services.emailStatusService
 
         // API-only services. The hog-transformer's monitoring service reuses the same
         // resolved outputs registry as the core CDP services — no separate construction.
@@ -246,7 +252,8 @@ export class CdpApi {
             services.capturedEventsService,
             services.teamWorkflowsConfigService,
             new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
-            services.emailSuppressionService
+            services.emailSuppressionService,
+            services.emailStatusService
         )
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
@@ -1257,7 +1264,12 @@ export class CdpApi {
             if (idempotencyKey) {
                 await idempotencyKeys.markQueued(team.id, idempotencyKey, fingerprint, invocation.id)
             }
-            await this.invocationResultsService.invocationResultsRowsService.flush()
+            this.emailStatusService.queue({ teamId: team.id, messageId: invocation.id, status: 'queued' })
+            // Flushed together, and bounded, so the best-effort status row can't hold up the 202.
+            await Promise.all([
+                this.invocationResultsService.invocationResultsRowsService.flush(),
+                this.emailStatusService.flush(),
+            ])
             // The run skips the trigger pipeline that counts runs for event-triggered workflows.
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
@@ -1301,6 +1313,10 @@ export class CdpApi {
         const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
         if (isLimited) {
             return { outcome: 'quota_limited', status: 429 }
+        }
+        // Last, because a cache miss costs a DNS lookup. A DNS failure lets the send through.
+        if (await this.emailValidationService.getRecipientSkipReason(teamId, to)) {
+            return { outcome: 'recipient_unreachable', status: 422 }
         }
         return null
     }
@@ -1879,6 +1895,8 @@ export class CdpApi {
                     valid: result.valid,
                     team_id: result.team_id,
                     identifier: result.identifier,
+                    app_source_id: result.app_source_id,
+                    instance_id: result.instance_id,
                 })
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)

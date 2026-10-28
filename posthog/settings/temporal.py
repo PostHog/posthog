@@ -36,6 +36,10 @@ MAX_CONCURRENT_WORKFLOW_TASKS: int | None = get_from_env(
     "MAX_CONCURRENT_WORKFLOW_TASKS", None, optional=True, type_cast=int
 )
 MAX_CONCURRENT_ACTIVITIES: int | None = get_from_env("MAX_CONCURRENT_ACTIVITIES", None, optional=True, type_cast=int)
+# "workflows" or "activities" makes the worker poll only that half of its task queue, so that a second
+# deployment on the same queue can serve the other half. Workflow tasks then do not compete with
+# CPU-heavy activities for the GIL. "all", the default, polls both.
+TEMPORAL_WORKER_ROLE: str = get_from_env("TEMPORAL_WORKER_ROLE", "all")
 # Caps the @asyncify pool. An asyncify thread can hold a Django connection for its whole call, so the
 # pool is a pgbouncer client-connection multiplier: worker replicas x pool size must stay under the
 # pooler's max_client_conn at its minimum replica count. Raise only with that arithmetic redone.
@@ -363,6 +367,11 @@ SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
 # dispatching services. Setting it first strands builds on a pollerless queue until the
 # workflow execution timeout closes them.
 CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
+# Messaging provider imports (for example Customer.io suppressions) share the general-purpose fleet. To move them to a
+# dedicated worker, deploy a worker polling the new queue before setting this env on the dispatching services.
+MESSAGING_IMPORT_TASK_QUEUE = _set_temporal_task_queue(
+    os.getenv("MESSAGING_IMPORT_TASK_QUEUE", "general-purpose-task-queue")
+)
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
 EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-activity-task-queue"
@@ -410,6 +419,35 @@ ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS: int = get_from_env(
 if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
+    )
+# Insight batch keys the platform starts per tick, across every team. A key is one team's checks due
+# in one slot. With a tick a minute, 60 times this must cover the keys due per hour, or hourly alerts
+# fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the
+# pool full polls for a slot within its tick, so a high value costs waiting runs rather than load.
+# The default is never below the pool size, so a larger pool is never left idle. Discovery returns
+# every key in one activity result, so the cap keeps it at the 1000 keys the other sources use.
+ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK", max(200, ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS), type_cast=int
+)
+if not 0 < ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK <= 1000:
+    raise ImproperlyConfigured("ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK must be between 1 and 1000")
+# Chart renders for platform insight firings allowed to run at once, across every worker. A render
+# blocks a worker thread for up to 90 seconds, so this keeps renders from taking the slots that
+# planning and recording need.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS: int = get_from_env(
+    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS", 3, type_cast=int
+)
+if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHART_RENDERS must be a positive integer, or no platform insight chart renders"
+    )
+# Billing batch keys the platform starts per tick, across every team. A key is one team's due alerts
+# and makes one billing service call, so this bounds the platform's load on that service. With a tick
+# a minute, 60 times this must cover the keys due per hour, or hourly alerts fall behind their cadence.
+ALERTS_PLATFORM_BILLING_KEYS_PER_TICK: int = get_from_env("ALERTS_PLATFORM_BILLING_KEYS_PER_TICK", 5, type_cast=int)
+if ALERTS_PLATFORM_BILLING_KEYS_PER_TICK <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_BILLING_KEYS_PER_TICK must be a positive integer, or no platform billing check starts"
     )
 # The platform's parallel logs batches allowed to run at once, across every team. A batch runs its
 # cohort queries one after another, so this bounds the parallel run's concurrent logs queries.

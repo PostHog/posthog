@@ -40,7 +40,7 @@ def _mock_llm_client(
     verdict: bool = True, confidence: float = 0.9, reasoning: str = "builds ai software", verdict_key: str = "is_ai"
 ) -> MagicMock:
     client = MagicMock()
-    # The run action chains .with_options(max_retries=0) onto get_llm_client(...); without this,
+    # The run action chains .with_options(max_retries=0) onto build_openai_client(...); without this,
     # that call returns a fresh, unconfigured child mock and every assertion below silently
     # checks the wrong object (see enrichment_label_batch.py for the same pattern).
     client.with_options.return_value = client
@@ -188,7 +188,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
         fake_client = MagicMock()
         fake_client.models.list.return_value = [MagicMock(id="gpt-5.2"), MagicMock(id="claude-fable-5")]
 
-        with patch("products.growth.backend.enrichment.lab.get_llm_client", return_value=fake_client):
+        with patch("products.growth.backend.enrichment.lab.build_openai_client", return_value=fake_client):
             response = self.client.get("/api/growth_ai_enrichment/models/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -196,7 +196,9 @@ class TestAIEnrichmentAPI(APIBaseTest):
         self.assertEqual(ids, {"gpt-5.2", "claude-fable-5"})
 
     def test_models_returns_empty_rather_than_a_stale_list_when_the_gateway_is_down(self):
-        with patch("products.growth.backend.enrichment.lab.get_llm_client", side_effect=RuntimeError("gateway down")):
+        with patch(
+            "products.growth.backend.enrichment.lab.build_openai_client", side_effect=RuntimeError("gateway down")
+        ):
             response = self.client.get("/api/growth_ai_enrichment/models/")
 
         # No curated mirror: a hand-maintained fallback goes stale silently.
@@ -422,7 +424,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
         client = _mock_llm_client()
 
         with (
-            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client),
+            patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=client),
             patch("products.growth.backend.enrichment.lab.ai_processing_approved", return_value=False),
         ):
             response = self.client.post(
@@ -513,7 +515,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
         )
         client = _mock_llm_client()
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client) as get_client:
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=client) as get_client:
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -528,7 +530,11 @@ class TestAIEnrichmentAPI(APIBaseTest):
             )
             _drain_ndjson(response.streaming_content)  # type: ignore[attr-defined]
 
-        get_client.assert_called_once_with(product="growth")
+        get_client.assert_called_once_with(
+            product="growth",
+            ai_product="growth",
+            properties={"ai_feature": "ai_enrichment", "surface": "staff_run"},
+        )
         client.with_options.assert_called_once_with(max_retries=0)
 
     def test_run_is_throttled_for_session_auth(self):
@@ -547,7 +553,7 @@ class TestAIEnrichmentAPI(APIBaseTest):
             "sample": 1,
         }
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=_mock_llm_client()):
             statuses = []
             for _ in range(11):
                 response = self.client.post("/api/growth_ai_enrichment/run/", payload, format="json")
@@ -591,7 +597,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
             payload={"name": "Acme", "contactEmail": "person@example.com"},
         )
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=_mock_llm_client()):
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -633,7 +639,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
             payload={"companyFound": False, "name": "Acme"},
         )
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=_mock_llm_client()):
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -658,7 +664,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
             organization=self.organization, provider="harmonic", payload={"companyFound": False}
         )
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=_mock_llm_client()):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=_mock_llm_client()):
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -692,7 +698,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         )
         client = _mock_llm_client()
 
-        with patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client):
+        with patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=client):
             response = self.client.post(
                 "/api/growth_ai_enrichment/run/",
                 {
@@ -729,7 +735,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         # classify_fetch_for_run runs in a thread-pool worker that only executes (and only then
         # calls capture_exception) once something actually iterates streaming_content.
         with (
-            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=failing_client),
+            patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=failing_client),
             patch("products.growth.backend.enrichment.lab.capture_exception") as mock_capture,
             patch("tenacity.nap.time.sleep"),
         ):
@@ -765,7 +771,7 @@ class TestAIEnrichmentRunClassification(NonAtomicAPIBaseTest):
         client = _mock_llm_client()
 
         with (
-            patch("products.growth.backend.api.ai_enrichment.get_llm_client", return_value=client),
+            patch("products.growth.backend.api.ai_enrichment.build_openai_client", return_value=client),
             patch("products.growth.backend.enrichment.lab.classify_payload", side_effect=TransientToolError("boom")),
         ):
             response = self.client.post(

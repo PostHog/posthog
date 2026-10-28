@@ -47,6 +47,19 @@ export class PersonMergeCallFailedError extends PersonMergeError {
     }
 }
 
+/** The merge backend refused the call before anything ran (`x-not-applied`); re-sent, never settled as lost. */
+export class PersonMergeNotAppliedError extends PersonMergeError {
+    readonly type = 'NOT_APPLIED' as const
+
+    constructor(
+        message: string,
+        public readonly reason: string,
+        public readonly failure: unknown
+    ) {
+        super(message)
+    }
+}
+
 /**
  * The merge backend answered an unsettled verdict: a retry under the same
  * op id may change the answer. Retried in-process; exhaustion drops the

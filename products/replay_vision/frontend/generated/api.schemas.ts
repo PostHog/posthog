@@ -935,7 +935,7 @@ export interface ObservationSearchResponseApi {
 }
 
 export interface SearchSuggestionsResponseApi {
-    /** Up to 4 example searches naming themes in recent observations. Empty until a scheduled refresh has run for a scanner someone viewed. */
+    /** Up to 4 example searches naming the largest active themes in recent issue observations. Empty until a scanner has a named theme. */
     queries: string[]
 }
 
@@ -2912,69 +2912,6 @@ export interface ScannerStatsResponseApi {
 }
 
 /**
- * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
- */
-export interface SuggestTagsRequestApi {
-    /**
-     * The classifier's instruction prompt — the single dimension to categorize sessions by.
-     * @maxLength 10000
-     */
-    prompt: string
-    /**
-     * The categories already configured, so suggestions never duplicate one the user has.
-     * @maxItems 200
-     * @items.maxLength 200
-     */
-    tags?: string[]
-    /** Whether the classifier assigns multiple tags per session. */
-    multi_label?: boolean
-    /** Whether the classifier may emit tags outside the fixed vocabulary. */
-    allow_freeform_tags?: boolean
-    /**
-     * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
-     * @nullable
-     */
-    scanner_id?: string | null
-}
-
-/**
- * * `observed` - observed
- * * `product` - product
- * * `prompt` - prompt
- */
-export type TagSuggestionSourceEnumApi = (typeof TagSuggestionSourceEnumApi)[keyof typeof TagSuggestionSourceEnumApi]
-
-export const TagSuggestionSourceEnumApi = {
-    Observed: 'observed',
-    Product: 'product',
-    Prompt: 'prompt',
-} as const
-
-/**
- * One grounded tag suggestion.
- */
-export interface TagSuggestionApi {
-    /** Suggested tag to add to the vocabulary, normalized to lowercase. */
-    tag: string
-    /** One sentence explaining the specific evidence this tag is grounded in. */
-    rationale: string
-    /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
-     *
-     * * `observed` - observed
-     * * `product` - product
-     * * `prompt` - prompt */
-    source: TagSuggestionSourceEnumApi
-}
-
-/**
- * Grounded tag suggestions for the classifier config editor.
- */
-export interface SuggestTagsResponseApi {
-    /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
-    suggestions: TagSuggestionApi[]
-}
-
-/**
  * * `signal_emitted` - Signal Emitted
  * * `unusual_verdict` - Unusual Verdict
  * * `notable` - Notable
@@ -3340,6 +3277,10 @@ export type VisionObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionObservationsThumbnailRetrieveParams = {
@@ -3583,6 +3524,10 @@ export type VisionScannersObservationsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsRetrieveParams = {
@@ -3642,6 +3587,10 @@ export type VisionScannersObservationsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsSignalReportsListParams = {
@@ -3701,6 +3650,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersObservationsThumbnailRetrieveParams = {
@@ -3784,6 +3737,10 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string
+    /**
+     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     */
+    watch_group?: string
 }
 
 export type VisionScannersWatchFeedRetrieveParams = {
