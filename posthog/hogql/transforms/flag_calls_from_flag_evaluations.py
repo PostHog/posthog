@@ -307,8 +307,8 @@ class EventsScan:
         join = node.select_from
         if join is None or not isinstance(join.table, ast.Field):
             return None
-        name = ".".join(str(part) for part in join.table.chain)
-        if name not in _EVENTS_NAMES or name in ctes:
+        table_name = ".".join(str(part) for part in join.table.chain)
+        if table_name not in _EVENTS_NAMES or table_name in ctes:
             return None
         scan = cls(
             join=join,
