@@ -619,6 +619,18 @@ class BaseAgentRunner(ABC):
                         raise ValueError("Approval does not match a pending operation")
                     self._resume_payload = None
                     resume_value = None
+                elif self._resume_payload["action"] == "reject" and self._resume_payload.get("feedback"):
+                    # Feedback is a new instruction, so it rejects the whole batch, or each remaining card re-prompts with the old request.
+                    rejections = {
+                        pending.interrupt_id: {**self._resume_payload, "proposal_id": pending_id}
+                        for task in snapshot.tasks
+                        if task.result is None
+                        for pending in task.interrupts
+                        if (pending_id := pending_approval_proposal_id(pending.value))
+                    }
+                    for rejection in rejections.values():
+                        await self._update_approval_decision_status(rejection)
+                    resume_value = rejections
                 else:
                     # A scalar resume targets the next interrupt, which may belong to a different approval card.
                     resume_value = {approval_interrupt.interrupt_id: self._resume_payload}

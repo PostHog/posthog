@@ -32,6 +32,7 @@ from posthog.sync import database_sync_to_async
 
 from products.notebooks.backend.facade import api as notebooks_facade
 from products.notebooks.backend.facade.widgets import reusable_widget_catalog_context
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context.dashboard.context import DashboardContext, DashboardInsightContext
 from ee.hogai.context.insight.context import InsightContext
@@ -261,6 +262,12 @@ class AssistantContextManager(AssistantContextMixin):
 
                 # Build DashboardInsightContext models for this dashboard
                 insights_data: list[DashboardInsightContext] = []
+                saved_queries = {
+                    short_id: query
+                    async for short_id, query in Insight.objects.filter(
+                        team=self._team, short_id__in=[insight.id for insight in dashboard.insights], deleted=False
+                    ).values_list("short_id", "query")
+                }
                 for insight in dashboard.insights:
                     filters_override = (
                         insight.filtersOverride.model_dump(mode="json") if insight.filtersOverride else None
@@ -278,6 +285,7 @@ class AssistantContextManager(AssistantContextMixin):
                             short_id=insight.id,
                             filters_override=filters_override,
                             variables_override=variables_override,
+                            saved_query=saved_queries.get(insight.id),
                         )
                     )
 

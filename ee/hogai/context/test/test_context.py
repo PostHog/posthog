@@ -39,6 +39,8 @@ from posthog.schema import (
 
 from posthog.models.organization import OrganizationMembership
 
+from products.product_analytics.backend.facade.models import Insight
+
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.context import DASHBOARD_CONTEXT_CHAR_BUDGET
 from ee.hogai.context.notebook.prompts import LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE
@@ -179,10 +181,14 @@ class TestAssistantContextManager(BaseTest):
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_format_ui_context_with_dashboard(self, mock_execute):
         mock_execute.return_value = "Dashboard insight results"
+        saved = await Insight.objects.acreate(
+            team=self.team,
+            query={"kind": "InsightVizNode", "source": {"kind": "TrendsQuery", "series": [], "interval": "day"}},
+        )
 
         # Create mock insight
         insight = MaxInsightContext(
-            id="123",
+            id=saved.short_id,
             name="Dashboard Insight",
             description="Test insight",
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
@@ -207,6 +213,8 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("## Dashboard name: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
         self.assertIn("Dashboard insights:", result)
+        # query_patch targets the stored query, so the attached context must show its wrapper.
+        self.assertIn('{"kind":"InsightVizNode","source":{', result)
         # The insight execution is tested separately - just verify structure here
         self.assertNotIn("# Insights", result)
 

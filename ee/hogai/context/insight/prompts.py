@@ -14,7 +14,12 @@ This insight is not saved in the project, so it cannot be accessed via a URL. An
 {{/insight_url}}
 {{#query_schema}}
 
+{{#is_saved_query}}
+Saved query (query_patch paths start at the root of this object):
+{{/is_saved_query}}
+{{^is_saved_query}}
 Query schema:
+{{/is_saved_query}}
 ```json
 {{{query_schema}}}
 ```
