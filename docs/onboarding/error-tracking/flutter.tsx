@@ -22,6 +22,11 @@ export const getFlutterSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                 </CalloutBox>
                 <Markdown>
                     {dedent`
+                        Dart AOT symbolication and background isolate listeners require \`posthog_flutter\` 5.58.0 or later. If your project uses an earlier version, set \`posthog_flutter: ^5.58.0\` in \`pubspec.yaml\` and run \`flutter pub get\`.
+                    `}
+                </Markdown>
+                <Markdown>
+                    {dedent`
                         You can autocapture exceptions by configuring the \`errorTrackingConfig\` when setting up PostHog:
                     `}
                 </Markdown>
