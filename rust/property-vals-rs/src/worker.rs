@@ -15,6 +15,7 @@ use crate::seen_cache::{utc_day, SeenCache};
 use crate::types::{IngestableEvent, PropertyType, TupleKey};
 
 const MAX_BATCH_MESSAGES: usize = 256;
+const MAX_BATCH_BYTES: usize = 32 * 1024 * 1024;
 
 #[derive(Clone, Copy, Default)]
 pub struct ReductionConfig {
@@ -109,11 +110,29 @@ fn recv_ready_batch(
     first: Result<(Vec<u8>, Offset), RecvErr>,
     worker: &'static str,
 ) -> Vec<(Vec<u8>, Offset)> {
+    drain_ready(
+        first,
+        || consumer.recv_with(copy_payload).now_or_never(),
+        worker,
+    )
+}
+
+fn drain_ready<T>(
+    first: Result<(Vec<u8>, T), RecvErr>,
+    mut next_ready: impl FnMut() -> Option<Result<(Vec<u8>, T), RecvErr>>,
+    worker: &'static str,
+) -> Vec<(Vec<u8>, T)> {
     let mut batch = Vec::new();
+    let mut received = 0;
+    let mut batch_bytes = 0;
     let mut next = Some(first);
     while let Some(recv) = next {
+        received += 1;
         match recv {
-            Ok(message) => batch.push(message),
+            Ok((payload, offset)) => {
+                batch_bytes += payload.len();
+                batch.push((payload, offset));
+            }
             Err(RecvErr::Empty) | Err(RecvErr::Serde(_)) => {
                 // SingleTopicConsumer auto-stores poison-pill offsets.
             }
@@ -123,8 +142,8 @@ fn recv_ready_batch(
                 break;
             }
         }
-        next = if batch.len() < MAX_BATCH_MESSAGES {
-            consumer.recv_with(copy_payload).now_or_never()
+        next = if received < MAX_BATCH_MESSAGES && batch_bytes < MAX_BATCH_BYTES {
+            next_ready()
         } else {
             None
         };
@@ -383,6 +402,28 @@ mod tests {
             (tuple(2, "$browser", "Chrome"), 1_800),
         ]);
         assert_eq!(batch.drain(), expected);
+    }
+
+    #[test]
+    fn drain_ready_counts_empty_messages_toward_the_batch_limit() {
+        let mut ready = std::iter::repeat_with(|| Err(RecvErr::Empty))
+            .take(2 * MAX_BATCH_MESSAGES)
+            .chain((0..MAX_BATCH_MESSAGES).map(|offset| Ok((b"{}".to_vec(), offset))));
+
+        let batch = drain_ready(Ok((b"{}".to_vec(), 0)), || ready.next(), "test");
+
+        assert_eq!(batch.len(), 1);
+        assert_eq!(ready.count(), 2 * MAX_BATCH_MESSAGES + 1);
+    }
+
+    #[test]
+    fn drain_ready_stops_once_payloads_reach_the_byte_budget() {
+        let payload = || vec![0; MAX_BATCH_BYTES / 4];
+        let mut ready = (1..10).map(|offset| Ok((payload(), offset)));
+
+        let batch = drain_ready(Ok((payload(), 0)), || ready.next(), "test");
+
+        assert_eq!(batch.len(), 4);
     }
 
     #[test]
