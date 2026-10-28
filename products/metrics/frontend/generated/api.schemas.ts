@@ -1328,6 +1328,22 @@ export const AlertDestinationTypeEnumApi = {
 } as const
 
 /**
+ * * `firing` - firing
+ * * `resolved` - resolved
+ * * `errored` - errored
+ * * `broken` - broken
+ */
+export type MetricsAlertDestinationEventKindEnumApi =
+    (typeof MetricsAlertDestinationEventKindEnumApi)[keyof typeof MetricsAlertDestinationEventKindEnumApi]
+
+export const MetricsAlertDestinationEventKindEnumApi = {
+    Firing: 'firing',
+    Resolved: 'resolved',
+    Errored: 'errored',
+    Broken: 'broken',
+} as const
+
+/**
  * * `critical` - critical
  * * `error` - error
  * * `warning` - warning
@@ -1354,8 +1370,8 @@ export const PagerDutyRegionEnumApi = {
 } as const
 
 export interface MetricsAlertDestinationApi {
-    /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
-    hog_function_ids: string[]
+    /** ID of the destination. Send it to the delete endpoint to remove it. */
+    id: string
     /** Notification destination type.
      *
      * * `slack` - slack
@@ -1364,8 +1380,10 @@ export interface MetricsAlertDestinationApi {
      * * `discord` - discord
      * * `pagerduty` - pagerduty */
     type: AlertDestinationTypeEnumApi
-    /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+    /** Whether the destination is sent to. */
     enabled: boolean
+    /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
+    event_kinds: MetricsAlertDestinationEventKindEnumApi[]
     /** Integration ID of the Slack workspace. Set when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Set when type=slack. */
@@ -1421,20 +1439,20 @@ export interface MetricsAlertCreateDestinationApi {
      * * `us` - us
      * * `eu` - eu */
     pagerduty_region?: PagerDutyRegionEnumApi
-}
-
-export interface MetricsAlertDestinationCreatedApi {
-    /** HogFunction IDs created for the destination, one per event kind. */
-    hog_function_ids: string[]
+    /**
+     * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
+     * @minItems 1
+     */
+    event_kinds?: MetricsAlertDestinationEventKindEnumApi[]
 }
 
 export interface MetricsAlertDeleteDestinationApi {
     /**
-     * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+     * IDs of the destinations to delete, as the list endpoint returns them.
      * @minItems 1
      * @maxItems 100
      */
-    hog_function_ids: string[]
+    destination_ids: string[]
 }
 
 export type MetricsAttributeValuesRetrieveParams = {

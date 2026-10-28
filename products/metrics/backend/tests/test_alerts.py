@@ -22,21 +22,23 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.alerts.backend.facade.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import create_configuration, record_outcomes, slot_of
+from products.alerts_platform.backend.facade.api import (
+    create_configuration,
+    list_alert_destinations,
+    record_outcomes,
+    slot_of,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertEventKind,
     Grouping,
     GroupingMode,
+    IncidentAction,
     PlatformAlertConfigurationEdit,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
     SourceKind,
 )
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.cdp.backend.templates.fixtures import template_slack
-from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.metrics.backend.alerts.checkpoint import evaluation_time
 from products.metrics.backend.alerts.evaluation import evaluate_metrics_alert_batch
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
@@ -209,37 +211,43 @@ class TestMetricsAlertEvaluation(APIBaseTest):
             consecutive_failures,
         )
 
-    def test_a_slack_destination_receives_the_firing_and_goes_with_the_alert(self) -> None:
-        sync_template_to_db(template_slack)
+    def test_destinations_are_alert_destination_rows_that_the_firing_reaches(self) -> None:
         workspace = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
         destinations_url = f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/"
-        added = self.client.post(
+        slack = self.client.post(
             destinations_url,
-            {
-                "type": "slack",
-                "slack_workspace_id": workspace.id,
-                "slack_channel_id": "C123",
-                "slack_channel_name": "alerts",
-            },
+            {"type": "slack", "slack_workspace_id": workspace.id, "slack_channel_id": "C123"},
             format="json",
         )
-        assert added.status_code == status.HTTP_201_CREATED, added.json()
-        hog_function_ids = added.json()["hog_function_ids"]
-        (listed,) = self.client.get(destinations_url).json()
-        assert (listed["slack_channel_id"], sorted(listed["hog_function_ids"])) == ("C123", sorted(hog_function_ids))
+        pagerduty = self.client.post(
+            destinations_url,
+            {"type": "pagerduty", "pagerduty_routing_key": "0123456789abcdef0123456789abcdef"},
+            format="json",
+        )
+        assert slack.status_code == pagerduty.status_code == status.HTTP_201_CREATED, (slack.json(), pagerduty.json())
+        assert (slack.json()["event_kinds"], pagerduty.json()["event_kinds"]) == (
+            ["firing", "resolved", "errored", "broken"],
+            ["firing", "resolved"],
+        )
+        assert [d["id"] for d in self.client.get(destinations_url).json()] == [
+            slack.json()["id"],
+            pagerduty.json()["id"],
+        ]
 
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
         (delivery,) = self._evaluate_batch().deliveries
-        (routed,) = list_alert_destination_groups(
-            team_id=self.team.id,
-            alert_id=delivery.destination_alert_id,
-            allowed_event_ids=[delivery.event_ids_by_kind[AlertEventKind.FIRING.value]],
-        )
-        assert routed.data["slack_channel_id"] == "C123"
+        assert delivery.sends_messages
+        assert list(delivery.incident_actions.values()) == [IncidentAction.TRIGGER]
 
+        removed = self.client.post(
+            f"{destinations_url}delete/", {"destination_ids": [slack.json()["id"]]}, format="json"
+        )
+        assert removed.status_code == status.HTTP_204_NO_CONTENT
+        assert [d["type"] for d in self.client.get(destinations_url).json()] == ["pagerduty"]
         deleted = self.client.delete(f"/api/projects/{self.team.id}/platform_alerts/{self.configuration_id}/")
         assert deleted.status_code == status.HTTP_204_NO_CONTENT
-        assert not HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).exists()
+        with team_scope(self.team.id):
+            assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id) == ()
 
     @parameterized.expand(
         [

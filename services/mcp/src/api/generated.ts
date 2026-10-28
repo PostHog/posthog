@@ -72457,6 +72457,22 @@ export namespace Schemas {
       Textbox: 'textbox',
     } as const;
 
+    /**
+     * * `firing` - firing
+     * * `resolved` - resolved
+     * * `errored` - errored
+     * * `broken` - broken
+     */
+    export type MetricsAlertDestinationEventKindEnum = typeof MetricsAlertDestinationEventKindEnum[keyof typeof MetricsAlertDestinationEventKindEnum];
+
+
+    export const MetricsAlertDestinationEventKindEnum = {
+      Firing: 'firing',
+      Resolved: 'resolved',
+      Errored: 'errored',
+      Broken: 'broken',
+    } as const;
+
     export interface MetricsAlertCreateDestination {
       /** Notification destination type.
        *
@@ -72488,20 +72504,25 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
+      /**
+         * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
+         * @minItems 1
+         */
+      event_kinds?: MetricsAlertDestinationEventKindEnum[];
     }
 
     export interface MetricsAlertDeleteDestination {
       /**
-         * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+         * IDs of the destinations to delete, as the list endpoint returns them.
          * @minItems 1
          * @maxItems 100
          */
-      hog_function_ids: string[];
+      destination_ids: string[];
     }
 
     export interface MetricsAlertDestination {
-      /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
-      hog_function_ids: string[];
+      /** ID of the destination. Send it to the delete endpoint to remove it. */
+      id: string;
       /** Notification destination type.
        *
        * * `slack` - slack
@@ -72510,8 +72531,10 @@ export namespace Schemas {
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
       type: AlertDestinationTypeEnum;
-      /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+      /** Whether the destination is sent to. */
       enabled: boolean;
+      /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
+      event_kinds: MetricsAlertDestinationEventKindEnum[];
       /** Integration ID of the Slack workspace. Set when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Set when type=slack. */
@@ -72534,11 +72557,6 @@ export namespace Schemas {
        * * `us` - us
        * * `eu` - eu */
       pagerduty_region?: PagerDutyRegionEnum;
-    }
-
-    export interface MetricsAlertDestinationCreated {
-      /** HogFunction IDs created for the destination, one per event kind. */
-      hog_function_ids: string[];
     }
 
     export interface MetricsCreatedDashboard {

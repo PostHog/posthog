@@ -16,7 +16,6 @@ import type {
     MetricsAlertCreateDestinationApi,
     MetricsAlertDeleteDestinationApi,
     MetricsAlertDestinationApi,
-    MetricsAlertDestinationCreatedApi,
     MetricsAttributeValuesRetrieveParams,
     MetricsAttributesRetrieveParams,
     MetricsCreatedDashboardApi,
@@ -689,15 +688,15 @@ export const getMetricsAlertsDestinationsCreateUrl = (projectId: string, id: str
 }
 
 /**
- * Add a notification destination to a metrics alert. One HogFunction is created per alert event kind (firing, resolved, errored, turned off). A PagerDuty destination gets the incident opened and incident closed kinds instead, so each incident it opens is resolved.
+ * Add a notification destination to a metrics alert. It hears the transitions in `event_kinds`. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves.
  */
 export const metricsAlertsDestinationsCreate = async (
     projectId: string,
     id: string,
     metricsAlertCreateDestinationApi: MetricsAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<MetricsAlertDestinationCreatedApi> => {
-    return apiMutator<MetricsAlertDestinationCreatedApi>(getMetricsAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<MetricsAlertDestinationApi> => {
+    return apiMutator<MetricsAlertDestinationApi>(getMetricsAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -710,7 +709,7 @@ export const getMetricsAlertsDestinationsDeleteCreateUrl = (projectId: string, i
 }
 
 /**
- * Delete one notification destination of a metrics alert, all its HogFunctions together.
+ * Delete notification destinations of a metrics alert.
  */
 export const metricsAlertsDestinationsDeleteCreate = async (
     projectId: string,

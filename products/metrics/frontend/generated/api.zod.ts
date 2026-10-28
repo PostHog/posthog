@@ -853,7 +853,7 @@ export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Add a notification destination to a metrics alert. One HogFunction is created per alert event kind (firing, resolved, errored, turned off). A PagerDuty destination gets the incident opened and incident closed kinds instead, so each incident it opens is resolved.
+ * Add a notification destination to a metrics alert. It hears the transitions in `event_kinds`. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves.
  */
 export const metricsAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
 export const metricsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
@@ -890,17 +890,30 @@ export const MetricsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `us` - us\n\* `eu` - eu')
         .default(metricsAlertsDestinationsCreateBodyPagerdutyRegionDefault)
         .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
+    event_kinds: zod
+        .array(
+            zod
+                .enum(['firing', 'resolved', 'errored', 'broken'])
+                .describe(
+                    '\* `firing` - firing\n\* `resolved` - resolved\n\* `errored` - errored\n\* `broken` - broken'
+                )
+        )
+        .min(1)
+        .optional()
+        .describe(
+            "The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve."
+        ),
 })
 
 /**
- * Delete one notification destination of a metrics alert, all its HogFunctions together.
+ * Delete notification destinations of a metrics alert.
  */
-export const metricsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax = 100
+export const metricsAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
 
 export const MetricsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
-    hog_function_ids: zod
+    destination_ids: zod
         .array(zod.uuid())
         .min(1)
-        .max(metricsAlertsDestinationsDeleteCreateBodyHogFunctionIdsMax)
-        .describe('HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.'),
+        .max(metricsAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .describe('IDs of the destinations to delete, as the list endpoint returns them.'),
 })

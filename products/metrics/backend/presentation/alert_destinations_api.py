@@ -1,8 +1,8 @@
 """Notification destinations of a metrics alert on the alerts platform.
 
 The alert itself is created, edited and deleted through the platform API (`platform_alerts`). Its
-destinations are HogFunctions this product owns, matched on the alert's configuration id, so they
-are managed here.
+destinations are `AlertDestination` rows the platform delivers to, managed here with the metrics
+access rules.
 """
 
 from functools import cached_property
@@ -31,32 +31,40 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.alerts.backend.facade.destinations import (
     MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
     MAX_DESTINATIONS_PER_ALERT,
-    build_alert_destination_config,
-    create_alert_destination_hog_functions,
-    destination_handles_event_kind,
-    list_alert_destination_groups,
     redact_destination_data,
-    soft_delete_alert_destinations,
     validate_destination_data,
 )
-from products.alerts_platform.backend.facade.api import get_configuration
+from products.alerts_platform.backend.facade.api import (
+    create_alert_destinations,
+    delete_alert_destinations,
+    get_configuration,
+    list_alert_destinations,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
+    AlertEventKind,
     DestinationType,
+    NewAlertDestination,
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertConfigurationView,
     SourceKind,
+    StoredAlertDestination,
 )
 from products.alerts_platform.backend.facade.delivery import refused_destination
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.metrics.backend.facade.alerts import EVENT_IDS, EVENT_KIND_CONFIG, METRICS_ALERT_DESTINATION_TYPES
+from products.metrics.backend.facade.alerts import METRICS_ALERT_DESTINATION_TYPES
 
 METRICS_ALERT_KINDS = (SourceKind.METRICS.value,)
 # The metrics an alert queries are gated by the same resource as the metrics scene.
 METRICS_RESOURCE: Literal["metrics"] = "metrics"
-_SLACK_CONTEXT_ELEMENTS = ("Project: <{project.url}|{project.name}>",)
+# What a destination hears when the request names no kinds. An incident manager hears the trigger and
+# resolve of every firing, which delivery sends it for firing and resolved.
+_DEFAULT_EVENT_KINDS: dict[DestinationType, tuple[AlertEventKind, ...]] = {
+    DestinationType.PAGERDUTY: (AlertEventKind.FIRING, AlertEventKind.RESOLVED),
+}
+_MESSAGE_EVENT_KINDS = (AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN)
 # Choices classes for the serializers below. Each label is its value, so the OpenAPI enums keep the
 # names their ENUM_NAME_OVERRIDES entries in posthog/settings/web.py give them. TextChoices supports
 # this functional API at runtime, but its type stubs only describe member construction.
@@ -70,19 +78,22 @@ PagerDutySeverityChoices = cast(Any, models.TextChoices)(
 PagerDutyRegionChoices = cast(Any, models.TextChoices)(
     "PagerDutyRegionChoices", [(member.name, (member.value, member.value)) for member in PagerDutyRegion]
 )
+MetricsAlertDestinationEventKind = cast(Any, models.TextChoices)(
+    "MetricsAlertDestinationEventKind",
+    [(member.name, (member.value, member.value)) for member in _MESSAGE_EVENT_KINDS],
+)
 
 
 class MetricsAlertDestinationSerializer(serializers.Serializer):
-    hog_function_ids = serializers.ListField(
-        child=serializers.UUIDField(),
-        help_text="HogFunction IDs that make up this destination, one per alert event kind it handles. "
-        "Send them all to the delete endpoint to remove the destination.",
-    )
+    id = serializers.UUIDField(help_text="ID of the destination. Send it to the delete endpoint to remove it.")
     type = serializers.ChoiceField(
         choices=MetricsAlertDestinationTypeChoices.choices, help_text="Notification destination type."
     )
-    enabled = serializers.BooleanField(
-        help_text="Whether every HogFunction of the destination is enabled, so it notifies for every event kind."
+    enabled = serializers.BooleanField(help_text="Whether the destination is sent to.")
+    event_kinds = serializers.ListField(
+        child=serializers.ChoiceField(choices=MetricsAlertDestinationEventKind.choices),
+        help_text="The alert transitions the destination hears about. A PagerDuty destination hears the incident "
+        "trigger and resolve of every firing.",
     )
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID of the Slack workspace. Set when type=slack."
@@ -141,9 +152,16 @@ class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
         default=PagerDutyRegion.US.value,
         help_text="PagerDuty service region of the account. Used when type=pagerduty.",
     )
+    event_kinds = serializers.ListField(
+        child=serializers.ChoiceField(choices=MetricsAlertDestinationEventKind.choices),
+        required=False,
+        min_length=1,
+        help_text="The alert transitions to send about. Defaults to every kind, or to firing and resolved for "
+        "PagerDuty, which then hears each incident's trigger and resolve.",
+    )
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        data = cast(AlertDestinationData, attrs)
+        data = cast(AlertDestinationData, {key: value for key, value in attrs.items() if key != "event_kinds"})
         data["type"] = DestinationType(attrs["type"])
         try:
             validate_destination_data(data, allowed_destination_types=METRICS_ALERT_DESTINATION_TYPES)
@@ -152,22 +170,26 @@ class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
         # A destination native delivery would refuse is saved and then never notifies, so refuse it here.
         if refusal := refused_destination(data):
             raise ValidationError({"webhook_url": refusal} if data.get("webhook_url") is not None else refusal)
-        return attrs
-
-
-class MetricsAlertDestinationCreatedSerializer(serializers.Serializer):
-    hog_function_ids = serializers.ListField(
-        child=serializers.UUIDField(), help_text="HogFunction IDs created for the destination, one per event kind."
-    )
+        kinds = attrs.get("event_kinds") or _DEFAULT_EVENT_KINDS.get(data["type"], _MESSAGE_EVENT_KINDS)
+        return {"data": data, "event_kinds": tuple(AlertEventKind(kind) for kind in kinds)}
 
 
 class MetricsAlertDeleteDestinationSerializer(serializers.Serializer):
-    hog_function_ids = serializers.ListField(
+    destination_ids = serializers.ListField(
         child=serializers.UUIDField(),
         min_length=1,
         max_length=MAX_DESTINATION_IDS_PER_DELETE_REQUEST,
-        help_text="HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.",
+        help_text="IDs of the destinations to delete, as the list endpoint returns them.",
     )
+
+
+def _serialized(destination: StoredAlertDestination) -> dict[str, Any]:
+    return {
+        "id": destination.id,
+        "enabled": destination.enabled,
+        "event_kinds": [kind.value for kind in destination.event_kinds],
+        **redact_destination_data(destination.data),
+    }
 
 
 class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -231,33 +253,18 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     @action(detail=True, methods=["GET"], url_path="destinations", pagination_class=None)
     def destinations(self, request: Request, pk: str, **kwargs: Any) -> Response:
         alert = self._alert(pk)
-        groups = list_alert_destination_groups(
-            team_id=self.canonical_team.id, alert_id=str(alert.destination_alert_id), allowed_event_ids=EVENT_IDS
-        )
-        return Response(
-            MetricsAlertDestinationSerializer(
-                [
-                    {
-                        "hog_function_ids": list(group.hog_function_ids),
-                        "enabled": group.fully_enabled,
-                        **redact_destination_data(group.data),
-                    }
-                    for group in groups
-                ],
-                many=True,
-            ).data
-        )
+        destinations = list_alert_destinations(team_id=self.canonical_team.id, configuration_id=alert.id)
+        return Response(MetricsAlertDestinationSerializer([_serialized(d) for d in destinations], many=True).data)
 
     @extend_schema(
         request=MetricsAlertCreateDestinationSerializer,
         responses={
-            201: MetricsAlertDestinationCreatedSerializer,
+            201: MetricsAlertDestinationSerializer,
             400: OpenApiResponse(description="The destination settings are invalid."),
         },
         description=(
-            "Add a notification destination to a metrics alert. One HogFunction is created per alert event kind "
-            "(firing, resolved, errored, turned off). A PagerDuty destination gets the incident opened and "
-            "incident closed kinds instead, so each incident it opens is resolved."
+            "Add a notification destination to a metrics alert. It hears the transitions in `event_kinds`. "
+            "A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves."
         ),
     )
     @destinations.mapping.post
@@ -265,7 +272,8 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         alert = self._alert(pk)
         serializer = MetricsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data = cast(AlertDestinationData, serializer.validated_data)
+        data = cast(AlertDestinationData, serializer.validated_data["data"])
+        event_kinds: tuple[AlertEventKind, ...] = serializer.validated_data["event_kinds"]
         # Native delivery looks the workspace up by team and kind, so a destination naming any other
         # integration would be saved and never notify.
         if (
@@ -275,19 +283,6 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
             ).exists()
         ):
             raise ValidationError({"slack_workspace_id": "Choose a Slack workspace connected to this project."})
-        handled = {
-            kind: spec for kind, spec in EVENT_KIND_CONFIG.items() if destination_handles_event_kind(data["type"], spec)
-        }
-        configs = [
-            build_alert_destination_config(
-                spec=spec,
-                alert_id=str(alert.destination_alert_id),
-                alert_name=alert.name,
-                data=data,
-                slack_context_elements=_SLACK_CONTEXT_ELEMENTS,
-            )
-            for spec in handled.values()
-        ]
         try:
             with transaction.atomic():
                 # The alert's row stays locked until the destinations commit. A delete that got there
@@ -303,21 +298,15 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
                 ):
                     raise NotFound()
                 # Each destination is another message every time the alert fires, so one alert has only a few.
-                existing = list_alert_destination_groups(
-                    team_id=self.canonical_team.id,
-                    alert_id=str(alert.destination_alert_id),
-                    allowed_event_ids=EVENT_IDS,
-                )
+                existing = list_alert_destinations(team_id=self.canonical_team.id, configuration_id=alert.id)
                 if len(existing) >= MAX_DESTINATIONS_PER_ALERT:
                     raise ValidationError(
                         f"This alert already has {MAX_DESTINATIONS_PER_ALERT} destinations. Remove one to add another."
                     )
-                hog_function_ids = create_alert_destination_hog_functions(
-                    configs,
+                (created,) = create_alert_destinations(
                     team_id=self.canonical_team.id,
-                    created_by_id=cast(User, request.user).id,
-                    alert_id=str(alert.destination_alert_id),
-                    allowed_event_ids=EVENT_IDS,
+                    configuration_id=alert.id,
+                    destinations=(NewAlertDestination(data=data, event_kinds=event_kinds),),
                 )
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
@@ -325,43 +314,33 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         report_user_action(
             cast(User, request.user),
             "metrics alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(handled)},
+            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": [kind.value for kind in event_kinds]},
             team=self.team,
             request=request,
         )
-        return Response(
-            MetricsAlertDestinationCreatedSerializer({"hog_function_ids": list(hog_function_ids)}).data,
-            status=status.HTTP_201_CREATED,
-        )
+        return Response(MetricsAlertDestinationSerializer(_serialized(created)).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(
         request=MetricsAlertDeleteDestinationSerializer,
         responses={
-            204: OpenApiResponse(description="The destination's HogFunctions are deleted."),
-            400: OpenApiResponse(description="An ID does not belong to this alert, or names part of a destination."),
+            204: OpenApiResponse(description="The destinations are deleted. An ID of another alert is ignored."),
         },
-        description="Delete one notification destination of a metrics alert, all its HogFunctions together.",
+        description="Delete notification destinations of a metrics alert.",
     )
     @action(detail=True, methods=["POST"], url_path="destinations/delete")
     def delete_destination(self, request: Request, pk: str, **kwargs: Any) -> Response:
         alert = self._alert(pk)
         serializer = MetricsAlertDeleteDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        hog_function_ids: list[UUID] = serializer.validated_data["hog_function_ids"]
-        try:
-            soft_delete_alert_destinations(
-                team_id=self.canonical_team.id,
-                alert_id=str(alert.destination_alert_id),
-                allowed_event_ids=EVENT_IDS,
-                hog_function_ids=hog_function_ids,
-            )
-        except AlertDestinationValidationError as error:
-            raise as_drf_validation_error(error)
+        destination_ids: list[UUID] = serializer.validated_data["destination_ids"]
+        deleted = delete_alert_destinations(
+            team_id=self.canonical_team.id, configuration_id=alert.id, destination_ids=destination_ids
+        )
 
         report_user_action(
             cast(User, request.user),
             "metrics alert destination deleted",
-            {"alert_id": str(alert.id), "count": len(hog_function_ids)},
+            {"alert_id": str(alert.id), "count": deleted},
             team=self.team,
             request=request,
         )

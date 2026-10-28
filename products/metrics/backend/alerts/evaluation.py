@@ -26,8 +26,7 @@ from pydantic import ValidationError
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts.backend.facade.destinations import configured_destination_template_ids
-from products.alerts_platform.backend.facade.api import due_checks, slot_of
+from products.alerts_platform.backend.facade.api import due_checks, has_incident_destination, slot_of
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     GroupingMode,
@@ -355,11 +354,7 @@ def _request(
         for key, (before, after) in moves.items()
         if (action := decide_incident_action(before, after, policy=POLICY)) is not None
     }
-    if actions and not configured_destination_template_ids(
-        team_id=check.team_id,
-        alert_id=destination_alert_id,
-        allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
-    ):
+    if actions and not has_incident_destination(team_id=check.team_id, configuration_id=check.id):
         actions = {}
     if not sends_messages and not actions:
         return None

@@ -1,7 +1,7 @@
-"""What each metrics alert event says, and where its destinations may send it.
+"""The event ids of a metrics alert's transitions, and the destination types it sends to.
 
-A destination is a set of HogFunctions, one per event kind it handles. Native delivery reads them to
-find who to tell and words the message itself, so their templates never run.
+A metrics alert's destinations are `AlertDestination` rows. Delivery maps each event id back to the
+transition it announces, so it knows which rows hear it, and words the message itself.
 """
 
 from dataclasses import replace
@@ -95,8 +95,6 @@ EVENT_KIND_CONFIG: Final[dict[EventKind, EventKindSpec]] = {
         incident_action=IncidentAction.RESOLVE,
     ),
 }
-
-EVENT_IDS: Final[tuple[str, ...]] = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 
 # Which event id each announced kind's destinations filter on. Resolved here because the platform
 # imports no source.
