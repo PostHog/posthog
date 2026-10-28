@@ -20,6 +20,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
+from posthog.hogql.errors import QueryError
 from posthog.hogql.flag_called_warnings import FLAG_CALLED_EVENT
 from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
@@ -75,7 +76,9 @@ _TIMEZONE_ARGUMENT = {"toDateTime": 1, "toDateTime64": 2, "now": 0, "now64": 1}
 _SCAN_COLUMNS = frozenset({"event", "timestamp", "properties"})
 
 
-def can_read_flag_evaluations(node: ast.SelectQuery, now: datetime, timezone: ZoneInfo) -> bool:
+def can_read_flag_evaluations(
+    node: ast.SelectQuery, now: datetime, timezone: ZoneInfo, *, only_in_flag_evaluations: bool = False
+) -> bool:
     """Whether this query's `events` scan selects only rows that `flag_evaluations` holds.
 
     It holds when all of these hold:
@@ -93,15 +96,41 @@ def can_read_flag_evaluations(node: ast.SelectQuery, now: datetime, timezone: Zo
     5. The select list has no `*` or `COLUMNS(...)`, and the scan has no column aliases. `flag_evaluations` has
        other columns, so either one would change what the query reads.
 
+    With `only_in_flag_evaluations`, conditions 2 and 4 do not apply. Ingestion writes no new flag calls to events
+    then, so the scan reads `flag_evaluations` even when that leaves out calls older than its coverage or calls
+    without a flag key.
+
     The caller checks the rest with `swap_keeps_bindings`: every name in the swapped query binds as it did before.
     """
     scan = _EventsScan.of(node)
-    if scan is None or (scan.join.sample is not None and not scan.join.sample.samples_all_rows()):
-        return False
-    if scan.expands_columns(node.select):
+    if scan is None or scan.shape_refusal(node) is not None:
         return False
     conjuncts = _conjuncts(node.where) + _conjuncts(node.prewhere)
+    if only_in_flag_evaluations:
+        return scan.pins_flag_calls(conjuncts, needs_flag_key=False)
     return scan.pins_flag_calls(conjuncts, needs_flag_key=True) and scan.bounds_timestamp(conjuncts, now, timezone)
+
+
+def flag_call_scans_refused(node: ast.AST, context: HogQLContext) -> list[str]:
+    """Why each `events` scan that reads only flag calls cannot read `flag_evaluations`, for an organization whose
+    flag calls are only there. Empty for every other organization."""
+    if (
+        not context.rewrite_flag_calls_to_flag_evaluations
+        or context.database is None
+        or not context.database.flag_calls_only_in_flag_evaluations
+    ):
+        return []
+    collector = _RefusedScanCollector()
+    collector.visit(node)
+    return collector.reasons
+
+
+def flag_calls_only_in_flag_evaluations_error(reason: str) -> QueryError:
+    return QueryError(
+        f"Your organization's {FLAG_CALLED_EVENT} events are only in posthog.flag_evaluations, and this query "
+        f"can't read them there because {reason}. Change that part of the query, or query "
+        "posthog.flag_evaluations directly."
+    )
 
 
 def rewrite_flag_calls_to_flag_evaluations(node: _T_AST, context: HogQLContext) -> _T_AST | None:
@@ -117,7 +146,11 @@ def rewrite_flag_calls_to_flag_evaluations(node: _T_AST, context: HogQLContext) 
     if not finder.found:
         return None
     cloned = clone_expr(node)
-    swapper = _EventsScanSwapper(now=datetime.now(UTC), timezone=ZoneInfo(context.database.get_timezone()))
+    swapper = _EventsScanSwapper(
+        now=datetime.now(UTC),
+        timezone=ZoneInfo(context.database.get_timezone()),
+        only_in_flag_evaluations=context.database.flag_calls_only_in_flag_evaluations,
+    )
     swapper.visit(cloned)
     return cloned if swapper.swapped else None
 
@@ -132,14 +165,7 @@ class _EventsScan:
     @classmethod
     def of(cls, node: ast.SelectQuery) -> "_EventsScan | None":
         join = node.select_from
-        if (
-            join is None
-            or not isinstance(join.table, ast.Field)
-            or join.table.chain != ["events"]
-            or join.table_args is not None
-            or join.table_final
-            or join.column_aliases
-        ):
+        if join is None or not isinstance(join.table, ast.Field) or join.table.chain != ["events"]:
             return None
         scan = cls(
             join=join,
@@ -165,13 +191,20 @@ class _EventsScan:
             return None
         return expr.chain
 
-    def expands_columns(self, select: list[ast.Expr]) -> bool:
-        for item in select:
+    def shape_refusal(self, node: ast.SelectQuery) -> str | None:
+        """Why `flag_evaluations` cannot stand in for this scan whatever its filters say, or None."""
+        if self.join.table_args is not None or self.join.table_final:
+            return "it uses FINAL or table arguments on events"
+        if self.join.column_aliases:
+            return "it names the events columns with column aliases"
+        if self.join.sample is not None and not self.join.sample.samples_all_rows():
+            return "it uses SAMPLE"
+        for item in node.select:
             while isinstance(item, ast.Alias):
                 item = item.expr
             if isinstance(item, ast.ColumnsExpr) or (isinstance(item, ast.Field) and item.chain[-1:] == ["*"]):
-                return True
-        return False
+                return "it selects * or COLUMNS(...)"
+        return None
 
     def pins_flag_calls(self, conjuncts: list[ast.Expr], needs_flag_key: bool) -> bool:
         """Whether `conjuncts` pin `event` to flag calls. `needs_flag_key` is true when no enclosing conjunct pins
@@ -495,16 +528,36 @@ class _FlagCalledConstantFinder(_SyntaxVisitor):
             self.found = True
 
 
+class _RefusedScanCollector(_SyntaxVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.reasons: list[str] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        scan = _EventsScan.of(node)
+        reason = scan.shape_refusal(node) if scan is not None else None
+        if (
+            scan is not None
+            and reason is not None
+            and scan.pins_flag_calls(_conjuncts(node.where) + _conjuncts(node.prewhere), needs_flag_key=False)
+        ):
+            self.reasons.append(reason)
+        super().visit_select_query(node)
+
+
 class _EventsScanSwapper(_SyntaxVisitor):
-    def __init__(self, now: datetime, timezone: ZoneInfo) -> None:
+    def __init__(self, now: datetime, timezone: ZoneInfo, only_in_flag_evaluations: bool) -> None:
         super().__init__()
         self.now = now
         self.timezone = timezone
+        self.only_in_flag_evaluations = only_in_flag_evaluations
         self.swapped = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         scan = _EventsScan.of(node)
-        if scan is not None and can_read_flag_evaluations(node, self.now, self.timezone):
+        if scan is not None and can_read_flag_evaluations(
+            node, self.now, self.timezone, only_in_flag_evaluations=self.only_in_flag_evaluations
+        ):
             self._swap(node, scan)
         super().visit_select_query(node)
 

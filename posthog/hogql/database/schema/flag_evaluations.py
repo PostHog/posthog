@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
-from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSONS
+from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSON_DISTINCT_IDS, PERSONS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
@@ -16,6 +16,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.person_distinct_id_overrides import PersonDistinctIdOverridesTable
+from posthog.hogql.database.schema.person_distinct_ids import PersonDistinctIdsTable
 from posthog.hogql.database.schema.util.null_sentinels import null_if_sentinels
 from posthog.hogql.database.schema.util.uuid import uuid_string_expr_to_uint128_expr
 from posthog.hogql.parser import parse_expr
@@ -69,6 +70,20 @@ class FlagEvaluationsPersonSubTable(VirtualTable):
         "created_at": DateTimeDatabaseField(name="person_created_at", nullable=False),
         "properties": StringJSONDatabaseField(name="person_properties", nullable=False),
     }
+
+    def to_printed_clickhouse(self, context):
+        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+    def to_printed_hogql(self):
+        return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
+
+
+class FlagEvaluationsGroupKeySubTable(VirtualTable):
+    """`goe_N` on events, limited to the group key. The row stores no group properties or creation time at
+    evaluation time, so `goe_N.properties` and `goe_N.created_at` do not resolve here."""
+
+    def __init__(self, group_index: int):
+        super().__init__(fields={"key": StringDatabaseField(name=f"$group_{group_index}", nullable=False)})
 
     def to_printed_clickhouse(self, context):
         return FLAG_EVALUATIONS_CLICKHOUSE_TABLE
@@ -210,6 +225,21 @@ class FlagEvaluationsTable(Table):
             )
             for index in range(GROUP_TYPES_LIMIT)
         },
+        # The events names below let a query on events that reads flag calls resolve here when HogQL swaps the table.
+        "$window_id": ExpressionField(
+            name="$window_id",
+            expr=ast.Call(name="ifNull", args=[ast.Field(chain=["properties", "$window_id"]), ast.Constant(value="")]),
+            isolate_scope=True,
+            hidden=True,
+        ),
+        "event_person_id": UUIDDatabaseField(name="person_id", hidden=True),
+        "pdi": LazyJoin(
+            from_field=["distinct_id"],
+            join_table=PersonDistinctIdsTable(),
+            resolver=PERSON_DISTINCT_IDS,
+            hidden=True,
+        ),
+        **{f"goe_{index}": FlagEvaluationsGroupKeySubTable(group_index=index) for index in range(GROUP_TYPES_LIMIT)},
         # The table stores no elements, and a flag call on events has none either. An element filter therefore
         # resolves here and matches nothing, as it does on events. The empty array keeps its String element type.
         **{

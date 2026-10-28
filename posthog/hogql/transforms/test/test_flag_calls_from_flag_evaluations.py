@@ -357,6 +357,28 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("no_lower_bound", _where(FLAG_CALLED, FLAG_KEY), True),
+            ("bound_before_coverage", _bounded_by("now() - INTERVAL 180 DAY"), True),
+            ("no_flag_key", _where(FLAG_CALLED, BOUND), True),
+            ("no_event_pin", _where(FLAG_KEY, BOUND), False),
+            ("mixed_in", _where("event IN ('$feature_flag_called', '$pageview')", FLAG_KEY, BOUND), False),
+            ("sample", f"SELECT count() FROM events SAMPLE 0.1 WHERE {FLAG_CALLED} AND {FLAG_KEY}", False),
+            ("select_star", f"SELECT * FROM events WHERE {FLAG_CALLED}", False),
+        ]
+    )
+    def test_skips_coverage_and_flag_key_when_only_flag_evaluations_has_flag_calls(
+        self, _name: str, query: str, expected: bool
+    ):
+        select = parse_select(query)
+        assert isinstance(select, ast.SelectQuery)
+
+        assert (
+            can_read_flag_evaluations(select, datetime.now(UTC), ZoneInfo("UTC"), only_in_flag_evaluations=True)
+            is expected
+        )
+
+    @parameterized.expand(
+        [
             # The trends runner's date range for "Last N days" in a day-interval insight.
             *[
                 (f"last_{label}_days_in_{zone}", zone, _last_days_bound(zone, days), expected)

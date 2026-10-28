@@ -450,8 +450,17 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
             ),
             param("refused_by_the_rewrite", _FLAG_CALLED_QUERY, True, 1, rewrite_enabled=True),
             param(
+                "read_from_flag_evaluations_without_coverage_once_events_gets_no_flag_calls",
+                _FLAG_CALLED_QUERY,
+                True,
+                0,
+                rewrite_enabled=True,
+                expected_notices=1,
+                mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+            param(
                 "falls_back_for_a_field_flag_evaluations_lacks",
-                "SELECT $window_id FROM events WHERE event = '$feature_flag_called' "
+                "SELECT goe_0.properties FROM events WHERE event = '$feature_flag_called' "
                 "AND properties.$feature_flag = 'my-flag' AND timestamp >= now() - INTERVAL 7 DAY",
                 True,
                 1,
@@ -477,10 +486,10 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         expected_url: str | None = None,
         rewrite_enabled: bool = False,
         expected_notices: int = 0,
+        mode: FlagEvaluationsMode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization,
-            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
         DataWarehouseSavedQuery.objects.create(
             team=self.team,

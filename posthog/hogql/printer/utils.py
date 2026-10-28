@@ -34,6 +34,8 @@ from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
+    flag_call_scans_refused,
+    flag_calls_only_in_flag_evaluations_error,
     rewrite_flag_calls_to_flag_evaluations,
     swap_keeps_bindings,
 )
@@ -266,6 +268,9 @@ def prepare_ast_for_printing(
     rewritten = None
     if dialect == "clickhouse":
         with context.timings.measure("flag_calls_from_flag_evaluations"):
+            refusals = flag_call_scans_refused(node, context)
+            if refusals:
+                raise flag_calls_only_in_flag_evaluations_error(refusals[0])
             rewritten = rewrite_flag_calls_to_flag_evaluations(node, context)
 
     with context.timings.measure("resolve_types"):
@@ -278,13 +283,18 @@ def prepare_ast_for_printing(
         )
         node = resolve(node)
         if rewritten is not None:
+            reason = "a name in it would read a different column there"
             try:
                 swapped = resolve(rewritten)
-            except BaseHogQLError:
-                # Expected for a query that reads a field flag_evaluations lacks, such as $window_id.
+            except BaseHogQLError as error:
+                # Expected for a query that reads a field flag_evaluations lacks, such as goe_0.properties.
                 swapped = None
+                reason = f"it reads something that table doesn't have: {error}"
             if swapped is not None and swap_keeps_bindings(node, swapped):
                 node = swapped
+            elif context.database is not None and context.database.flag_calls_only_in_flag_evaluations:
+                # events gets no new flag calls, so the original query would return only calls from before the move.
+                raise flag_calls_only_in_flag_evaluations_error(reason)
 
     # Project constant-key JSONExtractString on argMax lazy tables (groups/persons) into the
     # aggregate, so it does not materialize the whole JSON blob per row. Rewrites the call to a

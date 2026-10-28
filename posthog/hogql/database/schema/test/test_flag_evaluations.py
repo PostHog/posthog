@@ -29,6 +29,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.flag_evaluations import add_events_list_fields_to_flag_evaluations
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
+from posthog.hogql.errors import QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -194,10 +195,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         rewrite: bool = True,
         filters: HogQLFilters | None = None,
         modifiers: HogQLQueryModifiers | None = None,
+        mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
     ) -> HogQLQueryResponse:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
-            organization=self.organization,
-            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
         with patch(
             "posthog.hogql.database.database.feature_enabled_or_false",
@@ -678,10 +679,55 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("window_id", "$window_id"),
             ("event_person_id", "event_person_id"),
             ("pdi", "pdi.person_id"),
-            ("goe", "goe_0.key"),
+            ("group_key", "goe_0.key"),
         ]
     )
-    def test_query_reading_a_field_that_only_events_has_falls_back_to_events(self, _name: str, field: str):
+    def test_query_reading_an_events_only_name_reads_flag_evaluations(self, _name: str, field: str):
+        # pdi is an inner join on distinct_id, as on events.
+        create_person(team=self.team, distinct_ids=["probe-distinct-id"])
+        self._create_events_only_flag_call()
+
+        results = self._query_events(f"SELECT distinct_id, {field} FROM events WHERE {FLAG_CALL_CONJUNCTS}").results
+
+        assert [row[0] for row in results] == ["probe-distinct-id"]
+
+    def test_query_reading_event_time_group_properties_falls_back_only_while_events_gets_flag_calls(self):
+        self._create_events_only_flag_call()
+        query = f"SELECT distinct_id, goe_0.properties FROM events WHERE {FLAG_CALL_CONJUNCTS}"
+
+        results = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results
+
+        assert [row[0] for row in results] == ["events-distinct-id"]
+        with self.assertRaises(QueryError):
+            self._query_events(query)
+
+    @parameterized.expand(
+        [
+            ("no_lower_bound", "SELECT distinct_id FROM events WHERE event = '$feature_flag_called'"),
+            (
+                "bound_before_coverage",
+                "SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
+                "AND properties.$feature_flag = 'probe-flag' AND timestamp >= now() - INTERVAL 180 DAY",
+            ),
+        ]
+    )
+    def test_query_reads_flag_evaluations_without_coverage_once_events_gets_no_flag_calls(self, _name: str, query: str):
+        self._create_events_only_flag_call()
+
+        on_events = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS).results
+        on_flag_evaluations = self._query_events(query).results
+
+        assert [row[0] for row in on_events] == ["events-distinct-id"]
+        assert [row[0] for row in on_flag_evaluations] == ["probe-distinct-id"]
+
+    def test_query_flag_evaluations_cannot_answer_errors_once_events_gets_no_flag_calls(self):
+        query = f"SELECT * FROM events WHERE {FLAG_CALL_CONJUNCTS}"
+
+        self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        with self.assertRaisesRegex(QueryError, "selects \\* or COLUMNS"):
+            self._query_events(query)
+
+    def _create_events_only_flag_call(self) -> None:
         _create_event(
             team=self.team,
             event="$feature_flag_called",
@@ -691,10 +737,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         )
         create_person(team=self.team, distinct_ids=["events-distinct-id"])
         flush_persons_and_events()
-
-        results = self._query_events(f"SELECT distinct_id, {field} FROM events WHERE {FLAG_CALL_CONJUNCTS}").results
-
-        assert [row[0] for row in results] == ["events-distinct-id"]
 
     @parameterized.expand(
         [
@@ -764,7 +806,13 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_query_whose_names_bind_elsewhere_after_the_swap_keeps_reading_events(self, _name: str, query: str):
-        assert self._query_events(query).clickhouse == self._query_events(query, rewrite=False).clickhouse
+        mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+        assert (
+            self._query_events(query, mode=mode).clickhouse
+            == self._query_events(query, rewrite=False, mode=mode).clickhouse
+        )
+        with self.assertRaises(QueryError):
+            self._query_events(query)
 
     def test_swapped_prewhere_that_reads_an_overridden_person_id_runs(self):
         response = self._query_events(
