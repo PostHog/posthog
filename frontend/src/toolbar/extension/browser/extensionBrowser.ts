@@ -88,6 +88,8 @@ interface ExtensionBrowserApi {
         request: (permissions: ExtensionPermissions) => Promise<boolean>
         // Firefox adds `data_collection`, and Chrome leaves it out.
         getAll: () => Promise<ExtensionPermissions & { data_collection?: string[] }>
+        onAdded: ExtensionEvent<() => void>
+        onRemoved: ExtensionEvent<() => void>
     }
     action: {
         onClicked: ExtensionEvent<() => void>
@@ -193,6 +195,16 @@ export async function canSendUsageData(): Promise<boolean> {
     const { data_collection } = await extensionBrowser.permissions.getAll()
     // pinned: Firefox data collection category, the manifest declares the same key
     return !data_collection || data_collection.includes('technicalAndInteraction')
+}
+
+/** Firefox fires these when the user changes the data collection choice in the add-on's settings. */
+export function onPermissionsChange(handler: () => void): () => void {
+    extensionBrowser.permissions.onAdded.addListener(handler)
+    extensionBrowser.permissions.onRemoved.addListener(handler)
+    return () => {
+        extensionBrowser.permissions.onAdded.removeListener(handler)
+        extensionBrowser.permissions.onRemoved.removeListener(handler)
+    }
 }
 
 // pinned: extension message, the panel and an already injected content script must agree on it

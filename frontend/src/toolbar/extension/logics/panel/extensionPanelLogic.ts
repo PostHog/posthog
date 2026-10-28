@@ -19,6 +19,7 @@ import {
     getStoredUiHost,
     hasHostPermission,
     onActiveTabChange,
+    onPermissionsChange,
     openTab,
     requestHostPermission,
     setStoredUiHost,
@@ -55,6 +56,15 @@ const OPEN_SETTINGS_IN: ExtensionPanelState['kind'][] = [
     'no-toolbar-access',
     'error',
 ]
+
+async function syncUsageDataConsent(): Promise<void> {
+    // posthog-js keeps an earlier opt-in in localStorage, so a revoked choice needs an explicit opt-out.
+    if (await canSendUsageData()) {
+        toolbarPosthogJS.opt_in_capturing()
+    } else {
+        toolbarPosthogJS.opt_out_capturing()
+    }
+}
 
 /** Sends the PostHog session cookie, like the toolbar's own entitlements request. */
 async function fetchWithSession(uiHost: string, path: string): Promise<{ status: number; data: unknown }> {
@@ -469,14 +479,11 @@ export const extensionPanelLogic = kea<extensionPanelLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
-        void canSendUsageData().then((allowed) => {
-            // posthog-js keeps an earlier opt-in in localStorage, so a revoked choice needs an explicit opt-out.
-            if (allowed) {
-                toolbarPosthogJS.opt_in_capturing()
-            } else {
-                toolbarPosthogJS.opt_out_capturing()
-            }
-        })
+        // Setup runs again when the panel shows after it was hidden, so it reads the choice again then too.
+        cache.disposables.add(() => {
+            void syncUsageDataConsent()
+            return onPermissionsChange(() => void syncUsageDataConsent())
+        }, 'usageDataConsent')
         void getStoredUiHost().then((stored) => actions.setUiHost(canonicalizeUiHost(stored) ?? DEFAULT_UI_HOST))
         void getActiveTab().then(
             (tab) => actions.setTab(tab?.id ?? null, tab?.url ?? null),

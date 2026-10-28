@@ -62,12 +62,13 @@ Update both when the extension starts to send new data.
 
 | Category                             | What the extension sends                                                                                                                       | Where                     |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `authenticationInfo` (required)      | The PostHog session cookie, and the OAuth code, PKCE verifier and access and refresh tokens of the toolbar sign-in.                            | The user's PostHog host   |
 | `browsingActivity` (required)        | The active tab's URL, when the panel connects the toolbar to a project and when it loads heatmap and web vitals data for the page.             | The user's PostHog host   |
 | `websiteContent` (required)          | Element selectors and text in a saved action, variant HTML in a saved experiment, and page screenshots in a saved heatmap or event screenshot. | The user's PostHog host   |
 | `technicalAndInteraction` (optional) | Usage events from the panel, such as the tools the user opens, with the user's PostHog distinct ID.                                            | PostHog's usage analytics |
 
 The panel sends usage events only when the user allows `technicalAndInteraction`.
-Firefox lets the user change this in the add-on's settings, and the panel checks it again each time it opens.
+Firefox lets the user change this in the add-on's settings, and the panel applies the change right away.
 The content script never sends usage events or logs, because it mounts the toolbar without `instrument`.
 
 ## How the page tools work

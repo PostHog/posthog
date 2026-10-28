@@ -372,7 +372,7 @@ function buildToolbarExtensionManifest(browser) {
                 strict_min_version: '140.0',
                 // Keep in sync with the "Data collection" section of src/toolbar/extension/README.md.
                 data_collection_permissions: {
-                    required: ['browsingActivity', 'websiteContent'],
+                    required: ['authenticationInfo', 'browsingActivity', 'websiteContent'],
                     optional: ['technicalAndInteraction'],
                 },
             },
