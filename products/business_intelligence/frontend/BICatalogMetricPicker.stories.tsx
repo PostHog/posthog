@@ -1,7 +1,9 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { userEvent, within } from '@storybook/test'
+import { within } from '@testing-library/dom'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { userEvent } from 'storybook/test'
 
 import { BICatalogMetricPicker } from './BICatalogMetricPicker'
 
