@@ -7,6 +7,9 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/sidebar/useTaskViewed", () => ({
+  useTaskViewed: () => ({ timestamps: {} }),
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
   useOptionalAuthenticatedClient: () => null,
