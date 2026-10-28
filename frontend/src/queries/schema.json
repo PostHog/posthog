@@ -25936,6 +25936,9 @@
                 },
                 {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeExposureConfig"
                 }
             ]
         },
@@ -25943,8 +25946,15 @@
             "additionalProperties": false,
             "properties": {
                 "activation_config": {
-                    "$ref": "#/definitions/ExperimentExposureConfig",
-                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`."
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentEventExposureConfig"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        }
+                    ],
+                    "description": "Additional event (or action) an entity must emit at/after their first default exposure event before they count as exposed; exposure time becomes this event's timestamp. Only valid with the default exposure event, not a custom `exposure_config`. Warehouse-native activation has no defined semantics yet, so only events and actions apply here."
                 },
                 "exposure_config": {
                     "$ref": "#/definitions/ExperimentExposureConfig"
@@ -26613,6 +26623,9 @@
                 },
                 {
                     "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeNode"
                 }
             ],
             "required": ["kind"],
@@ -26918,6 +26931,27 @@
             "required": ["metric_type", "numerator", "denominator"],
             "type": "object"
         },
+        "ExperimentRetentionCompletion": {
+            "$ref": "#/definitions/ExperimentRetentionCompletionUnion"
+        },
+        "ExperimentRetentionCompletionUnion": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/ExperimentDataWarehouseNode"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
+        },
         "ExperimentRetentionMetric": {
             "additionalProperties": false,
             "properties": {
@@ -26925,7 +26959,7 @@
                     "$ref": "#/definitions/BreakdownFilter"
                 },
                 "completion_event": {
-                    "$ref": "#/definitions/ExperimentMetricSource"
+                    "$ref": "#/definitions/ExperimentRetentionCompletion"
                 },
                 "conversion_window": {
                     "$ref": "#/definitions/integer"
@@ -26999,7 +27033,7 @@
             "additionalProperties": false,
             "properties": {
                 "completion_event": {
-                    "$ref": "#/definitions/ExperimentMetricSource"
+                    "$ref": "#/definitions/ExperimentRetentionCompletion"
                 },
                 "metric_type": {
                     "const": "retention",
@@ -27385,6 +27419,76 @@
                 }
             },
             "required": ["key", "method", "number_of_samples", "sum", "sum_squares"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeExposureConfig": {
+            "additionalProperties": false,
+            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection.",
+            "properties": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentWarehouseNativeExposureConfig",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling.",
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["connection_id", "kind", "query"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeMathType": {
+            "description": "The subset of `ExperimentMetricMathType` a warehouse-native source supports, with the same values.",
+            "enum": ["total", "sum"],
+            "type": "string"
+        },
+        "ExperimentWarehouseNativeNode": {
+            "additionalProperties": false,
+            "description": "Outcome rows that live in the customer's warehouse, read through a direct connection. PostHog joins them to the experiment's exposures and aggregates them inside the warehouse, so the SQL never mentions variants or exposures and only per-variant aggregates leave the warehouse. Distinct from `ExperimentDataWarehouseNode`, which reads tables synced into PostHog. It does not extend `EntityNode`: property filters and the other event settings cannot apply to SQL PostHog does not parse, so the shape lists every supported field. Only mean and ratio metrics accept it.",
+            "properties": {
+                "connection_id": {
+                    "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "ExperimentWarehouseNativeNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeMathType",
+                    "description": "How to aggregate the rows per entity. Defaults to `total` (row count)."
+                },
+                "math_property": {
+                    "description": "The numeric column `math` reads. Required when `math` is `sum`. One SQL relation can serve several metrics, each reading a different column.",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure.",
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["connection_id", "kind", "query"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -28103,40 +28207,6 @@
             "required": ["funnelFromStep", "funnelToStep", "kind"],
             "type": "object"
         },
-        "FunnelExclusionLegacy": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": ["string", "null"]
-                },
-                "funnel_from_step": {
-                    "type": "number"
-                },
-                "funnel_to_step": {
-                    "type": "number"
-                },
-                "id": {
-                    "type": ["string", "number", "null"]
-                },
-                "index": {
-                    "type": "number"
-                },
-                "name": {
-                    "type": ["string", "null"]
-                },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
-                "order": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
-                }
-            },
-            "required": ["funnel_from_step", "funnel_to_step"],
-            "type": "object"
-        },
         "FunnelExclusionSteps": {
             "additionalProperties": false,
             "properties": {
@@ -28514,68 +28584,6 @@
                 },
                 "useUdf": {
                     "type": "boolean"
-                }
-            },
-            "type": "object"
-        },
-        "FunnelsFilterLegacy": {
-            "additionalProperties": false,
-            "description": "`FunnelsFilterType` minus everything inherited from `FilterType` and persons modal related params",
-            "properties": {
-                "bin_count": {
-                    "$ref": "#/definitions/BinCountValue"
-                },
-                "breakdown_attribution_type": {
-                    "$ref": "#/definitions/BreakdownAttributionType"
-                },
-                "breakdown_attribution_value": {
-                    "type": "number"
-                },
-                "exclusions": {
-                    "items": {
-                        "$ref": "#/definitions/FunnelExclusionLegacy"
-                    },
-                    "type": "array"
-                },
-                "funnel_aggregate_by_hogql": {
-                    "type": ["string", "null"]
-                },
-                "funnel_from_step": {
-                    "type": "number"
-                },
-                "funnel_order_type": {
-                    "$ref": "#/definitions/StepOrderValue"
-                },
-                "funnel_step_reference": {
-                    "$ref": "#/definitions/FunnelStepReference"
-                },
-                "funnel_to_step": {
-                    "type": "number"
-                },
-                "funnel_viz_type": {
-                    "$ref": "#/definitions/FunnelVizType"
-                },
-                "funnel_window_interval": {
-                    "type": "number"
-                },
-                "funnel_window_interval_unit": {
-                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
-                },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
-                    },
-                    "type": "object"
-                },
-                "layout": {
-                    "$ref": "#/definitions/FunnelLayout"
                 }
             },
             "type": "object"
@@ -31406,25 +31414,6 @@
                 },
                 "stacked": {
                     "default": true,
-                    "type": "boolean"
-                },
-                "toggledLifecycles": {
-                    "items": {
-                        "$ref": "#/definitions/LifecycleToggle"
-                    },
-                    "type": "array"
-                }
-            },
-            "type": "object"
-        },
-        "LifecycleFilterLegacy": {
-            "additionalProperties": false,
-            "description": "`LifecycleFilterType` minus everything inherited from `FilterType`",
-            "properties": {
-                "show_legend": {
-                    "type": "boolean"
-                },
-                "show_values_on_series": {
                     "type": "boolean"
                 },
                 "toggledLifecycles": {
@@ -40026,10 +40015,12 @@
                 "ExperimentQuery",
                 "ExperimentExposureQuery",
                 "ExperimentEventExposureConfig",
+                "ExperimentWarehouseNativeExposureConfig",
                 "ExperimentActorsQuery",
                 "ExperimentTrendsQuery",
                 "ExperimentFunnelsQuery",
                 "ExperimentDataWarehouseNode",
+                "ExperimentWarehouseNativeNode",
                 "ExperimentExposureNode",
                 "DatabaseSchemaQuery",
                 "SuggestedQuestionsQuery",
@@ -40312,77 +40303,6 @@
                 "stripQueryString": {
                     "description": "Remove the query string from page view URLs, so pages that differ only in query parameters become one path item",
                     "type": "boolean"
-                }
-            },
-            "type": "object"
-        },
-        "PathsFilterLegacy": {
-            "additionalProperties": false,
-            "description": "`PathsFilterType` minus everything inherited from `FilterType` and persons modal related params",
-            "properties": {
-                "edge_limit": {
-                    "type": "integer"
-                },
-                "end_point": {
-                    "type": "string"
-                },
-                "exclude_events": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "funnel_filter": {
-                    "type": "object"
-                },
-                "funnel_paths": {
-                    "$ref": "#/definitions/FunnelPathType"
-                },
-                "include_event_types": {
-                    "items": {
-                        "$ref": "#/definitions/PathType"
-                    },
-                    "type": "array"
-                },
-                "local_path_cleaning_filters": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/PathCleaningFilter"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "max_edge_weight": {
-                    "type": "integer"
-                },
-                "min_edge_weight": {
-                    "type": "integer"
-                },
-                "path_groupings": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "path_replacements": {
-                    "type": "boolean"
-                },
-                "path_type": {
-                    "$ref": "#/definitions/PathType"
-                },
-                "paths_hogql_expression": {
-                    "type": "string"
-                },
-                "start_point": {
-                    "type": "string"
-                },
-                "step_limit": {
-                    "type": "integer"
                 }
             },
             "type": "object"
@@ -51627,43 +51547,6 @@
             },
             "type": "object"
         },
-        "RetentionFilterLegacy": {
-            "additionalProperties": false,
-            "description": "`RetentionFilterType` minus everything inherited from `FilterType`",
-            "properties": {
-                "cumulative": {
-                    "type": "boolean"
-                },
-                "mean_retention_calculation": {
-                    "enum": ["simple", "weighted", "none"],
-                    "type": "string"
-                },
-                "period": {
-                    "$ref": "#/definitions/RetentionPeriod"
-                },
-                "retention_reference": {
-                    "description": "Whether retention is with regard to initial cohort size, or that of the previous period.",
-                    "enum": ["total", "previous"],
-                    "type": "string"
-                },
-                "retention_type": {
-                    "$ref": "#/definitions/RetentionType"
-                },
-                "returning_entity": {
-                    "$ref": "#/definitions/RetentionEntity"
-                },
-                "show_mean": {
-                    "type": "boolean"
-                },
-                "target_entity": {
-                    "$ref": "#/definitions/RetentionEntity"
-                },
-                "total_intervals": {
-                    "type": "integer"
-                }
-            },
-            "type": "object"
-        },
         "RetentionPeriod": {
             "enum": ["Hour", "Day", "Week", "Month"],
             "type": "string"
@@ -53733,44 +53616,6 @@
                 },
                 "stickinessCriteria": {
                     "$ref": "#/definitions/StickinessCriteria"
-                }
-            },
-            "type": "object"
-        },
-        "StickinessFilterLegacy": {
-            "additionalProperties": false,
-            "description": "`StickinessFilterType` minus everything inherited from `FilterType` and persons modal related params",
-            "properties": {
-                "compare": {
-                    "type": "boolean"
-                },
-                "compare_to": {
-                    "type": "string"
-                },
-                "display": {
-                    "$ref": "#/definitions/ChartDisplayType"
-                },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
-                    },
-                    "type": "object"
-                },
-                "show_legend": {
-                    "type": "boolean"
-                },
-                "show_multiple_y_axes": {
-                    "type": "boolean"
-                },
-                "show_values_on_series": {
-                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -56385,87 +56230,6 @@
                     "default": true,
                     "description": "Y-axis baseline. When false the axis floats to the data range instead of starting at zero. Ignored on bar displays (bars always draw from zero), on a logarithmic scale, and while showing percentages.",
                     "type": "boolean"
-                }
-            },
-            "type": "object"
-        },
-        "TrendsFilterLegacy": {
-            "additionalProperties": false,
-            "description": "`TrendsFilterType` minus everything inherited from `FilterType` and `shown_as`",
-            "properties": {
-                "aggregation_axis_format": {
-                    "$ref": "#/definitions/AggregationAxisFormat"
-                },
-                "aggregation_axis_postfix": {
-                    "type": "string"
-                },
-                "aggregation_axis_prefix": {
-                    "type": "string"
-                },
-                "breakdown_histogram_bin_count": {
-                    "type": "number"
-                },
-                "compare": {
-                    "type": "boolean"
-                },
-                "compare_to": {
-                    "type": "string"
-                },
-                "decimal_places": {
-                    "type": "number"
-                },
-                "display": {
-                    "$ref": "#/definitions/ChartDisplayType"
-                },
-                "formula": {
-                    "type": "string"
-                },
-                "hidden_legend_keys": {
-                    "additionalProperties": {
-                        "anyOf": [
-                            {
-                                "type": "boolean"
-                            },
-                            {
-                                "not": {}
-                            }
-                        ]
-                    },
-                    "type": "object"
-                },
-                "min_decimal_places": {
-                    "type": "number"
-                },
-                "show_alert_threshold_lines": {
-                    "type": "boolean"
-                },
-                "show_labels_on_series": {
-                    "type": "boolean"
-                },
-                "show_legend": {
-                    "type": "boolean"
-                },
-                "show_multiple_y_axes": {
-                    "type": "boolean"
-                },
-                "show_percent_stack_view": {
-                    "type": "boolean"
-                },
-                "show_values_on_series": {
-                    "type": "boolean"
-                },
-                "smoothing_intervals": {
-                    "type": "number"
-                },
-                "x_axis_label": {
-                    "type": "string"
-                },
-                "y_axis_label": {
-                    "type": "string"
-                },
-                "y_axis_scale_type": {
-                    "enum": ["log10", "linear"],
-                    "type": "string"
                 }
             },
             "type": "object"

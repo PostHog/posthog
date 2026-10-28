@@ -35,6 +35,7 @@ import type { IntegrationType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { omitNullDesign } from './omitNullDesign'
 import { TemplateSection, templateLibraryUrl, templateSectionFor, templateUrlInSection } from './templateSection'
 import { MessageTemplate } from './types'
 
@@ -736,10 +737,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 // Saving the content publishes it, and the server clears the draft. The sensitive setting
                 // and the tags each save on their own, so a publish never sends them and can't undo a
                 // change made in another tab since this one loaded the template.
-                const { sensitive: _sensitive, tags: _tags, ...content } = template
+                const payload = template.content?.email
+                    ? { ...template, content: { ...template.content, email: omitNullDesign(template.content.email) } }
+                    : template
+                const { sensitive: _sensitive, tags: _tags, ...content } = payload
                 const saved =
                     template.id === 'new'
-                        ? await api.messaging.createTemplate(template)
+                        ? await api.messaging.createTemplate(payload)
                         : await api.messaging.updateTemplate(template.id, content)
                 const { form, draft, published } = splitDraft(saved)
                 actions.setDraftState(draft, published)

@@ -1,0 +1,12 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "eventName": {
+            "description": "The exact name of the event (e.g. \"$pageview\", \"user_signed_up\")",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["eventName"],
+    "type": "object"
+}
