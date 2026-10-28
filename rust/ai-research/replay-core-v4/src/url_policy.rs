@@ -347,8 +347,9 @@ pub fn is_protocol_relative(raw: &str) -> bool {
 }
 
 /// Whether the browser loads the URL from a host. A URL scheme is not case sensitive, so `HTTPS://` loads as
-/// `https://` does. A browser reads any run of slashes and backslashes after `http:` or `https:` as `//`, so
-/// `https:\\host` loads from the host too. A protocol-relative URL does as well.
+/// `https://` does. A browser reads any run of slashes and backslashes after `http:` or `https:` as `//`, and none at
+/// all on a page of another scheme, so `https:\\host` and `https:host` can load from the host too. A
+/// protocol-relative URL does as well.
 pub fn is_remote(url: &str) -> bool {
     let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
         url.get(..scheme.len())
@@ -356,7 +357,7 @@ pub fn is_remote(url: &str) -> bool {
             .map(|_| &url[scheme.len()..])
     });
     match after_scheme {
-        Some(rest) => matches!(rest.as_bytes(), [b'/' | b'\\', ..]),
+        Some(rest) => !rest.is_empty(),
         None => is_protocol_relative(url),
     }
 }
