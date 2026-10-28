@@ -78,8 +78,6 @@ impl TryFrom<Value> for ScanTable {
     type Error = String;
 
     /// A derived enum would also accept a one-key object such as `{"flag_evaluations": null}`.
-    /// Reading the raw value lets every refusal name the key, which a `String` target loses for a
-    /// null, a number, or an object.
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.as_str() {
             Some("events") => Ok(Self::Events),
@@ -487,8 +485,7 @@ impl PinnedRun {
 
 /// A seeder that predates `flag_calls_table` ignores the key and would scan `events`. Django pins
 /// `flag_evaluations` only under version 2, which that seeder refuses. Version 2 always carries the
-/// key, so a version 2 payload without it comes from a writer bug. Reading `events` for it could
-/// give a flag-evaluations-only organization an empty history that counts as backfilled.
+/// key, so a version 2 payload without it comes from a writer bug.
 fn parse_payload(pinned: Value) -> Result<(PinnedPayload, ScanTable), PinnedError> {
     let payload: PinnedPayload = serde_json::from_value(pinned)?;
     let table = match (payload.schema_version, payload.flag_calls_table) {
