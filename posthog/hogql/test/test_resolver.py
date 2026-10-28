@@ -665,9 +665,56 @@ class TestResolver(BaseTest):
         )
 
     def test_ctes_field_access(self):
+        self.assertEqual(
+            self._print_hogql("with properties as cte select cte.$browser from events"),
+            "WITH properties AS cte SELECT cte.$browser FROM events LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_referencing_table_field(self):
+        self.assertEqual(
+            self._print_hogql("with timestamp as ts select ts from events"),
+            "WITH timestamp AS ts SELECT ts FROM events LIMIT 50000",
+        )
+        self.assertEqual(
+            self._print_hogql("with toStartOfDay(timestamp) as day select day, count() from events group by day"),
+            "WITH toStartOfDay(timestamp) AS day SELECT day, count() FROM events GROUP BY day LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_referencing_joined_table(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(timestamp) as day select event from events join persons on toStartOfDay(persons.created_at) = day"
+            ),
+            "WITH toStartOfDay(timestamp) AS day SELECT event FROM events JOIN persons ON equals(toStartOfDay(persons.created_at), day) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_in_join_on_referencing_joined_table(self):
+        self.assertEqual(
+            self._print_hogql(
+                "with toStartOfDay(persons.created_at) as pday select event from events join persons on toStartOfDay(timestamp) = pday"
+            ),
+            "WITH toStartOfDay(persons.created_at) AS pday SELECT event FROM events JOIN persons ON equals(toStartOfDay(timestamp), pday) LIMIT 50000",
+        )
+
+    def test_ctes_column_alias_not_in_scope_raises(self):
         with self.assertRaises(QueryError) as e:
-            self._print_hogql("with properties as cte select cte.$browser from events")
-        self.assertIn("No scope or CTE available", str(e.exception))
+            resolve_types(
+                self._select("with no_such_column as alias select alias from events"),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: no_such_column", str(e.exception))
+
+    def test_ctes_column_alias_forward_join_reference_raises(self):
+        with self.assertRaises(QueryError) as e:
+            resolve_types(
+                self._select(
+                    "with persons.created_at as pdate select e.event from events e join numbers(1) n on n.number = 0 and toDate(pdate) = today() join persons on e.distinct_id = persons.id"
+                ),
+                self.context,
+                dialect="clickhouse",
+            )
+        self.assertIn("Unable to resolve field: pdate", str(e.exception))
 
     def test_ctes_subqueries(self):
         self.assertEqual(

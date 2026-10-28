@@ -318,14 +318,14 @@ class LazyTableResolver(TraversingVisitor):
         assert node.type is not None
         assert select_type is not None
 
+        # Collect each `ast.Field` with `ast.LazyJoinType`
+        field_collector: list[ast.FieldType | ast.PropertyType] = []
+        self.field_collectors.append(field_collector)
+
         # Visit CTEs first to resolve any lazy joins inside them before processing the main query
         if node.ctes:
             for cte in node.ctes.values():
                 self.visit_cte(cte)
-
-        # Collect each `ast.Field` with `ast.LazyJoinType`
-        field_collector: list[ast.FieldType | ast.PropertyType] = []
-        self.field_collectors.append(field_collector)
 
         # Collect all visited fields on lazy tables into field_collector
         super().visit_select_query(node)
