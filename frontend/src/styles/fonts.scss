@@ -39,74 +39,47 @@
         U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
-/* RoundHog; bold (800); latin */
-@font-face {
-    font-family: RoundHog;
-    font-style: normal;
-    font-weight: 800;
-    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Bold.woff2') format('woff2');
-    font-display: swap;
-}
+// @posthog/brand cuts each RoundHog face into subsets by script, with unicode-ranges that don't
+// overlap. A page downloads only the subsets for the characters it shows, never the full face:
+// Latin text loads about 50 KB per face instead of about 120 KB, and a Cyrillic or Greek name adds
+// 10-15 KB. The ranges are copied from the package's roundHogFaces[].subsets, and
+// fonts.test.ts fails if a @posthog/brand upgrade changes them.
+$roundhog-faces: (
+    'RoundHog' normal 400,
+    'RoundHog-Italic' italic 400,
+    'RoundHog-Medium' normal 500,
+    'RoundHog-Medium-Italic' italic 500,
+    'RoundHog-SemiBold' normal 700,
+    'RoundHog-SemiBold-Italic' italic 700,
+    'RoundHog-Bold' normal 800,
+    'RoundHog-Bold-Italic' italic 800
+);
+$roundhog-latin: 'U+0, U+20-7E, U+A0-AC, U+AE-FF, U+131, U+152-153, U+2BB-2BC, U+2C6, U+2DA, U+2DC, U+300-304, U+306-30A, U+30C, U+30F, U+313, U+315, U+31B, U+323, U+326-328, U+32C, U+337-338, U+342-343, U+346-36F, U+2000-200B, U+2010-2027, U+202F-2055, U+2057, U+205F, U+20AC, U+2122, U+2190-2199, U+21A9-21AA, U+21B0-21B1, U+21B3-21B5, U+21BA-21BB, U+21D0, U+21D2, U+21D4, U+21DE-21DF, U+21E4-21E5, U+21E7, U+21EA, U+2202, U+2205-2206, U+220F, U+2211-2212, U+221A, U+221E, U+222B, U+2236, U+2248, U+2260, U+2264-2265, U+2295-2298, U+2303-2305, U+2318, U+2325-2327, U+232B, U+2380, U+2387, U+238B, U+23CE-23CF, U+25A0-25A2, U+25AA, U+25B2-25B3, U+25B6-25B7, U+25BA-25BD, U+25C0-25C1, U+25C4-25C7, U+25CA-25CB, U+25CF, U+25E6, U+25EF, U+2600, U+2605-2606, U+263C, U+2661, U+2665, U+266A-266B, U+26A0, U+2713, U+2717, U+2756, U+2764, U+2780-2788, U+FEFF';
+$roundhog-latin-ext: 'U+100-130, U+132-148, U+14A-151, U+154-1C3, U+1C5-254, U+256-27B, U+27E-284, U+286-290, U+292-2A4, U+2A6-2BA, U+2BD-2C5, U+2C7-2D9, U+2DB, U+2DD-2FF, U+1D00, U+1D0D, U+1D1B, U+1D43, U+1D47-1D49, U+1D4D, U+1D4F-1D50, U+1D52, U+1D56-1D58, U+1D5B, U+1D62-1D65, U+1D9C, U+1DA0, U+1DBB, U+1DBF-1DF5, U+1DFC-1E9B, U+1E9D-1EFF, U+20A0-20AB, U+20AD-20AF, U+20B1-20B5, U+20B8-20BA, U+20BC-20C0, U+2C7C, U+2C7F, U+A7FF';
+$roundhog-greek: 'U+374-376, U+37A-37F, U+384-38A, U+38C, U+38E-3A1, U+3A3-3D7, U+3DC-3DD, U+3F0-3F6, U+3F9-3FA, U+3FC-3FF, U+1F00-1F15, U+1F18-1F1D, U+1F20-1F45, U+1F48-1F4D, U+1F50-1F57, U+1F59, U+1F5B, U+1F5D, U+1F5F-1F7D, U+1F80-1FB4, U+1FB6-1FC4, U+1FC6-1FD3, U+1FD6-1FDB, U+1FDD-1FEF, U+1FF2-1FF4, U+1FF6-1FFE';
+$roundhog-cyrillic: 'U+400-479, U+480-49D, U+4A0-4FF, U+52F, U+2DFF, U+A69F';
+$roundhog-rest-upright: 'U+E3F, U+2070-2071, U+2074-208E, U+2090-209C, U+20DB-20DE, U+20E8, U+20F0, U+2100-2101, U+2103, U+2105-2106, U+2109, U+2113, U+2116-2117, U+211E-2121, U+2126, U+212A-212B, U+212E, U+2132, U+213B, U+214D, U+2150-217F, U+2183-2186, U+2189, U+2423, U+2460-2468, U+24B6-24CF, U+24EA, U+27EF, U+27F5-27FA, U+2913, U+2A38, U+2B06, U+2B12-2B13, U+2B1C, U+2B24, U+2E18, U+A92E, U+E000, U+E002-E05E, U+E06A-E0BD, U+E0C8-E0CC, U+E0DC-E0E6, U+E0F3-E0F5, U+E106, U+E109-E10A, U+E10C-E10F, U+E111-E113, U+E117-E118, U+E121-E122, U+E124, U+E12A-E15E, U+E163, U+E1C3, U+E1D2-E1DF, U+E1E1-E2DC, U+EE01-EE07, U+EE09-EE0A, U+EE0C-EE12, U+EE14, U+EE17, U+EE1D-EE45, U+EE47-EE84, U+EE87-EED6, U+EED8-EEE1, U+F6C3, U+1F12F-1F149, U+1F16A-1F16B, U+1F850, U+1F852';
+$roundhog-rest-italic: 'U+E3F, U+2070-2071, U+2074-208E, U+2090-209C, U+20DB-20DE, U+20E8, U+20F0, U+2100-2101, U+2103, U+2105-2106, U+2109, U+2113, U+2116-2117, U+211E-2121, U+2126, U+212A-212B, U+212E, U+2132, U+213B, U+214D, U+2150-217F, U+2183-2186, U+2189, U+2423, U+2460-2468, U+24B6-24CF, U+24EA, U+27EF, U+27F5-27FA, U+2913, U+2A38, U+2B06, U+2B12-2B13, U+2B1C, U+2B24, U+2E18, U+A92E, U+E000, U+E002-E02B, U+E04B-E05E, U+E06A-E0BD, U+E0C8-E0CC, U+E0DC-E0E6, U+E0F3-E0F5, U+E106, U+E109-E10A, U+E10C-E10F, U+E111-E113, U+E117-E118, U+E121-E122, U+E124, U+E12A-E15E, U+E163, U+E1C3, U+E1D2-E1DF, U+E1E1-E274, U+E27B-E2DC, U+EE01-EE07, U+EE09-EE0A, U+EE0C-EE12, U+EE14, U+EE17, U+EE1D-EE45, U+EE47-EE84, U+EE87-EEE1, U+F6C3, U+1F12F-1F149, U+1F16A-1F16B, U+1F850, U+1F852';
 
-/* RoundHog; semibold (700); latin */
-@font-face {
-    font-family: RoundHog;
-    font-style: normal;
-    font-weight: 700;
-    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-SemiBold.woff2') format('woff2');
-    font-display: swap;
-}
+// Each subset with its range in the upright faces and in the italic ones. Only rest differs, in
+// its private-use glyphs.
+$roundhog-subsets: (
+    'latin' $roundhog-latin $roundhog-latin,
+    'latin-ext' $roundhog-latin-ext $roundhog-latin-ext,
+    'greek' $roundhog-greek $roundhog-greek,
+    'cyrillic' $roundhog-cyrillic $roundhog-cyrillic,
+    'rest' $roundhog-rest-upright $roundhog-rest-italic
+);
 
-/* RoundHog; medium (500); latin */
-@font-face {
-    font-family: RoundHog;
-    font-style: normal;
-    font-weight: 500;
-    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Medium.woff2') format('woff2');
-    font-display: swap;
-}
-
-/* RoundHog; regular (400); latin */
-@font-face {
-    font-family: RoundHog;
-    font-style: normal;
-    font-weight: 400;
-    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog.woff2') format('woff2');
-    font-display: swap;
-}
-
-/* RoundHog; regular italic (400); latin */
-@font-face {
-    font-family: RoundHog;
-    font-style: italic;
-    font-weight: 400;
-    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Italic.woff2') format('woff2');
-    font-display: swap;
-}
-
-/* RoundHog; medium italic (500); latin */
-@font-face {
-    font-family: RoundHog;
-    font-style: italic;
-    font-weight: 500;
-    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Medium-Italic.woff2') format('woff2');
-    font-display: swap;
-}
-
-/* RoundHog; semibold italic (700); latin */
-@font-face {
-    font-family: RoundHog;
-    font-style: italic;
-    font-weight: 700;
-    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-SemiBold-Italic.woff2') format('woff2');
-    font-display: swap;
-}
-
-/* RoundHog; bold italic (800); latin */
-@font-face {
-    font-family: RoundHog;
-    font-style: italic;
-    font-weight: 800;
-    src: url('../../node_modules/@posthog/brand/dist/fonts/RoundHog-Bold-Italic.woff2') format('woff2');
-    font-display: swap;
+@each $file, $style, $weight in $roundhog-faces {
+    @each $subset, $upright, $italic in $roundhog-subsets {
+        @font-face {
+            font-family: RoundHog;
+            font-style: $style;
+            font-weight: $weight;
+            src: url('../../node_modules/@posthog/brand/dist/fonts/subsets/#{$file}-#{$subset}.woff2') format('woff2');
+            font-display: swap;
+            unicode-range: #{if($style == italic, $italic, $upright)};
+        }
+    }
 }

@@ -23,7 +23,7 @@ Status meanings:
 | Event properties tab                                                                      | Large                                                    | Improve                           | Ranking: selected items sit far down the list.                                                                 |
 | Person properties tab                                                                     | Large, ~64% of closes on it pick (query 13, final tab)   | Improve                           | Weakest big tab.                                                                                               |
 | Empty-result state                                                                        | ~5 per 100 search queries (query 13)                     | Fix                               | Should show matches in other groups. This snapshot excludes Suggested; new clients record All-tab empties.     |
-| Fetch error handling                                                                      | ~0.2 failure events per 100 search queries (query 10)    | Keep                              | Both surfaces show an error with retry. Keep them in parity.                                                   |
+| Fetch error handling                                                                      | ~0.2 failure events per 100 search queries (query 10)    | Keep                              | Shows an error with retry.                                                                                     |
 | Persons search latency                                                                    | p90 ~4s                                                  | Fix                               | Slowest group.                                                                                                 |
 | Custom key for unseen properties                                                          | Ticket theme                                             | Fix                               | Flags and cohorts especially.                                                                                  |
 | Pin toggle                                                                                | ~4% of selections come from pins                         | Keep                              | Cheap.                                                                                                         |
@@ -34,7 +34,6 @@ Status meanings:
 | Search intent switch banner                                                               | ~1 in 6 shown banners lead to a switch                   | Decide from its experiment        | Promotion of the predicted group happens without the banner.                                                   |
 | Category rail docking                                                                     | ~1% of closes have docking on (query 13, preference)     | Keep                              | Pick rate ~79% docked vs ~86% undocked.                                                                        |
 | Include stale toggle                                                                      | Small, steady                                            | Keep                              | Cheap.                                                                                                         |
-| Rebuild menu (`TAXONOMIC_FILTER_MENU_REBUILD`)                                            | Some customers still see it                              | Finish or turn off                | Selection rate looks lower than legacy, but the rebuild counts every close and legacy only engaged ones.       |
 
 ## Before removing anything
 
@@ -42,7 +41,7 @@ Status meanings:
    A tab can be unused while its items are picked every day through Suggested.
 2. Separate "rarely used" from "failing".
    If a group's fetches fail, fix them before judging use.
-3. Check both surfaces and every call site that passes the group.
+3. Check every call site that passes the group.
    See [call-sites-and-blast-radius](call-sites-and-blast-radius.md).
 4. Check for a running experiment on the feature.
 5. Keep the telemetry event (or retire it on purpose) so dashboards don't silently go flat.
