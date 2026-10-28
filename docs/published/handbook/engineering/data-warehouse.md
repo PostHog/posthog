@@ -432,3 +432,7 @@ inside expanded connections, and a failed field load has a Retry button.
 Aliases load any intermediate tables automatically. Loading and failed connections stay visible during search.
 Virtual connections expose the field names provided by the existing schema as dimensions. The schema does
 not include their field types or nested link definitions, so these connections do not infer measures or further links.
+
+### Pivot conditional formatting
+
+BI pivot tables use the same saved conditional formatting rules as ordinary tables. Open **Conditional formatting** to select a measure and a rule. The rule applies to that measure across column groups, including displayed subtotals, grand totals, and collapsed groups. Rules evaluate raw aggregate values before display formatting. Empty intersections and hidden parent values remain uncolored.
