@@ -237,7 +237,12 @@ class TestRunOrchestration:
         }
         fake = _FakeS3()
         sent_per_run: dict[str, list[str]] = {"job-1": [], "job-2": []}
+        progress_per_run: dict[str, list[pps.PerSourceResult]] = {"job-1": [], "job-2": []}
         current_job = "job-1"
+
+        async def _on_progress(increment: pps.PerSourceResult) -> None:
+            progress_per_run[current_job].append(increment)
+
         kill_after = 2
 
         def _produce(_team_id, _token, _source, items, **_kwargs):
@@ -263,10 +268,12 @@ class TestRunOrchestration:
         ):
             team_cls.objects.get.return_value = team
             with pytest.raises(RuntimeError, match="worker stopped"):
-                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1")
+                await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-1", on_progress=_on_progress)
 
             current_job = "job-2"
-            result = await pps.run_person_property_sync(team_id=1, binding=_SCHEMA, job_id="job-2")
+            result = await pps.run_person_property_sync(
+                team_id=1, binding=_SCHEMA, job_id="job-2", on_progress=_on_progress
+            )
 
             prefix = pps._snapshot_prefix(1, _SCHEMA, "source-1")
             snapshot_files = await pps._list_snapshot_files(fake, prefix)
@@ -275,6 +282,10 @@ class TestRunOrchestration:
         assert sent_per_run["job-1"] == ["p0", "p1"]
         assert sent_per_run["job-2"] == ["p6"]
         assert result.produced == 1
+        # The killed run reports what it delivered before it died, so its run row is not left at zero.
+        assert [(p.source_id, p.existing, p.produced) for p in progress_per_run["job-1"]] == [("source-1", 2, 2)]
+        assert sum(p.produced for p in progress_per_run["job-2"]) == result.produced
+        assert sum(p.existing for p in progress_per_run["job-2"]) == result.per_source[0].existing
         # The completed run folds the killed run's leftover file and its own chunk files into one.
         assert [pps._s3_key(key) for key in snapshot_files] == [f"{prefix}/job-2.parquet"]
         assert set(hashes) == {"p0", "p1", "p6"}

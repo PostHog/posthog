@@ -37,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
     is_worker_interruption,
+    progress_recorder,
     record_completed_runs,
     record_failed_runs,
     record_started_runs,
@@ -89,7 +90,14 @@ async def sync_warehouse_person_properties_activity(inputs: PersonPropertySyncAc
     )
     try:
         async with Heartbeater():
-            result = await run_person_property_sync(team_id=inputs.team_id, binding=binding, job_id=inputs.job_id)
+            result = await run_person_property_sync(
+                team_id=inputs.team_id,
+                binding=binding,
+                job_id=inputs.job_id,
+                on_progress=progress_recorder(
+                    team_id=inputs.team_id, binding=binding, job_id=inputs.job_id, trigger="scheduled"
+                ),
+            )
     except Exception as e:
         # Re-raised so Temporal retries; captured so a terminal failure is visible in error
         # tracking rather than dying silently in an abandoned child workflow. The failed outcome is

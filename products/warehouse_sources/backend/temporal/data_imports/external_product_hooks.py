@@ -449,3 +449,38 @@ def record_person_property_sync_run(record: PersonPropertySyncRunRecord) -> None
     if _person_property_sync_recorder is None:
         return
     _person_property_sync_recorder(record)
+
+
+@dataclasses.dataclass(frozen=True)
+class PersonPropertySyncProgress:
+    """One produced chunk's counts for one source. The recorder adds ``existing``, ``produced`` and
+    ``skipped_missing_person`` to the run row that ``job_id`` and ``trigger`` reconcile to, the same row a
+    ``PersonPropertySyncRunRecord`` lands on. ``rows_read`` and ``changed`` are the attempt's totals; the
+    row keeps the highest seen, since a retry only diffs the rows still left."""
+
+    team_id: int
+    binding_kind: str
+    binding_id: str
+    source_id: str
+    job_id: str | None
+    trigger: str
+    rows_read: int
+    changed: int
+    existing: int
+    produced: int
+    skipped_missing_person: int
+
+
+PersonPropertySyncProgressRecorder = Callable[[PersonPropertySyncProgress], None]
+_person_property_sync_progress_recorder: Optional[PersonPropertySyncProgressRecorder] = None
+
+
+def register_person_property_sync_progress_recorder(fn: PersonPropertySyncProgressRecorder) -> None:
+    global _person_property_sync_progress_recorder
+    _person_property_sync_progress_recorder = fn
+
+
+def record_person_property_sync_progress(progress: PersonPropertySyncProgress) -> None:
+    if _person_property_sync_progress_recorder is None:
+        return
+    _person_property_sync_progress_recorder(progress)

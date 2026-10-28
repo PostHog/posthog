@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.customer_analytics.backend.logic.custom_property_source_health import MAX_CONSECUTIVE_SYNC_FAILURES
-from products.customer_analytics.backend.logic.person_property_runs import record_sync_run
+from products.customer_analytics.backend.logic.person_property_runs import record_sync_progress, record_sync_run
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_custom_property_definition
-from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncRunRecord
+from products.warehouse_sources.backend.facade.hooks import PersonPropertySyncProgress, PersonPropertySyncRunRecord
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
@@ -180,6 +180,54 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         assert runs.count() == 1
         self.source.refresh_from_db()
         assert self.source.consecutive_failures == 1
+
+    def _progress(self, **overrides) -> PersonPropertySyncProgress:
+        kwargs: dict = {
+            "team_id": self.team.id,
+            "binding_kind": "schema",
+            "binding_id": self.schema_id,
+            "source_id": str(self.source.id),
+            "job_id": "job-1",
+            "trigger": "scheduled",
+            "rows_read": 10,
+            "changed": 8,
+            "existing": 0,
+            "produced": 0,
+            "skipped_missing_person": 0,
+        }
+        kwargs.update(overrides)
+        return PersonPropertySyncProgress(**kwargs)
+
+    @parameterized.expand([("job_id", "job-1", "scheduled"), ("no_job_id", None, "backfill")])
+    def test_chunk_progress_accumulates_across_attempts_and_survives_terminal_records(self, _name, job_id, trigger):
+        # A killed attempt records zero counts, and a retry only sees the rows still left to send. The
+        # row must still show everything delivered across the whole run.
+        zeros = {"rows_read": 0, "changed": 0, "existing": 0, "produced": 0, "skipped_missing_person": 0}
+        record_sync_run(self._record(job_id=job_id, trigger=trigger, status="running", finished_at="", **zeros))
+        record_sync_progress(self._progress(job_id=job_id, trigger=trigger, existing=2, produced=2))
+        record_sync_progress(self._progress(job_id=job_id, trigger=trigger, existing=2, produced=2))
+        if job_id is not None:
+            record_sync_run(self._record(job_id=job_id, trigger=trigger, status="failed", error="killed", **zeros))
+            failed = CustomPropertySyncRun.objects.unscoped().get(source=self.source)
+            # The killed run still shows how far it got: 4 of the 8 changed rows.
+            assert (failed.status, failed.produced, failed.existing, failed.rows_read, failed.changed) == (
+                "failed",
+                4,
+                4,
+                10,
+                8,
+            )
+            record_sync_run(self._record(job_id=job_id, trigger=trigger, status="running", finished_at="", **zeros))
+        # The retry diffs against the snapshot, so it sees only the 4 rows still left.
+        record_sync_progress(
+            self._progress(job_id=job_id, trigger=trigger, changed=4, existing=3, produced=3, skipped_missing_person=1)
+        )
+        record_sync_run(self._record(job_id=job_id, trigger=trigger, status="completed"))
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source=self.source)
+        assert run.status == "completed"
+        assert (run.rows_read, run.changed) == (10, 8)
+        assert (run.existing, run.produced, run.skipped_missing_person) == (7, 7, 1)
 
     def test_scheduled_retry_that_finally_succeeds_clears_the_failure(self):
         # A transient failure followed by a successful retry (same job_id) must resolve the row to
