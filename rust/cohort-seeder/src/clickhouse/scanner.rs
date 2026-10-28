@@ -1786,8 +1786,8 @@ mod tests {
             );
         }
 
-        #[test]
-        fn a_chunk_that_crosses_the_ttl_while_it_scans_fails() {
+        #[tokio::test]
+        async fn a_chunk_that_crosses_the_ttl_while_it_scans_fails() {
             static CALLS: AtomicUsize = AtomicUsize::new(0);
             fn crosses_the_ttl() -> i64 {
                 match CALLS.fetch_add(1, Ordering::SeqCst) {
@@ -1795,19 +1795,14 @@ mod tests {
                     _ => 101 * 86_400_000,
                 }
             }
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
             let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
             let handle = recorder.handle();
-            let error = metrics::with_local_recorder(&recorder, || {
-                runtime.block_on(async {
-                    let client = mixed_chunk_database("seeder_scanner_crosses_ttl").await;
-                    let run = mixed_run(120);
-                    failure_of(scan_day_one(&scanner(client, false), &run, crosses_the_ttl).await)
-                })
-            });
+            let _recorder = metrics::set_default_local_recorder(&recorder);
+            let client = mixed_chunk_database("seeder_scanner_crosses_ttl").await;
+            let run = mixed_run(120);
+
+            let error =
+                failure_of(scan_day_one(&scanner(client, false), &run, crosses_the_ttl).await);
 
             assert!(
                 matches!(error, ScanError::PastRetention { .. }),
@@ -1821,25 +1816,17 @@ mod tests {
 
         /// The verdict the backfill gate reads. A compare that re-scanned one table, or read flag
         /// calls from `events`, would report a diff on every mixed chunk.
-        #[test]
-        fn the_shadow_compare_of_a_mixed_chunk_rescans_both_tables() {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
+        #[tokio::test]
+        async fn the_shadow_compare_of_a_mixed_chunk_rescans_both_tables() {
             let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
             let handle = recorder.handle();
-            metrics::with_local_recorder(&recorder, || {
-                runtime.block_on(async {
-                    let client = mixed_chunk_database("seeder_scanner_mixed_compare").await;
-                    let run = mixed_run(7);
-                    if let failed @ Err(_) =
-                        scan_day_one(&scanner(client, true), &run, || NOW_MS).await
-                    {
-                        panic!("{:?}", failure_of(failed));
-                    }
-                });
-            });
+            let _recorder = metrics::set_default_local_recorder(&recorder);
+            let client = mixed_chunk_database("seeder_scanner_mixed_compare").await;
+            let run = mixed_run(7);
+
+            if let failed @ Err(_) = scan_day_one(&scanner(client, true), &run, || NOW_MS).await {
+                panic!("{:?}", failure_of(failed));
+            }
             let rendered = handle.render();
 
             assert!(
