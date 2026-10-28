@@ -8664,6 +8664,18 @@ snapshots:
         hash: v1.k794b7964.dbc633dbeb5178b3b8e7c987eee3a18c5f06c19913199a5b95093d5887753cd1.lICheCYev7V0-e7t4kRL3YlJyYPKFqc2FR1gLVKVO-8
     products-workflows-steps-utm-tag-fields--custom-values--light:
         hash: v1.k794b7964.820ad51684baa61d4a1fdd9e161b86d6dd47262fe0fa677caa42a90f264e5f1f.k4Q7hBIbnDrevkKRCjJOqfGIU5bcBZoxhVZcC3b2zCY
+    products-workflows-supabaseauthemails--connected--dark:
+        hash: v1.k794b7964.1274b3de0afb4d17ec240bd68653b7604f36aacb63f00f601105c07fc3463fb7.EJkXMBI2TmwNKEIFJMtAFkSAF6-KbFzavRyYMFv4mnM
+    products-workflows-supabaseauthemails--connected--light:
+        hash: v1.k794b7964.412891ecf956fe1c71eaeef045a056bc7e648b7ea77222e8fe358902b39c2684.RN9wh7xuRGxOkeX3OyFOB-tjArWyddmH9kWtO4yaow0
+    products-workflows-supabaseauthemails--not-connected--dark:
+        hash: v1.k794b7964.46b392f8ce23d44d6cec5a7adaa83c3220113cce11e95b9a4a6dc81336dae9f5.3GV4thglJhNPsA7sxGzs8OMRC4k7fmG5Pw5EElKipCs
+    products-workflows-supabaseauthemails--not-connected--light:
+        hash: v1.k794b7964.f32ad2b2bc79f629193eed547a179b9740f0e731dcc409092e331ebca8f18ac3.tLnSqOAYtjlbODmhs3w7Hm3fYMz9PSKWGysTM5sYV6U
+    products-workflows-supabaseauthemails--setup-open--dark:
+        hash: v1.k794b7964.e35f34670c441e4e50b8c39faeddf9c2dbb0818a2f198171cc3c0476b21b735c.I124tOMVdWaJAMqpf09VqbeRdQZ9W1GILLANMSVcsO0
+    products-workflows-supabaseauthemails--setup-open--light:
+        hash: v1.k794b7964.c32ba13554b14924dff206c0fed279c47b4b149d88ceb8e8dd4062bbfd29d96e.TLYWDI16voXiUsIwNDln74dC0BoSP_YCVGlkHU-6tJw
     products-workflows-template-card--ai--dark:
         hash: v1.k794b7964.5ca1cd71851625754d87c675688f56c0feb039ade940912f8df2ddd171d89d83.5SQmAn1fsl5RQ572BttZHT0wNAtJeZRNP0OqajxrUMc
     products-workflows-template-card--ai--light:
