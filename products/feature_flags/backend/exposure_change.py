@@ -2,20 +2,20 @@
 
 Flag rollback suggestions watch the errors after an edit that raises exposure, and the flag page asks why after an
 edit that lowers it. Both read the edit here, so they agree on its direction. An edit is a change to the flag's
-`filters` or `active`. The flag's `version` also changes when a cohort or a flag that the flag uses changes, so it is
-not an input.
+`filters`, `active`, `deleted`, key, bucketing identifier or experience continuity. The flag's `version` also changes
+when a cohort or a flag that the flag uses changes, so it is not an input.
 
 The flag service gives each person the value of the first condition that matches them. Which people match two
 conditions depends on the data, not on the config, so the config alone cannot tell who gets another value. The
 classification is therefore conservative. An edit lowers exposure only when it takes values away and gives nobody
 another value. Any other edit that can change who gets which value raises it. A raise that reaches nobody costs
-little, because the exposure query measures who gets each value and closes the window. A missed raise lets a bad
-rollout through.
+little, because the rollback suggestion then finds nobody with a new value and stops watching the errors. A missed
+raise lets a bad rollout through.
 
 Not covered: the holdout, because only experiments write it, and their flags are out of scope. Early access enrollment
-and the other super groups, because the early access product owns those flags. The flag key, the bucketing identifier
-and experience continuity, because they give people a new draw without a change of the share. A change of
-`early_exit`. The flag-level aggregation is covered, because it decides whether the flag counts persons or groups.
+and the other super groups, because the early access product owns those flags. Turning `early_exit` on, which only
+takes values away. The flag-level aggregation is covered, because it decides whether the flag counts persons or
+groups.
 """
 
 from collections.abc import Mapping
@@ -29,7 +29,10 @@ from products.feature_flags.backend.facade.edits import (
     ReleaseCondition,
     ReleaseConditions,
     Split,
+    group_type_index,
     moves_people,
+    normalized_bucketing_identifier,
+    normalized_experience_continuity,
     pair_conditions,
     parse_release_conditions,
     parse_variants,
@@ -40,7 +43,9 @@ from products.feature_flags.backend.facade.edits import (
 
 
 class ExposureChangeKind(StrEnum):
+    # The flag was enabled or restored.
     ENABLED = "enabled"
+    # The flag was disabled or deleted.
     DISABLED = "disabled"
     ROLLOUT_INCREASED = "rollout_increased"
     ROLLOUT_DECREASED = "rollout_decreased"
@@ -51,6 +56,11 @@ class ExposureChangeKind(StrEnum):
     VARIANT_CHANGED = "variant_changed"
     # The conditions have a new order, and the order decides the value of a person who matches two of them.
     CONDITIONS_REORDERED = "conditions_reordered"
+    # A person whose properties match a condition and whose hash is outside its rollout now gets the value of a later
+    # condition, not false.
+    EARLY_EXIT_TURNED_OFF = "early_exit_turned_off"
+    # The flag key, the bucketing identifier or experience continuity changed, so the hash gives people a new draw.
+    BUCKETING_CHANGED = "bucketing_changed"
 
 
 _LOWERING_KINDS = frozenset(
@@ -70,15 +80,19 @@ class FlagExposureConfig:
 
     active: bool
     filters: Mapping[str, Any] | None
+    key: str
+    bucketing_identifier: str | None
+    ensure_experience_continuity: bool | None
+    deleted: bool = False
 
 
 @frozen
 class ExposureChange:
     kinds: frozenset[ExposureChangeKind]
     direction: ExposureDirection
-    # The variants that the flag can serve after the edit, from the split and from the variant overrides. A window on
-    # a raise tracks the share of people with any value other than false, and the share of each variant. Empty for a
-    # boolean flag and for a disabled flag.
+    # The variants that the flag can serve after the edit, from the split and from the variant overrides. After a
+    # raise, the rollback suggestion counts the people with any value other than false, and the people with each
+    # variant. Empty for a boolean flag, and for a disabled or deleted flag.
     served_variants: tuple[str, ...]
     # The flag-level group type index after the edit, None for persons. A group flag counts groups, not people.
     aggregation: int | None
@@ -120,9 +134,7 @@ def _serves_from_split(side: _Side) -> bool:
     return any(condition.rollout > 0 and condition.variant is None for condition in side.conditions)
 
 
-def _served_variants(side: _Side, *, active: bool) -> tuple[str, ...]:
-    if not active:
-        return ()
+def _served_variants(side: _Side) -> tuple[str, ...]:
     variants: dict[str, None] = {}
     if _serves_from_split(side):
         variants.update(dict.fromkeys(variant.key for variant in served_slots(side.split) if variant.key))
@@ -132,17 +144,17 @@ def _served_variants(side: _Side, *, active: bool) -> tuple[str, ...]:
     return tuple(variants)
 
 
-def _decides(condition: ReleaseCondition, side: _Side) -> bool:
-    # With early exit, a person whose properties match a condition and whose hash is outside its rollout gets false,
-    # and the flag service reads no later condition for them.
+def _ends_evaluation(condition: ReleaseCondition, side: _Side) -> bool:
+    # A condition ends the evaluation for the people whose properties match it and whose hash is inside its rollout.
+    # With early exit, it also ends the evaluation for the people outside its rollout: they get false, and the flag
+    # service reads no later condition for them.
     # See `get_match` in rust/feature-flags/src/flags/flag_matching.rs.
     # A condition at 0% then still decides who gets false.
     return condition.rollout > 0 or side.early_exit
 
 
-def _stops_people(condition: ReleaseCondition, side: _Side) -> bool:
-    # With early exit, a condition below 100% gives false to the people it matches outside its rollout, so the value
-    # of a later condition does not reach them.
+def _gives_false_outside_rollout(condition: ReleaseCondition, side: _Side) -> bool:
+    # The value of a later condition then does not reach the people that this condition matches outside its rollout.
     return side.early_exit and condition.rollout < 100
 
 
@@ -158,11 +170,41 @@ def _value(condition: ReleaseCondition, side: _Side) -> _Value:
     return (None, condition.aggregation)
 
 
-def _gives_another_value(released: ReleaseCondition, new: _Side, served_after: set[_Value]) -> bool:
-    # A person that a condition no longer serves gets the value of a later condition that matches them, which can
-    # differ from the released one. Positions are not compared, so a served condition anywhere in the flag counts,
-    # which errs toward a raise.
-    return bool(served_after - {_value(released, new)})
+def _gives_another_value(old_condition: ReleaseCondition, new: _Side, served_after: set[_Value]) -> bool:
+    # A person that `old_condition` no longer serves gets the value of a later condition that matches them, which can
+    # differ from the value `old_condition` gave them. Positions are not compared, so a served condition anywhere in
+    # the flag counts, which errs toward a raise.
+    return bool(served_after - {_value(old_condition, new)})
+
+
+def _draws_by_hash(side: _Side, *, persons_only: bool = False) -> bool:
+    # A condition gives people a value from the hash when its rollout is between 0% and 100%, or when it serves from
+    # a split with more than one served variant.
+    split_draws = len(served_slots(side.split)) > 1
+    return any(
+        0 < condition.rollout < 100 or (split_draws and condition.rollout > 0 and condition.variant is None)
+        for condition in side.conditions
+        if not persons_only or condition.aggregation is None
+    )
+
+
+def _person_hash_inputs(config: FlagExposureConfig) -> tuple[str, bool]:
+    return (
+        normalized_bucketing_identifier(config.bucketing_identifier),
+        normalized_experience_continuity(config.ensure_experience_continuity),
+    )
+
+
+def _changes_bucketing(before: FlagExposureConfig, after: FlagExposureConfig, new: _Side) -> bool:
+    # The flag service hashes the flag key with the group key for a group condition. For a person condition, it uses
+    # the device ID or the distinct ID, as the bucketing identifier says. With experience continuity, it uses an
+    # override row or the anonymous ID that the request sends. See `hashed_identifier` in
+    # rust/feature-flags/src/flags/flag_matching.rs. Turning continuity on also moves people, because the request's
+    # anonymous ID and the override rows from an earlier period of continuity then replace the distinct ID.
+    # A deleted flag does not get here, so the tombstone suffix of a deleted flag's key is not a new key.
+    if before.key != after.key and _draws_by_hash(new):
+        return True
+    return _person_hash_inputs(before) != _person_hash_inputs(after) and _draws_by_hash(new, persons_only=True)
 
 
 def _reordered(pairs: Mapping[int, int]) -> bool:
@@ -174,8 +216,7 @@ def _side(filters: Mapping[str, Any] | None) -> _Side:
     filters = filters or {}
     multivariate = filters.get("multivariate")
     split = parse_variants(multivariate.get("variants") if isinstance(multivariate, Mapping) else None)
-    aggregation = filters.get("aggregation_group_type_index")
-    aggregation = aggregation if isinstance(aggregation, int) and not isinstance(aggregation, bool) else None
+    aggregation = group_type_index(filters.get("aggregation_group_type_index"))
     return _Side(
         split=split,
         conditions=parse_release_conditions(
@@ -195,9 +236,9 @@ def _compare_pair(
     served_after: set[_Value],
     builder: _ChangeBuilder,
 ) -> None:
-    if not _decides(previous, old) and not _decides(condition, new):
+    if not _ends_evaluation(previous, old) and not _ends_evaluation(condition, new):
         return
-    if previous.criteria != condition.criteria and _decides(condition, new):
+    if previous.criteria != condition.criteria and _ends_evaluation(condition, new):
         builder.add(ExposureChangeKind.PROPERTIES_CHANGED)
     if condition.rollout > previous.rollout:
         builder.add(ExposureChangeKind.ROLLOUT_INCREASED)
@@ -218,32 +259,34 @@ def _compare_conditions(old: _Side, new: _Side, builder: _ChangeBuilder) -> None
         if new_index in pairs:
             previous = old.conditions[pairs[new_index]]
             _compare_pair(previous, condition, old=old, new=new, served_after=served_after, builder=builder)
-        elif _decides(condition, new):
+        elif _ends_evaluation(condition, new):
             builder.add(ExposureChangeKind.CONDITION_ADDED)
 
     paired_before = set(pairs.values())
     for old_index, removed in enumerate(old.conditions):
-        if old_index in paired_before or not _decides(removed, old):
+        if old_index in paired_before or not _ends_evaluation(removed, old):
             continue
         # With early exit, the people that the removed condition gave false can get the value of a later condition.
         builder.add(
             ExposureChangeKind.CONDITION_REMOVED,
-            gives_another_value=_stops_people(removed, old) or _gives_another_value(removed, new, served_after),
+            gives_another_value=_gives_false_outside_rollout(removed, old)
+            or _gives_another_value(removed, new, served_after),
         )
 
     # A new order gives a person who matches two conditions the value of the one that comes first now. Which pairs
     # of conditions overlap is not known here, so any reorder of conditions with different values counts, and so does
-    # a reorder of a condition that stops people. A condition that decides nothing on either side cannot move anybody.
+    # a reorder of a condition that gives false outside its rollout. A condition that ends the evaluation for nobody
+    # on either side cannot move anybody.
     deciding = {
         new_index: old_index
         for new_index, old_index in pairs.items()
-        if _decides(new.conditions[new_index], new) and _decides(old.conditions[old_index], old)
+        if _ends_evaluation(new.conditions[new_index], new) and _ends_evaluation(old.conditions[old_index], old)
     }
     kept_values = {
         _value(new.conditions[new_index], new) for new_index in deciding if new.conditions[new_index].rollout > 0
     }
-    stops_people = any(_stops_people(new.conditions[new_index], new) for new_index in deciding)
-    if _reordered(deciding) and (stops_people or len(kept_values) > 1):
+    gives_false = any(_gives_false_outside_rollout(new.conditions[new_index], new) for new_index in deciding)
+    if _reordered(deciding) and (gives_false or len(kept_values) > 1):
         builder.add(ExposureChangeKind.CONDITIONS_REORDERED)
 
 
@@ -253,24 +296,34 @@ def classify_exposure_change(*, before: FlagExposureConfig, after: FlagExposureC
     require_v1_config(after.filters)
     old = _side(before.filters)
     new = _side(after.filters)
+    # A disabled or deleted flag serves nobody, so an edit of one changes nothing until the flag is enabled or
+    # restored. See the `deleted = false` filter in rust/feature-flags/src/flags/feature_flag_list.rs.
+    was_on = before.active and not before.deleted
+    is_on = after.active and not after.deleted
     builder = _ChangeBuilder()
 
-    # A disabled flag serves nobody, so an edit of a disabled flag changes nothing until the flag is enabled.
-    if not before.active or not after.active:
-        if not before.active and after.active and _serves_anybody(new):
-            builder.add(ExposureChangeKind.ENABLED)
-        if before.active and not after.active and _serves_anybody(old):
-            builder.add(ExposureChangeKind.DISABLED)
-    else:
+    if was_on and is_on:
         if old.aggregation != new.aggregation and _serves_anybody(new):
             builder.add(ExposureChangeKind.PROPERTIES_CHANGED)
+        if (
+            not new.early_exit
+            and any(_gives_false_outside_rollout(condition, old) for condition in old.conditions)
+            and _serves_anybody(new)
+        ):
+            builder.add(ExposureChangeKind.EARLY_EXIT_TURNED_OFF)
+        if _changes_bucketing(before, after, new):
+            builder.add(ExposureChangeKind.BUCKETING_CHANGED)
         _compare_conditions(old, new, builder)
         if not same_assignment(old.split, new.split) and _serves_from_split(new):
             builder.add(ExposureChangeKind.VARIANT_CHANGED)
+    elif is_on and _serves_anybody(new):
+        builder.add(ExposureChangeKind.ENABLED)
+    elif was_on and _serves_anybody(old):
+        builder.add(ExposureChangeKind.DISABLED)
 
     return ExposureChange(
         kinds=builder.kinds(),
         direction=builder.direction(),
-        served_variants=_served_variants(new, active=after.active),
+        served_variants=_served_variants(new) if is_on else (),
         aggregation=new.aggregation,
     )
