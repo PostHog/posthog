@@ -9,10 +9,7 @@ import { DataWarehouseViewLink } from '~/types'
 
 import { dataCatalogRelationshipProposalsList } from 'products/data_catalog/frontend/generated/api'
 import { DataCatalogRelationshipProposalApi } from 'products/data_catalog/frontend/generated/api.schemas'
-import {
-    warehouseColumnAnnotationsList,
-    warehouseSavedQueriesRetrieve,
-} from 'products/data_warehouse/frontend/generated/api'
+import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
 
 export interface BISourceContextProps {
     table: DatabaseSchemaTable
@@ -100,10 +97,6 @@ export const biSourceContextLogic = kea<biSourceContextLogicType>([
                     const project = String(teamLogic.values.currentTeamId)
                     if (props.table.type === 'view' || props.table.type === 'materialized_view') {
                         return (await warehouseSavedQueriesRetrieve(project, props.table.id)).description ?? ''
-                    }
-                    if (props.table.type === 'data_warehouse' && props.table.id) {
-                        const result = await warehouseColumnAnnotationsList(project, { table_id: props.table.id })
-                        return result.results.find((annotation) => annotation.column_name === '')?.description ?? ''
                     }
                     return ''
                 },
