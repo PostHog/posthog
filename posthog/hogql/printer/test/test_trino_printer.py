@@ -742,6 +742,27 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "__hogql_accurate_cast_value",
             "CAST(ceil(",
         ),
+        # Trino reads ORDER BY names as output columns first, so the qualifier `t` would read the `0 AS t` column.
+        (
+            "WITH t AS (SELECT 1 AS x) SELECT x AS x, 0 AS t FROM t ORDER BY x + 0",
+            'ORDER BY ("x" + 0)',
+            'ORDER BY ("t"."x"',
+        ),
+        # Float arithmetic over non-null operands stays non-null, so sumOrDefault keeps its 0 default.
+        ("SELECT sumOrDefault(1.5 + 1) FROM users WHERE false", "DOUBLE '0'", "NULL)"),
+        ("SELECT arrayCumSum(x -> x * 1.0, [1, 2])", "reduce(transform(", "CASE WHEN"),
+        # A boolean coalesced with a float stays a float, so toInt maps the fractional result to NULL.
+        (
+            "SELECT toInt(coalesce(nullIf(true, true), 1.5))",
+            "__hogql_accurate_cast_value",
+            "CAST(coalesce(CAST(nullif(true, true) AS INTEGER), 1.5) AS BIGINT)",
+        ),
+        # toInt of a NULL boolean stays NULL instead of becoming 0.
+        (
+            "SELECT toInt(multiSearchAnyCaseInsensitive(nullIf(user_id, user_id), ['a'])) FROM users",
+            "CAST(any_match(",
+            "THEN 1 ELSE 0 END",
+        ),
         # Adding a float to a datetime keeps it a datetime, so toInt still reads the Unix timestamp.
         (
             "SELECT toInt(created_at + 1.0) FROM users",

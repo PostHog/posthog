@@ -259,6 +259,19 @@ class TrinoScalarCTELowerer(CloningVisitor):
         return super().visit_field(node)
 
 
+class _QualifiedFieldFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.qualifiers: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if len(node.chain) > 1 and isinstance(node.chain[0], str):
+            self.qualifiers.add(node.chain[0])
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return None
+
+
 class TrinoSelectAliasLowerer(CloningVisitor):
     def __init__(self, context: HogQLContext, budget: TrinoCompilationBudget) -> None:
         super().__init__(clear_types=False)
@@ -267,6 +280,7 @@ class TrinoSelectAliasLowerer(CloningVisitor):
         self.aliases: dict[str, ast.Expr] = {}
         self.alias_positions: dict[str, int] = {}
         self.expanding: set[str] = set()
+        self.in_order_by = False
         self.expansion_budget = budget
 
     def visit(self, node: _T_AST) -> _T_AST:
@@ -276,6 +290,8 @@ class TrinoSelectAliasLowerer(CloningVisitor):
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         outer_aliases = self.aliases
         outer_alias_positions = self.alias_positions
+        outer_in_order_by = self.in_order_by
+        self.in_order_by = False
         self.aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
         self.alias_positions = {
             expr.alias: index for index, expr in enumerate(node.select, start=1) if isinstance(expr, ast.Alias)
@@ -321,7 +337,15 @@ class TrinoSelectAliasLowerer(CloningVisitor):
                 order.expr = ast.PositionalRef(index=self.alias_positions[order_expression.chain[-1]])
         self.aliases = outer_aliases
         self.alias_positions = outer_alias_positions
+        self.in_order_by = outer_in_order_by
         return lowered
+
+    def visit_order_expr(self, node: ast.OrderExpr) -> ast.OrderExpr:
+        self.in_order_by = True
+        try:
+            return super().visit_order_expr(node)
+        finally:
+            self.in_order_by = False
 
     def visit_alias(self, node: ast.Alias) -> ast.Alias:
         if node.hidden:
@@ -379,13 +403,23 @@ class TrinoSelectAliasLowerer(CloningVisitor):
             alias = node.chain[0]
             self.expanding.add(alias)
             try:
-                return self.visit(self.aliases[alias])
+                expanded = self.visit(self.aliases[alias])
             finally:
                 self.expanding.remove(alias)
+            # Trino resolves ORDER BY names against output columns first, so a qualifier that is also a projection
+            # alias would read that output column. The output column itself already holds this value.
+            if self.in_order_by and self._has_qualifier_named_like_an_alias(expanded):
+                return clone_expr(node, clear_types=False)
+            return expanded
         qualified = self._qualified_shadowed_column(node)
         if qualified is not None:
             return qualified
         return super().visit_field(node)
+
+    def _has_qualifier_named_like_an_alias(self, node: ast.Expr) -> bool:
+        finder = _QualifiedFieldFinder()
+        finder.visit(node)
+        return any(qualifier in self.aliases for qualifier in finder.qualifiers)
 
     def _qualified_shadowed_column(self, node: ast.Expr) -> ast.Field | None:
         # After alias inlining, a later resolver pass would bind a bare column named like a projection alias to the

@@ -998,7 +998,8 @@ class TrinoPrinter(PostgresPrinter):
             if isinstance(arg_type, ast.DateTimeType):
                 return f"CAST(to_unixtime({self.visit(arg)}) AS BIGINT)"
             if isinstance(arg_type, ast.BooleanType):
-                return f"CASE WHEN {self.visit(arg)} THEN 1 ELSE 0 END"
+                # A CASE would turn NULL into 0; the cast keeps it NULL like ClickHouse.
+                return f"CAST({self.visit(arg)} AS BIGINT)"
             if name == "toint" and isinstance(arg_type, ast.StringType):
                 return f"TRY_CAST({self.visit(arg)} AS BIGINT)"
             # HogQL toInt is accurateCastOrNull, which maps a fractional, NaN or out-of-range float to NULL
@@ -1555,7 +1556,8 @@ class TrinoPrinter(PostgresPrinter):
                 for side in (node.left, node.right)
             )
         ):
-            return ast.FloatType()
+            side_types = [self._resolve_type(side) for side in (node.left, node.right)]
+            return ast.FloatType(nullable=any(side_type is None or side_type.nullable for side_type in side_types))
         # ClickHouse rounding functions return their argument's type, but the function registry declares no signature.
         if isinstance(node, ast.Call) and node.name.lower() in {"floor", "ceil", "trunc", "round"} and node.args:
             argument_type = self._resolve_type(node.args[0])
@@ -1565,7 +1567,14 @@ class TrinoPrinter(PostgresPrinter):
             if any(isinstance(self._resolve_type(arg), ast.BooleanType) for arg in node.args) and any(
                 self._is_numeric(arg) for arg in node.args
             ):
-                return ast.IntegerType()
+                # Booleans print as integers here, so the other numeric arguments decide the common type.
+                numeric_types = [self._resolve_type(arg) for arg in node.args]
+                for numeric_type in numeric_types:
+                    if isinstance(numeric_type, (ast.FloatType, ast.DecimalType)):
+                        return numeric_type
+                return ast.IntegerType(
+                    nullable=all(numeric_type is None or numeric_type.nullable for numeric_type in numeric_types)
+                )
             if any(isinstance(self._resolve_type(arg), ast.BooleanType) for arg in node.args) and any(
                 self._is_dynamic_property(arg) for arg in node.args
             ):
