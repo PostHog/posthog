@@ -1076,10 +1076,10 @@ Diffed against: <https://help.awin.com/llms.txt>
 - [x] `GET publishers information for advertiser` — lookup table resolving the publisherId on every transaction and performance row (high)
 - [x] `GET commission groups for an advertiser` — lookup resolving the commissionGroupId carried on transactions (high)
 - [x] `GET programme details for publisher` — commission ranges, currency and terms per programme; programmes table only carries the summary (high)
-- [ ] `GET campaign performance report (publisher and advertiser)` — revenue and clicks broken down by campaign - a core reporting dimension we do not expose (medium)
-- [ ] `GET creative performance report (publisher and advertiser)` — performance by creative/banner, the other main report dimension (medium)
-- [ ] `GET transaction queries for a publisher` — dispute/query state on transactions - transition history for revenue we already sync (medium)
-- [ ] `GET offers/promotions` — active vouchers and promotions per programme, joinable to transactions via voucher code (medium)
+- [x] `GET campaign performance report (publisher and advertiser)` — revenue and clicks broken down by campaign - a core reporting dimension we do not expose (medium) — two tables, `publisher_campaign_reports` and `advertiser_campaign_reports`, one per account side, with one row per campaign and day
+- [x] `GET creative performance report (publisher and advertiser)` — performance by creative/banner, the other main report dimension (medium) — two tables, `publisher_creative_reports` and `advertiser_creative_reports`, one per account side
+- [x] `GET transaction queries for a publisher` — dispute/query state on transactions - transition history for revenue we already sync (medium)
+- [x] `GET offers/promotions` — active vouchers and promotions per programme, joinable to transactions via voucher code (medium) — the `offers` table reads Awin's POST promotions endpoint and keeps only the active offers of joined programmes, because the API returns no expired offers and hides voucher codes for programmes the publisher has not joined
 - [ ] `GET commission sharing rules for a publisher` — explains commission splits seen in transaction amounts (low)
 
 Note: The wiki.awin.com URLs in the source config are dead - they now 302 to the awin.com marketing homepage. The live reference is help.awin.com/apidocs with a machine-readable index at help.awin.com/llms.txt; the doc URLs in the source should be updated.
