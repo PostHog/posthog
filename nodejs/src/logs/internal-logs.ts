@@ -6,6 +6,9 @@ import type { ValueMatcher } from '~/types'
 
 export const INTERNAL_LOGS_HEADER = 'posthog-internal'
 
+// The HTTP request header that capture-logs forwards as the `posthog-internal` Kafka header.
+export const INTERNAL_LOGS_HTTP_HEADER = 'x-posthog-internal'
+
 export const INTERNAL_SOURCE_HEADER = 'internal-source'
 
 const SIGNATURE_VERSION = 'v1'

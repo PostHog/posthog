@@ -70,6 +70,12 @@ export type LogsIngestionConsumerConfig = {
     /** Comma-separated team IDs, or `*` for all teams. A `posthog-internal` batch from any other team is billed as normal. */
     LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: string
     LOGS_INTERNAL_INGESTION_SIGNING_KEYS: string
+    /** capture-logs OTLP logs endpoint that internal producers send signed batches to; empty disables sending. */
+    LOGS_INTERNAL_PRODUCER_URL: string
+    /** Comma-separated team IDs, or `*` for all teams, whose internal logs a producer sends to the logs product. */
+    LOGS_INTERNAL_PRODUCER_TEAMS: string
+    /** Requests a producer keeps open at once. A batch over this cap is dropped, so a slow capture-logs cannot stall the caller. */
+    LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: number
     /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
     LOGS_PATTERN_MASKING_ENABLED_TEAMS: string
     LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: string
@@ -128,6 +134,9 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_RETENTION_KILLSWITCH: false,
         LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '',
         LOGS_INTERNAL_INGESTION_SIGNING_KEYS: '',
+        LOGS_INTERNAL_PRODUCER_URL: '',
+        LOGS_INTERNAL_PRODUCER_TEAMS: '',
+        LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
         // Off by default: enabling forces decode+re-encode for allowlisted teams.
         LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
         LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '',
