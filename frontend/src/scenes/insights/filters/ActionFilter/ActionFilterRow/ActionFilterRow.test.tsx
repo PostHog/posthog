@@ -27,7 +27,6 @@ import { eventDefinitions, searchAndSelect, setupInsightMocks } from '~/test/ins
 import {
     AvailableFeature,
     BaseMathType,
-    EntityTypes,
     FilterType,
     HogQLMathType,
     InsightType,
@@ -39,7 +38,8 @@ import {
 import filtersJson from '../__mocks__/filters.json'
 import { legacyFiltersToSeries } from '../legacyFilters'
 import { SeriesNode } from '../seriesNode'
-import { ActionFilterRow, taxonomicFilterGroupTypeToEntityType } from './ActionFilterRow'
+import { ActionFilterRow } from './ActionFilterRow'
+import { taxonomicGroupTypeToSeriesNodeKind } from './actionFilterRowUtils'
 import { MathAvailability } from './types'
 
 // AutoSizer needs a mock because react-virtualized requires real DOM measurements
@@ -150,21 +150,24 @@ describe('ActionFilterRow', () => {
         propertyDefinitionsModel.mount()
     })
 
-    describe('taxonomicFilterGroupTypeToEntityType', () => {
+    describe('taxonomicGroupTypeToSeriesNodeKind', () => {
         it.each([
-            [TaxonomicFilterGroupType.Events, EntityTypes.EVENTS],
-            [TaxonomicFilterGroupType.Actions, EntityTypes.ACTIONS],
-            [TaxonomicFilterGroupType.DataWarehouse, EntityTypes.DATA_WAREHOUSE],
-        ])('maps %s to %s', (input, expected) => {
-            expect(taxonomicFilterGroupTypeToEntityType(input)).toBe(expected)
-        })
-
-        it.each([
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.Cohorts,
-        ])('returns null for unmapped type %s', (input) => {
-            expect(taxonomicFilterGroupTypeToEntityType(input)).toBeNull()
+            [TaxonomicFilterGroupType.Events, undefined, NodeKind.EventsNode],
+            [TaxonomicFilterGroupType.Actions, undefined, NodeKind.ActionsNode],
+            [TaxonomicFilterGroupType.DataWarehouse, undefined, NodeKind.DataWarehouseNode],
+            [
+                TaxonomicFilterGroupType.DataWarehouseSourceTables,
+                NodeKind.FunnelsDataWarehouseNode,
+                NodeKind.FunnelsDataWarehouseNode,
+            ],
+            [
+                TaxonomicFilterGroupType.DataWarehouseMaterializedViews,
+                NodeKind.LifecycleDataWarehouseNode,
+                NodeKind.LifecycleDataWarehouseNode,
+            ],
+            [TaxonomicFilterGroupType.PersonProperties, NodeKind.FunnelsDataWarehouseNode, NodeKind.EventsNode],
+        ] as const)('maps %s (warehouse kind %s) to %s', (groupType, warehouseKind, expected) => {
+            expect(taxonomicGroupTypeToSeriesNodeKind(groupType, warehouseKind)).toBe(expected)
         })
     })
 

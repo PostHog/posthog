@@ -121,6 +121,7 @@ APIScopeObject = Literal[
     "scout_experiment_internal",
     "signal_scout",
     "signal_scout_internal",
+    "signal_scout_monitoring",
     "signal_scout_report",
     "signal_scratchpad_internal",
     "slack_run",
@@ -156,6 +157,7 @@ APIScopeObject = Literal[
 # Server-only provenance markers hidden from user-controlled scope selectors.
 MCP_BUILT_IN_AGENT_SCOPE = "mcp_builtin_agent:read"
 SLACK_RUN_SCOPE = "slack_run:read"
+SCOUT_MONITORING_RESULT_SCOPE = "signal_scout_monitoring:write"
 
 APIScopeActions = Literal[
     "read",
@@ -203,6 +205,7 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
         "signal_scout_internal",
+        "signal_scout_monitoring",
         # Sandbox-only write for the scout report channel (emit_report / edit_report).
         # Split out from `signal_scout_internal` so it can be granted ONLY to scouts that
         # opted into the report tools (via the `signals_scout_reports` posture) — every

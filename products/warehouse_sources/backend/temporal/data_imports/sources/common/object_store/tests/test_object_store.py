@@ -16,6 +16,7 @@ import boto3
 import pyarrow as pa
 import structlog
 import pyarrow.parquet as pq
+from botocore.exceptions import ClientError
 from botocore.stub import Stubber
 from deltalake import DeltaTable, WriterProperties, write_deltalake
 from fsspec.implementations.local import LocalFileSystem
@@ -23,6 +24,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
     delta,
+    filesystem,
     formats,
     source_base,
 )
@@ -58,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStore,
     S3ObjectStore,
     StoredObject,
+    lookup_s3_bucket_region,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.formats import (
     iter_csv_tables,
@@ -1182,3 +1185,75 @@ class TestS3Listing:
 
             with pytest.raises(PermissionError):
                 _s3_store(client).list_objects("", 10)
+
+
+class TestS3BucketRegion:
+    @pytest.fixture(autouse=True)
+    def _clear_cache(self) -> Any:
+        lookup_s3_bucket_region.cache_clear()
+        yield
+        lookup_s3_bucket_region.cache_clear()
+
+    def _stubbed_client(self, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Stubber]:
+        client = boto3.client("s3", region_name="us-east-1")
+        monkeypatch.setattr(filesystem.boto3, "client", lambda *_args, **_kwargs: client)
+        return client, Stubber(client)
+
+    def test_a_readable_bucket_names_its_region(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_response(
+            "head_bucket",
+            {"ResponseMetadata": {"HTTPStatusCode": 200, "HTTPHeaders": {"x-amz-bucket-region": "eu-central-1"}}},
+            {"Bucket": "customer-data"},
+        )
+
+        with stubber:
+            assert lookup_s3_bucket_region("customer-data") == "eu-central-1"
+
+    @pytest.mark.parametrize(
+        "status, headers, expected",
+        [
+            # A private bucket refuses the anonymous request but still names its region.
+            (403, {"x-amz-bucket-region": "eu-central-1"}, "eu-central-1"),
+            (301, {"x-amz-bucket-region": "ap-southeast-2"}, "ap-southeast-2"),
+        ],
+    )
+    def test_an_error_answer_still_names_the_region(
+        self, monkeypatch: pytest.MonkeyPatch, status: int, headers: dict[str, str], expected: str
+    ) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_client_error(
+            "head_bucket",
+            service_error_code=str(status),
+            http_status_code=status,
+            response_meta={"HTTPHeaders": headers},
+        )
+
+        with stubber:
+            assert lookup_s3_bucket_region("customer-data") == expected
+
+    @pytest.mark.parametrize(
+        "status, error, match",
+        [
+            (404, ObjectStorageError, NO_SUCH_BUCKET_ERROR),
+            # An outage stays a retryable error, not a missing bucket.
+            (500, ClientError, "500"),
+        ],
+    )
+    def test_an_answer_without_a_region(
+        self, monkeypatch: pytest.MonkeyPatch, status: int, error: type[Exception], match: str
+    ) -> None:
+        _, stubber = self._stubbed_client(monkeypatch)
+        stubber.add_client_error("head_bucket", service_error_code=str(status), http_status_code=status)
+
+        with stubber, pytest.raises(error, match=match):
+            lookup_s3_bucket_region("customer-data")
+
+    def test_an_invalid_bucket_sends_no_request(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def refuse(*_args: Any, **_kwargs: Any) -> Any:
+            raise AssertionError("no client should be built")
+
+        monkeypatch.setattr(filesystem.boto3, "client", refuse)
+
+        with pytest.raises(ObjectStorageError, match=INVALID_CONFIG_ERROR):
+            lookup_s3_bucket_region("Not_A_Bucket")

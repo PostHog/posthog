@@ -84,8 +84,7 @@ import { SaveAsActionBanner } from './SaveAsActionBanner'
 import type { ActionFilterRowProps } from './types'
 import { MathAvailability } from './types'
 
-// Re-export for backward compatibility — these are imported from this file by 28+ consumers
-export { taxonomicFilterGroupTypeToEntityType } from './actionFilterRowUtils'
+// Re-export for backward compatibility
 export { MathSelector } from './MathSelector'
 
 interface DragHandleProps {

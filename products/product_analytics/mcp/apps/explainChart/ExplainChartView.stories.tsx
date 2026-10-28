@@ -101,9 +101,9 @@ function StoryChart({ series, overlay }: { series: Series[]; overlay?: ReactNode
 }
 
 const evidenceCharts: StoryEvidenceCharts = {
-    canShow: () => true,
+    canShow: (item) => !!item.query,
     prefetch: () => {},
-    render: (_, text) => (
+    render: ({ text }) => (
         <StoryChart
             series={BY_REFERRER.map((item, index) =>
                 isSeriesNamedIn([item.label, REFERRERS[index]!], text) ? item : { ...item, color: `${item.color}40` }

@@ -9,7 +9,7 @@ from posthog.models.property.parse import expand_cohort_properties, parse_proper
 from products.cohorts.backend.models.cohort import Cohort
 
 
-class TestFilter(BaseTest):
+class TestParsePropertyGroupData(BaseTest):
     def test_old_style_properties(self):
         property_groups = parse_property_group_data({"$browser__is_not": "IE7", "$OS": "Mac"})
         self.assertEqual(cast(Property, property_groups.values[0]).key, "$browser")

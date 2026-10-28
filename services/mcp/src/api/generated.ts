@@ -42676,7 +42676,52 @@ export namespace Schemas {
       readonly id: string;
       /** @maxLength 400 */
       name: string;
+      /** The user responsible for the event, or null when it has no owner. */
+      readonly owner?: UserBasic | null;
       /** @nullable */
+      description?: string | null;
+      tags?: unknown[];
+      /** @nullable */
+      readonly created_at: string | null;
+      readonly updated_at: string;
+      readonly updated_by: UserBasic;
+      /** @nullable */
+      readonly last_seen_at: string | null;
+      readonly last_updated_at: string;
+      verified?: boolean;
+      /** @nullable */
+      readonly verified_at: string | null;
+      readonly verified_by: UserBasic;
+      /** @nullable */
+      hidden?: boolean | null;
+      enforcement_mode?: SchemaEnforcementModeEnum;
+      /**
+         * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+         * @maxLength 400
+         * @nullable
+         */
+      primary_property?: string | null;
+      readonly is_action: boolean;
+      readonly action_id: number;
+      readonly is_calculating: boolean;
+      readonly last_calculated_at: string;
+      readonly created_by: UserBasic;
+      post_to_slack?: boolean;
+      default_columns?: string[];
+      readonly media_preview_urls: readonly string[];
+    }
+
+    /**
+     * Serializer mixin that handles tags for objects.
+     */
+    export interface EnterpriseEventDefinitionRequest {
+      readonly id: string;
+      /** @maxLength 400 */
+      name: string;
+      /**
+         * ID of the user responsible for the event. Null removes the owner.
+         * @nullable
+         */
       owner?: number | null;
       /** @nullable */
       description?: string | null;
@@ -47345,6 +47390,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
@@ -47369,6 +47415,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
       MetricCannotCompile: 'metric_cannot_compile',
+      MetricCalculationFailed: 'metric_calculation_failed',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       Srm: 'srm',
       ZeroExposures: 'zero_exposures',
@@ -47436,6 +47483,7 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `metric_cannot_compile` - Metric Cannot Compile
+       * * `metric_calculation_failed` - Metric Calculation Failed
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `srm` - Sample Ratio Mismatch
        * * `zero_exposures` - Zero Exposures
@@ -47485,6 +47533,7 @@ export namespace Schemas {
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
      * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
@@ -47507,6 +47556,7 @@ export namespace Schemas {
       NoMetric: 'no_metric',
       MetricEventNotIngested: 'metric_event_not_ingested',
       MetricCannotCompile: 'metric_cannot_compile',
+      MetricCalculationFailed: 'metric_calculation_failed',
       ExposureCriteriaCannotMatch: 'exposure_criteria_cannot_match',
       EarlySignificance: 'early_significance',
       ZeroExposures: 'zero_exposures',
@@ -47545,6 +47595,7 @@ export namespace Schemas {
        * * `no_metric` - No Metric
        * * `metric_event_not_ingested` - Metric Event Not Ingested
        * * `metric_cannot_compile` - Metric Cannot Compile
+       * * `metric_calculation_failed` - Metric Calculation Failed
        * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
        * * `early_significance` - Early Significance
        * * `zero_exposures` - Zero Exposures
@@ -48278,6 +48329,40 @@ export namespace Schemas {
       failures: ExperimentHealthInputsMetricCompileFailure[];
     }
 
+    export interface ExperimentHealthInputsMetricCalculationFailure {
+      /** The metric's name as the experiment shows it. */
+      name: string;
+      /** 'primary' or 'secondary'. */
+      role: string;
+      /**
+         * The class that the calculation stored for the error, such as 'timeout' or 'rate_limited'. Null for a failure stored without a class.
+         * @nullable
+         */
+      error_type: string | null;
+      /**
+         * The step of the calculation that failed, such as 'calculation'. Null when the failure names none.
+         * @nullable
+         */
+      step: string | null;
+      /** Whether the results page shows a button to try the metric again, which it does for a retriable error. */
+      retriable: boolean;
+      /**
+         * The stored message as the results page shows it, without the names that HogQL suggests and the list of a scope's fields. Null when it can hold evaluation rules that the AI evaluation markers keep out of the browser.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface ExperimentHealthInputsLatestCalculation {
+      /**
+         * When the latest calculation that the results page shows finished. Null when none has finished.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** The metrics whose latest calculation failed, with the error that the results page shows. */
+      failures: ExperimentHealthInputsMetricCalculationFailure[];
+    }
+
     export interface ExperimentHealthInputsFlagChange {
       /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
        *
@@ -48682,6 +48767,8 @@ export namespace Schemas {
       events_received: ExperimentHealthInputsEventsReceived;
       /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
       metric_compiles: ExperimentHealthInputsMetricCompiles | null;
+      /** The latest finished calculation of the metrics, which the metric results check reads. Null before launch, on an archived experiment, or when the read failed. */
+      latest_calculation: ExperimentHealthInputsLatestCalculation | null;
       /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
       flag_history: ExperimentHealthInputsFlagHistory | null;
       /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
@@ -86321,7 +86408,10 @@ export namespace Schemas {
       readonly id?: string;
       /** @maxLength 400 */
       name?: string;
-      /** @nullable */
+      /**
+         * ID of the user responsible for the event. Null removes the owner.
+         * @nullable
+         */
       owner?: number | null;
       /** @nullable */
       description?: string | null;
@@ -87505,6 +87595,11 @@ export namespace Schemas {
        * * `distinct_id` - User ID (default)
        * * `device_id` - Device ID */
       bucketing_identifier?: BucketingIdentifierEnum | null;
+      /**
+         * The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it.
+         * @minimum 0
+         */
+      version?: number;
     }
 
     export interface PatchedFeatureRequestProductArea {
@@ -92159,6 +92254,26 @@ export namespace Schemas {
       summary_prompt_guide?: string;
       /** Per-delivery rendering options. Every option applies to one subscription kind or delivery target only, and each option's own description says where it applies and whether a mismatch is rejected or ignored. Omit this field unless the user asks for one of the options. */
       delivery_config?: DeliveryConfig;
+    }
+
+    /**
+     * Supabase email action type to the id of the email template that sends it. Each template must be transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no template is skipped. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification.
+     */
+    export type PatchedSupabaseAuthEmailSettingsUpdateTemplates = {[key: string]: string};
+
+    export interface PatchedSupabaseAuthEmailSettingsUpdate {
+      /**
+         * The Supabase project URL, such as https://abcdefgh.supabase.co, from the project's API settings in the Supabase dashboard. It must use https.
+         * @maxLength 200
+         */
+      supabase_url?: string;
+      /**
+         * The Send Email Hook secret, starting with v1,whsec_. Supabase generates it under Authentication, Hooks, Send Email hook. Leave it out to keep the stored secret.
+         * @maxLength 500
+         */
+      hook_secret?: string;
+      /** Supabase email action type to the id of the email template that sends it. Each template must be transactional and marked sensitive. This replaces the whole mapping: include every type to keep, and leave a type out to unmap it. A core auth email with no template fails in Supabase, and a notification with no template is skipped. Valid action types: signup, invite, magiclink, email, recovery, email_change, reauthentication, password_changed_notification, email_changed_notification, phone_changed_notification, identity_linked_notification, identity_unlinked_notification, mfa_factor_enrolled_notification, mfa_factor_unenrolled_notification. */
+      templates?: PatchedSupabaseAuthEmailSettingsUpdateTemplates;
     }
 
     /**
@@ -110151,6 +110266,22 @@ export namespace Schemas {
       readonly reports: readonly SignalReportMetricSnapshots[];
     }
 
+    /**
+     * * `sufficient` - Sufficient
+     * * `insufficient` - Insufficient
+     * * `unsupported` - Unsupported
+     * * `errored` - Errored
+     */
+    export type SignalReportMonitoringResultEvidenceStatusEnum = typeof SignalReportMonitoringResultEvidenceStatusEnum[keyof typeof SignalReportMonitoringResultEvidenceStatusEnum];
+
+
+    export const SignalReportMonitoringResultEvidenceStatusEnum = {
+      Sufficient: 'sufficient',
+      Insufficient: 'insufficient',
+      Unsupported: 'unsupported',
+      Errored: 'errored',
+    } as const;
+
     export interface SignalReportPriorityUpdate {
       /** New report priority, from P0 (critical) to P4 (minimal).
        *
@@ -116622,6 +116753,53 @@ export namespace Schemas {
       interesting_notes: InterestingNote[];
     }
 
+    export interface SubmitMonitoringResultRequest {
+      /** Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.
+       *
+       * * `sufficient` - Sufficient
+       * * `insufficient` - Insufficient
+       * * `unsupported` - Unsupported
+       * * `errored` - Errored */
+      evidence_status: SignalReportMonitoringResultEvidenceStatusEnum;
+      /**
+         * Explain why the evidence supports this qualification. Must not be blank.
+         * @minLength 1
+         * @maxLength 2000
+         */
+      evidence_reason: string;
+      /**
+         * Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.
+         * @nullable
+         */
+      expectation_matches: boolean | null;
+      /**
+         * Explain the conclusion using evidence from the assignment's fixed window.
+         * @minLength 1
+         * @maxLength 16000
+         */
+      explanation: string;
+      /**
+         * Evidence references supporting the conclusion, or an empty list when none are available.
+         * @maxItems 50
+         * @items.minLength 1
+         */
+      evidence_refs: string[];
+    }
+
+    export interface SubmitMonitoringResultResponse {
+      /** True when the result is stored, including an identical retry. */
+      accepted: boolean;
+      /** The immutable Monitoring result's identifier. */
+      result_id: string;
+      /** The recorded verdict; this does not change the report's status.
+       *
+       * * `passed` - Passed
+       * * `failed` - Failed
+       * * `errored` - Errored
+       * * `inconclusive` - Inconclusive */
+      outcome: SignalReportCheckOutcomeEnum;
+    }
+
     export type SubscriptionWriteContextsItem = {
       /** @minimum 1 */
       dashboard_id: number;
@@ -116836,6 +117014,84 @@ export namespace Schemas {
       text_repr: string;
       /** Metadata about the summarization */
       metadata?: unknown;
+    }
+
+    /**
+     * Supabase email action type (such as `signup` or `recovery`) to the transactional message template that sends it. An auth email with no template fails in Supabase.
+     */
+    export type SupabaseAuthEmailSettingsTemplates = {[key: string]: string};
+
+    /**
+     * * `signup` - Confirm sign up
+     * * `invite` - Invite user
+     * * `magiclink` - Magic link
+     * * `email` - Email sign-in code
+     * * `recovery` - Reset password
+     * * `email_change` - Change email address
+     * * `reauthentication` - Reauthentication
+     * * `password_changed_notification` - Password changed
+     * * `email_changed_notification` - Email address changed
+     * * `phone_changed_notification` - Phone number changed
+     * * `identity_linked_notification` - Sign-in method linked
+     * * `identity_unlinked_notification` - Sign-in method removed
+     * * `mfa_factor_enrolled_notification` - MFA method added
+     * * `mfa_factor_unenrolled_notification` - MFA method removed
+     */
+    export type SupabaseEmailActionTypeEnum = typeof SupabaseEmailActionTypeEnum[keyof typeof SupabaseEmailActionTypeEnum];
+
+
+    export const SupabaseEmailActionTypeEnum = {
+      Signup: 'signup',
+      Invite: 'invite',
+      Magiclink: 'magiclink',
+      Email: 'email',
+      Recovery: 'recovery',
+      EmailChange: 'email_change',
+      Reauthentication: 'reauthentication',
+      PasswordChangedNotification: 'password_changed_notification',
+      EmailChangedNotification: 'email_changed_notification',
+      PhoneChangedNotification: 'phone_changed_notification',
+      IdentityLinkedNotification: 'identity_linked_notification',
+      IdentityUnlinkedNotification: 'identity_unlinked_notification',
+      MfaFactorEnrolledNotification: 'mfa_factor_enrolled_notification',
+      MfaFactorUnenrolledNotification: 'mfa_factor_unenrolled_notification',
+    } as const;
+
+    export interface SupabaseEmailType {
+      /** The `email_action_type` Supabase sends for this email.
+       *
+       * * `signup` - Confirm sign up
+       * * `invite` - Invite user
+       * * `magiclink` - Magic link
+       * * `email` - Email sign-in code
+       * * `recovery` - Reset password
+       * * `email_change` - Change email address
+       * * `reauthentication` - Reauthentication
+       * * `password_changed_notification` - Password changed
+       * * `email_changed_notification` - Email address changed
+       * * `phone_changed_notification` - Phone number changed
+       * * `identity_linked_notification` - Sign-in method linked
+       * * `identity_unlinked_notification` - Sign-in method removed
+       * * `mfa_factor_enrolled_notification` - MFA method added
+       * * `mfa_factor_unenrolled_notification` - MFA method removed */
+      value: SupabaseEmailActionTypeEnum;
+      /** What the email is for, in words a person reads. */
+      label: string;
+      /** Whether creating starter templates makes a template for this email. */
+      has_starter_template: boolean;
+    }
+
+    export interface SupabaseAuthEmailSettings {
+      /** The Supabase project URL, such as https://abcdefgh.supabase.co. Confirmation links point at its /auth/v1/verify endpoint. */
+      supabase_url: string;
+      /** Whether a Send Email Hook secret is stored. The secret itself is never returned. */
+      has_hook_secret: boolean;
+      /** Supabase email action type (such as `signup` or `recovery`) to the transactional message template that sends it. An auth email with no template fails in Supabase. */
+      templates: SupabaseAuthEmailSettingsTemplates;
+      /** The URL to paste into Supabase as the HTTPS endpoint of the Send Email Hook. */
+      hook_url: string;
+      /** Every email Supabase can send through the hook, core auth emails first. */
+      email_types: SupabaseEmailType[];
     }
 
     /**
@@ -120790,13 +121046,44 @@ export namespace Schemas {
       outcome: TraceEvaluationResultOutcomeEnum;
       /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
       label: string;
+      /** The numeric result of a numeric evaluation, null for every other type. */
+      score: number | null;
       reasoning: string | null;
       timestamp: string;
       isBackfill: boolean;
     }
 
+    export type TraceNodeEvaluationRollupOutcomeEnum = typeof TraceNodeEvaluationRollupOutcomeEnum[keyof typeof TraceNodeEvaluationRollupOutcomeEnum];
+
+
+    export const TraceNodeEvaluationRollupOutcomeEnum = {
+      Pass: 'pass',
+      Fail: 'fail',
+      Unrated: 'unrated',
+    } as const;
+
+    export interface TraceNodeEvaluationRollup {
+      /** The tree node the results grade. */
+      nodeId: string;
+      /** Fail if any evaluation fails on the node, else pass if any passes, else unrated. */
+      outcome: TraceNodeEvaluationRollupOutcomeEnum;
+    }
+
+    /**
+     * Counts the latest run of each evaluation on each node, by when the run started, so re-runs and backfills
+     * count once. Inconclusive results count as unrated. Computed over the results returned, at most 250.
+     */
+    export interface TraceEvaluationSummary {
+      passed: number;
+      failed: number;
+      unrated: number;
+      /** One entry per node with results, sorted by node id. */
+      nodes: TraceNodeEvaluationRollup[];
+    }
+
     export interface TraceEvaluationResults {
       results: TraceEvaluationResult[];
+      summary: TraceEvaluationSummary;
     }
 
     export interface TraceNodeMetadata {
