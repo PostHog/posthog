@@ -26,7 +26,8 @@ Operator = Literal[">", ">=", "<", "<=", "==", "!="]
 
 
 class MetricsAlertCondition(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    # A NaN threshold compares false with every value, so a saved alert could never fire.
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
     kind: Literal["threshold", "present"] = Field(
         default="threshold",
