@@ -14,7 +14,6 @@ from typing import Any
 from urllib.parse import quote
 from uuid import UUID
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import connection, models, transaction
 from django.utils import timezone
@@ -36,14 +35,12 @@ from posthog.models.integration_repository_cache import (
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
 
 from .learning_settings import get_environment_business_knowledge_config
 from .models import TeamBusinessKnowledgeConfig
 
 logger = structlog.get_logger(__name__)
 
-GITHUB_REPOS_FLAG = "business-knowledge-github-repos"
 MAX_GITHUB_REPOS = 100
 MAX_SEARCH_HITS = 20
 MAX_README_HITS = 5
@@ -122,21 +119,7 @@ class RepositoryFile:
     truncated: bool
 
 
-def has_github_repos_feature_flag(team: Team, distinct_id: str) -> bool:
-    """Same person, organization and project context as the API permission, so the prompt and the tools agree.
-
-    On in DEBUG so a local playground can call the tools.
-    """
-    if settings.DEBUG:
-        return True
-    return posthog_feature_flag_enabled(
-        GITHUB_REPOS_FLAG, distinct_id, organization_id=team.organization_id, team_id=team.id
-    )
-
-
-def repository_tools_enabled(team: Team, distinct_id: str) -> bool:
-    if not has_github_repos_feature_flag(team, distinct_id):
-        return False
+def repository_tools_enabled(team: Team) -> bool:
     integration_id, repos = selected_repositories(team)
     return integration_id is not None and bool(repos)
 

@@ -10,8 +10,10 @@ from products.warehouse_sources.backend.management.commands._credentials_report 
 
 class Command(BaseCommand):
     help = (
-        "Create or update the credentials row of each non-deleted warehouse source from its stored job_inputs. "
-        "Previews by default; pass --execute to write. Safe to repeat. Never prints field values."
+        "Create or update the credentials row of each non-deleted warehouse source with typed-in credentials from "
+        "its stored job_inputs, and store the reference to a new row in job_inputs. A source with an OAuth "
+        "connection gets no row. Previews by default; pass --execute to write. Safe to repeat. Never prints "
+        "field values."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:

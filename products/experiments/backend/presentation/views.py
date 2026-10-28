@@ -80,12 +80,17 @@ from products.access_control.backend.facade.user_access_control import (
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService, ExperimentVersionConflict
-from products.experiments.backend.facade.api import get_experiment_health, get_experiment_health_inputs
-from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
-from products.experiments.backend.facade.legacy_migration import (
-    LegacyMigrationError,
-    migrate_experiment as migrate_legacy_experiment,
+from products.experiments.backend.facade.api import (
+    get_experiment_health,
+    get_experiment_health_inputs,
+    get_running_time_target,
 )
+from products.experiments.backend.facade.contracts import (
+    ExperimentHealthReaderAccess,
+    LegacyMigrationError,
+    RunningTimeMode,
+)
+from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -139,6 +144,8 @@ from products.experiments.backend.presentation.serializers import (
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
+    RunningTimeTargetQuerySerializer,
+    RunningTimeTargetSerializer,
     ShipVariantSerializer,
 )
 from products.experiments.backend.recalculation import (
@@ -561,7 +568,7 @@ class EnterpriseExperimentsViewSet(
                 .select_related("created_by")
                 .defer(*LIST_DEFERRED_FIELDS)
             )
-        if self.action in ("health", "health_inputs"):
+        if self.action in ("health", "health_inputs", "in_session_exposure"):
             # The facade reads the experiment again with the joins its checks need, so the object lookup
             # here only checks access.
             queryset = queryset.select_related(None).prefetch_related(None).select_related("team")
@@ -981,10 +988,24 @@ class EnterpriseExperimentsViewSet(
         reads a warehouse table or view the caller may not query is not checked for them. The finding
         names each failing metric in the `evidence` keys `metric_N`, `metric_N_role`, `metric_N_error`
         (the error class, which is also the subcode of the first metric) and `metric_N_message` (the
-        compiler's message). It is a warning when a primary metric fails before the end, and info
-        otherwise. A failure inside ClickHouse, such as a type that the data holds, isn't found. A
-        failing metric compiles again on every request. A metric that compiles is cached per caller
-        for a day, so a cohort or table that is deleted after a compile can take up to a day to show.
+        compiler's message). It is a warning when a primary metric fails, also after the end, because
+        the calculation after the fix reads the events up to the end. It is info otherwise. A failure
+        inside ClickHouse, such as a type that the data holds, isn't found. A failing metric compiles
+        again on every request. A metric that compiles is cached per caller for a day, so a cohort or
+        table that is deleted after a compile can take up to a day to show.
+
+        `metric_calculation_failed` reports each metric whose latest calculation failed, from the
+        latest finished calculation that the results page shows. It leaves out a metric that
+        `metric_cannot_compile` reports. The subcode is the kind of the first failure: `busy`,
+        `query_limit` (the query reached the read, memory, time or length limit), `settings` (a setting of
+        the metric or the experiment), `not_enough_data`, `experiment_too_old` (the experiment
+        started too long ago to calculate again) or `unexpected_error`. Each metric is in the
+        `evidence` keys `metric_N`, `metric_N_role`, `metric_N_failure` (the kind), `metric_N_error`
+        (the limit, or the family of a setting) and `metric_N_message` (only a message that PostHog
+        wrote for users), and `calculated_at` is when the calculation finished. It is a
+        warning when a primary metric fails for a kind that a change fixes (`query_limit`,
+        `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
+        reads the events up to the end. It is info otherwise.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
@@ -1016,6 +1037,10 @@ class EnterpriseExperimentsViewSet(
         `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
         history gets the warning, because the pause is not read. A draft whose flag is already
         active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
+        An ended experiment whose flag is still active with multiple variants gets
+        `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
+        when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
+        an extra hour, because `last_called_at` trails a call.
 
         A running experiment whose first primary metric is a funnel gets the info
         `early_significance` (subcode `below_detectable_effect`) when a significant variant's
@@ -1688,6 +1713,27 @@ class EnterpriseExperimentsViewSet(
         return Response(service.get_velocity_stats())
 
     @validated_request(
+        query_serializer=RunningTimeTargetQuerySerializer,
+        responses={200: OpenApiResponse(response=RunningTimeTargetSerializer)},
+    )
+    @action(methods=["GET"], detail=True, url_path="running_time_target", required_scopes=["experiment:read"])
+    def running_time_target(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """The target sample of the experiment's running time estimate, which the experiment page's header compares
+        with the exposures so far, and what the experiment can detect over time.
+
+        In manual running time mode it is the saved target. Otherwise it is sized from the first primary metric's
+        current result: the variance the analysis uses (with CUPED when the analysis applied it) and the flag's
+        traffic split, so that the comparison of each variant with the control reaches the minimum detectable effect.
+        """
+        experiment: Experiment = self.get_object()
+        target = get_running_time_target(
+            team_id=self.team.id,
+            experiment_id=experiment.id,
+            mode=RunningTimeMode(mode) if (mode := request.validated_query_data.get("mode")) else None,
+        )
+        return Response(RunningTimeTargetSerializer(target).data)
+
+    @validated_request(
         request_serializer=RunningTimeCalculationInputSerializer,
         responses={200: OpenApiResponse(response=RunningTimeCalculationResultSerializer)},
     )
@@ -1930,7 +1976,9 @@ class EnterpriseExperimentsViewSet(
         Postgres reads only, so it can serve the tab's mount path.
         """
         experiment: Experiment = self.get_object()
-        semantics = resolve_in_session_exposure_semantics(self.team, experiment)
+        semantics = resolve_in_session_exposure_semantics(team_id=self.team_id, experiment_id=experiment.id)
+        if semantics is None:
+            raise NotFound()
         return Response(ExperimentInSessionExposureSerializer(semantics).data)
 
     @validated_request(

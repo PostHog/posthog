@@ -623,7 +623,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 # Defaults discovery already confirmed these tables aren't webhook-only; seed the
                 # cache so the warm step below doesn't re-probe the source once per schema.
                 schema_serializer.seed_webhook_only_check(False)
-            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # Do the webhook source-discovery calls (e.g. Google Ads token refresh + field query)
             # here, before the per-schema transaction below. Running it inside update()'s transaction
             # held the DB connection idle-in-transaction long enough for the server to close it.
             # update() reads the cached result, so it still validates and fails per-schema.

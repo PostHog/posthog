@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
-from django.db.models import TextChoices
+from django.db.models import Prefetch, TextChoices
 from django.utils import timezone
 
 import structlog
@@ -36,6 +36,7 @@ from products.signals.backend.contracts import (
 from products.signals.backend.enums import (
     ReportTaskActionKind,
     ReviewerEditAction,
+    ReviewerRemovalReason,
     ReviewerSelectionOutcome,
     SignalSourceProduct,
     SignalSourceType,
@@ -58,6 +59,7 @@ from products.signals.backend.report_checks import (
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.reviewer_rules import ReviewerRules
+from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -67,7 +69,7 @@ if TYPE_CHECKING:
 
     from products.signals.backend.implementation_pr import ImplementationPr
     from products.signals.backend.report_claims import ReportClaim
-    from products.signals.backend.report_plan import ReportPlan
+    from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
 from .artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
@@ -736,6 +738,13 @@ class SignalReportAssigneeSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(allow_null=True)
     agent = serializers.CharField(allow_null=True)
     claimed_at = serializers.DateTimeField(allow_null=True)
+    responsible_user = _UserSerializer(
+        allow_null=True,
+        help_text=(
+            "The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or "
+            "the user who started an internal task. Null when no person stands behind the claim."
+        ),
+    )
 
 
 class SignalUserAutonomyConfigSerializer(serializers.ModelSerializer):
@@ -1416,6 +1425,13 @@ class ReportPlanStepSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Latest known state of that pull request: unknown, draft, open, closed, or merged.",
     )
+    suppression_source = serializers.SerializerMethodField(
+        help_text="Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed.",
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=SignalReportSuppressionSource.choices, allow_null=True))
+    def get_suppression_source(self, step: "ReportPlanStep") -> str | None:
+        return self.context.get("step_suppression_sources", {}).get(step.id)
 
 
 class ReportPlanSerializer(serializers.Serializer):
@@ -1557,6 +1573,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "artefact (when present). Lets list cards show repository context without a per-card fetch."
         ),
     )
+    is_self_improvement_report = serializers.SerializerMethodField(
+        help_text=(
+            "Whether this is a scout self-improvement report. Most update a team-owned skill in the skills "
+            "store, but reports with a selected repository can still produce a pull request."
+        ),
+    )
     is_suggested_reviewer = serializers.BooleanField(read_only=True, default=False)
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
@@ -1639,7 +1661,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "The plan this report leads or is a step of, with every step in it. A report that other reports "
             "link to with `part_of` is a plan. Null when the report is in no plan, and always null in list "
-            "responses, because finding a plan's steps scans the project's report links."
+            "responses, because finding a plan's steps costs several queries per report."
         ),
     )
 
@@ -1673,6 +1695,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "suppression_source",
             "suppression_explanation",
             "repo_slug",
+            "is_self_improvement_report",
             "is_suggested_reviewer",
             "source_products",
             "scout_name",
@@ -1737,7 +1760,30 @@ class SignalReportSerializer(serializers.ModelSerializer):
                 dataclasses.replace(step, status=self._display_status(obj, step.status)) for step in plan.steps
             ),
         )
-        return dict(ReportPlanSerializer(plan).data)
+        suppressed_step_ids = [step.id for step in plan.steps if step.status == SignalReport.Status.SUPPRESSED]
+        step_suppression_sources = {
+            str(step_report.id): suppression[0].value
+            for step_report in SignalReport.objects.filter(
+                team_id=obj.team_id, id__in=suppressed_step_ids
+            ).prefetch_related(*self._suppression_prefetches())
+            if (suppression := self._suppression(step_report)) is not None
+        }
+        return dict(ReportPlanSerializer(plan, context={"step_suppression_sources": step_suppression_sources}).data)
+
+    @staticmethod
+    def _suppression_prefetches() -> list[Prefetch]:
+        return [
+            Prefetch(
+                "artefacts",
+                queryset=SignalReportArtefact.objects.filter(type=artefact_type).order_by("-created_at"),
+                to_attr=to_attr,
+            )
+            for artefact_type, to_attr in (
+                (SignalReportArtefact.ArtefactType.DISMISSAL, "prefetched_dismissal_artefacts"),
+                (SignalReportArtefact.ArtefactType.SAFETY_JUDGMENT, "prefetched_safety_artefacts"),
+                (SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT, "prefetched_actionability_artefacts"),
+            )
+        ]
 
     def _get_actionability_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_actionability_artefacts", None)
@@ -1759,6 +1805,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
 
     def get_summary_lead(self, obj: SignalReport) -> str:
         return summary_lead(obj.summary, SUMMARY_LEAD_LIMIT)
+
+    def get_is_self_improvement_report(self, obj: SignalReport) -> bool:
+        return is_self_improvement_title(obj.title)
 
     def get_priority(self, obj: SignalReport) -> str | None:
         prefetched = getattr(obj, "prefetched_priority_artefacts", None)
@@ -2059,6 +2108,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
         assignment = self._get_assignment(obj)
         if assignment is None or not assignment.actor_kind:
             return None
+        responsible = self._get_responsible_user(assignment)
         return {
             "claim_id": str(assignment.claim_id) if assignment.claim_id else None,
             "kind": assignment.actor_kind,
@@ -2066,7 +2116,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "task_id": str(assignment.actor_task_id) if assignment.actor_task_id else None,
             "agent": assignment.actor_agent,
             "claimed_at": assignment.claimed_at,
+            "responsible_user": _UserSerializer(responsible).data if responsible else None,
         }
+
+    def _get_responsible_user(self, claim: "ReportClaim") -> User | None:
+        from products.signals.backend.report_claims import responsible_user
+
+        users = self.context.get("claim_responsible_users_map")
+        return users.get(claim.claim_id) if users is not None else responsible_user(claim)
 
     def _get_assignment(self, obj: SignalReport) -> "ReportClaim | None":
         from products.signals.backend.report_claims import get_active_claim
@@ -2999,6 +3056,7 @@ class SignalReportSuggestedReviewersArtefactSerializer(SignalReportArtefactSeria
 
 class SignalReportArtefactWriteSerializer(serializers.Serializer):
     MAX_ENTRIES = 10
+    REMOVAL_NOTE_MAX_LENGTH = 500
 
     action = serializers.ChoiceField(
         choices=ReviewerEditAction.choices,
@@ -3023,11 +3081,56 @@ class SignalReportArtefactWriteSerializer(serializers.Serializer):
         max_length=MAX_ENTRIES,
         help_text="Explicit add or remove targets. When supplied, content is only a fallback for older servers.",
     )
+    removal_reason = serializers.ChoiceField(
+        choices=ReviewerRemovalReason.choices,
+        required=False,
+        help_text=(
+            "Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on "
+            "them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': "
+            "another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The "
+            "last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the "
+            "reason when they pick reviewers for later reports."
+        ),
+    )
+    removal_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=REMOVAL_NOTE_MAX_LENGTH,
+        help_text="Optional context for the removal, such as the area the person does not work on. Remove action only.",
+    )
 
     def validate(self, attrs: dict) -> dict:
         if "targets" in attrs and attrs["action"] not in {"add", "remove"}:
             raise serializers.ValidationError({"targets": "Targets require an add or remove action."})
+        attrs["removal_note"] = (attrs.get("removal_note") or "").strip() or None
+        if (attrs.get("removal_reason") or attrs["removal_note"]) and attrs["action"] != "remove":
+            raise serializers.ValidationError({"removal_reason": "A removal reason requires the remove action."})
         return attrs
+
+
+class SignalReportLeaveReviewersSerializer(serializers.Serializer):
+    removal_reason = serializers.ChoiceField(
+        choices=ReviewerRemovalReason.choices,
+        required=False,
+        help_text=(
+            "Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the "
+            "area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have "
+            "bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks "
+            "reviewers for later reports."
+        ),
+    )
+    removal_note = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=SignalReportArtefactWriteSerializer.REMOVAL_NOTE_MAX_LENGTH,
+        help_text=(
+            "The user's own words for why, such as \"I'm not on the payments team any more\". Scouts read it when "
+            "they route later reports."
+        ),
+    )
+
+    def validate_removal_note(self, value: str) -> str | None:
+        return value.strip() or None
 
 
 # Writable types only — `video_segment` (and any other NON_WRITABLE type) is read-only and rejected

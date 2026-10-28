@@ -614,7 +614,7 @@ export interface AnomalyInsightRowApi {
 export interface AnomalySearchResponseApi {
     /** Whether anomaly scoring covers this project. */
     scoring_enabled: boolean
-    /** Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days. */
+    /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
     watched_insights: number
     /** Insights with at least one scored bucket in the range. Results cover only these insights. */
     insights_scored_in_range: number
@@ -1924,6 +1924,8 @@ export interface SignalReportAssigneeApi {
     agent: string | null
     /** @nullable */
     claimed_at: string | null
+    /** The person who answers for the claim: the user for a user claim, the user an MCP agent acts for, or the user who started an internal task. Null when no person stands behind the claim. */
+    responsible_user: _UserApi | null
 }
 
 /**
@@ -2116,6 +2118,8 @@ export interface ReportPlanStepApi {
      * * `closed` - Closed
      * * `merged` - Merged */
     readonly implementation_pr_state: SignalReportAssignmentPrStateEnumApi | null
+    /** Who or what suppressed the step, with the same values as the report's `suppression_source`. Null unless the step is suppressed. */
+    readonly suppression_source: SignalReportSuppressionSourceEnumApi | null
 }
 
 export interface ReportPlanApi {
@@ -2215,6 +2219,8 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly repo_slug: string | null
+    /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+    readonly is_self_improvement_report: boolean
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -2270,7 +2276,7 @@ export interface SignalReportListApi {
     readonly channel_id: string | null
     /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     readonly ranking: ReportRankingApi
-    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
     /**
      * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -2465,6 +2471,8 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly repo_slug: string | null
+    /** Whether this is a scout self-improvement report. Most update a team-owned skill in the skills store, but reports with a selected repository can still produce a pull request. */
+    readonly is_self_improvement_report: boolean
     readonly is_suggested_reviewer: boolean
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
@@ -2520,7 +2528,7 @@ export interface SignalReportApi {
     readonly channel_id: string | null
     /** The served ranking model's predictions from the latest ranking score artefact. Its status says whether the report is scored, stale or unscored, or that the user cannot see the ranking model. */
     readonly ranking: ReportRankingApi
-    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps scans the project's report links. */
+    /** The plan this report leads or is a step of, with every step in it. A report that other reports link to with `part_of` is a plan. Null when the report is in no plan, and always null in list responses, because finding a plan's steps costs several queries per report. */
     readonly plan: ReportPlanApi | null
 }
 
@@ -3147,6 +3155,22 @@ export interface SuggestedReviewerEntryWriteApi {
     reason?: string | null
 }
 
+/**
+ * * `wrong_area` - Not their area
+ * * `already_covered` - Someone else is on it
+ * * `unavailable` - No bandwidth
+ * * `other` - Other
+ */
+export type ReviewerRemovalReasonEnumApi =
+    (typeof ReviewerRemovalReasonEnumApi)[keyof typeof ReviewerRemovalReasonEnumApi]
+
+export const ReviewerRemovalReasonEnumApi = {
+    WrongArea: 'wrong_area',
+    AlreadyCovered: 'already_covered',
+    Unavailable: 'unavailable',
+    Other: 'other',
+} as const
+
 export interface SignalReportArtefactWriteApi {
     /** Add or remove only the supplied people, replace the list, or explicitly confirm it.
      *
@@ -3167,6 +3191,18 @@ export interface SignalReportArtefactWriteApi {
      * @maxItems 10
      */
     targets?: SuggestedReviewerEntryWriteApi[]
+    /** Why the people in `targets` are removed. Remove action only. 'wrong_area': the work should not be on them, because it is outside their area, they moved off it, or someone else owns it. 'already_covered': another reviewer already covers the report. 'unavailable': they do not have bandwidth right now. The last two say nothing about ownership. 'other': explain in removal_note. Research and scouts read the reason when they pick reviewers for later reports.
+     *
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other */
+    removal_reason?: ReviewerRemovalReasonEnumApi
+    /**
+     * Optional context for the removal, such as the area the person does not work on. Remove action only.
+     * @maxLength 500
+     */
+    removal_note?: string
 }
 
 /**
@@ -3279,6 +3315,21 @@ export interface SignalReportSuggestedReviewersArtefactApi {
      * @nullable
      */
     readonly task_id: string | null
+}
+
+export interface SignalReportLeaveReviewersApi {
+    /** Why the user steps off. 'wrong_area': the work should not be on them, for example they moved off the area or left the team. 'already_covered': someone else is on it. 'unavailable': they do not have bandwidth right now. 'other': explain in removal_note. Research reads the reason when it picks reviewers for later reports.
+     *
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other */
+    removal_reason?: ReviewerRemovalReasonEnumApi
+    /**
+     * The user's own words for why, such as "I'm not on the payments team any more". Scouts read it when they route later reports.
+     * @maxLength 500
+     */
+    removal_note?: string
 }
 
 /**
@@ -5013,7 +5064,7 @@ export interface SignalReportStateRequestApi {
      * * `resolved` - resolved
      * * `monitoring` - monitoring */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -5650,7 +5701,7 @@ export interface SignalReportBulkStateRequestApi {
      * * `resolved` - resolved
      * * `monitoring` - monitoring */
     state: SignalReportStateEnumApi
-    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_*) go with state='suppressed' and absorb later signals silently. Use 'wrong_assignee' when the report was routed to the wrong person or team. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
+    /** Optional canonical reason code recorded with the transition. Must be one of: already_fixed, report_unclear, analysis_wrong, wrong_assignee, wrong_repo, wontfix_intentional, wontfix_irrelevant, fixed_outside_posthog, verified_manually, no_action_needed, pr_merged, other — these match the inbox UI so the rationale renders as a labelled chip rather than a raw code. When the work this report asked for is done, the honest transition is state='resolved' with 'fixed_outside_posthog' (the fix landed without a pull request), 'pr_merged' (a pull request with the fix was merged but did not resolve the report on its own), or 'already_fixed' (it was fixed before the report was filed). Use 'no_action_needed' with state='resolved' when the report was useful but needs no implementation. A report that failed in processing resolves too, so a fix that landed is recorded as a fix rather than as a dismissal. These three codes claim the issue is gone, so a later signal about the same issue starts a fresh report linked to this one. Fixed reason codes require state='suppressed' or state='resolved', not 'potential'. The dismissal codes (report_unclear, analysis_wrong, wrong_assignee, wontfix_*) go with state='suppressed' and absorb later signals silently. 'wrong_assignee' is accepted from older clients, but a report sent to the wrong person still holds work: remove the person from the report's reviewers with a removal_reason instead of suppressing it. 'wrong_repo' when the agent picked the wrong repository for this report, ideally with corrected_repository naming the right one. The report stays suppressed, but a later matching signal starts a fresh linked report with a new repository selection informed by the project's correction feedback, even when no corrected_repository was supplied. Use 'verified_manually' with state='resolved' to stop Monitoring after manual verification. It requires Monitoring to be enabled and a report with a Monitoring period, and records no automatic verification result or evidence amendment. Use 'other' together with a dismissal_note for anything that doesn't fit a code.
      *
      * * `already_fixed` - Already fixed
      * * `report_unclear` - Report is unclear to me
@@ -8090,6 +8141,13 @@ export interface ReviewerCorrectionEntryApi {
     /** GitHub logins on the report after the human edit (lowercased). */
     after: string[]
     /**
+     * Why the editor removed reviewers: wrong_area, already_covered, unavailable, or other.
+     * @nullable
+     */
+    removal_reason?: string | null
+    /** The removed identities that `removal_reason` applies to. */
+    removal_reason_reviewers?: string[]
+    /**
      * ISO-8601 timestamp of the edit.
      * @nullable
      */
@@ -9783,6 +9841,69 @@ export interface LighthouseAuditResponseApi {
 }
 
 /**
+ * * `sufficient` - Sufficient
+ * * `insufficient` - Insufficient
+ * * `unsupported` - Unsupported
+ * * `errored` - Errored
+ */
+export type SignalReportMonitoringResultEvidenceStatusEnumApi =
+    (typeof SignalReportMonitoringResultEvidenceStatusEnumApi)[keyof typeof SignalReportMonitoringResultEvidenceStatusEnumApi]
+
+export const SignalReportMonitoringResultEvidenceStatusEnumApi = {
+    Sufficient: 'sufficient',
+    Insufficient: 'insufficient',
+    Unsupported: 'unsupported',
+    Errored: 'errored',
+} as const
+
+export interface SubmitMonitoringResultRequestApi {
+    /** Whether the fixed-window evidence is sufficient, insufficient, unsupported, or errored.
+     *
+     * * `sufficient` - Sufficient
+     * * `insufficient` - Insufficient
+     * * `unsupported` - Unsupported
+     * * `errored` - Errored */
+    evidence_status: SignalReportMonitoringResultEvidenceStatusEnumApi
+    /**
+     * Explain why the evidence supports this qualification. Must not be blank.
+     * @minLength 1
+     * @maxLength 2000
+     */
+    evidence_reason: string
+    /**
+     * Whether the authored expectation holds: a boolean for sufficient evidence, null for unsupported or errored evidence.
+     * @nullable
+     */
+    expectation_matches: boolean | null
+    /**
+     * Explain the conclusion using evidence from the assignment's fixed window.
+     * @minLength 1
+     * @maxLength 16000
+     */
+    explanation: string
+    /**
+     * Evidence references supporting the conclusion, or an empty list when none are available.
+     * @maxItems 50
+     * @items.minLength 1
+     */
+    evidence_refs: string[]
+}
+
+export interface SubmitMonitoringResultResponseApi {
+    /** True when the result is stored, including an identical retry. */
+    accepted: boolean
+    /** The immutable Monitoring result's identifier. */
+    result_id: string
+    /** The recorded verdict; this does not change the report's status.
+     *
+     * * `passed` - Passed
+     * * `failed` - Failed
+     * * `errored` - Errored
+     * * `inconclusive` - Inconclusive */
+    outcome: SignalReportCheckOutcomeEnumApi
+}
+
+/**
  * The record itself, as a JSON object. Must validate against the scout config's `structured_output_schema` (shown in the run prompt); any invalid record fails the whole call with nothing written.
  */
 export type StructuredOutputRecordApiPayload = { [key: string]: unknown }
@@ -10343,7 +10464,7 @@ export type SignalsReportsListParams = {
      */
     already_addressed?: boolean
     /**
-     * Use 'me' to return reports claimed by the current user, task, or MCP agent.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
      */
     assignee?: SignalsReportsListAssignee
     /**
@@ -10469,6 +10590,7 @@ export type SignalsReportsListAssignee = (typeof SignalsReportsListAssignee)[key
 
 export const SignalsReportsListAssignee = {
     Me: 'me',
+    Mine: 'mine',
 } as const
 
 export type SignalsReportPrChecksParams = {
@@ -10544,7 +10666,7 @@ export type SignalsReportChecksListParams = {
 
 export type SignalsReportsAvailableReviewersRetrieveParams = {
     /**
-     * Case-insensitive filter on name or email.
+     * Case-insensitive filter on name or email. Use search to find members outside the first 100 results.
      */
     query?: string
 }

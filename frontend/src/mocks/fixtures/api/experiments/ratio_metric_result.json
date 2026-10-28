@@ -12,23 +12,15 @@
     "cache_key": "cache_40de1256ea5a2265e4563ccb18687a44",
     "cache_target_age": "2025-09-05T17:03:41.131006Z",
     "calculation_trigger": null,
-    "credible_intervals": null,
-    "insight": null,
     "is_cached": true,
     "kind": "ExperimentQuery",
     "last_refresh": "2025-09-04T17:03:41.131006Z",
-    "metric": null,
     "next_allowed_client_refresh": "2025-09-04T17:04:41.131006Z",
-    "p_value": null,
-    "probability": null,
     "query_metadata": {
         "events": [],
         "updated_at": "2025-09-04T17:03:45.098248Z"
     },
     "query_status": null,
-    "significance_code": null,
-    "significant": null,
-    "stats_version": null,
     "timezone": "UTC",
     "variant_results": [
         {
@@ -59,6 +51,5 @@
             "sum_squares": 1022.0,
             "validation_failures": []
         }
-    ],
-    "variants": null
+    ]
 }

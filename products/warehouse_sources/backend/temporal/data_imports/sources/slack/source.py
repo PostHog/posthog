@@ -4,9 +4,8 @@ from typing import TYPE_CHECKING, Optional, cast
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 
 if TYPE_CHECKING:
-    from posthog.models.integration import Integration
-
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+    from products.integrations.backend.facade.api import IntegrationRecord
 
 from temporalio import activity
 
@@ -162,7 +161,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         return WebhookSourceManager(inputs, inputs.logger)
 
     @staticmethod
-    def _get_authed_user_id(integration: "Integration") -> str | None:
+    def _get_authed_user_id(integration: "IntegrationRecord") -> str | None:
         return (integration.config or {}).get("authed_user", {}).get("id")
 
     def _resolve_access_token(self, config: SlackSourceConfig, team_id: int) -> SlackAccess:

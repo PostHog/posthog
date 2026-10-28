@@ -24,7 +24,7 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.models.integration import DatabricksIntegration
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -60,6 +60,8 @@ from products.batch_exports.backend.temporal.utils import (
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
+from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
@@ -1125,8 +1127,8 @@ async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> Databri
         DatabricksIntegrationError: If the Databricks integration is not valid.
     """
     try:
-        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.databricks.credentials.aget(inputs.team_id, inputs.integration_id)
+    except IntegrationNotFound:
         raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")
     return DatabricksIntegration(integration)
 

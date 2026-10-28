@@ -49,14 +49,15 @@ def complete_implementation(
     *,
     team_id: int,
     report_id: UUID | str,
-    monitoring_started_at: datetime,
+    monitoring_started_at: datetime | None,
     attribution: ArtefactAttribution | None = None,
     actor_user: User | None = None,
     close_pr_on_resolve: bool = False,
+    from_pr_merge: bool = False,
 ) -> SignalReportMonitoringAttempt | None:
-    if timezone.is_naive(monitoring_started_at):
+    if monitoring_started_at is not None and timezone.is_naive(monitoring_started_at):
         raise ValueError("An aware implementation-complete timestamp is required.")
-    if monitoring_started_at > timezone.now():
+    if monitoring_started_at is not None and monitoring_started_at > timezone.now():
         raise ValueError("Implementation cannot complete in the future.")
 
     with transaction.atomic():
@@ -64,6 +65,7 @@ def complete_implementation(
         report = SignalReport.objects.select_for_update(no_key=True).get(team_id=team_id, id=report_id)
         report._transition_actor = attribution  # type: ignore[attr-defined]
         report._transition_actor_user = actor_user  # type: ignore[attr-defined]
+        report._status_from_pr_state = from_pr_merge  # type: ignore[attr-defined]
         if report.status == SignalReport.Status.RESOLVED:
             return None
         enabled = team_report_monitoring_enabled(team_id)
@@ -74,21 +76,20 @@ def complete_implementation(
             if attempt is None:
                 raise ValueError("The Monitoring period has no check snapshot.")
             return attempt
+        if not enabled:
+            report._close_pr_on_resolve = close_pr_on_resolve  # type: ignore[attr-defined]
+            report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
+            return None
         if report.status not in {
             SignalReport.Status.READY,
             SignalReport.Status.PENDING_INPUT,
             SignalReport.Status.FAILED,
         }:
             raise InvalidStatusTransition(report.status, SignalReport.Status.MONITORING)
-        if not enabled:
-            report._close_pr_on_resolve = close_pr_on_resolve  # type: ignore[attr-defined]
-            report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
-            return None
-        if (
-            SignalReportMonitoringAttempt.objects.for_team(team_id)
-            .filter(report_id=report.id, monitoring_started_at__gte=monitoring_started_at)
-            .exists()
-        ):
+        earlier_attempts = SignalReportMonitoringAttempt.objects.for_team(team_id).filter(report_id=report.id)
+        if monitoring_started_at is not None:
+            earlier_attempts = earlier_attempts.filter(monitoring_started_at__gte=monitoring_started_at)
+        if earlier_attempts.exists():
             raise ValueError("Implementation must complete after the report's earlier Monitoring periods.")
 
         checks = list(
@@ -111,6 +112,9 @@ def complete_implementation(
             report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
             return None
 
+        if monitoring_started_at is None:
+            raise ValueError("An implementation-complete timestamp is required to enter Monitoring.")
+
         attempt = SignalReportMonitoringAttempt.objects.for_team(team_id).create(
             team_id=team_id,
             report=report,
@@ -127,6 +131,7 @@ def complete_implementation(
             consecutive_errors=0,
             consecutive_inconclusive=0,
             monitoring_fallback_expires_at=None,
+            monitoring_dispatch_after=None,
             updated_at=now,
         )
         report.save(
