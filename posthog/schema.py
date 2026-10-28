@@ -6239,6 +6239,13 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: InCohortVia | None = None
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
+    materializeRepeatedCTEs: bool | None = Field(
+        default=None,
+        description=(
+            "Reuse eligible bounded event aggregates within one query execution. When"
+            " unset, the server may enable it via the cloud feature flag."
+        ),
+    )
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     mergeFederatedAggregateJoins: bool | None = Field(
         default=None,
