@@ -124,6 +124,8 @@ function staleLabels(eventsOldestFirst, wantedLabels, rules) {
 
 const PAGE_SIZE = 100
 
+const PR_FILES_API_LIMIT = 3000
+
 // The job applies every label after this request, and it has a five-minute
 // timeout. A stalled request must give up well before that, so the team and
 // docs labels still get applied.
@@ -386,7 +388,7 @@ async function main() {
         }
         console.info(`PR title: ${PR_TITLE || '(empty)'}`)
         await addLabels(labels)
-        if (files) {
+        if (files && files.length < PR_FILES_API_LIMIT) {
             const events = await fetchAllPages(`issues/${PR_NUMBER}/events`)
             await removeLabels(staleLabels(events ?? [], labels, rules))
         }
