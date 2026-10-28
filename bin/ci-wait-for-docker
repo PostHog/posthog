@@ -191,13 +191,12 @@ pull_from_first_mirror() {
     local mirror
 
     for mirror in "${REGISTRY_MIRRORS[@]}"; do
-        # Without a bound, a stalled mirror holds the launch until the job times out instead of falling through.
-        if timeout --kill-after=10s 180 docker pull -q "${mirror}/${path}" >/dev/null 2>&1 && docker tag "${mirror}/${path}" "$image"; then
+        if docker pull -q "${mirror}/${path}" >/dev/null 2>&1 && docker tag "${mirror}/${path}" "$image"; then
             echo "Pulled ${image} from ${mirror}."
             return 0
         fi
     done
-    echo "No mirror served ${image}; compose pulls it from Docker Hub."
+    echo "No mirror has ${image}; compose pulls it from Docker Hub."
 }
 
 pull_from_registry_mirror() {
