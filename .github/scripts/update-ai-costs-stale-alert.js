@@ -2,7 +2,7 @@ const COST_PR_BRANCH = 'chore/llma-update-ai-costs'
 const HOUR_MS = 60 * 60 * 1000
 const DAY_MS = 24 * HOUR_MS
 const REPLACEMENT_WINDOW_MS = 30 * 60 * 1000
-const EARLY_ALERT_HOURS = [2, 8]
+const EARLY_ALERT_HOURS = [0, 8]
 const AI_OBSERVABILITY_AFTER_HOURS = 24
 
 function findWaitingSince(prs) {
@@ -20,33 +20,23 @@ function findWaitingSince(prs) {
     return { waitingSince, prCount }
 }
 
-function findApprovedAt(reviewDecision, latestReviews) {
-    if (reviewDecision !== 'APPROVED') {
-        return null
-    }
-    const approvals = latestReviews
-        .filter((review) => review.state === 'APPROVED')
-        .map((review) => Date.parse(review.submittedAt))
-    return approvals.length > 0 ? Math.min(...approvals) : null
-}
-
-function isAlertDue({ stuckSince, lastCheckAt, thisCheckAt }) {
-    const nextDailyAlert = stuckSince + Math.max(1, Math.floor((lastCheckAt - stuckSince) / DAY_MS) + 1) * DAY_MS
-    const alertTimes = [...EARLY_ALERT_HOURS.map((hours) => stuckSince + hours * HOUR_MS), nextDailyAlert]
+function isAlertDue({ waitingSince, lastCheckAt, thisCheckAt }) {
+    const nextDailyAlert = waitingSince + Math.max(1, Math.floor((lastCheckAt - waitingSince) / DAY_MS) + 1) * DAY_MS
+    const alertTimes = [...EARLY_ALERT_HOURS.map((hours) => waitingSince + hours * HOUR_MS), nextDailyAlert]
     return alertTimes.some((time) => time > lastCheckAt && time <= thisCheckAt)
 }
 
-function buildAlertText({ pr, waitingSince, prCount, approvedAt, now, supportHeroGroup, aiObservabilityGroup }) {
-    const hoursSince = (time) => Math.floor((now - time) / HOUR_MS)
-    const waitedHours = hoursSince(waitingSince)
+function buildAlertText({ pr, waitingSince, prCount, now, supportHeroGroup, aiObservabilityGroup }) {
+    const waitedHours = Math.floor((now - waitingSince) / HOUR_MS)
     const groups =
         waitedHours >= AI_OBSERVABILITY_AFTER_HOURS ? [supportHeroGroup, aiObservabilityGroup] : [supportHeroGroup]
     const mentions = groups.map((group) => `<!subteam^${group}>`).join(' ')
-    const problem = approvedAt
-        ? `was approved ${hoursSince(approvedAt)}h ago but has not merged. Check if the merge queue kicked it out.`
-        : 'needs a review.'
+    const link = `<${pr.html_url}|#${pr.number}>`
+    if (waitedHours === 0) {
+        return `${mentions} New LLM cost update ${link} needs to merge.`
+    }
     const history = prCount > 1 ? ` across ${prCount} PRs` : ''
-    return `${mentions} LLM cost update <${pr.html_url}|#${pr.number}> ${problem} New prices have waited ${waitedHours}h${history}.`
+    return `${mentions} LLM cost update ${link} has not merged. New prices have waited ${waitedHours}h${history}.`
 }
 
 async function findCheckWindow({ github, owner, repo, runId }) {
@@ -87,27 +77,6 @@ async function listCostPrsSinceLastMerge({ github, owner, repo }) {
     )
 }
 
-async function fetchReviewState({ github, owner, repo, number }) {
-    const { repository } = await github.graphql(
-        `query ($owner: String!, $repo: String!, $number: Int!) {
-            repository(owner: $owner, name: $repo) {
-                pullRequest(number: $number) {
-                    reviewDecision
-                    latestReviews(first: 20) {
-                        nodes {
-                            state
-                            submittedAt
-                        }
-                    }
-                }
-            }
-        }`,
-        { owner, repo, number }
-    )
-    const { reviewDecision, latestReviews } = repository.pullRequest
-    return { reviewDecision, latestReviews: latestReviews.nodes }
-}
-
 async function checkStaleCostPr({ github, context, core }, { supportHeroGroup, aiObservabilityGroup }) {
     const { owner, repo } = context.repo
     const { lastCheckAt, thisCheckAt } = await findCheckWindow({ github, owner, repo, runId: context.runId })
@@ -120,29 +89,17 @@ async function checkStaleCostPr({ github, context, core }, { supportHeroGroup, a
     }
 
     const { waitingSince, prCount } = findWaitingSince(prs)
-    const { reviewDecision, latestReviews } = await fetchReviewState({ github, owner, repo, number: pr.number })
-    const approvedAt = findApprovedAt(reviewDecision, latestReviews)
-
-    if (!isAlertDue({ stuckSince: approvedAt ?? waitingSince, lastCheckAt, thisCheckAt })) {
-        core.info(`#${pr.number} is ${reviewDecision}: no alert due`)
+    if (!isAlertDue({ waitingSince, lastCheckAt, thisCheckAt })) {
+        core.info(`#${pr.number} is open: no alert due`)
         return
     }
 
-    const text = buildAlertText({
-        pr,
-        waitingSince,
-        prCount,
-        approvedAt,
-        now: Date.now(),
-        supportHeroGroup,
-        aiObservabilityGroup,
-    })
+    const text = buildAlertText({ pr, waitingSince, prCount, now: Date.now(), supportHeroGroup, aiObservabilityGroup })
     core.info(text)
     core.setOutput('text', text)
 }
 
 module.exports = checkStaleCostPr
 module.exports.findWaitingSince = findWaitingSince
-module.exports.findApprovedAt = findApprovedAt
 module.exports.isAlertDue = isAlertDue
 module.exports.buildAlertText = buildAlertText

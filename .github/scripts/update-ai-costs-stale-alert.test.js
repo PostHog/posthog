@@ -1,7 +1,7 @@
 const { describe, it } = require('node:test')
 const assert = require('node:assert/strict')
 
-const { findWaitingSince, findApprovedAt, isAlertDue, buildAlertText } = require('./update-ai-costs-stale-alert')
+const { findWaitingSince, isAlertDue, buildAlertText } = require('./update-ai-costs-stale-alert')
 
 const HOUR_MS = 60 * 60 * 1000
 const OPENED_AT = Date.parse('2026-10-20T10:05:00Z')
@@ -19,20 +19,20 @@ const costPr = ({ number, openedHours, closedHours = null, merged = false }) => 
 describe('update-ai-costs-stale-alert', () => {
     describe('isAlertDue', () => {
         const cases = [
-            { name: 'sends the 2h alert in the hour it falls', fromHours: 1.5, untilHours: 2.5, due: true },
-            { name: 'stays quiet between the 2h and 8h alerts', fromHours: 3.5, untilHours: 4.5, due: false },
-            { name: 'sends the 8h alert after a dropped run', fromHours: 6.5, untilHours: 8.5, due: true },
-            { name: 'does not repeat an alert on the window edge', fromHours: 2, untilHours: 3, due: false },
-            { name: 'sends the first daily alert at 24h', fromHours: 23.5, untilHours: 24.5, due: true },
-            { name: 'stays quiet between daily alerts', fromHours: 30.5, untilHours: 31.5, due: false },
-            { name: 'sends a later daily alert at 72h', fromHours: 71.5, untilHours: 72.5, due: true },
-            { name: 'catches up after a weekend without runs', fromHours: 30, untilHours: 92, due: true },
-            { name: 'stays quiet before the PR opens', fromHours: -1, untilHours: 0, due: false },
+            { name: 'sends an alert when the PR opens', from: -0.5, until: 0.5, due: true },
+            { name: 'stays quiet before the PR opens', from: -1.5, until: -0.5, due: false },
+            { name: 'does not repeat an alert on the window edge', from: 0, until: 1, due: false },
+            { name: 'stays quiet between the posted and 8h alerts', from: 3.5, until: 4.5, due: false },
+            { name: 'sends the 8h alert after a dropped run', from: 6.5, until: 8.5, due: true },
+            { name: 'sends the first daily alert at 24h', from: 23.5, until: 24.5, due: true },
+            { name: 'stays quiet between daily alerts', from: 30.5, until: 31.5, due: false },
+            { name: 'sends a later daily alert at 72h', from: 71.5, until: 72.5, due: true },
+            { name: 'catches up after a weekend without runs', from: 30, until: 92, due: true },
         ]
-        for (const { name, fromHours, untilHours, due } of cases) {
+        for (const { name, from, until, due } of cases) {
             it(name, () => {
                 assert.equal(
-                    isAlertDue({ stuckSince: OPENED_AT, lastCheckAt: at(fromHours), thisCheckAt: at(untilHours) }),
+                    isAlertDue({ waitingSince: OPENED_AT, lastCheckAt: at(from), thisCheckAt: at(until) }),
                     due
                 )
             })
@@ -77,59 +77,36 @@ describe('update-ai-costs-stale-alert', () => {
         }
     })
 
-    describe('findApprovedAt', () => {
-        const reviews = [
-            { state: 'COMMENTED', submittedAt: iso(1) },
-            { state: 'APPROVED', submittedAt: iso(3) },
-            { state: 'APPROVED', submittedAt: iso(2) },
-        ]
-        const cases = [
-            { name: 'uses the first approval of an approved PR', decision: 'APPROVED', expected: at(2) },
-            { name: 'ignores approvals once review is required again', decision: 'REVIEW_REQUIRED', expected: null },
-            { name: 'ignores approvals when changes are requested', decision: 'CHANGES_REQUESTED', expected: null },
-        ]
-        for (const { name, decision, expected } of cases) {
-            it(name, () => {
-                assert.equal(findApprovedAt(decision, reviews), expected)
-            })
-        }
-    })
-
     describe('buildAlertText', () => {
         const pr = costPr({ number: 7, openedHours: 0 })
         const cases = [
             {
+                name: 'announces a newly posted PR',
+                nowHours: 0.25,
+                prCount: 1,
+                expected: '<!subteam^HERO> New LLM cost update <https://example.com/pull/7|#7> needs to merge.',
+            },
+            {
                 name: 'tags only the support hero before 24h',
                 nowHours: 23,
-                approvedHours: null,
                 prCount: 3,
                 expected:
-                    '<!subteam^HERO> LLM cost update <https://example.com/pull/7|#7> needs a review. New prices have waited 23h across 3 PRs.',
+                    '<!subteam^HERO> LLM cost update <https://example.com/pull/7|#7> has not merged. New prices have waited 23h across 3 PRs.',
             },
             {
                 name: 'adds AI observability from 24h',
                 nowHours: 24,
-                approvedHours: null,
                 prCount: 1,
                 expected:
-                    '<!subteam^HERO> <!subteam^AIO> LLM cost update <https://example.com/pull/7|#7> needs a review. New prices have waited 24h.',
-            },
-            {
-                name: 'points at the merge queue once approved',
-                nowHours: 5,
-                approvedHours: 2,
-                prCount: 1,
-                expected:
-                    '<!subteam^HERO> LLM cost update <https://example.com/pull/7|#7> was approved 3h ago but has not merged. Check if the merge queue kicked it out. New prices have waited 5h.',
+                    '<!subteam^HERO> <!subteam^AIO> LLM cost update <https://example.com/pull/7|#7> has not merged. New prices have waited 24h.',
             },
         ]
-        for (const { name, nowHours, approvedHours, prCount, expected } of cases) {
+        for (const { name, nowHours, prCount, expected } of cases) {
             it(name, () => {
                 const text = buildAlertText({
                     pr,
                     waitingSince: OPENED_AT,
                     prCount,
-                    approvedAt: approvedHours === null ? null : at(approvedHours),
                     now: at(nowHours),
                     supportHeroGroup: 'HERO',
                     aiObservabilityGroup: 'AIO',
