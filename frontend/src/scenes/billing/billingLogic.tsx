@@ -50,6 +50,7 @@ import {
     isUsageAtOrOverLimit,
     isMemberUsageSpendReadAccessEnabled,
 } from './billing-utils'
+import { GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY } from './constants'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.8 // Threshold to show warning of event usage near limit (aligned with the 80% billing warning email)
@@ -284,6 +285,7 @@ export interface billingLogicValues {
     currentPlatformAddon: BillingProductV2AddonType | null
     effectiveBillingAlert: BillingAlertConfig | null
     estimatedMonthlyCreditAmountUsd: number | null
+    hasGrandfatheredEventsRetention: boolean
     hasSupportAddonPlan: boolean
     isActivateLicenseSubmitting: boolean
     isActivateLicenseValid: boolean
@@ -664,6 +666,7 @@ export interface billingLogicMeta {
         hasSupportAddonPlan: (billing: BillingType | null) => boolean
         platformAddons: (billing: BillingType | null) => BillingProductV2AddonType[]
         currentPlatformAddon: (billing: BillingType | null) => BillingProductV2AddonType | null
+        hasGrandfatheredEventsRetention: (billing: BillingType | null) => boolean
         unusedPlatformAddonAmount: (
             currentPlatformAddon: BillingProductV2AddonType | null,
             timeRemainingInSeconds: number,
@@ -1241,6 +1244,15 @@ export const billingLogic = kea<billingLogicType>([
                 )
                 return platformProduct?.addons?.find((addon: BillingProductV2AddonType) => !!addon.subscribed) || null
             },
+        ],
+        hasGrandfatheredEventsRetention: [
+            (s) => [s.billing],
+            (billing: BillingType | null): boolean =>
+                !!billing?.products
+                    ?.find((product) => product.type === ProductKey.PRODUCT_ANALYTICS)
+                    ?.plans?.some(
+                        (plan) => plan.current_plan && plan.plan_key === GRANDFATHERED_EVENTS_RETENTION_PLAN_KEY
+                    ),
         ],
         unusedPlatformAddonAmount: [
             (s) => [s.currentPlatformAddon, s.timeRemainingInSeconds, s.timeTotalInSeconds],

@@ -10,6 +10,7 @@ import { BillingInvoiceItemRow, BillingProductV2AddonType } from '~/types'
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { GrandfatheredEventsRetentionNotice } from './GrandfatheredEventsRetentionNotice'
 
 export function ConfirmDowngradeModal({ product }: { product: BillingProductV2AddonType }): JSX.Element | null {
     const { currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading, billing } = useValues(billingLogic)
@@ -105,6 +106,7 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
                 </p>
 
                 <AddonFeatureLossNotice product={currentPlatformAddon} targetProduct={product} />
+                <GrandfatheredEventsRetentionNotice className="mt-2" />
 
                 <LemonTable dataSource={rows} columns={columns} className="mt-4" uppercaseHeader={false} />
 

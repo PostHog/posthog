@@ -23,6 +23,7 @@ import { supportLogic } from 'lib/components/Support/supportLogic'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 
+import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
 import { AddonFeatureLossNotice } from './AddonFeatureLossNotice'
@@ -34,6 +35,7 @@ import {
     isPlatformAndSupportAddon,
     randomizeReasons,
 } from './billingProductLogic'
+import { GrandfatheredEventsRetentionNotice } from './GrandfatheredEventsRetentionNotice'
 
 const HedgehogHeart = pngHoggie(heartPng)
 
@@ -76,12 +78,19 @@ export const UnsubscribeSurveyModal = ({
         actionVerb = isAddonProduct ? 'removing this addon' : 'downgrading'
     }
 
+    const productsToDeactivate =
+        billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type
+    const endsProductAnalyticsPlan =
+        productsToDeactivate === 'all_products' ||
+        productsToDeactivate === ProductKey.PRODUCT_ANALYTICS ||
+        isPlatformAndSupportAddon(product)
+
     const handleUnsubscribe = (): void => {
         if (surveyResponse['$survey_response_2'].includes('Not enough hedgehogs')) {
             setUnsubscribeModalStep(2)
             triggerMoreHedgehogs()
         } else {
-            deactivateProduct(billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type)
+            deactivateProduct(productsToDeactivate)
         }
     }
 
@@ -106,9 +115,7 @@ export const UnsubscribeSurveyModal = ({
                     loading={billingLoading}
                     onClick={() => {
                         setHedgehogSatisfied(true)
-                        deactivateProduct(
-                            billing?.subscription_level === 'paid' && !isAddonProduct ? 'all_products' : product.type
-                        )
+                        deactivateProduct(productsToDeactivate)
                     }}
                 >
                     Never enough, proceed with {action}
@@ -213,6 +220,7 @@ export const UnsubscribeSurveyModal = ({
                         )}
 
                         {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
+                        {endsProductAnalyticsPlan && <GrandfatheredEventsRetentionNotice />}
 
                         <LemonLabel>
                             {billing?.subscription_level === 'paid'
