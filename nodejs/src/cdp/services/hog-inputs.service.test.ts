@@ -363,6 +363,30 @@ describe('Hog Inputs', () => {
         })
 
         it.each([
+            ['a warehouse source marker', { warehouse_source_type: 'Postgres', host: 'db.example.com' }, null],
+            ['a null warehouse source marker', { warehouse_source_type: null, team: 'foobar' }, 'loaded'],
+            ['no warehouse source marker', { team: 'foobar' }, 'loaded'],
+        ])('handles an integration with %s', async (_name, config, expected) => {
+            const warehouseId = team.id + 3
+            await insertIntegration(hub.postgres, team.id, {
+                id: warehouseId,
+                kind: 'slack',
+                config,
+                sensitive_config: { password: hub.encryptedFields.encrypt('secret-password') },
+            })
+            hogFunction.inputs = { connection: { value: warehouseId } }
+            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            if (expected === null) {
+                expect(inputs.connection).toBeNull()
+            } else {
+                expect(inputs.connection).toMatchObject({ $integration_id: warehouseId, password: 'secret-password' })
+            }
+        })
+
+        it.each([
             { name: 'a hog function', source: undefined },
             { name: 'a workflow email step', source: { appSourceId: 'flow-1', instanceId: 'action-1' } },
         ])('should add unsubscribe url if email input is present for $name', async ({ source }) => {

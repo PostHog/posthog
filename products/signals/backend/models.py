@@ -12,7 +12,8 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, connection, models, transaction
-from django.db.models.functions import Upper
+from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import MD5, Upper
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -422,6 +423,7 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
+    startup_failure = models.JSONField(null=True, blank=True)
     # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
     # the report's content rather than its artefact log: a chart illustrates the summary, so it is
     # replaced with the summary rather than accumulating versions beside it. `summary` places one
@@ -442,9 +444,8 @@ class SignalReport(UUIDModel):
     # leaving a stale question beside fresh prose. The inbox offers them above the "Ask AI" box.
     # `db_default` alongside `default` for the reason spelled out on `charts`.
     suggested_prompts = models.JSONField(default=list, db_default=[], blank=True)
-    # Free-form slug tags (lowercase kebab-case) for grouping and filtering reports. Writers go
-    # through `report_tags.set_report_tags`, which normalizes and caps them; report_tags.py holds
-    # the lifecycle rules. `db_default` for the reason spelled out on `charts`.
+    # Free-form slug tags (lowercase kebab-case) for grouping and filtering reports. Writers
+    # normalize and cap them through report_tags.py, which also holds the lifecycle rules. `db_default` for the reason spelled out on `charts`.
     tags = ArrayField(models.CharField(max_length=MAX_TAG_LENGTH), default=list, db_default=[], blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -487,6 +488,12 @@ class SignalReport(UUIDModel):
     # receivers.py keep them current. NULL means the report has no parseable judgment.
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
+
+    # Cached from `implementation_pr_report_filter`, with and without `active_only`, so the inbox
+    # filters on a column instead of evaluating five link subqueries for every report.
+    # implementation_pr_cache.py keeps them current.
+    has_implementation_pr = models.BooleanField(default=False, db_default=False)
+    has_active_implementation_pr = models.BooleanField(default=False, db_default=False)
 
     class Meta:
         indexes = [
@@ -618,6 +625,8 @@ class SignalReport(UUIDModel):
                 self.last_run_at = timezone.now()
                 self.signals_at_run = self.signal_count + signals_at_run_increment
                 self.run_count += 1
+                self.startup_failure = None
+                updated_fields.add("startup_failure")
                 updated_fields.update(["last_run_at", "signals_at_run", "run_count"])
 
             # A summary run paused mid-workflow by the self-driving credits quota gate returns to
@@ -634,7 +643,8 @@ class SignalReport(UUIDModel):
                 self.title = title
                 self.summary = summary
                 self.error = None
-                updated_fields.update(["title", "summary", "error"])
+                self.startup_failure = None
+                updated_fields.update(["title", "summary", "error", "startup_failure"])
 
             # A `None` title or summary keeps the current one, so a run that did no research (e.g. no
             # repository selected) does not erase the content the report is searched and deduplicated by.
@@ -2564,6 +2574,8 @@ class SignalReportCheck(UUIDModel):
     runs_remaining = models.PositiveIntegerField(default=1)
     expires_at = models.DateTimeField()
     monitoring_fallback_expires_at = models.DateTimeField(null=True, blank=True)
+    monitoring_dispatch_after = models.DateTimeField(null=True, blank=True)
+    legacy_monitoring_attempt_id = models.UUIDField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
@@ -3508,6 +3520,12 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
             # slower for the life of the project.
             GinIndex(fields=["emitted_report_ids"], name="signal_scout_run_emitted_idx"),
             GinIndex(fields=["edited_report_ids"], name="signal_scout_run_edited_idx"),
+            models.Index(
+                models.F("team"),
+                MD5(KeyTextTransform("run_note", "metadata")),
+                condition=models.Q(metadata__triggered_by="monitoring"),
+                name="signal_scout_monitor_note_idx",
+            ),
         ]
 
     def save(self, *args: Any, update_fields: Any = None, **kwargs: Any) -> None:
@@ -3958,34 +3976,77 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
 
 
 class SignalSpend(TeamScopedRootMixin, UUIDModel):
-    """One absolute cost observation per gateway request or task run."""
+    class Kind(models.TextChoices):
+        RESEARCH = "research"
+        REPO_SELECTION = "repo_selection"
+        AD_HOC = "ad-hoc"
+        SCOUT_RUN = "scout_run"
+        REVIEWER_TRIGGERED_IMPLEMENTATION = "reviewer_triggered_implementation"
+        SCOUT_TRIGGERED_IMPLEMENTATION = "scout_triggered_implementation"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # Old workers omit kind during rolling deploys; their receipts remain unbillable.
+    kind = models.CharField(max_length=40, choices=Kind.choices, null=True)
     signal_id = models.UUIDField(null=True, blank=True)
-    scout_run = models.ForeignKey(SignalScoutRun, on_delete=models.CASCADE, null=True, blank=True)
-    task_id = models.UUIDField(null=True, blank=True, db_index=True)
-    source_id = models.CharField(max_length=255)
-    stage = models.CharField(max_length=100, default="unknown")
+    scout_run = models.ForeignKey(
+        SignalScoutRun, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
+    )
+    # Only implementation spend is report-owned; signals and scout runs drive all other spend.
+    report = models.ForeignKey(
+        SignalReport, on_delete=models.DO_NOTHING, db_constraint=False, null=True, blank=True, related_name="+"
+    )
+    task_run_id = models.UUIDField(null=True, blank=True, unique=True)
+    llm_failed_stages = ArrayField(models.CharField(max_length=100), default=list, db_default=[])
+    spend = models.DecimalField(
+        max_digits=20, decimal_places=4, default=0, db_default=0, help_text="Customer spend in USD cents"
+    )
     accounting_failed = models.BooleanField(default=False)
-    is_task = models.BooleanField(default=False)
-    token_cost_microusd = models.BigIntegerField(null=True, blank=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    billing_exempt = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        indexes = [models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx")]
         constraints = [
-            models.UniqueConstraint(fields=["team", "source_id", "is_task"], name="signals_spend_source_unique"),
+            models.UniqueConstraint(
+                fields=["team", "signal_id"], condition=models.Q(kind="ad-hoc"), name="signals_owner_spend_ad_hoc"
+            ),
             models.CheckConstraint(
                 condition=(
-                    models.Q(signal_id__isnull=False, scout_run__isnull=True)
-                    | models.Q(signal_id__isnull=True, scout_run__isnull=False)
+                    models.Q(kind__isnull=False)
+                    & (
+                        models.Q(signal_id__isnull=False, scout_run__isnull=True, report__isnull=True)
+                        & (
+                            models.Q(kind="ad-hoc", task_run_id__isnull=True)
+                            | models.Q(kind__in=["research", "repo_selection"], task_run_id__isnull=False)
+                        )
+                        | models.Q(
+                            kind="scout_run",
+                            scout_run__isnull=False,
+                            signal_id__isnull=True,
+                            report__isnull=True,
+                            task_run_id__isnull=False,
+                        )
+                        | models.Q(
+                            kind__in=["reviewer_triggered_implementation", "scout_triggered_implementation"],
+                            report__isnull=False,
+                            signal_id__isnull=True,
+                            scout_run__isnull=True,
+                            task_run_id__isnull=False,
+                        )
+                    )
+                    | models.Q(
+                        kind__isnull=True,
+                        task_run_id__isnull=True,
+                        report__isnull=True,
+                        finalized_at__isnull=True,
+                        spend=0,
+                    )
                 ),
-                name="signals_spend_one_owner",
+                name="signals_owner_spend_kind_owner",
             ),
-            models.CheckConstraint(condition=models.Q(token_cost_microusd__gte=0), name="signals_spend_nonnegative"),
-        ]
-        indexes = [
-            models.Index(fields=["team", "signal_id"], name="signals_spend_signal_idx"),
+            models.CheckConstraint(condition=models.Q(spend__gte=0), name="signals_owner_spend_nonnegative"),
         ]
 
 

@@ -96,6 +96,7 @@ from products.conversations.backend.temporal.schedule import create_support_repl
 from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_membership_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
 )
 from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
@@ -109,6 +110,7 @@ from products.engineering_analytics.backend.facade.temporal import (
 )
 from products.error_tracking.backend.facade.temporal import (
     RecommendationsRefreshInputs,
+    create_error_tracking_built_in_filters_refresh_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
@@ -134,7 +136,6 @@ from products.replay_vision.backend.temporal.jev_watch_rank import create_replay
 from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
-from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
@@ -165,6 +166,12 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
+
+
+async def cleanup_replay_vision_search_suggestions_schedule(client: Client):
+    """Retired: the search suggestion refresher is gone, and its in-flight run ends on its own execution timeout."""
+    if await a_schedule_exists(client, "replay-vision-search-suggestions-refresher-schedule"):
+        await a_delete_schedule(client, "replay-vision-search-suggestions-refresher-schedule")
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -990,6 +997,7 @@ schedules = [
     create_error_tracking_symbol_set_cleanup_schedule,
     create_error_tracking_spike_event_cleanup_schedule,
     create_error_tracking_weekly_digest_schedule,
+    create_error_tracking_built_in_filters_refresh_schedule,
     create_wa_weekly_digest_schedule,
     create_wa_digest_notification_schedule,
     create_heatmap_page_history_schedule,
@@ -1014,9 +1022,10 @@ schedules = [
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
+    create_membership_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
-    create_replay_vision_search_suggestions_schedule,
+    cleanup_replay_vision_search_suggestions_schedule,
     create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,

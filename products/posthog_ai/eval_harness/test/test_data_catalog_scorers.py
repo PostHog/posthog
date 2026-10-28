@@ -22,7 +22,7 @@ from products.data_catalog.evals.scorers import (
     MetricsCatalogBeforeAnswer,
     MetricsCatalogBeforeDataDiscovery,
     MetricsCatalogQueried,
-    ProposedBadgeShown,
+    NoncanonicalBadgeShown,
     SemanticMetadataQueried,
     TrustBadgeShown,
 )
@@ -552,7 +552,7 @@ def test_answer_table_queried(_name: str, queries: list[tuple[str, str]], expect
         (AnswerTableQueried(), "answer_table_queried"),
         (MetricDescriptionConcise(), "metric_description_concise"),
         (TrustBadgeShown(), "trust_badge"),
-        (ProposedBadgeShown(), "proposed_badge"),
+        (NoncanonicalBadgeShown(), "proposed_badge"),
     ]
 )
 def test_new_catalog_scorers_self_skip_when_not_requested(scorer: Any, scorer_name: str) -> None:
@@ -626,8 +626,28 @@ _PROPOSED_LINK = "[Activation](https://example.com/project/1/data-catalog/metric
 def test_proposed_badge_shown(_name: str, run_status: str, answer: str, expected_score: float | None) -> None:
     log = _tool_log([("data-catalog-metric-run", {"name": "activation_rate"}, run_status)])
 
-    score = ProposedBadgeShown()._run_eval_sync(
+    score = NoncanonicalBadgeShown()._run_eval_sync(
         {"raw_log": log, "last_message": answer}, {"proposed_badge": {"metric_name": "activation_rate"}}
+    )
+
+    assert score.score == expected_score
+
+
+_DRIFTED_LINK = "[Weekly active users](https://example.com/project/1/data-catalog/metrics/weekly_active_users)"
+
+
+@parameterized.expand(
+    [
+        ("warning_badge", f"\u26a0\ufe0f **Drifted definition in your data catalog**: {_DRIFTED_LINK}", 1.0),
+        ("proposed_badge_instead", f"\U0001f4dd **Proposed definition in your data catalog**: {_DRIFTED_LINK}", 0.0),
+    ]
+)
+def test_drifted_badge_shown(_name: str, answer: str, expected_score: float) -> None:
+    log = _tool_log([("data-catalog-metric-run", {"name": "weekly_active_users"}, "completed")])
+
+    score = NoncanonicalBadgeShown()._run_eval_sync(
+        {"raw_log": log, "last_message": answer},
+        {"proposed_badge": {"metric_name": "weekly_active_users", "badge": "drifted"}},
     )
 
     assert score.score == expected_score

@@ -882,14 +882,12 @@ class TrunkQuarantinedTest:
     # Repo-relative path of the test's file, empty when neither the repository nor Trunk places it.
     file: str
     owner_team: str
-    # Trunk's health verdict on the test, e.g. 'FLAKY' or 'BROKEN'.
+    # Trunk's health verdict on the test, e.g. 'flaky' or 'broken'.
     status: str
-    # How the quarantine was applied, e.g. 'AUTO_QUARANTINE'.
-    quarantine_setting: str
     quarantined_at: datetime
     age_days: int
     overdue: bool
-    # The Trunk app's page for this test; None when the source has no org slug or the row no id.
+    # The Trunk app's page for this test; None when the row has no URL and no org slug or test id.
     trunk_url: str | None
 
 

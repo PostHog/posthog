@@ -45,7 +45,7 @@ from posthog.date_util import start_of_day
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.event.util import events_only_in_active_schema
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TTL_DAYS
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.person.util import get_person_by_distinct_id
@@ -1631,10 +1631,13 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self._insert_flag_evaluation(
             "first-retained-day-user",
             uuid.uuid4(),
-            timestamp=start_of_day(FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS)),
+            timestamp=start_of_day(FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_RETENTION_DAYS)),
         )
         self._insert_flag_evaluation(
-            "expired-user", uuid.uuid4(), timestamp=FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_TTL_DAYS + 30)
+            "past-retention-user",
+            uuid.uuid4(),
+            timestamp=start_of_day(FLAG_CALL_TIMESTAMP - timedelta(days=FLAG_EVALUATIONS_RETENTION_DAYS))
+            - timedelta(seconds=1),
         )
 
         with time_machine.travel("2020-01-11T12:01:00Z", tick=False):

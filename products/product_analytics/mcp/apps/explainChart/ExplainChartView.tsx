@@ -7,6 +7,7 @@ import type { ExplainChartData, StoryChapter, StoryEvidence } from './explainCha
 import { StoryChapterView } from './StoryChapterView'
 import { StoryChartOverlay } from './StoryChartOverlay'
 import { buildStoryPages, type StoryPage } from './storyPages'
+import { StorySingleChapterView } from './StorySingleChapterView'
 import { StorySteps } from './StorySteps'
 import { StorySummaryView } from './StorySummaryView'
 
@@ -24,11 +25,11 @@ export interface StoryPageChange {
 }
 
 export interface StoryEvidenceCharts {
-    canShow: (query: Record<string, unknown>) => boolean
-    prefetch: (queries: Record<string, unknown>[]) => void
+    canShow: (item: StoryEvidence) => boolean
+    prefetch: (items: StoryEvidence[]) => void
     /** Draws the chart, fading every series that the evidence's text does not name. */
-    render: (query: Record<string, unknown>, text: string) => ReactNode
-    onShow?: (query: Record<string, unknown>) => void
+    render: (item: StoryEvidence) => ReactNode
+    onShow?: (item: StoryEvidence) => void
 }
 
 export interface ExplainChartViewProps {
@@ -71,32 +72,34 @@ export function ExplainChartView({
     evidenceCharts,
 }: ExplainChartViewProps): ReactElement {
     const pages = useMemo(() => buildStoryPages(data, formatValue), [data, formatValue])
-    const [activeIndex, setActiveIndex] = useState(0)
+    // With one chapter, a summary page and steps add nothing, so the explanation is that chapter alone.
+    const singleChapter = pages.length === 2
+    const [activeIndex, setActiveIndex] = useState(singleChapter ? 1 : 0)
     const [previewIndex, setPreviewIndex] = useState<number | null>(null)
     const [shownEvidenceIndex, setShownEvidenceIndex] = useState<number | null>(null)
     const active = pages[activeIndex] ?? pages[0]!
     const hasNext = activeIndex + 1 < pages.length
     const shownEvidence: StoryEvidence | null =
         shownEvidenceIndex === null ? null : (active.chapter?.evidence[shownEvidenceIndex] ?? null)
-    const evidenceView =
-        evidenceCharts && shownEvidence?.query ? { text: shownEvidence.text, query: shownEvidence.query } : null
+    const evidenceView = shownEvidence && evidenceCharts?.canShow(shownEvidence) ? shownEvidence : null
 
     const prefetch = evidenceCharts?.prefetch
     useEffect(() => {
-        const queries = active.chapter?.evidence.flatMap((item) => (item.query ? [item.query] : [])) ?? []
-        if (queries.length) {
-            prefetch?.(queries)
+        if (active.chapter?.evidence.length) {
+            prefetch?.(active.chapter.evidence)
         }
     }, [active, prefetch])
 
+    const canShowChart = (item: StoryEvidence): boolean => !!evidenceCharts?.canShow(item)
+
     const toggleEvidenceChart = (index: number): void => {
-        const query = active.chapter?.evidence[index]?.query
-        if (index === shownEvidenceIndex || !query) {
+        const item = active.chapter?.evidence[index]
+        if (index === shownEvidenceIndex || !item) {
             setShownEvidenceIndex(null)
             return
         }
         setShownEvidenceIndex(index)
-        evidenceCharts?.onShow?.(query)
+        evidenceCharts?.onShow?.(item)
     }
 
     const select = (index: number, source: StoryNavigationSource): void => {
@@ -115,6 +118,7 @@ export function ExplainChartView({
             pages={pages}
             highlightedIndex={previewIndex ?? activeIndex}
             activeIndex={activeIndex}
+            showMarkers={!singleChapter}
             onSelect={(index) => select(index, 'marker')}
         />
     )
@@ -134,10 +138,10 @@ export function ExplainChartView({
                                     data-attr="explain-chart-evidence-back"
                                 >
                                     <ArrowLeft className="size-3" />
-                                    Back to the walkthrough
+                                    Back to the explanation
                                 </Button>
                             </div>
-                            {evidenceCharts.render(evidenceView.query, evidenceView.text)}
+                            {evidenceCharts.render(evidenceView)}
                         </>
                     ) : (
                         <>
@@ -152,17 +156,28 @@ export function ExplainChartView({
                 </div>
                 <aside
                     className="relative shrink-0 border-t border-border @3xl/story:w-80 @3xl/story:border-t-0 @3xl/story:border-l"
-                    aria-label="Walkthrough of this chart"
+                    aria-label="Explanation of this chart"
                 >
                     {/* Beside the chart, the panel takes the chart's height and the page scrolls inside it. */}
                     <div className="flex flex-col @3xl/story:absolute @3xl/story:inset-0">
                         {/* Keyed on the page, so each chapter opens at its top and an evidence chart keeps the scroll. */}
                         <div key={activeIndex} className="min-h-0 flex-1 p-4 @3xl/story:overflow-y-auto">
-                            {hasChapter(active) ? (
+                            {singleChapter && hasChapter(active) ? (
+                                <StorySingleChapterView
+                                    headline={data.headline}
+                                    seriesNote={seriesNoteOf(data)}
+                                    warnings={warningMessages(data.warnings)}
+                                    page={active}
+                                    openLink={openLink}
+                                    canShowChart={canShowChart}
+                                    shownEvidenceIndex={shownEvidenceIndex}
+                                    onToggleChart={toggleEvidenceChart}
+                                />
+                            ) : hasChapter(active) ? (
                                 <StoryChapterView
                                     page={active}
                                     openLink={openLink}
-                                    canShowChart={(item) => !!item.query && !!evidenceCharts?.canShow(item.query)}
+                                    canShowChart={canShowChart}
                                     shownEvidenceIndex={shownEvidenceIndex}
                                     onToggleChart={toggleEvidenceChart}
                                 />
@@ -177,36 +192,38 @@ export function ExplainChartView({
                                 />
                             )}
                         </div>
-                        <div className="flex items-center justify-between gap-3 border-t border-border py-2 ps-4 pe-3">
-                            <StorySteps
-                                pages={pages}
-                                activeIndex={activeIndex}
-                                onSelect={(index) => select(index, 'step')}
-                                onPreview={setPreviewIndex}
-                            />
-                            <div className="flex shrink-0 gap-1">
-                                {activeIndex > 0 && (
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => select(activeIndex - 1, 'back')}
-                                        data-attr="explain-chart-back"
-                                    >
-                                        Back
-                                    </Button>
-                                )}
-                                {hasNext && (
-                                    <Button
-                                        variant="primary"
-                                        size="sm"
-                                        onClick={() => select(activeIndex + 1, 'next')}
-                                        data-attr="explain-chart-next"
-                                    >
-                                        Next
-                                    </Button>
-                                )}
+                        {!singleChapter && (
+                            <div className="flex items-center justify-between gap-3 border-t border-border py-2 ps-4 pe-3">
+                                <StorySteps
+                                    pages={pages}
+                                    activeIndex={activeIndex}
+                                    onSelect={(index) => select(index, 'step')}
+                                    onPreview={setPreviewIndex}
+                                />
+                                <div className="flex shrink-0 gap-1">
+                                    {activeIndex > 0 && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => select(activeIndex - 1, 'back')}
+                                            data-attr="explain-chart-back"
+                                        >
+                                            Back
+                                        </Button>
+                                    )}
+                                    {hasNext && (
+                                        <Button
+                                            variant="primary"
+                                            size="sm"
+                                            onClick={() => select(activeIndex + 1, 'next')}
+                                            data-attr="explain-chart-next"
+                                        >
+                                            Next
+                                        </Button>
+                                    )}
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 </aside>
             </div>

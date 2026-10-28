@@ -7,6 +7,7 @@ import {
     type ReportPlanApi,
     type ReportRankingApi,
     type ReportSourceSuggestionApi,
+    type ReviewerRemovalReasonEnumApi,
     type SignalReportPullRequestApi,
     type SignalReportAssigneeApi,
     type SignalReportAssignmentPrStateEnumApi,
@@ -23,6 +24,12 @@ import {
 // The canonical signal taxonomy, generated from the backend enums via OpenAPI/Orval.
 // Re-exported under the domain names so consumers don't carry the `Api` suffix around.
 export { SignalSourceProduct, SignalSourceType }
+
+/** Why a person removed a reviewer, sent with the remove edit. The web app sends a reason only. */
+export interface ReviewerRemoval {
+    reason: ReviewerRemovalReasonEnumApi | null
+    note?: string
+}
 
 // Suggested-reviewer shapes, read from `suggested_reviewers` artefact content (a polymorphic JSON
 // field with no per-type OpenAPI schema). Mirrors EnrichedReviewer/RelevantCommit in
@@ -88,6 +95,9 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
 ]
 
 export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
+    startup_failure?: SignalReportApi['startup_failure']
+    research_context?: SignalReportApi['research_context']
+    repo_slug?: SignalReportApi['repo_slug']
     pull_requests?: readonly SignalReportPullRequestApi[]
     assignee?: SignalReportAssigneeApi | null
     id: string
@@ -127,8 +137,6 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     scout_name?: string | null
     /** Whether the report proposes an improvement to a scout. */
     is_self_improvement_report?: boolean
-    /** Selected code repository, when the report has one. */
-    repo_slug?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
     /** Whether that implementation PR is merged, per the GitHub webhook. Status doesn't imply it: a

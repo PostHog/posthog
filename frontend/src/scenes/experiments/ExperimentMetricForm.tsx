@@ -27,6 +27,7 @@ import {
     ExperimentMetric,
     ExperimentMetricSource,
     ExperimentMetricType,
+    ExperimentRetentionStart,
     NodeKind,
     isExperimentExposureNode,
     isExperimentFunnelMetric,
@@ -49,7 +50,7 @@ import {
 } from './ExperimentMetricOutlierHandling'
 import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
 import { EXPOSURE_DEFAULT_EVENT, getActivationConfig, isDefaultExposureConfig } from './exposureContract'
-import { seriesToMetricConfig, seriesToMetricSource } from './metricQueryUtils'
+import { metricSourcesToSeries, seriesToMetricConfig, seriesToMetricSource } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
 import {
     getAllowedMathTypes,
@@ -128,6 +129,13 @@ const dataWarehousePopoverFields: DataWarehousePopoverField[] = [
     },
 ]
 
+/** The sources every metric type accepts: those the series picker can produce. */
+const isPickerSource = (source: ExperimentMetricSource | undefined): source is ExperimentFunnelMetricStep =>
+    !!source &&
+    (source.kind === NodeKind.EventsNode ||
+        source.kind === NodeKind.ActionsNode ||
+        source.kind === NodeKind.ExperimentDataWarehouseNode)
+
 export function ExperimentMetricForm({
     metric,
     isSharedMetric = false,
@@ -155,7 +163,7 @@ export function ExperimentMetricForm({
     const [isLoading, setIsLoading] = useState(false)
     // holds the custom start configuration while the exposure sentinel is selected, so switching back restores it
     const previousRetentionStart = useRef<{
-        start_event: ExperimentMetricSource
+        start_event: ExperimentRetentionStart
         start_handling: 'first_seen' | 'last_seen'
         conversion_window?: number
         conversion_window_unit?: FunnelConversionWindowTimeUnit
@@ -219,18 +227,14 @@ export function ExperimentMetricForm({
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                newMetric.series = sources.filter(
-                    (s): s is ExperimentFunnelMetricStep =>
-                        s &&
-                        (s.kind === NodeKind.EventsNode ||
-                            s.kind === NodeKind.ActionsNode ||
-                            s.kind === NodeKind.ExperimentDataWarehouseNode)
-                )
+                newMetric.series = sources.filter(isPickerSource)
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
             } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
-                newMetric.start_event = sources[0]
-                if (sources[1]) {
+                if (isPickerSource(sources[0])) {
+                    newMetric.start_event = sources[0]
+                }
+                if (isPickerSource(sources[1])) {
                     newMetric.completion_event = sources[1]
                 }
             }
@@ -367,7 +371,7 @@ export function ExperimentMetricForm({
                     <>
                         <SeriesActionFilter
                             bordered
-                            series={[metric.source]}
+                            series={metricSourcesToSeries([metric.source])}
                             trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                             dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                             onChange={handleSetSeries}
@@ -416,7 +420,7 @@ export function ExperimentMetricForm({
                 {isExperimentFunnelMetric(metric) && (
                     <SeriesActionFilter
                         bordered
-                        series={metric.series}
+                        series={metricSourcesToSeries(metric.series)}
                         trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                         dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                         onChange={handleSetSeries}
@@ -441,7 +445,7 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">Numerator (what you're measuring)</LemonLabel>
                             <SeriesActionFilter
                                 bordered
-                                series={[metric.numerator]}
+                                series={metricSourcesToSeries([metric.numerator])}
                                 trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                 dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                                 onChange={(series) => {
@@ -469,7 +473,7 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">Denominator (what you're dividing by)</LemonLabel>
                             <SeriesActionFilter
                                 bordered
-                                series={[metric.denominator]}
+                                series={metricSourcesToSeries([metric.denominator])}
                                 trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                 dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                                 onChange={(series) => {
@@ -557,7 +561,7 @@ export function ExperimentMetricForm({
                             ) : (
                                 <SeriesActionFilter
                                     bordered
-                                    series={[metric.start_event]}
+                                    series={metricSourcesToSeries([metric.start_event])}
                                     trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                     dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                                     onChange={(series) => {
@@ -589,7 +593,7 @@ export function ExperimentMetricForm({
                             </LemonLabel>
                             <SeriesActionFilter
                                 bordered
-                                series={[metric.completion_event]}
+                                series={metricSourcesToSeries([metric.completion_event])}
                                 trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                                 dataWarehouseNodeKind={NodeKind.ExperimentDataWarehouseNode}
                                 onChange={(series) => {

@@ -1,0 +1,865 @@
+import { querySelectorAllDeep } from 'query-selector-shadow-dom'
+import { CSSProperties } from 'react'
+
+import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
+
+import { patch } from '~/toolbar/shared/patch'
+import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
+import { captureToolbarException } from '~/toolbar/shared/toolbarPosthogJS'
+import { ActionStepForm, ElementRect } from '~/toolbar/shared/types'
+import { finder } from '~/toolbar/shared/vendor/finder'
+import { Experiment, ActionStepType, ExperimentStatus } from '~/types'
+
+import { ActionStepPropertyKey } from './actions/ActionStep'
+
+export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+// The browser extension's content script draws its overlay in this host.
+export const TOOLBAR_EXTENSION_ID = '__POSTHOG_TOOLBAR_EXTENSION__'
+// pinned: DOM attribute, the floating toolbar and the extension mark their roots with it so neither counts as page content
+export const TOOLBAR_ROOT_ATTRIBUTE = 'data-posthog-toolbar-root'
+
+export function isToolbarRootElement(element: Element): boolean {
+    return element.hasAttribute(TOOLBAR_ROOT_ATTRIBUTE)
+}
+
+/** True for a toolbar root and everything inside it, shadow DOM included. */
+export function isInToolbarRoot(element: HTMLElement): boolean {
+    for (let current: HTMLElement | null = element; current; current = getParent(current)) {
+        if (isToolbarRootElement(current)) {
+            return true
+        }
+    }
+    return false
+}
+
+// Props arrive via the `__posthog=<base64>` URL fragment, so the static type is not
+// load-bearing at runtime — verify before storing strings that flow into auth headers.
+export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
+
+// Third-party code on the customer page can reject with a non-Error value. html-to-image, for
+// example, rejects with a raw DOM Event when a page resource fails to load. posthog-js serializes
+// such a value into an exception with no message and no stack, so error tracking cannot triage it.
+// Return real Errors unchanged; wrap anything else in an Error that keeps the original type.
+export function toError(value: unknown, context?: string): Error {
+    if (value instanceof Error) {
+        return value
+    }
+    const type =
+        value === null
+            ? 'null'
+            : typeof value === 'object'
+              ? ((value as { constructor?: { name?: string } }).constructor?.name ?? 'object')
+              : typeof value
+    const error = new Error(context ? `${context} (threw ${type})` : `Non-Error value thrown (${type})`)
+    error.name = 'NonError'
+    return error
+}
+
+// `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. A
+// site-level `window.fetch` wrapper on the customer page can resolve to `undefined`/`null` (or
+// another non-object), which makes every downstream `.status` access throw a TypeError. Normalize
+// any non-object value into a synthetic failed response so the toolbar's OAuth chain and its
+// callers can treat it as an ordinary request failure rather than crashing.
+export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    // nosemgrep: toolbar-no-raw-fetch - this IS the wrapper the rule points everyone to
+    const response = await fetch(input, init)
+    if (response && typeof response === 'object') {
+        return response
+    }
+    return new Response(JSON.stringify({ results: [], detail: 'invalid_fetch_response' }), { status: 502 })
+}
+
+const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
+export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
+export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
+export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
+export const PKCE_STORAGE_KEY = '_postHogToolbarPKCE'
+
+export interface ToolbarAuthParams {
+    code: string
+    clientId: string
+}
+
+/**
+ * Read `__posthog_toolbar=code:…,client_id:…` from the URL hash without modifying the URL.
+ * Returns the matched params if found, or null.
+ */
+export function readToolbarAuthHash(): ToolbarAuthParams | null {
+    return parseToolbarAuthHash(window.location.hash)
+}
+
+export function parseToolbarAuthHash(rawHash: string): ToolbarAuthParams | null {
+    let hash: string
+    try {
+        hash = decodeURIComponent(rawHash)
+    } catch {
+        hash = rawHash
+    }
+    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&]+)/)
+    if (!codeMatch) {
+        return null
+    }
+    return {
+        code: codeMatch[1],
+        clientId: codeMatch[2],
+    }
+}
+
+/**
+ * Remove `__posthog_toolbar=code:…,client_id:…` from the URL hash.
+ *
+ * Separated from reading so that the URL modification (history.replaceState)
+ * can be deferred — some SPAs watch for URL changes and re-render the page,
+ * which can destroy the toolbar mid-initialization if the hash is cleaned
+ * synchronously during mount.
+ */
+export function cleanToolbarAuthHash(): void {
+    let hash: string
+    try {
+        hash = decodeURIComponent(window.location.hash)
+    } catch {
+        hash = window.location.hash
+    }
+    if (!hash.includes('__posthog_toolbar=')) {
+        return
+    }
+
+    // When the toolbar param was the first hash-query on a SPA route
+    // (e.g. `#/login?__posthog_toolbar=X&foo=bar`), removing it leaves
+    // `#/login&foo=bar` where the `&` should be `?`. Detect that case so we
+    // can restore the `?` after stripping. Only fires when the original hash
+    // contained `?__posthog_toolbar=` literally — fragments that join the
+    // toolbar param with `&` (e.g. `#/dashboard&tab=1&__posthog_toolbar=X`)
+    // are left untouched because that `&` was the customer's separator.
+    const toolbarWasFirstHashQuery = hash.includes('?__posthog_toolbar=')
+
+    let cleanHash = hash
+        .replace(/[?&]?__posthog_toolbar=[^&]*/g, '')
+        .replace(/&&+/g, '&')
+        .replace(/[?&]$/, '')
+        .replace(/^#&/, '#')
+        .replace(/^#$/, '')
+
+    if (toolbarWasFirstHashQuery) {
+        cleanHash = cleanHash.replace(/(^#\/[^?]*)&/, '$1?')
+    }
+
+    history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
+}
+
+/** Exchanges a toolbar OAuth code for tokens, for the floating toolbar and the browser extension. Rejects on a network failure. */
+export async function requestOAuthTokens({
+    uiHost,
+    code,
+    clientId,
+    verifier,
+}: {
+    uiHost: string
+    code: string
+    clientId: string
+    verifier: string
+}): Promise<{ status: number; accessToken: string | null; refreshToken: string | null; error: string | null }> {
+    const response = await safeFetch(`${uiHost}/oauth/token/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            client_id: clientId,
+            code,
+            redirect_uri: `${uiHost}/toolbar_oauth/callback`,
+            code_verifier: verifier,
+        }).toString(),
+    })
+    const data = await response.json().catch(() => null)
+    return {
+        status: response.status,
+        accessToken: asNonEmptyString(data?.access_token),
+        refreshToken: asNonEmptyString(data?.refresh_token),
+        error: asNonEmptyString(data?.error),
+    }
+}
+
+export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {
+    const bytes = new Uint8Array(48)
+    crypto.getRandomValues(bytes)
+    const verifier = btoa(String.fromCharCode(...bytes))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '')
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
+    const challenge = btoa(String.fromCharCode(...new Uint8Array(digest)))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/g, '')
+    return { verifier, challenge }
+}
+
+export function getSafeText(el: HTMLElement): string {
+    if (!el.childNodes || !el.childNodes.length) {
+        return ''
+    }
+    let elText = ''
+    el.childNodes.forEach((child) => {
+        if (child.nodeType !== 3 || !child.textContent) {
+            return
+        }
+        elText += child.textContent
+            .trim()
+            .replace(/[\r\n]/g, ' ')
+            .replace(/[ ]+/g, ' ') // normalize whitespace
+            .substring(0, 255)
+    })
+    return elText
+}
+
+export function elementToQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
+    if (!element) {
+        return
+    }
+
+    if (elementToQueryCache.has(element)) {
+        return elementToQueryCache.get(element)
+    }
+
+    const result = computeElementQuery(element, dataAttributes)
+    elementToQueryCache.set(element, result)
+    return result
+}
+
+function computeElementQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
+    for (const { name, value } of Array.from(element.attributes)) {
+        if (!dataAttributes.includes(name)) {
+            continue
+        }
+
+        const escapedSelector = `[${CSS.escape(name)}="${CSS.escape(value)}"]`
+        const unescapedSelector = `[${name}="${value}"]`
+
+        if (querySelectorAllDeep(escapedSelector).length == 1) {
+            // if we return the _valid_ escaped CSS,
+            // the action matching in PostHog might not match it
+            // because it's not really CSS matching
+            return unescapedSelector
+        }
+    }
+
+    try {
+        const foundSelector = finder(element, {
+            tagName: (name) => !TAGS_TO_IGNORE.includes(name),
+            // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+            seedMinLength: 5,
+            attr: (name, value) => {
+                // preference to data attributes if they exist
+                // that aren't in the PostHog preferred list - they were returned early above
+                return name.startsWith('data-') && value.length < 100 && !containsUnstableGeneratedId(value)
+            },
+            // the combination guard tripped and cut the candidate search short -
+            // the selector may degrade to a brittle positional path - record host
+            // and depth so we can see how often and where pathological DOMs hit this
+            onCombinationsCapped: ({ levels }) =>
+                toolbarLogger.warn('element_selector', 'finder hit maxCombinations cap, candidate search truncated', {
+                    host: window.location.host,
+                    levels,
+                }),
+        })
+        return unescapeCssSelector(foundSelector)
+    } catch (error) {
+        toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
+        captureToolbarException(error, 'element_selector_computation')
+        return undefined
+    }
+}
+
+export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
+    const query = elementToQuery(element, dataAttributes)
+
+    return {
+        event: '$autocapture',
+        href: element.getAttribute('href') || '',
+        text: getSafeText(element) || '',
+        selector: query || '',
+        url: window.location.protocol + '//' + window.location.host + window.location.pathname,
+        url_matching: 'exact',
+    }
+}
+
+export function hasCursorPointer(element: HTMLElement): boolean {
+    return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
+}
+
+export function getParent(element: HTMLElement): HTMLElement | null {
+    const parent = element.parentNode
+    // 11 = DOCUMENT_FRAGMENT_NODE
+    if (parent?.nodeType === window.Node.DOCUMENT_FRAGMENT_NODE) {
+        return (parent as ShadowRoot).host as HTMLElement
+    }
+    if (parent?.nodeType === window.Node.ELEMENT_NODE) {
+        return parent as HTMLElement
+    }
+    return null
+}
+
+export function trimElement(
+    element: HTMLElement,
+    options?: { selector?: string; cursorPointerCache?: WeakMap<HTMLElement, boolean> }
+): HTMLElement | null {
+    const target_selector = options?.selector || CLICK_TARGET_SELECTOR
+    const cursorPointerCache = options?.cursorPointerCache
+    if (!element) {
+        return null
+    }
+    const parent = getParent(element)
+    if (parent && isInToolbarRoot(parent)) {
+        return null
+    }
+
+    let loopElement = element
+
+    while (true) {
+        if (loopElement.children.length === 1) {
+            loopElement = loopElement.children[0] as HTMLElement
+        } else {
+            break
+        }
+    }
+
+    const hasCachedPointer = (el: HTMLElement): boolean => {
+        if (!cursorPointerCache) {
+            return window.getComputedStyle(el).getPropertyValue('cursor') === 'pointer'
+        }
+        const cached = cursorPointerCache.get(el)
+        if (cached !== undefined) {
+            return cached
+        }
+        const result = window.getComputedStyle(el).getPropertyValue('cursor') === 'pointer'
+        cursorPointerCache.set(el, result)
+        return result
+    }
+
+    while (loopElement) {
+        const parent = getParent(loopElement)
+        if (!parent) {
+            return null
+        }
+
+        if (loopElement.matches?.(target_selector)) {
+            return loopElement
+        }
+
+        if (hasCachedPointer(loopElement) && !hasCachedPointer(parent)) {
+            return loopElement
+        }
+
+        loopElement = parent
+    }
+
+    return null
+}
+
+export function inBounds(min: number, value: number, max: number): number {
+    return Math.max(min, Math.min(max, value))
+}
+
+export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElement, boolean>): boolean {
+    try {
+        const alreadyCached = cache.get(element)
+        if (alreadyCached !== undefined) {
+            return alreadyCached
+        }
+
+        if (element.checkVisibility) {
+            const nativeIsVisible = element.checkVisibility({
+                checkOpacity: true,
+                checkVisibilityCSS: true,
+            })
+            cache.set(element, nativeIsVisible)
+            return nativeIsVisible
+        }
+
+        const style = window.getComputedStyle(element)
+        const isInvisible = style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0
+        if (isInvisible) {
+            cache.set(element, false)
+            return false
+        }
+
+        // Check parent chain for display/visibility
+        let parent = element.parentElement
+        while (parent) {
+            // Check cache first
+            const cached = cache.get(parent)
+            if (cached !== undefined) {
+                if (!cached) {
+                    return false
+                }
+                // If cached as visible, skip to next parent
+                parent = parent.parentElement
+                continue
+            }
+
+            const parentStyle = window.getComputedStyle(parent)
+            const parentVisible = parentStyle.display !== 'none' && parentStyle.visibility !== 'hidden'
+
+            cache.set(parent, parentVisible)
+
+            if (!parentVisible) {
+                return false
+            }
+            parent = parent.parentElement
+        }
+
+        // Check if element has actual rendered dimensions
+        const rect = element.getBoundingClientRect()
+        const elementHasActualRenderedDimensions =
+            rect.width > 0 ||
+            rect.height > 0 ||
+            // Some elements might be 0x0 but still visible (e.g., inline elements with content)
+            element.getClientRects().length > 0
+        cache.set(element, elementHasActualRenderedDimensions)
+        return elementHasActualRenderedDimensions
+    } catch {
+        // if we can't get the computed style, we'll assume the element is visible
+        return true
+    }
+}
+
+export function getAllClickTargets(
+    startNode: Document | HTMLElement | ShadowRoot = document,
+    selector?: string
+): HTMLElement[] {
+    const targetSelector = selector || CLICK_TARGET_SELECTOR
+    const elements = startNode.querySelectorAll(targetSelector) as unknown as HTMLElement[]
+
+    const allElements = [...(startNode.querySelectorAll('*') as unknown as HTMLElement[])]
+
+    // loop through all elements and getComputedStyle
+    const pointerElements = allElements.filter((el) => {
+        if (CLICK_TARGETS.indexOf(el.tagName.toLowerCase()) >= 0) {
+            return false
+        }
+        const compStyles = window.getComputedStyle(el)
+        return compStyles.getPropertyValue('cursor') === 'pointer'
+    })
+
+    const shadowElements = allElements
+        .filter((el) => el.shadowRoot && !isToolbarRootElement(el))
+        .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
+        .reduce((a, b) => {
+            a.push(...b)
+            return a
+        }, [] as HTMLElement[])
+    const selectedElements = [...elements, ...pointerElements, ...shadowElements]
+        .map((e) => trimElement(e, { selector: targetSelector }))
+        .filter((e) => e)
+    const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
+
+    const visibilityCache = new WeakMap<HTMLElement, boolean>()
+    return uniqueElements.filter((el) => elementIsVisible(el, visibilityCache))
+}
+
+export function stepMatchesHref(step: ActionStepType, href: string): boolean {
+    if (!step.url_matching || !step.url) {
+        return true
+    }
+    if (step.url_matching === 'exact') {
+        return href === step.url
+    }
+    if (step.url_matching === 'contains') {
+        return matchRuleShort(href, `%${step.url}%`)
+    }
+    return false
+}
+
+function matchRuleShort(str: string, rule: string): boolean {
+    return new RegExp('^' + rule.split('%').map(escapeRegex).join('.*') + '$').test(str)
+}
+
+export function isParentOf(element: HTMLElement, possibleParent: HTMLElement): boolean {
+    let loopElement = element as HTMLElement | null
+    while (loopElement) {
+        if (loopElement !== element && loopElement === possibleParent) {
+            return true
+        }
+        loopElement = getParent(loopElement)
+    }
+
+    return false
+}
+
+export function getElementForStep(step: ActionStepForm, allElements?: HTMLElement[]): HTMLElement | null {
+    if (!step) {
+        return null
+    }
+
+    let selector = ''
+    if (step.selector && (step.selector_selected || typeof step.selector_selected === 'undefined')) {
+        selector = step.selector
+    }
+
+    if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
+        selector += `[href="${CSS.escape(step.href)}"]`
+    }
+
+    const hasText = step.text && step.text.trim() && (step.text_selected || typeof step.text_selected === 'undefined')
+
+    if (!selector && !hasText) {
+        return null
+    }
+
+    let elements = [] as HTMLElement[]
+    try {
+        elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
+    } catch (e) {
+        toolbarLogger.error('element_step_selector', 'Cannot use selector', { selector })
+        captureToolbarException(e, 'element_step_selector', { selector })
+        return null
+    }
+
+    if (hasText && step?.text) {
+        const textToSearch = step.text.toString().trim()
+        elements = elements.filter(
+            (e) =>
+                TAGS_TO_IGNORE.indexOf(e.tagName.toLowerCase()) === -1 &&
+                e.innerText?.trim() === textToSearch &&
+                (e.matches(CLICK_TARGET_SELECTOR) || hasCursorPointer(e))
+        )
+        elements = elements.filter((e) => !elements.find((e2) => isParentOf(e2, e)))
+    }
+
+    if (elements.length === 1) {
+        return elements[0]
+    }
+
+    // TODO: what if multiple match?
+
+    return null
+}
+
+export function getBoxColors(color: 'blue' | 'red' | 'green', hover = false, opacity = 0.2): CSSProperties | undefined {
+    if (color === 'blue') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(240, 90%, 58%, ${opacity})`,
+            boxShadow: `hsla(240, 90%, 27%, 0.2) 0px 3px 10px ${hover ? 4 : 0}px`,
+            outline: `hsla(240, 90%, 58%, 0.5) solid 1px`,
+        }
+    }
+    if (color === 'red') {
+        return {
+            backgroundBlendMode: 'multiply',
+            background: `hsla(4, 90%, 58%, ${opacity})`,
+            boxShadow: `hsla(4, 90%, 27%, 0.2) 0px 3px 10px ${hover ? 5 : 0}px`,
+            outline: `hsla(4, 90%, 58%, 0.5) solid 1px`,
+        }
+    }
+}
+
+export function actionStepToActionStepFormItem(
+    step: ActionStepType,
+    isNew = false,
+    includedPropertyKeys?: ActionStepPropertyKey[]
+): ActionStepForm {
+    if (!step) {
+        return {}
+    }
+
+    if (typeof (step as ActionStepForm).selector_selected !== 'undefined') {
+        return step as ActionStepForm
+    }
+
+    if (isNew) {
+        const hasSelector = !!step.selector
+        if (step.tag_name === 'a') {
+            return {
+                ...step,
+                href_selected: true,
+                selector_selected: hasSelector,
+                text_selected: includedPropertyKeys?.includes('text') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
+            }
+        } else if (step.tag_name === 'button') {
+            return {
+                ...step,
+                text_selected: true,
+                selector_selected: hasSelector,
+                href_selected: includedPropertyKeys?.includes('href') || false,
+                url_selected: includedPropertyKeys?.includes('url') || false,
+            }
+        }
+        return {
+            ...step,
+            selector_selected: hasSelector,
+            text_selected: includedPropertyKeys?.includes('text') || false,
+            url_selected: includedPropertyKeys?.includes('url') || false,
+            href_selected: includedPropertyKeys?.includes('href') || false,
+        }
+    }
+
+    return {
+        ...step,
+        url_matching: step.url_matching || 'exact',
+        href_selected: typeof step.href !== 'undefined' && step.href !== null,
+        text_selected: typeof step.text !== 'undefined' && step.text !== null,
+        selector_selected: typeof step.selector !== 'undefined' && step.selector !== null,
+        url_selected: typeof step.url !== 'undefined' && step.url !== null,
+    }
+}
+
+export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
+    const { href_selected, text_selected, selector_selected, url_selected, ...rest } = step
+    return {
+        ...rest,
+        href: href_selected ? rest.href || null : null,
+        text: text_selected ? rest.text || null : null,
+        selector: selector_selected ? rest.selector || null : null,
+        url: url_selected ? rest.url || null : null,
+    }
+}
+
+export function rectEqual(a?: ElementRect, b?: ElementRect): boolean {
+    if (a === b) {
+        return true
+    }
+    if (!a || !b) {
+        return false
+    }
+    return a.top === b.top && a.left === b.left && a.right === b.right && a.bottom === b.bottom
+}
+
+export const EMPTY_STYLE: Record<string, any> = {}
+
+export function getRectForElement(element: HTMLElement): ElementRect {
+    const elements = [elementToAreaRect(element)]
+
+    let loopElement = element
+    while (loopElement.children.length === 1) {
+        loopElement = loopElement.children[0] as HTMLElement
+        elements.push(elementToAreaRect(loopElement))
+    }
+
+    let maxArea = 0
+    let maxRect = elements[0].rect
+
+    for (const { rect, area } of elements) {
+        if (area >= maxArea) {
+            maxArea = area
+            maxRect = rect
+        }
+    }
+
+    return maxRect
+}
+
+let zoomCache = new WeakMap<HTMLElement, number[]>()
+let pageUsesZoom: boolean | undefined
+
+export function invalidateZoomCache(): void {
+    pageUsesZoom = undefined
+    zoomCache = new WeakMap()
+}
+
+export const getZoomLevel = (el: HTMLElement): number[] => {
+    if (pageUsesZoom === false) {
+        return []
+    }
+
+    const cached = zoomCache.get(el)
+    if (cached !== undefined) {
+        return cached
+    }
+
+    const zooms: number[] = []
+    const getZoom = (current: HTMLElement): void => {
+        const zoom = window.getComputedStyle(current).getPropertyValue('zoom')
+        const rzoom = zoom ? parseFloat(zoom) : 1
+        if (rzoom !== 1) {
+            zooms.push(rzoom)
+        }
+        if (current.parentElement?.parentElement) {
+            getZoom(current.parentElement)
+        }
+    }
+    getZoom(el)
+    zooms.reverse()
+
+    if (zooms.length > 0) {
+        pageUsesZoom = true
+    }
+
+    zoomCache.set(el, zooms)
+    return zooms
+}
+export const getRect = (el: HTMLElement): ElementRect => {
+    if (!el) {
+        return { x: 0, y: 0, width: 0, height: 0, top: 0, right: 0, bottom: 0, left: 0 }
+    }
+    const rect = el?.getBoundingClientRect()
+    const zooms = getZoomLevel(el)
+    const rectWithZoom: ElementRect = {
+        bottom: zooms.reduce((a, b) => a * b, rect.bottom),
+        height: zooms.reduce((a, b) => a * b, rect.height),
+        left: zooms.reduce((a, b) => a * b, rect.left),
+        right: zooms.reduce((a, b) => a * b, rect.right),
+        top: zooms.reduce((a, b) => a * b, rect.top),
+        width: zooms.reduce((a, b) => a * b, rect.width),
+        x: zooms.reduce((a, b) => a * b, rect.x),
+        y: zooms.reduce((a, b) => a * b, rect.y),
+    }
+    return rectWithZoom
+}
+
+function elementToAreaRect(element: HTMLElement): { element: HTMLElement; rect: ElementRect; area: number } {
+    const rect = getRect(element)
+    return {
+        element,
+        rect,
+        area: (rect.width ?? 0) * (rect.height ?? 0),
+    }
+}
+
+export function getHeatMapHue(count: number, maxCount: number): number {
+    if (maxCount === 0) {
+        return 60
+    }
+    return 60 - (count / maxCount) * 40
+}
+
+/*
+ * KLUDGE: finder() builds selectors with CSS.escape, e.g. [data-attr="session\.recording\.preview"]
+ * or [data-id="base-ui-\:rg\:-viewport"]. That's valid CSS, but our action/element matching compares
+ * raw attribute values, so the escapes must be removed. This handles single-character escapes
+ * (\. -> ., \: -> :) and hex code-point escapes (\31 -> 1) without being a fully general CSS unescaper.
+ *
+ * Safety: this only works correctly because finder's wordLike gate rejects id/class tokens that
+ * contain ':', so unescaping outside quoted attribute values never produces pseudo-class collisions.
+ * If that gate is ever relaxed, this function will need to become attribute-value-aware.
+ */
+export function unescapeCssSelector(foundSelector: string): string {
+    return foundSelector.replace(/\\([0-9a-fA-F]{1,6} ?|.)/g, (_, escaped: string) => {
+        if (/^[0-9a-fA-F]/.test(escaped)) {
+            // hex code-point escape: \31 23-foo → "123-foo", \: would not reach here
+            const codePoint = parseInt(escaped, 16)
+            // guard invalid code points (> U+10FFFF or 0) per CSS spec — fall back to U+FFFD
+            return codePoint === 0 || codePoint > 0x10ffff ? '�' : String.fromCodePoint(codePoint)
+        }
+        return escaped
+    })
+}
+
+// React's useId() emits per-render identifiers like ":r5:" (React <= 18) or "«r5»" (React 19),
+// which component libraries embed in DOM attributes (e.g. data-id="base-ui-:rg:-viewport").
+// They change between renders and deploys, so a selector built on one never matches recorded events.
+const UNSTABLE_GENERATED_ID_REGEX = /:r[0-9a-z]*:|«r[0-9a-z]*»/i
+
+export function containsUnstableGeneratedId(value: string): boolean {
+    return UNSTABLE_GENERATED_ID_REGEX.test(value)
+}
+
+export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): () => () => void {
+    return () => {
+        let unwrapPushState: undefined | (() => void)
+        let unwrapReplaceState: undefined | (() => void)
+        if (!(window.history.pushState as any)?.[patchKey]) {
+            unwrapPushState = patch(
+                window.history,
+                'pushState',
+                (originalPushState) => {
+                    return function patchedPushState(
+                        this: History,
+                        state: any,
+                        title: string,
+                        url?: string | URL | null
+                    ): void {
+                        ;(originalPushState as History['pushState']).call(this, state, title, url)
+                        onNavigate()
+                    }
+                },
+                patchKey
+            )
+        }
+
+        if (!(window.history.replaceState as any)?.[patchKey]) {
+            unwrapReplaceState = patch(
+                window.history,
+                'replaceState',
+                (originalReplaceState) => {
+                    return function patchedReplaceState(
+                        this: History,
+                        state: any,
+                        title: string,
+                        url?: string | URL | null
+                    ): void {
+                        ;(originalReplaceState as History['replaceState']).call(this, state, title, url)
+                        onNavigate()
+                    }
+                },
+                patchKey
+            )
+        }
+
+        return () => {
+            unwrapPushState?.()
+            unwrapReplaceState?.()
+        }
+    }
+}
+
+// Toolbar-owned copy of the app's experiment variant-split helper. Duplicated rather than
+// imported from scenes/experiments/utils, which drags 37KB and app-only modules into the
+// customer-facing bundle for this one pure function.
+export function percentageDistribution(variantCount: number): number[] {
+    const basePercentage = Math.floor(100 / variantCount)
+    const percentages = new Array(variantCount).fill(basePercentage)
+
+    // try to equally distribute `remaining` across variants
+    let remaining = 100 - basePercentage * variantCount
+    for (let i = 0; remaining > 0; i++, remaining--) {
+        percentages[i] += 1
+    }
+
+    return percentages
+}
+
+// Toolbar-owned copy of the app's experiment status helpers. Duplicated rather than imported
+// from scenes/experiments/experimentStatus so the toolbar bundle doesn't reach into the app
+// scene zone for these two pure functions.
+type ExperimentStatusInput = Pick<Experiment, 'status' | 'start_date' | 'end_date'> | null | undefined
+
+function getExperimentStatus(experiment: ExperimentStatusInput): ExperimentStatus {
+    if (!experiment) {
+        return ExperimentStatus.Draft
+    }
+    if (experiment.status) {
+        return experiment.status
+    }
+    if (experiment.end_date) {
+        return ExperimentStatus.Stopped
+    }
+    if (experiment.start_date) {
+        return ExperimentStatus.Running
+    }
+    return ExperimentStatus.Draft
+}
+
+export function isLaunched(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) !== ExperimentStatus.Draft
+}
+
+export function joinWithUiHost(uiHost: string, path: string): string {
+    const trimmedHost = (uiHost || '').replace(/\/+$/, '')
+    const trimmedPath = (path || '').trim()
+
+    if (!trimmedHost) {
+        return trimmedPath
+    }
+    if (!trimmedPath) {
+        return trimmedHost
+    }
+
+    // If a full URL is passed, don't try to join it.
+    if (/^https?:\/\//i.test(trimmedPath) || /^\/\/[^/]/.test(trimmedPath)) {
+        return trimmedPath
+    }
+
+    return `${trimmedHost}/${trimmedPath.replace(/^\/+/, '')}`
+}
