@@ -24,7 +24,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError, UnresolvedFieldError
+from posthog.hogql.errors import NotImplementedError, QueryError, ResolutionError
 
 # :NOTE: when you add new AST fields or nodes, add them to CloningVisitor and TraversingVisitor in visitor.py as well.
 # :NOTE2: also search for ":TRICKY:" in "resolver.py" when modifying SelectQuery or JoinExpr
@@ -746,7 +746,7 @@ class UnresolvedFieldType(Type):
     name: str
 
     def get_child(self, name: str | int, context: HogQLContext) -> Type:
-        raise UnresolvedFieldError(f"Unable to resolve field: {self.name}")
+        raise QueryError(f"Unable to resolve field: {self.name}")
 
     def has_child(self, name: str | int, context: HogQLContext) -> bool:
         return False

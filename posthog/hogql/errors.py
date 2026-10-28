@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from .ast import Expr
 
+UNRESOLVED_FIELD_MESSAGE = "Unable to resolve field"
+
 # Base
 
 
@@ -66,10 +68,6 @@ class QueryError(ExposedHogQLError):
     """The query is invalid, though correct syntactically."""
 
     code_name = "hogql_query_error"
-
-
-class UnresolvedFieldError(QueryError):
-    """A field name matches no column of the tables in scope."""
 
 
 class TableAccessDeniedError(QueryError):

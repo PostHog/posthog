@@ -54,12 +54,12 @@ from posthog.hogql.direct_sql import (
     get_raw_adapter_for_source,
 )
 from posthog.hogql.errors import (
+    UNRESOLVED_FIELD_MESSAGE,
     BaseHogQLError,
     ExposedHogQLError,
     InternalHogQLError,
     QueryError,
     ResolutionError,
-    UnresolvedFieldError,
 )
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
@@ -1081,8 +1081,8 @@ class HogQLQueryExecutor:
         query = self.query
         try:
             return self._execute()
-        except (CHQueryErrorUnknownIdentifier, UnresolvedFieldError):
-            if not self._refreshed_stale_view_columns():
+        except (CHQueryErrorUnknownIdentifier, QueryError) as error:
+            if not _names_a_missing_column(error) or not self._refreshed_stale_view_columns():
                 raise
             return self._with_fresh_database(query).execute()
 
@@ -1177,6 +1177,10 @@ class HogQLQueryExecutor:
             )
             for s in self.used_data_warehouse_sources
         ]
+
+
+def _names_a_missing_column(error: Exception) -> bool:
+    return isinstance(error, CHQueryErrorUnknownIdentifier) or str(error).startswith(UNRESOLVED_FIELD_MESSAGE)
 
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:
