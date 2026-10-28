@@ -15,6 +15,7 @@ from posthog.models.team import Team
 from posthog.utils import initialize_self_capture_api_token
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ...adapters import REGISTRY
 from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
@@ -23,8 +24,19 @@ from ...feature_flags import AGENT_LAUNCH_FLAG
 from ...logic import intake
 from ...logic.intake import pull_request_to_join
 from ...logic.launch import start_writer
-from ...logic.pull_requests import LINK_BACK_START, docs_github, open_writer_pull_requests, section_marker
-from ...logic.records import PULL_REQUEST_STATE_KEY, WriterPullRequest, pull_request_json
+from ...logic.pull_requests import (
+    LINK_BACK_START,
+    docs_github,
+    docs_head_branch,
+    open_writer_pull_requests,
+    section_marker,
+)
+from ...logic.records import (
+    PULL_REQUEST_FAILURE_STATE_KEY,
+    PULL_REQUEST_STATE_KEY,
+    WriterPullRequest,
+    pull_request_json,
+)
 from ...logic.routing import route_request
 from ...settings import WriterSettings, writer_settings
 
@@ -85,7 +97,7 @@ class Command(BaseCommand):
         try:
             opened, first_joined, joined, second_joined = (
                 run_agent_requests(
-                    github, team, section, source_urls, smoke_id, options["agent_timeout_minutes"], branches
+                    github, writer, team, section, source_urls, smoke_id, options["agent_timeout_minutes"], branches
                 )
                 if source_urls
                 else run_scratch_requests(github, writer, team, section, smoke_id, branches)
@@ -164,6 +176,7 @@ def run_scratch_requests(
 
 def run_agent_requests(
     github: GitHubIntegration,
+    writer: WriterSettings,
     team: Team,
     section: str,
     source_urls: list[str],
@@ -174,9 +187,9 @@ def run_agent_requests(
     first_source, second_source = (merged_source(github, url) for url in source_urls)
     async_to_sync(initialize_self_capture_api_token)()
     deadline = time.monotonic() + timeout_minutes * 60
-    opened, first_joined = run_agent_request(team, section, first_source, f"{smoke_id}-1", deadline)
+    opened, first_joined = run_agent_request(writer, team, section, first_source, f"{smoke_id}-1", deadline)
     branches.append(opened.head_branch)
-    joined, second_joined = run_agent_request(team, section, second_source, f"{smoke_id}-2", deadline)
+    joined, second_joined = run_agent_request(writer, team, section, second_source, f"{smoke_id}-2", deadline)
     return opened, first_joined, joined, second_joined
 
 
@@ -225,7 +238,7 @@ def smoke_request(verdict: AdapterVerdict, section: str, smoke_suffix: str) -> D
 
 
 def run_agent_request(
-    team: Team, section: str, source: DocsCommandRequest, smoke_suffix: str, deadline: float
+    writer: WriterSettings, team: Team, section: str, source: DocsCommandRequest, smoke_suffix: str, deadline: float
 ) -> tuple[WriterPullRequest, bool]:
     outcome = intake.submit(smoke_verdict(section, source, smoke_suffix), team_id=team.id)
     if outcome.status == "shadow":
@@ -234,26 +247,35 @@ def run_agent_request(
         )
     if outcome.task_id is None or outcome.status not in ("started", "joined"):
         raise CommandError(f"Intake answered {outcome.status} for {source.pull_request_url}")
-    return wait_for_pull_request(outcome.task_id, team.id, deadline), outcome.status == "joined"
+    pull_request = wait_for_pull_request(outcome.task_id, team.id, writer.docs_repository, deadline)
+    return pull_request, outcome.status == "joined"
 
 
-def wait_for_pull_request(task_id: UUID, team_id: int, deadline: float) -> WriterPullRequest:
+def wait_for_pull_request(task_id: UUID, team_id: int, docs_repository: str, deadline: float) -> WriterPullRequest:
     while time.monotonic() < deadline:
-        ended_runs = [
-            run
-            for run_id in tasks_facade.list_task_run_ids(task_id, team_id)
-            if (run := tasks_facade.get_task_run(run_id, team_id)) is not None and run.is_terminal
-        ]
         stored = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY)
         if isinstance(stored, dict):
             return pull_request_json.validate_python(stored)
-        if ended_runs:
-            run = ended_runs[0]
-            raise CommandError(
-                f"Writer run {run.id} on task {task_id} ended {run.status} without a pull request: {run.error_message}"
-            )
+        failure = tasks_facade.read_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY)
+        if isinstance(failure, str):
+            raise CommandError(f"Task {task_id} could not open its docs pull request: {failure}")
+        for run_id in tasks_facade.list_task_run_ids(task_id, team_id):
+            run = tasks_facade.get_task_run(run_id, team_id)
+            if run is None:
+                continue
+            problem = ended_run_problem(run, docs_repository)
+            if problem:
+                raise CommandError(f"Writer run {run_id} on task {task_id} {problem}")
         time.sleep(AGENT_POLL_INTERVAL_SECONDS)
     raise CommandError(f"Timed out waiting for task {task_id} to record a pull request")
+
+
+def ended_run_problem(run: TaskRunDTO, docs_repository: str) -> str | None:
+    if run.status in ("failed", "cancelled"):
+        return f"ended {run.status}: {run.error_message}"
+    if run.status == "completed" and docs_head_branch(run.output, docs_repository) is None:
+        return "completed without pushing a docs branch"
+    return None
 
 
 def run_writer_request(writer: WriterSettings, team: Team, section: str, branch: str) -> tuple[WriterPullRequest, bool]:
