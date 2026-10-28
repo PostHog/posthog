@@ -565,6 +565,7 @@ export function createCdpCoreServices(
         emailValidationService,
         cohortMembershipRepository,
         deps.integrationManager,
+        emailStatusService,
         hogFlowDuplicateObserver,
         cdpUsageReporter,
         { awaitedStepsEnabled: config.CDP_HOGFLOW_AWAITED_STEPS_ENABLED }

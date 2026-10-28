@@ -1056,17 +1056,33 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }]],
+            [
+                'an ordinary template',
+                {},
+                '$pageview',
+                [{ Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) }],
+            ],
             [
                 'a sensitive template',
                 { sensitive: true },
+                '$pageview',
                 [
                     { Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
                     { Name: 'ph_sensitive', Value: 'true' },
                 ],
             ],
-        ])('should send an email if verified, for %s', async (_name, extraMetadata, expectedTags) => {
+            [
+                'a transactional email run',
+                {},
+                TRANSACTIONAL_EMAIL_EVENT,
+                [
+                    { Name: 'ph_id', Value: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+                    { Name: 'ph_email_status', Value: 'true' },
+                ],
+            ],
+        ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
+            invocation.state.globals.event.event = triggerEvent
             sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
             const result = await service.executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
@@ -1099,6 +1115,26 @@ describe('EmailService', () => {
         const sesRejects = (): void => {
             sendEmailSpy.mockRejectedValue(new Error('SES error'))
         }
+        const teamSuspended = (): void => {
+            sesAccepts()
+            jest.spyOn(service['teamWorkflowsConfigService'], 'getEmailSendingSuspension').mockResolvedValue('staff')
+        }
+        const workflowPaused = (): void => {
+            sesAccepts()
+            invocation.hogFunction.metadata = { email_sending_paused_at: '2026-01-01T00:00:00Z' }
+        }
+        const recipientMissing = (): void => {
+            sesAccepts()
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                to: { email: '', name: 'Test User' },
+            })
+        }
+        const recipientSuppressed = (): void => {
+            sesAccepts()
+            jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(true)
+        }
+
         it.each([
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
             [
@@ -1109,9 +1145,50 @@ describe('EmailService', () => {
                 'failed',
                 'provider_error',
             ],
+            [
+                'a transactional email skipped for a suspended team',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                teamSuspended,
+                'failed',
+                'sending_suspended',
+            ],
+            [
+                'a transactional email skipped for a paused workflow',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                workflowPaused,
+                'failed',
+                'sending_paused',
+            ],
+            [
+                'a transactional email skipped for a missing recipient',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                recipientMissing,
+                'failed',
+                'missing_recipient',
+            ],
+            [
+                'a transactional email skipped for a suppressed recipient',
+                TRANSACTIONAL_EMAIL_EVENT,
+                false,
+                recipientSuppressed,
+                'failed',
+                'recipient_suppressed',
+            ],
             ['a test send of a transactional email', TRANSACTIONAL_EMAIL_EVENT, true, sesAccepts, null, null],
+            [
+                'a skipped test send of a transactional email',
+                TRANSACTIONAL_EMAIL_EVENT,
+                true,
+                teamSuspended,
+                null,
+                null,
+            ],
             ['a workflow email that SES accepts', '$pageview', false, sesAccepts, null, null],
             ['a workflow email that SES rejects', '$pageview', false, sesRejects, null, null],
+            ['a skipped workflow email', '$pageview', false, recipientSuppressed, null, null],
         ])('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason) => {
             const produce = jest.fn().mockResolvedValue(undefined)
             const emailStatusService = new EmailStatusService(

@@ -30,7 +30,7 @@ import {
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
-import { SES_SENSITIVE_TAG } from './helpers/ses'
+import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
@@ -428,6 +428,7 @@ export class EmailService {
                         : 'Skipping send: our email provider paused sending for this project. Check the Reputation tab to see what to fix.'
                 addLog('warn', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'sending_suspended', isTest)
                 logger.warn('Skipping email send for a suspended team', {
                     teamId: invocation.teamId,
                     cause: suspensionCause,
@@ -464,6 +465,7 @@ export class EmailService {
                     : `Skipping send: email sending is paused for this workflow.${pauseDetail} Resume it from the workflow page once the audience is cleaned up.`
                 addLog('error', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'sending_paused', isTest)
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -515,6 +517,7 @@ export class EmailService {
                         count: 1,
                     })
                 }
+                this.emailStatusService?.queueSkippedSend(invocation, 'missing_recipient', isTest)
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
@@ -535,6 +538,7 @@ export class EmailService {
                 const skipReason = `Skipping send: ${suppression.removed.join(', ')} ${suppression.removed.length === 1 ? 'is' : 'are'} on the suppression list and no cc address can receive the email instead`
                 addLog('info', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'recipient_suppressed', isTest)
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -1165,6 +1169,9 @@ export class EmailService {
                 { Name: 'ph_id', Value: shortTrackingCode },
                 ...(result.invocation.hogFunction?.metadata?.sensitive === true
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
+                    : []),
+                ...(!isTest && isTransactionalEmailSend(result.invocation)
+                    ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
                     : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
