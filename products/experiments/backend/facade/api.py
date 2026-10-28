@@ -176,10 +176,11 @@ def get_experiment_health_inputs(
     return health_inputs_payload(inputs)
 
 
-def get_stored_primary_result(experiment: ExperimentModel) -> StoredPrimaryResult | None:
+def get_stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrimaryResult | None:
     """The current stored result of the experiment's primary metric. It reads Postgres only, not ClickHouse."""
-    config = next(iter(build_primary_calculation_configs(experiment)), None)
-    stats = MetricResultStore(experiment_id=experiment.pk).current_result(config) if config else None
+    experiment = ExperimentModel.objects.filter(team_id=team_id, pk=experiment_id, deleted=False).first()
+    config = next(iter(build_primary_calculation_configs(experiment)), None) if experiment else None
+    stats = MetricResultStore(experiment_id=experiment_id).current_result(config) if config else None
     if config is None or stats is None:
         return None
     return StoredPrimaryResult(

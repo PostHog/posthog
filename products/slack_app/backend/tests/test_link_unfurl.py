@@ -49,6 +49,7 @@ from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOP
 from products.slack_app.backend.slack_link_unfurl import (
     _card_blocks,
     _date_range,
+    _experiment_chart,
     _flag_chart,
     _insight_resource_label,
     _question_list,
@@ -284,6 +285,40 @@ class TestCardText:
     def test_question_list_numbers_and_caps_questions(self) -> None:
         questions = [{"question": f"Question {index}"} for index in range(7)]
         assert _question_list(questions) == "1. Question 0\n2. Question 1\n3. Question 2\n+ 4 more"
+
+    @parameterized.expand(
+        [
+            (
+                "variant_without_data",
+                "funnel",
+                0.2,
+                (0.25, None),
+                ["control  ████████████████░░░░  20.0%", "empty    ░░░░░░░░░░░░░░░░░░░░  —"],
+            ),
+            ("negative_means", "mean", -10.0, (-5.0, -20.0), ["control    -10.00", "test       -5.00  -50.0%"]),
+        ]
+    )
+    def test_experiment_chart_shows_measured_values_only(
+        self,
+        _name: str,
+        metric_type: str,
+        control: float,
+        means: tuple[float | None, float | None],
+        expected: list[str],
+    ) -> None:
+        stats = StoredPrimaryResult(
+            metric_type=metric_type,
+            goal=None,
+            baseline=StoredArmResult(key="control", number_of_samples=100, mean=control),
+            variants=(
+                StoredArmResult(key="test", number_of_samples=100, mean=means[0]),
+                StoredArmResult(key="empty", number_of_samples=0, mean=means[1]),
+            ),
+        )
+
+        lines = (_experiment_chart(stats) or "").splitlines()
+
+        assert all(line in lines for line in expected)
 
 
 @pytest.mark.django_db

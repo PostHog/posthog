@@ -386,7 +386,7 @@ class TestGetStoredPrimaryResult(BaseTest):
             },
         )
 
-        assert api.get_stored_primary_result(experiment) == StoredPrimaryResult(
+        assert api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment.pk) == StoredPrimaryResult(
             metric_type="funnel",
             goal="decrease",
             baseline=StoredArmResult(key="control", number_of_samples=100, mean=0.2),

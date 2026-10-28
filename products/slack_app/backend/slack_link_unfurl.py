@@ -1029,7 +1029,7 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
 
 def _experiment_results(experiment: Experiment) -> tuple[str, str | None] | None:
     try:
-        stats = experiments_facade.get_stored_primary_result(experiment)
+        stats = experiments_facade.get_stored_primary_result(team_id=experiment.team_id, experiment_id=experiment.pk)
     except Exception:
         logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment.pk)
         return None
@@ -1074,14 +1074,19 @@ def _experiment_verdict(stats: StoredPrimaryResult) -> str:
 
 def _experiment_chart(stats: StoredPrimaryResult) -> str | None:
     arms = [stats.baseline, *stats.variants]
-    top = max((arm.mean or 0.0) for arm in arms)
+    means = [arm.mean for arm in arms if arm.mean is not None]
+    show_bars = all(mean >= 0 for mean in means)
+    top = max(means, default=0.0)
     rows = []
     for arm in arms:
-        mean = arm.mean or 0.0
-        value = f"{mean:.1%}" if stats.metric_type == "funnel" else f"{mean:,.2f}"
+        if arm.mean is None:
+            value = "—"
+        else:
+            value = f"{arm.mean:.1%}" if stats.metric_type == "funnel" else f"{arm.mean:,.2f}"
         if arm is not stats.baseline and (delta := _variant_delta(stats, arm)) is not None:
             value += f"  {delta:+.1%}{' ✓' if arm.significant else ''}"
-        rows.append(_ChartRow(label=_chart_label(arm.key), bar=_bar(mean / top if top else 0.0), value=value))
+        bar = _bar((arm.mean or 0.0) / top if top else 0.0) if show_bars else ""
+        rows.append(_ChartRow(label=_chart_label(arm.key), bar=bar, value=value))
     return _chart_rows(rows)
 
 
