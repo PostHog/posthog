@@ -92,26 +92,6 @@
       matchUpdateTypes: ['digest'],
       minimumReleaseAge: '7 days',
     },
-    // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
-    {
-      matchDatasources: ['npm'],
-      matchPackageNames: [
-        'posthog-js',
-        'posthog-js-lite',
-        'posthog-node',
-        '@posthog/*',
-        '@earendil-works/*',
-        'typebox',
-        '@oxfmt/*',
-        '@shadcn/react',
-        'kea-typegen',
-        '@typescript/native-preview*',
-        'shiki',
-        'shadcn',
-        '@shikijs/*',
-      ],
-      minimumReleaseAge: null,
-    },
     // Keep in sync with exclude-newer-package in pyproject.toml
     {
       matchDatasources: ['pypi'],
@@ -165,6 +145,31 @@
       matchUpdateTypes: ['minor', 'patch'],
       matchFileNames: ['products/desktop/**', 'packages/agent/**'],
       groupName: "{{manager}} non-major in {{lookup (split packageFileDir '/') 0}}/{{lookup (split packageFileDir '/') 1}}",
+    },
+    // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml. pnpm does not check these
+    // versions, so stamphog never approves them. Their own group keeps them out of the groups above,
+    // which stamphog can approve. This rule comes after those groups so that its groupName wins.
+    // Majors stay in their own PRs and keep the 7-day wait
+    {
+      matchDatasources: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: [
+        'posthog-js',
+        'posthog-js-lite',
+        'posthog-node',
+        '@posthog/*',
+        '@earendil-works/*',
+        'typebox',
+        '@oxfmt/*',
+        '@shadcn/react',
+        'kea-typegen',
+        '@typescript/native-preview*',
+        'shiki',
+        'shadcn',
+        '@shikijs/*',
+      ],
+      minimumReleaseAge: null,
+      groupName: 'npm without a release age',
     },
     {
       matchUpdateTypes: ['minor', 'patch'],
