@@ -7,6 +7,7 @@ on:
 
 permissions:
     actions: read
+    contents: read
     pull-requests: read
 
 concurrency:
@@ -14,9 +15,7 @@ concurrency:
     cancel-in-progress: false
 
 env:
-    SUPPORT_AGENT_INFRA_CHANNEL: 'C0CB80UM50Q'
-    SUPPORT_HERO_GROUP: 'S0CDU0BNFJ4'
-    AI_OBSERVABILITY_GROUP: 'S097J2WH3QX'
+    SLACK_CHANNEL: 'C0CB80UM50Q'
 
 jobs:
     alert-stale-pr:
@@ -24,123 +23,31 @@ jobs:
         timeout-minutes: 5
 
         steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/scripts/update-ai-costs-stale-alert.js
+                  sparse-checkout-cone-mode: false
+
             - name: Check the open LLM cost PR
               id: check
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               with:
                   script: |
-                      const hourMs = 60 * 60 * 1000
-                      const dayMs = 24 * hourMs
-                      const earlyAlertHours = [2, 8]
-                      const aiObservabilityAfterHours = 24
-                      const { owner, repo } = context.repo
-
-                      const { data: thisRun } = await github.rest.actions.getWorkflowRun({ owner, repo, run_id: context.runId })
-                      const thisCheckAt = Date.parse(thisRun.created_at)
-                      const { data: successfulRuns } = await github.rest.actions.listWorkflowRuns({
-                          owner,
-                          repo,
-                          workflow_id: thisRun.workflow_id,
-                          status: 'success',
-                          per_page: 10,
-                      })
-                      const lastSuccess = successfulRuns.workflow_runs.find(
-                          (run) => run.id !== thisRun.id && Date.parse(run.created_at) < thisCheckAt
-                      )
-                      const lastCheckAt = lastSuccess ? Date.parse(lastSuccess.created_at) : thisCheckAt - hourMs
-
-                      const prs = await github.paginate(
-                          github.rest.pulls.list,
-                          {
-                              owner,
-                              repo,
-                              head: `${owner}:chore/llma-update-ai-costs`,
-                              state: 'all',
-                              sort: 'created',
-                              direction: 'desc',
-                              per_page: 100,
-                          },
-                          (response, done) => {
-                              if (response.data.some((pr) => pr.merged_at)) {
-                                  done()
-                              }
-                              return response.data
-                          }
-                      )
-                      const [current, ...older] = prs
-                      if (!current || current.state !== 'open') {
-                          core.info('No open LLM cost PR')
-                          return
-                      }
-
-                      // Each cost refresh closes the unmerged PR and opens its replacement seconds later.
-                      let waitingSince = Date.parse(current.created_at)
-                      let prCount = 1
-                      for (const pr of older) {
-                          const replacedImmediately = Math.abs(waitingSince - Date.parse(pr.closed_at)) < 30 * 60 * 1000
-                          if (pr.merged_at || !replacedImmediately) {
-                              break
-                          }
-                          waitingSince = Date.parse(pr.created_at)
-                          prCount++
-                      }
-
-                      const { repository } = await github.graphql(
-                          `query ($owner: String!, $repo: String!, $number: Int!) {
-                              repository(owner: $owner, name: $repo) {
-                                  pullRequest(number: $number) {
-                                      reviewDecision
-                                      latestReviews(first: 20) {
-                                          nodes {
-                                              state
-                                              submittedAt
-                                          }
-                                      }
-                                  }
-                              }
-                          }`,
-                          { owner, repo, number: current.number }
-                      )
-                      const { reviewDecision, latestReviews } = repository.pullRequest
-                      const approvals = latestReviews.nodes
-                          .filter((review) => review.state === 'APPROVED')
-                          .map((review) => Date.parse(review.submittedAt))
-                      const approvedAt = reviewDecision === 'APPROVED' && approvals.length > 0 ? Math.min(...approvals) : null
-
-                      const stuckSince = approvedAt ?? waitingSince
-                      const nextDailyAlert = stuckSince + Math.max(1, Math.floor((lastCheckAt - stuckSince) / dayMs) + 1) * dayMs
-                      const alertTimes = [...earlyAlertHours.map((hours) => stuckSince + hours * hourMs), nextDailyAlert]
-                      const alertDue = alertTimes.some((time) => time > lastCheckAt && time <= thisCheckAt)
-
-                      const hoursSince = (time) => Math.floor((Date.now() - time) / hourMs)
-                      const waitedHours = hoursSince(waitingSince)
-                      const stuckHours = hoursSince(stuckSince)
-                      if (!alertDue) {
-                          core.info(`#${current.number} is ${reviewDecision}, stuck ${stuckHours}h, waited ${waitedHours}h: no alert due`)
-                          return
-                      }
-
-                      const groups = [process.env.SUPPORT_HERO_GROUP]
-                      if (waitedHours >= aiObservabilityAfterHours) {
-                          groups.push(process.env.AI_OBSERVABILITY_GROUP)
-                      }
-                      const mentions = groups.map((group) => `<!subteam^${group}>`).join(' ')
-                      const problem = approvedAt
-                          ? `was approved ${stuckHours}h ago but has not merged. Check if the merge queue kicked it out.`
-                          : 'needs a review.'
-                      const history = prCount > 1 ? ` across ${prCount} PRs` : ''
-                      const text = `${mentions} LLM cost update <${current.html_url}|#${current.number}> ${problem} New prices have waited ${waitedHours}h${history}.`
-                      core.info(text)
-                      core.setOutput(
-                          'payload',
-                          JSON.stringify({ channel: process.env.SUPPORT_AGENT_INFRA_CHANNEL, text, unfurl_links: false })
+                      const checkStaleCostPr = require('./.github/scripts/update-ai-costs-stale-alert.js')
+                      await checkStaleCostPr(
+                          { github, context, core },
+                          { supportHeroGroup: 'S0CDU0BNFJ4', aiObservabilityGroup: 'S097J2WH3QX' }
                       )
 
             - name: Post to Slack
-              if: steps.check.outputs.payload != ''
+              if: steps.check.outputs.text != ''
               uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   errors: true
-                  payload: ${{ steps.check.outputs.payload }}
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      unfurl_links: false
+                      text: "${{ steps.check.outputs.text }}"
