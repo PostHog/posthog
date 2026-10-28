@@ -1,5 +1,6 @@
 import functools
 import dataclasses
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import IO, Any, cast
 
@@ -276,7 +277,7 @@ def lookup_s3_bucket_region(bucket: str) -> str:
     return region
 
 
-def _bucket_region(response: dict[str, Any]) -> str | None:
+def _bucket_region(response: Mapping[str, Any]) -> str | None:
     return response.get("ResponseMetadata", {}).get("HTTPHeaders", {}).get(S3_BUCKET_REGION_HEADER)
 
 
