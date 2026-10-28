@@ -24,10 +24,10 @@ SCHEDULED_DELETION_DELAY = timedelta(hours=2)
 # Events ingested in this window block the delete. The window starts 30 minutes after ingestion
 # stopped, so events processed before the drop condition loaded don't block the first attempt.
 RECENT_EVENTS_WINDOW = timedelta(minutes=90)
-# After this, stop trying. The definition stays hidden.
+# A failed attempt moves the definition to the back of the queue by this much.
+RETRY_DELAY = timedelta(hours=1)
+# After this long since ingestion stopped, stop trying. The definition stays hidden.
 GIVE_UP_AFTER = timedelta(days=7)
-# Events with an older timestamp aren't checked. This keeps the query to recent partitions.
-RECENT_EVENTS_MAX_AGE = timedelta(days=31)
 BATCH_SIZE = 200
 
 TRIGGER_JOB_TYPE = "scheduled_event_definition_deletion"
@@ -36,8 +36,9 @@ TRIGGER_JOB_TYPE = "scheduled_event_definition_deletion"
 def delete_scheduled_event_definitions() -> None:
     """Delete each due definition if its event is still dropped and no event arrived recently.
 
-    A definition that fails a check stays due, so the next run tries it again. A definition
-    that someone unhid is no longer scheduled.
+    A definition that fails a check, or whose attempt raises, is tried again an hour later, so
+    blocked definitions don't hold back the others. A definition that someone unhid is no longer
+    scheduled.
     """
     now = timezone.now()
     due = list(
@@ -50,6 +51,7 @@ def delete_scheduled_event_definitions() -> None:
             _process(definition, now)
         except Exception:
             logger.exception("scheduled_event_definition_deletion_failed", event_definition_id=str(definition.id))
+            _retry_later(definition, now)
 
 
 def _process(definition: EnterpriseEventDefinition, now: datetime) -> None:
@@ -65,14 +67,17 @@ def _process(definition: EnterpriseEventDefinition, now: datetime) -> None:
         _delete(definition, now)
         return
 
-    assert definition.scheduled_deletion_at is not None
-    if now - definition.scheduled_deletion_at > GIVE_UP_AFTER:
+    stopped_at = definition.ingestion_stopped_at or definition.scheduled_deletion_at
+    if stopped_at is not None and now - stopped_at > GIVE_UP_AFTER:
         logger.warning("scheduled_event_definition_deletion_gave_up", event_definition_id=str(definition.id))
         _clear_schedule(definition)
+    else:
+        _retry_later(definition, now)
 
 
 def _has_recent_events(team_ids: list[int], event_name: str, now: datetime) -> bool:
-    # `_timestamp` is when ingestion processed the event, and it has a minmax index.
+    # `_timestamp` is when ingestion processed the event, and it has a minmax index. There is no
+    # bound on `timestamp`, so a backfill of old events also blocks the delete.
     tag_queries(product=Product.PRODUCT_ANALYTICS, name=TRIGGER_JOB_TYPE)
     rows = sync_execute(
         """
@@ -80,14 +85,12 @@ def _has_recent_events(team_ids: list[int], event_name: str, now: datetime) -> b
         FROM events
         WHERE team_id IN %(team_ids)s
           AND event = %(event)s
-          AND timestamp > %(oldest_timestamp)s
           AND _timestamp > %(since)s
         LIMIT 1
         """,
         {
             "team_ids": team_ids,
             "event": event_name,
-            "oldest_timestamp": now - RECENT_EVENTS_MAX_AGE,
             "since": now - RECENT_EVENTS_WINDOW,
         },
         workload=Workload.OFFLINE,
@@ -97,6 +100,13 @@ def _has_recent_events(team_ids: list[int], event_name: str, now: datetime) -> b
 
 def _clear_schedule(definition: EnterpriseEventDefinition) -> None:
     EnterpriseEventDefinition.objects.filter(pk=definition.pk).update(scheduled_deletion_at=None)
+
+
+def _retry_later(definition: EnterpriseEventDefinition, now: datetime) -> None:
+    # Filtering on the schedule this run read keeps a cancel that just landed.
+    EnterpriseEventDefinition.objects.filter(
+        pk=definition.pk, scheduled_deletion_at=definition.scheduled_deletion_at
+    ).update(scheduled_deletion_at=now + RETRY_DELAY)
 
 
 def _delete(definition: EnterpriseEventDefinition, now: datetime) -> None:

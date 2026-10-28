@@ -922,6 +922,7 @@ class TestEventDefinitionStopIngestingAPI(APIBaseTest):
         assert event.verified is False
         assert event.verified_by is None
         assert event.verified_at is None
+        assert event.ingestion_stopped_at == timezone.now()
         assert event.scheduled_deletion_at == timezone.now() + timedelta(hours=2)
         assert response.json()["scheduled_deletion_at"] == "2020-01-02T02:00:00Z"
 
@@ -1043,6 +1044,33 @@ class TestEventDefinitionStopIngestingAPI(APIBaseTest):
         assert not EventFilterConfig.objects.exists()
         event.refresh_from_db()
         assert event.hidden is False
+
+    def test_unhiding_cancels_the_scheduled_delete(self):
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="spam_event", hidden=True, scheduled_deletion_at=timezone.now()
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.project_id}/event_definitions/{event.id}/", {"hidden": False}
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        event.refresh_from_db()
+        assert event.scheduled_deletion_at is None
+
+    def test_bulk_verifying_cancels_the_scheduled_delete(self):
+        event = EnterpriseEventDefinition.objects.create(
+            team=self.team, name="spam_event", hidden=True, scheduled_deletion_at=timezone.now()
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.project_id}/event_definitions/bulk_update_verified/",
+            {"ids": [str(event.id)], "verified": True},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        event.refresh_from_db()
+        assert (event.hidden, event.scheduled_deletion_at) == (False, None)
 
     def test_delete_does_not_change_the_event_filter(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")

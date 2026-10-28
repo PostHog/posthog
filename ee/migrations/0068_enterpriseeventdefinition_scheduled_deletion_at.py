@@ -13,4 +13,9 @@ class Migration(migrations.Migration):
             name="scheduled_deletion_at",
             field=models.DateTimeField(blank=True, null=True),
         ),
+        migrations.AddField(
+            model_name="enterpriseeventdefinition",
+            name="ingestion_stopped_at",
+            field=models.DateTimeField(blank=True, null=True),
+        ),
     ]

@@ -968,6 +968,7 @@ class EventDefinitionViewSet(
                     enterprise.verified_by = user
                     enterprise.verified_at = now
                     enterprise.hidden = False  # an event cannot be both hidden and verified
+                    enterprise.scheduled_deletion_at = None  # a scheduled delete only applies to hidden events
                 else:
                     enterprise.verified_by = None
                     enterprise.verified_at = None
@@ -1039,7 +1040,8 @@ class EventDefinitionViewSet(
         instance.verified_at = None
         instance.updated_by = user
         # A periodic task deletes the definition after this, if nothing recreates it meanwhile.
-        instance.scheduled_deletion_at = timezone.now() + SCHEDULED_DELETION_DELAY
+        instance.ingestion_stopped_at = timezone.now()
+        instance.scheduled_deletion_at = instance.ingestion_stopped_at + SCHEDULED_DELETION_DELAY
         instance.save()
 
         log_activity(
