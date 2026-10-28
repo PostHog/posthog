@@ -12,12 +12,12 @@ from products.stamphog.backend.logic.renovate_verification import (
     VersionChange,
     changed_file_problems,
     commit_problems,
-    is_major_update,
     is_renovate_pr,
     manifest_changed_specifiers,
     package_json_problems,
     pnpm_lock_versions,
     pnpm_policy_problems,
+    update_refusal,
     verify_renovate_update,
 )
 
@@ -99,8 +99,10 @@ class TestManifestProblems(SimpleTestCase):
         [
             ("range_bump", {"dependencies": {"left-pad": "^1.1.0"}}, None),
             ("new_dependency", {"dependencies": {"left-pad": "^1.0.0", "evil": "1.0.0"}}, "adds or removes"),
-            ("protocol_redirect", {"dependencies": {"left-pad": "npm:evil@1.0.0"}}, "version range"),
-            ("tarball_redirect", {"dependencies": {"left-pad": "https://example.com/x.tgz"}}, "version range"),
+            ("protocol_redirect", {"dependencies": {"left-pad": "npm:evil@1.0.0"}}, "caret or tilde"),
+            ("tarball_redirect", {"dependencies": {"left-pad": "https://example.com/x.tgz"}}, "caret or tilde"),
+            ("dist_tag", {"dependencies": {"left-pad": "latest"}}, "caret or tilde"),
+            ("open_range", {"dependencies": {"left-pad": ">=1.1.0"}}, "caret or tilde"),
             ("script_change", {"dependencies": {"left-pad": "^1.0.0"}, "scripts": {"postinstall": "curl"}}, "other"),
         ]
     )
@@ -117,10 +119,14 @@ class TestManifestProblems(SimpleTestCase):
             ("loose_release_age", _PNPM_POLICY + "minimumReleaseAgeStrict: false\n", False),
             ("no_trust_policy", "minimumReleaseAge: 10080\n", False),
             ("every_build_allowed", _PNPM_POLICY + "dangerouslyAllowAllBuilds: true\n", False),
+            ("other_package_exempt", _PNPM_POLICY + "minimumReleaseAgeExclude:\n  - right-pad\n", True),
+            ("age_exempt_by_glob", _PNPM_POLICY + "minimumReleaseAgeExclude:\n  - left-*\n", False),
+            ("trust_exempt_by_version", _PNPM_POLICY + "trustPolicyExclude:\n  - left-pad@1.1.0 || 1.2.0\n", False),
         ]
     )
     def test_pnpm_policy_problems(self, _name: str, workspace: str | None, enforced: bool) -> None:
-        assert (pnpm_policy_problems("pnpm-workspace.yaml", workspace) == []) is enforced
+        change = VersionChange(name="left-pad", old_version="1.0.0", new_version="1.1.0")
+        assert (pnpm_policy_problems("pnpm-workspace.yaml", workspace, [change]) == []) is enforced
 
     def test_manifest_changed_specifiers_reads_named_catalogs(self) -> None:
         assert manifest_changed_specifiers(
@@ -133,17 +139,19 @@ class TestManifestProblems(SimpleTestCase):
 class TestLockfileVersions(SimpleTestCase):
     @parameterized.expand(
         [
-            ("patch", "1.2.3", "1.2.4", False),
-            ("minor", "1.2.3", "1.3.0", False),
-            ("major", "1.9.0", "2.0.0", True),
-            ("zero_minor", "0.4.1", "0.5.0", True),
-            ("zero_patch", "0.4.1", "0.4.2", False),
-            ("calendar_major", "2024.10.1", "2025.1.0", True),
-            ("not_numeric", "1.0.0", "next", True),
+            ("patch", "1.2.3", "1.2.4", None),
+            ("minor", "1.2.3", "1.3.0", None),
+            ("major", "1.9.0", "2.0.0", "a major update"),
+            ("zero_minor", "0.4.1", "0.5.0", "a major update"),
+            ("zero_patch", "0.4.1", "0.4.2", None),
+            ("calendar_major", "2024.10.1", "2025.1.0", "a major update"),
+            ("not_numeric", "1.0.0", "next", "a major update"),
+            ("patch_downgrade", "1.2.4", "1.2.3", "a downgrade"),
+            ("minor_downgrade", "1.10.0", "1.9.5", "a downgrade"),
         ]
     )
-    def test_is_major_update(self, _name: str, old: str, new: str, expected: bool) -> None:
-        assert is_major_update(VersionChange(name="left-pad", old_version=old, new_version=new)) is expected
+    def test_update_refusal(self, _name: str, old: str, new: str, expected: str | None) -> None:
+        assert update_refusal(VersionChange(name="left-pad", old_version=old, new_version=new)) == expected
 
     @parameterized.expand(
         [
