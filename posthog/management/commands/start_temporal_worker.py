@@ -711,17 +711,18 @@ def apply_hogql_shadow_sample_rate_override() -> None:
     """Sets HogQL's cpp shadow parse rate for this worker from `HOGQL_PARSER_SHADOW_SAMPLE_RATE`.
 
     The cpp shadow parse holds the GIL for the whole parse, and on a large expression that stalls
-    workflow tasks past Temporal's 2s deadlock detector. A worker that sets the variable turns the
-    shadow down for its own process only. Remove this once the parser reads the variable itself.
+    workflow tasks past Temporal's 2s deadlock detector. Remove this once the parser reads the
+    variable itself.
     """
     raw = os.environ.get("HOGQL_PARSER_SHADOW_SAMPLE_RATE")
     if raw is None:
         return
     try:
-        rate: float | None = float(raw)
+        rate = float(raw)
     except ValueError:
-        rate = None
-    if rate is None or not 0.0 <= rate <= 1.0:
+        LOGGER.warning("Ignoring invalid HOGQL_PARSER_SHADOW_SAMPLE_RATE", value=raw)
+        return
+    if not 0.0 <= rate <= 1.0:
         LOGGER.warning("Ignoring invalid HOGQL_PARSER_SHADOW_SAMPLE_RATE", value=raw)
         return
     hogql_parser._SHADOW_SAMPLE_RATE = rate

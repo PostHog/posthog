@@ -1,8 +1,6 @@
-import os
 from collections.abc import Callable, Sequence
 
 import pytest
-from unittest.mock import patch
 
 from django.conf import settings
 
@@ -158,8 +156,12 @@ def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
         ("2", 0.001),
     ],
 )
-def test_hogql_shadow_sample_rate_override(env_value: str | None, expected: float) -> None:
-    env = {} if env_value is None else {"HOGQL_PARSER_SHADOW_SAMPLE_RATE": env_value}
-    with patch.dict(os.environ, env, clear=True), patch.object(hogql_parser, "_SHADOW_SAMPLE_RATE", 0.001):
-        apply_hogql_shadow_sample_rate_override()
-        assert hogql_parser._SHADOW_SAMPLE_RATE == expected
+def test_hogql_shadow_sample_rate_override(
+    monkeypatch: pytest.MonkeyPatch, env_value: str | None, expected: float
+) -> None:
+    monkeypatch.delenv("HOGQL_PARSER_SHADOW_SAMPLE_RATE", raising=False)
+    if env_value is not None:
+        monkeypatch.setenv("HOGQL_PARSER_SHADOW_SAMPLE_RATE", env_value)
+    monkeypatch.setattr(hogql_parser, "_SHADOW_SAMPLE_RATE", 0.001)
+    apply_hogql_shadow_sample_rate_override()
+    assert hogql_parser._SHADOW_SAMPLE_RATE == expected
