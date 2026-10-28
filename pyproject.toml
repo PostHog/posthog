@@ -352,8 +352,6 @@ infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", 
 pytest-split = { git = "https://github.com/PostHog/pytest-split", tag = "v0.11.0-posthog.8" }
 torch = [{ index = "pytorch-cpu", group = "inbox-ranking" }]
 
-# xgboost's Linux wheel declares nvidia-nccl-cu12 (322 MB) for multi-GPU training. We use xgboost on
-# CPU, so drop it to keep the wheel out of the image.
 # These releases cap Django below 6.1 only because 6.1 was untested when they shipped. Upstream main
 # raises the cap without library code changes. Drop each block once a release lifts the cap.
 [[tool.uv.dependency-metadata]]
@@ -366,6 +364,8 @@ name = "django-scim2"
 version = "0.23.0"
 requires-dist = ["django>=5.2.8", "pygments>=2.20.0,<3.0.0", "scim2-filter-parser>=0.5.0"]
 
+# xgboost's Linux wheel declares nvidia-nccl-cu12 (322 MB) for multi-GPU training. We use xgboost on
+# CPU, so drop it to keep the wheel out of the image.
 [[tool.uv.dependency-metadata]]
 name = "xgboost"
 version = "3.2.0"
