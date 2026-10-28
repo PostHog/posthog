@@ -1,11 +1,10 @@
-from datetime import datetime
 from typing import cast
 from uuid import UUID
 
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
-from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -18,11 +17,13 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
 )
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.models import User
 
 from products.mcp_events.backend.facade import api
 from products.mcp_events.backend.facade.contracts import (
     MCPCallbackError,
+    MCPEventCredential,
     MCPEventSubscribeInput,
     MCPEventSubscriptionNotFoundError,
 )
@@ -58,8 +59,7 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         ):
             raise NotFound("MCP event subscriptions are not enabled for this account.")
 
-    def _principal(self, request: Request) -> tuple[str, datetime | None]:
-        """The credential that owns a subscription, and when that credential expires."""
+    def _credential(self, request: Request) -> MCPEventCredential:
         authenticator = request.successful_authenticator
         if isinstance(authenticator, (DelegatedOAuthAccessTokenAuthentication, DelegatedPersonalAPIKeyAuthentication)):
             raise PermissionDenied(
@@ -67,10 +67,14 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             )
         if isinstance(authenticator, OAuthAccessTokenAuthentication):
             token = authenticator.access_token
-            return f"oauth:{request.user.pk}:{token.application_id}", token.expires
+            return MCPEventCredential(principal=f"oauth:{request.user.pk}:{token.application_id}", id=str(token.pk))
         if isinstance(authenticator, PersonalAPIKeyAuthentication):
             key = authenticator.personal_api_key
-            return f"personal_api_key:{request.user.pk}:{key.pk}", key.expires_at
+            return MCPEventCredential(
+                principal=f"personal_api_key:{request.user.pk}:{key.pk}",
+                id=key.pk,
+                last_rolled_at=key.last_rolled_at,
+            )
         raise PermissionDenied("Connect using an OAuth token or personal API key to manage subscriptions.")
 
     @extend_schema(responses=MCPEventSubscriptionSerializer(many=True))
@@ -105,9 +109,12 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     def preview(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = MCPEventArgumentsSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
-        result = api.preview(
-            team_id=self.team.pk, user_id=cast(User, request.user).pk, filters=serializer.validated_data["filters"]
-        )
+        try:
+            result = api.preview(
+                team_id=self.team.pk, user_id=cast(User, request.user).pk, filters=serializer.validated_data["filters"]
+            )
+        except ConcurrencyLimitExceeded:
+            raise Throttled(detail="Too many queries are running. Try again in a moment.") from None
         return Response(MCPEventPreviewSerializer(result, context=self.get_serializer_context()).data)
 
     @extend_schema(request=MCPEventSubscribeSerializer, responses=MCPEventSubscriptionSerializer)
@@ -116,18 +123,17 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         serializer = MCPEventSubscribeSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        principal, credential_expires_at = self._principal(request)
+        credential = self._credential(request)
         try:
             subscription = api.subscribe(
                 MCPEventSubscribeInput(
                     team_id=self.team.pk,
                     user_id=cast(User, request.user).pk,
-                    principal=principal,
+                    credential=credential,
                     filters=data["arguments"]["filters"],
                     url=data["delivery"]["url"],
                     secret=data["delivery"]["secret"],
                     ttl_ms=data["ttl_ms"],
-                    credential_expires_at=credential_expires_at,
                 )
             )
         except MCPCallbackError as error:
@@ -140,7 +146,7 @@ class MCPEventSubscriptionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         serializer = MCPEventUnsubscribeSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        principal, _ = self._principal(request)
+        principal = self._credential(request).principal
         api.unsubscribe(
             team_id=self.team.pk,
             user_id=cast(User, request.user).pk,

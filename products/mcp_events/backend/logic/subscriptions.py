@@ -1,10 +1,11 @@
 import json
 import hashlib
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Final, cast
 from urllib.parse import urlsplit
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import connection, transaction
 from django.utils import timezone
 
@@ -29,10 +30,12 @@ from products.mcp_events.backend.facade.contracts import (
     MCPEventData,
     MCPEventEnvelope,
     MCPEventPreview,
+    MCPEventSubscribeInput,
     MCPEventSubscriptionPage,
     MCPEventSubscriptionRecord,
 )
 from products.mcp_events.backend.logic.callback import verify_callback
+from products.mcp_events.backend.logic.credentials import lock_subscriber, validate_principal
 from products.mcp_events.backend.logic.destination import disable_destination, save_destination
 from products.mcp_events.backend.logic.filters import (
     MCPEventFilterAccessValidator,
@@ -177,17 +180,9 @@ class MCPEventSubscriptions:
             sample_limit=PREVIEW_SAMPLE_LIMIT,
         )
 
-    def subscribe(
-        self,
-        *,
-        raw_filters: dict[str, JsonValue],
-        url: str,
-        secret: str,
-        ttl_ms: int | None,
-        credential_expires_at: datetime | None,
-    ) -> MCPEventSubscriptionRecord:
-        filters = self.normalize_filters(raw_filters)
-        subscription_id = self.identity(filters, url)
+    def subscribe(self, request: MCPEventSubscribeInput) -> MCPEventSubscriptionRecord:
+        filters = self.normalize_filters(request.filters)
+        subscription_id = self.identity(filters, request.url)
         now = timezone.now()
         existing = (
             MCPEventSubscription.objects.for_team(self.team.pk)
@@ -200,15 +195,23 @@ class MCPEventSubscriptions:
             and existing.expires_at > now
             and existing.verified_at
             and existing.verified_at > now - VERIFICATION_REUSE_WINDOW
-            and existing.delivery["secret"] == secret
+            and existing.delivery["secret"] == request.secret
         )
         if not verified:
-            verify_callback(subscription_id=str(subscription_id), url=url, secret=secret)
+            verify_callback(subscription_id=str(subscription_id), url=request.url, secret=request.secret)
 
-        now = timezone.now()
-        if credential_expires_at is not None and credential_expires_at <= now:
-            raise PermissionDenied("The subscription credential expired. Reconnect and try again.")
         with transaction.atomic():
+            lock_subscriber(self.user.pk)
+            try:
+                self.user = User.objects.get(pk=self.user.pk)
+                self.team = Team.objects.get(pk=self.team.pk)
+            except ObjectDoesNotExist:
+                raise PermissionDenied("This account can no longer subscribe.") from None
+            credential_expires_at = validate_principal(
+                team=self.team, user=self.user, principal=self.principal, credential=request.credential
+            )
+            filters = self.normalize_filters(request.filters)
+            now = timezone.now()
             # Serialize project quota admission without locking a busy Team row.
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_xact_lock(%s, %s)", [QUOTA_LOCK_NAMESPACE, self.team.pk])
@@ -222,7 +225,7 @@ class MCPEventSubscriptions:
                         "created_by": self.user,
                         "principal": self.principal,
                         "arguments": {"project_id": self.team.pk, "filters": filters},
-                        "delivery": {"url": url, "secret": secret},
+                        "delivery": {"url": request.url, "secret": request.secret},
                         "expires_at": now,
                     },
                 )
@@ -241,8 +244,8 @@ class MCPEventSubscriptions:
                 raise PermissionDenied("This subscription belongs to another account.")
             if created or not subscription.active or subscription.expires_at <= now:
                 subscription.generation = uuid7()
-            subscription.delivery = {"url": url, "secret": secret}
-            subscription.expires_at = now + timedelta(milliseconds=min(ttl_ms or MAX_TTL_MS, MAX_TTL_MS))
+            subscription.delivery = {"url": request.url, "secret": request.secret}
+            subscription.expires_at = now + timedelta(milliseconds=min(request.ttl_ms or MAX_TTL_MS, MAX_TTL_MS))
             if credential_expires_at is not None:
                 subscription.expires_at = min(subscription.expires_at, credential_expires_at)
             if not verified:

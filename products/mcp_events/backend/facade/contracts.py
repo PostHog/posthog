@@ -52,15 +52,21 @@ class MCPEventPreview:
 
 
 @dataclass(frozen=True)
+class MCPEventCredential:
+    principal: str
+    id: str
+    last_rolled_at: datetime | None = None
+
+
+@dataclass(frozen=True)
 class MCPEventSubscribeInput:
     team_id: int
     user_id: int
-    principal: str
+    credential: MCPEventCredential
     filters: dict[str, JsonValue]
     url: str
     secret: str = field(repr=False)
     ttl_ms: int | None
-    credential_expires_at: datetime | None
 
 
 class MCPCallbackError(Exception):

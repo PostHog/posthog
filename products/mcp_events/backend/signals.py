@@ -1,13 +1,16 @@
 from functools import partial
 from typing import Any
+from uuid import UUID
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Model
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.dispatch import receiver
 from django.utils import timezone
 
+from posthog.models import User
+from posthog.models.oauth import OAuthApplication, oauth_session_revoked
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
@@ -49,6 +52,17 @@ def revoke_subscriptions_of_removed_member(
     revocation.revoke_user_in_organization(user_id=instance.user_id, organization_id=instance.organization_id)
 
 
+class _RevalidateTeam:
+    def __init__(self, team_id: int) -> None:
+        self.team_id = team_id
+        self.pending = True
+
+    def __call__(self) -> None:
+        if self.pending:
+            self.pending = False
+            revalidate_mcp_event_subscriptions.delay(self.team_id)
+
+
 def _revalidate_after_commit(team_ids: list[int]) -> None:
     live = (
         MCPEventSubscription.objects.unscoped()
@@ -56,8 +70,15 @@ def _revalidate_after_commit(team_ids: list[int]) -> None:
         .values_list("team_id", flat=True)
         .distinct()
     )
+    connection = transaction.get_connection()
     for team_id in live:
-        transaction.on_commit(partial(revalidate_mcp_event_subscriptions.delay, team_id))
+        # Django removes rolled-back savepoint callbacks, so their deduplication state cannot leak.
+        if any(
+            isinstance(callback, _RevalidateTeam) and callback.pending and callback.team_id == team_id
+            for _, callback, _ in connection.run_on_commit
+        ):
+            continue
+        transaction.on_commit(_RevalidateTeam(team_id), robust=True)
 
 
 def revalidate_after_access_rule_change(sender: type[Model], instance: Any, **kwargs: Any) -> None:
@@ -79,3 +100,94 @@ for _sender in ACCESS_RULE_SENDERS:
     )
 post_save.connect(revalidate_after_role_membership_change, sender=ROLE_MEMBERSHIP_SENDER)
 post_delete.connect(revalidate_after_role_membership_change, sender=ROLE_MEMBERSHIP_SENDER)
+
+
+@receiver(pre_delete, sender=MCPEventSubscription)
+def stop_deleted_subscription(
+    sender: type[MCPEventSubscription], instance: MCPEventSubscription, **kwargs: Any
+) -> None:
+    from products.mcp_events.backend.logic.destination import (  # noqa: PLC0415  # Keeps HogQL off the setup path.
+        disable_destination,
+    )
+
+    disable_destination(instance)
+
+
+@receiver(pre_delete, sender=User)
+def stop_subscriptions_before_user_deletion(sender: type[User], instance: User, **kwargs: Any) -> None:
+    from products.mcp_events.backend.logic.revocation import revoke_user  # noqa: PLC0415  # Keeps HogQL off setup.
+
+    revoke_user(user_id=instance.pk)
+
+
+@receiver(post_save, sender=User)
+def stop_subscriptions_of_inactive_user(sender: type[User], instance: User, created: bool, **kwargs: Any) -> None:
+    if created or instance.is_active:
+        return
+    from products.mcp_events.backend.logic.revocation import revoke_user  # noqa: PLC0415  # Keeps HogQL off setup.
+
+    revoke_user(user_id=instance.pk)
+
+
+@receiver(post_save, sender=OrganizationMembership)
+def revalidate_changed_member(
+    sender: type[OrganizationMembership], instance: OrganizationMembership, created: bool, **kwargs: Any
+) -> None:
+    update_fields = kwargs.get("update_fields")
+    if created or update_fields is not None and "level" not in update_fields:
+        return
+    from products.mcp_events.backend.logic.revocation import (  # noqa: PLC0415  # Keeps HogQL off setup.
+        revalidate_user_in_organization,
+    )
+
+    transaction.on_commit(
+        partial(revalidate_user_in_organization, user_id=instance.user_id, organization_id=instance.organization_id)
+    )
+
+
+@receiver(oauth_session_revoked)
+def stop_disconnected_oauth_subscriptions(
+    sender: type[OAuthApplication], user_id: int | None, application_id: UUID, **kwargs: Any
+) -> None:
+    from products.mcp_events.backend.logic.revocation import (  # noqa: PLC0415  # Keeps HogQL off the setup path.
+        revoke_oauth_application,
+    )
+
+    revoke_oauth_application(application_id=application_id, user_id=user_id)
+
+
+@receiver(pre_delete, sender=OAuthApplication)
+def stop_deleted_oauth_application(sender: type[OAuthApplication], instance: OAuthApplication, **kwargs: Any) -> None:
+    from products.mcp_events.backend.logic.revocation import (  # noqa: PLC0415  # Keeps HogQL off the setup path.
+        revoke_oauth_application,
+    )
+
+    revoke_oauth_application(application_id=instance.pk)
+
+
+@receiver(post_save, sender=Team)
+def revalidate_test_account_filters(sender: type[Team], instance: Team, created: bool, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if not created and (update_fields is None or "test_account_filters" in update_fields):
+        _revalidate_after_commit([instance.pk])
+
+
+@receiver(post_save, sender="actions.Action")
+@receiver(post_delete, sender="actions.Action")
+def revalidate_changed_action(sender: type[Model], instance: Any, **kwargs: Any) -> None:
+    if not kwargs.get("created", False):
+        _revalidate_after_commit([instance.team_id])
+
+
+@receiver(post_save, sender="cohorts.Cohort")
+@receiver(post_delete, sender="cohorts.Cohort")
+def revalidate_test_account_cohort(sender: type[Model], instance: Any, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and not {"filters", "is_static", "deleted"}.intersection(update_fields):
+        return
+    if any(
+        f.get("type") == "cohort" and f.get("value") == instance.pk
+        for f in instance.team.test_account_filters or []
+        if isinstance(f, dict)
+    ):
+        _revalidate_after_commit([instance.team_id])

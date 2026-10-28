@@ -13,6 +13,9 @@ MAX_EVENT_BYTES: Final = 256 * 1024
 
 # Hog has no way to delete a key, so the redacted properties are copied into a new dict.
 DESTINATION_HOG: Final = """
+if (toUnixTimestampMilli(now()) >= inputs.expires_at) {
+  throw Error('The subscription has expired.')
+}
 let envelope := inputs.envelope
 let redaction := inputs.restricted_properties
 let source := envelope.data.properties
@@ -31,7 +34,16 @@ if (typeof(source) == 'object') {
       if (typeof(value) == 'object') {
         let keptEntries := {}
         for (let childKey, childValue in value) {
-          if (not has(hiddenChildren, childKey)) {
+          let normalizedChild := replaceAll(childKey, '%2E', '.')
+          let hidden := false
+          for (let hiddenChild in hiddenChildren) {
+            if (normalizedChild == hiddenChild or
+                startsWith(normalizedChild, f'{hiddenChild}.') or
+                startsWith(hiddenChild, f'{normalizedChild}.')) {
+              hidden := true
+            }
+          }
+          if (not hidden) {
             keptEntries[childKey] := childValue
           }
         }
@@ -63,7 +75,10 @@ let body := jsonStringify({
   },
   'cursor': null
 })
-if (length(body) > inputs.max_bytes) {
+let encodedBody := base64Encode(body)
+let padding := length(encodedBody) - length(trimRight(encodedBody, '='))
+let byteLength := length(encodedBody) / 4 * 3 - padding
+if (byteLength > inputs.max_bytes) {
   throw Error(f'The event exceeds the {inputs.max_bytes} byte delivery limit.')
 }
 let res := fetch(inputs.url, {
@@ -73,6 +88,7 @@ let res := fetch(inputs.url, {
     'X-MCP-Subscription-Id': inputs.subscription_id
   },
   'body': body,
+  'expires_at': inputs.expires_at,
   'standard_webhooks': {
     'secret_input': 'signing_secret'
   }
@@ -112,6 +128,7 @@ def destination_payload(subscription: MCPEventSubscription) -> dict[str, JsonVal
             _input_schema("subscription_id", "string", "Subscription ID"),
             _input_schema("restricted_properties", "json", "Hidden event properties"),
             _input_schema("max_bytes", "number", "Maximum event size in bytes"),
+            _input_schema("expires_at", "number", "Delivery deadline in Unix milliseconds"),
             {"key": "envelope", "type": "json", "label": "Event envelope", "required": True},
         ],
         "filters": subscription.arguments["filters"],
@@ -121,6 +138,7 @@ def destination_payload(subscription: MCPEventSubscription) -> dict[str, JsonVal
             "subscription_id": {"value": str(subscription.pk)},
             "restricted_properties": {"value": MCPEventPropertyAccess.redaction(subscription.restricted_properties)},
             "max_bytes": {"value": MAX_EVENT_BYTES},
+            "expires_at": {"value": int(subscription.expires_at.timestamp() * 1000)},
             "envelope": {"value": ENVELOPE_TEMPLATE},
         },
     }

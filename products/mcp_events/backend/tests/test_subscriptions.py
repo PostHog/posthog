@@ -6,16 +6,19 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import transaction
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryResponse
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import PersonalAPIKey, PropertyDefinition, Team
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, revoke_application_sessions, revoke_oauth_session
+from posthog.models.organization import OrganizationMembership
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -24,7 +27,7 @@ from products.actions.backend.models.action import Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.mcp_events.backend.facade.contracts import MCPCallbackError
 from products.mcp_events.backend.models import MCPEventSubscription
-from products.mcp_events.backend.tasks.tasks import expire_mcp_event_subscriptions
+from products.mcp_events.backend.tasks.tasks import expire_mcp_event_subscriptions, reconcile_mcp_event_subscriptions
 
 ACCESS_CONTROLS_SUPPORTED = (
     "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported"
@@ -222,7 +225,8 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
             user=self.user,
         )
 
-    def test_oauth_refresh_keeps_identity_and_bounds_lifetime_by_token_expiry(self) -> None:
+    @parameterized.expand(["disconnect", "application_scope_change", "delete_application"])
+    def test_oauth_refresh_keeps_identity_and_bounds_lifetime_by_token_expiry(self, final_change: str) -> None:
         application = self.oauth_application()
         expiry = timezone.now() + timedelta(hours=1)
         tokens = [
@@ -246,6 +250,32 @@ class TestMCPEventSubscriptionAPI(MCPEventSubscriptionTestCase):
             (refreshed.pk, refreshed.generation, refreshed.hog_function_id),
         )
         self.assertEqual(refreshed.expires_at, tokens[1].expires)
+        with transaction.atomic():
+            tokens[0].delete()
+        self.assert_delivering(refreshed, True)
+        if final_change == "disconnect":
+            revoke_oauth_session(access_token=tokens[1])
+        elif final_change == "application_scope_change":
+            revoke_application_sessions(application)
+        else:
+            application.delete()
+        self.assert_delivering(refreshed, False)
+
+    @parameterized.expand(["preview", "subscribe"])
+    def test_malformed_event_filter_is_rejected_before_callback(self, endpoint: str) -> None:
+        self.filters = {"events": [{"id": "example_event"}]}
+        response = self.post(endpoint, self.payload() if endpoint == "subscribe" else self.payload()["arguments"])
+        self.assertEqual(response.status_code, 400, response.json())
+        self.verify_callback.assert_not_called()
+        self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
+
+    def test_preview_concurrency_limit_returns_a_throttled_response(self) -> None:
+        with patch(
+            "posthog.hogql_queries.hogql_query_runner.HogQLQueryRunner.run",
+            side_effect=ConcurrencyLimitExceeded("example concurrency limit"),
+        ):
+            response = self.post("preview", self.payload()["arguments"])
+        self.assertEqual(response.status_code, 429, response.json())
 
     def test_query_only_key_can_preview_without_creating_subscription(self) -> None:
         self.authorization = f"Bearer {self.create_personal_api_key_with_scopes(['query:read'])}"
@@ -264,6 +294,36 @@ class TestMCPEventSubscriptionLifecycle(MCPEventSubscriptionTestCase):
         response = self.post("subscribe", self.payload())
         self.assertEqual(response.status_code, 400, response.json())
         self.assertEqual(response.json()["attr"], "callback__reason")
+        self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
+        self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
+
+    @parameterized.expand(
+        ["delete_key", "roll_key", "drop_scope", "remove_member", "deactivate_user", "restrict_property"]
+    )
+    def test_setup_rechecks_access_after_callback_verification(self, change: str) -> None:
+        self.filters["properties"] = [{"key": "plan", "type": "event", "operator": "exact", "value": "enterprise"}]
+
+        def change_access(**kwargs: object) -> None:
+            key = PersonalAPIKey.objects.get(user=self.user)
+            if change == "delete_key":
+                key.delete()
+            elif change == "roll_key":
+                key.last_rolled_at = timezone.now()
+                key.save()
+            elif change == "drop_scope":
+                key.scopes = ["query:read"]
+                key.save()
+            elif change == "remove_member":
+                self.organization_membership.delete()
+            elif change == "deactivate_user":
+                self.user.is_active = False
+                self.user.save(update_fields=["is_active"])
+            else:
+                self.restrict_event_property("plan")
+
+        self.verify_callback.side_effect = change_access
+        response = self.post("subscribe", self.payload())
+        self.assertEqual(response.status_code, 403, response.json())
         self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
         self.assertFalse(HogFunction.objects.filter(team=self.team).exists())
 
@@ -298,7 +358,9 @@ class TestMCPEventSubscriptionLifecycle(MCPEventSubscriptionTestCase):
 
 
 class TestMCPEventSubscriptionRevocation(MCPEventSubscriptionTestCase):
-    @parameterized.expand(["delete_key", "roll_key", "drop_scope", "scope_other_team", "remove_member"])
+    @parameterized.expand(
+        ["delete_key", "roll_key", "drop_scope", "scope_other_team", "remove_member", "deactivate_user", "expire_key"]
+    )
     def test_credential_and_membership_changes_stop_delivery(self, change: str) -> None:
         subscription = self.subscribe()
         key = PersonalAPIKey.objects.get(user=self.user)
@@ -312,6 +374,12 @@ class TestMCPEventSubscriptionRevocation(MCPEventSubscriptionTestCase):
             key.save()
         elif change == "scope_other_team":
             key.scoped_teams = [self.team.pk + 1]
+            key.save()
+        elif change == "deactivate_user":
+            self.user.is_active = False
+            self.user.save(update_fields=["is_active"])
+        elif change == "expire_key":
+            key.expires_at = timezone.now() - timedelta(seconds=1)
             key.save()
         else:
             self.organization_membership.delete()
@@ -369,3 +437,85 @@ class TestMCPEventSubscriptionRevocation(MCPEventSubscriptionTestCase):
             self.assertEqual(subscription.restricted_properties, ["email"])
             function = self.destination(subscription)
             self.assertIn("email", (function.inputs or {})["restricted_properties"]["value"]["names"])
+
+    @parameterized.expand(["subscription", "user"])
+    def test_deletion_disables_the_surviving_destination(self, target: str) -> None:
+        subscription = self.subscribe()
+        function = self.destination(subscription)
+        if target == "subscription":
+            subscription.delete()
+        else:
+            self.user.delete()
+        self.assertFalse(MCPEventSubscription.objects.for_team(self.team.pk).exists())
+        function.refresh_from_db()
+        self.assertFalse(function.enabled)
+        self.assertIsNone(function.encrypted_inputs)
+
+    def test_membership_demotion_refreshes_redaction_after_commit(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.restrict_event_property("email")
+        subscription = self.subscribe()
+        self.assertNotIn("email", subscription.restricted_properties)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save(update_fields=["level"])
+        self.assert_delivering(subscription, True)
+        self.assertIn("email", subscription.restricted_properties)
+
+    @parameterized.expand(["action", "test_account"])
+    def test_changed_saved_filters_recheck_property_access(self, target: str) -> None:
+        self.restrict_event_property("secret")
+        action = Action.objects.create(
+            team=self.team, name="Example action", steps_json=[{"event": "example_event"}], created_by=self.user
+        )
+        self.filters = {"actions": [{"id": str(action.pk), "type": "actions"}], "filter_test_accounts": True}
+        subscription = self.subscribe()
+        properties = [{"type": "event", "key": "secret", "operator": "exact", "value": "private"}]
+        with self.captureOnCommitCallbacks(execute=True):
+            if target == "action":
+                action.steps_json = [{"event": "example_event", "properties": properties}]
+                action.save()
+            else:
+                self.team.test_account_filters = properties
+                self.team.save(update_fields=["test_account_filters"])
+        self.assert_delivering(subscription, False)
+
+    def test_allowed_action_change_updates_the_managed_predicate(self) -> None:
+        action = Action.objects.create(
+            team=self.team, name="Example action", steps_json=[{"event": "first_event"}], created_by=self.user
+        )
+        self.filters = {"actions": [{"id": str(action.pk), "type": "actions"}]}
+        subscription = self.subscribe()
+        previous = self.destination(subscription).filters
+        with self.captureOnCommitCallbacks(execute=True):
+            action.steps_json = [{"event": "second_event"}]
+            action.save()
+        self.assert_delivering(subscription, True)
+        self.assertNotEqual(self.destination(subscription).filters, previous)
+
+    def test_reconciliation_repairs_a_missed_access_change_job(self) -> None:
+        self.filters["properties"] = [{"key": "plan", "type": "event", "operator": "exact", "value": "enterprise"}]
+        subscription = self.subscribe()
+        with patch("products.mcp_events.backend.signals.revalidate_mcp_event_subscriptions.delay"):
+            with self.captureOnCommitCallbacks(execute=True):
+                self.restrict_event_property("plan")
+        self.assert_delivering(subscription, True)
+        reconcile_mcp_event_subscriptions()
+        self.assert_delivering(subscription, False)
+
+    @parameterized.expand([False, True])
+    def test_revalidation_jobs_coalesce_without_surviving_a_rolled_back_savepoint(self, rollback_first: bool) -> None:
+        self.subscribe()
+        with patch("products.mcp_events.backend.signals.revalidate_mcp_event_subscriptions.delay") as dispatch:
+            with self.captureOnCommitCallbacks(execute=True):
+                if rollback_first:
+                    try:
+                        with transaction.atomic():
+                            self.restrict_event_property("rolled_back")
+                            raise ValueError("Rollback the filter change")
+                    except ValueError:
+                        pass
+                self.restrict_event_property("first")
+                self.restrict_event_property("second")
+            dispatch.assert_called_once_with(self.team.pk)

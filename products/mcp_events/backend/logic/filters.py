@@ -47,7 +47,11 @@ def canonicalize_event_filters(raw_filters: dict[str, JsonValue]) -> dict[str, J
             action_id = action.get("id")
             if isinstance(action_id, str | int | float):
                 with contextlib.suppress(ValueError, OverflowError):
-                    cast(list[JsonValue], actions)[index] = {**action, "id": str(int(action_id))}
+                    normalized_id = int(action_id)
+                    if not isinstance(action_id, bool) and (
+                        not isinstance(action_id, float) or action_id == normalized_id
+                    ):
+                        cast(list[JsonValue], actions)[index] = {**action, "id": str(normalized_id)}
     return data
 
 
@@ -59,7 +63,12 @@ def parse_event_filters(raw_filters: dict[str, JsonValue], *, team: Team, enable
         raise ValidationError({"filters": "Send event filters without compiled bytecode."})
     serializer = HogFunctionFiltersSerializer(
         data=canonicalize_event_filters(raw_filters),
-        context={"get_team": lambda: team, "function_type": "destination", "function_will_be_enabled": enabled},
+        context={
+            "get_team": lambda: team,
+            "function_type": "destination",
+            "function_will_be_enabled": enabled,
+            "strict_event_filters": True,
+        },
     )
     serializer.is_valid(raise_exception=True)
     return cast(

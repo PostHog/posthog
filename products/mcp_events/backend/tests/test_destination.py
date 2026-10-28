@@ -1,6 +1,8 @@
 import json
+import time
 from typing import Any
 
+import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -26,16 +28,24 @@ GROUP_TYPES = [
 class TestMCPEventDestinationHog(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(time_machine.travel("2026-01-01T00:00:00Z", tick=False))
         self.bytecode = compile_hog(DESTINATION_HOG, "destination")
         self.fetch = MagicMock(return_value={"status": 200, "body": {}})
 
-    def run_hog(self, properties: JsonValue, redaction: dict[str, JsonValue], max_bytes: int = MAX_EVENT_BYTES) -> Any:
+    def run_hog(
+        self,
+        properties: JsonValue,
+        redaction: dict[str, JsonValue],
+        max_bytes: int = MAX_EVENT_BYTES,
+        expires_at: int | None = None,
+    ) -> Any:
         inputs = {
             "url": "https://example.com/callback",
             "signing_secret": "whsec_example",
             "subscription_id": "example-subscription",
             "restricted_properties": redaction,
             "max_bytes": max_bytes,
+            "expires_at": expires_at if expires_at is not None else int(time.time() * 1000) + 3600000,
             "envelope": {
                 "eventId": "example-event",
                 "name": "posthog.event_captured",
@@ -58,6 +68,12 @@ class TestMCPEventDestinationHog(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_restrictions", {"plan": "visible"}, set(), {"plan": "visible"}),
+            (
+                "nested_descendants",
+                {"customer": {"ssn.part": "hidden", "ssn%2Epart": "hidden", "name": "visible"}},
+                {"customer.ssn"},
+                {"customer": {"name": "visible"}},
+            ),
             (
                 "top_level_and_dotted_aliases",
                 {"customer": {"ssn": "x"}, "customer.ssn": "x", "customer%2Essn": "x", "customer_name": "visible"},
@@ -136,3 +152,28 @@ class TestMCPEventDestinationHog(SimpleTestCase):
         with self.assertRaises(UncaughtHogVMException):
             self.run_hog({"plan": "visible"}, MCPEventPropertyAccess.redaction([]), max_bytes=max_bytes)
         self.assertEqual(self.fetch.called, status != 200)
+
+    @parameterized.expand([-1, 0, 1])
+    def test_delivery_checks_the_granted_expiry(self, offset_ms: int) -> None:
+        expiry = int(time.time() * 1000) + offset_ms
+        if offset_ms <= 0:
+            with self.assertRaises(UncaughtHogVMException):
+                self.run_hog({}, MCPEventPropertyAccess.redaction([]), expires_at=expiry)
+            self.fetch.assert_not_called()
+        else:
+            self.run_hog({}, MCPEventPropertyAccess.redaction([]), expires_at=expiry)
+            self.fetch.assert_called_once()
+            self.assertEqual(self.fetch.call_args.args[1]["expires_at"], expiry)
+
+    @parameterized.expand(["a", "測", "😀"])
+    def test_payload_limit_counts_utf8_bytes(self, character: str) -> None:
+        properties = {"text": character * 50}
+        self.run_hog(properties, MCPEventPropertyAccess.redaction([]))
+        size = len(self.fetch.call_args.args[1]["body"].encode("utf-8"))
+        self.fetch.reset_mock()
+        self.run_hog(properties, MCPEventPropertyAccess.redaction([]), max_bytes=size)
+        self.fetch.assert_called_once()
+        self.fetch.reset_mock()
+        with self.assertRaises(UncaughtHogVMException):
+            self.run_hog(properties, MCPEventPropertyAccess.redaction([]), max_bytes=size - 1)
+        self.fetch.assert_not_called()

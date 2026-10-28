@@ -11,7 +11,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import ValidationError
 from django.db import connection, models, transaction
 from django.db.models import Exists, Q
-from django.dispatch import receiver
+from django.dispatch import Signal, receiver
 from django.utils import timezone
 
 import structlog
@@ -42,6 +42,9 @@ if TYPE_CHECKING:
     # This model loads at django.setup() in every process; the pydantic schema is
     # runtime-imported in the accessors that materialize it.
     from posthog.models.oauth_provisioning import PartnerTier, ProvisioningConfig
+
+
+oauth_session_revoked = Signal()
 
 
 class OAuthApplicationAccessLevel(enum.Enum):
@@ -866,6 +869,7 @@ def revoke_oauth_session(
 
             # Delete all access tokens for this user+application
             OAuthAccessToken.objects.filter(user=user, application=application).delete()
+            oauth_session_revoked.send(sender=OAuthApplication, user_id=user.pk, application_id=application.pk)
 
 
 def revoke_oauth_token_family(refresh_token: OAuthRefreshToken) -> None:
@@ -992,6 +996,7 @@ def revoke_application_sessions(application: "OAuthApplication") -> None:
         OAuthGrant.objects.filter(application=application).delete()
         OAuthRefreshToken.objects.filter(application=application, revoked__isnull=True).update(revoked=now)
         OAuthAccessToken.objects.filter(application=application).delete()
+        oauth_session_revoked.send(sender=OAuthApplication, user_id=None, application_id=application.pk)
 
 
 def generate_random_token_cimd_verification() -> str:

@@ -106,7 +106,14 @@ class MCPEventPropertyAccess:
                 continue
             if key in children:
                 if isinstance(value, dict):
-                    result[key] = {child: deepcopy(item) for child, item in value.items() if child not in children[key]}
+                    result[key] = {
+                        child: deepcopy(item)
+                        for child, item in value.items()
+                        if not any(
+                            MCPEventPropertyAccess._paths_overlap(child.replace("%2E", "."), hidden)
+                            for hidden in children[key]
+                        )
+                    }
             elif key in items:
                 if isinstance(value, list):
                     result[key] = [deepcopy(item) for item in value if item not in items[key]]

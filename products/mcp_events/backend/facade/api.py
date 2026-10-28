@@ -59,12 +59,8 @@ def preview(*, team_id: int, user_id: int, filters: dict[str, JsonValue]) -> con
 
 
 def subscribe(request: contracts.MCPEventSubscribeInput) -> contracts.MCPEventSubscriptionRecord:
-    return _service(team_id=request.team_id, user_id=request.user_id, principal=request.principal).subscribe(
-        raw_filters=request.filters,
-        url=request.url,
-        secret=request.secret,
-        ttl_ms=request.ttl_ms,
-        credential_expires_at=request.credential_expires_at,
+    return _service(team_id=request.team_id, user_id=request.user_id, principal=request.credential.principal).subscribe(
+        request
     )
 
 
