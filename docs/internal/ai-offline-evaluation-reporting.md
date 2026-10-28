@@ -391,6 +391,8 @@ Each upload must contain a result, and every declared item must be referenced by
 Requests exceeding the body limit return HTTP 413.
 Per-caller and shared project limits allow 60 requests per minute and 1,000 per hour; HTTP 429 responses include retry guidance.
 The shared project limits apply across the parent project and all its child environments, regardless of which credentials each request uses.
+Uploads containing new results also check the shared AI observability billing quota before writing items, results, payloads, or usage.
+While the quota is active, these uploads return HTTP 402 with code `quota_limit_exceeded`; exact retries remain available and add no usage.
 
 The optional `run_source` accepts `ci`, `local`, `scheduled`, or null; empty strings are invalid.
 For hosted datasets, set `dataset_revision_id` to the UUID of a hosted dataset revision when you create the experiment.
