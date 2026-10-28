@@ -274,7 +274,11 @@ def _destination_breach_text(breaches: list[str], summary_index: int | None) -> 
     budget = max(_DESTINATION_MAX_CHARS - len("\n".join(other_lines)) - 1, _DESTINATION_MIN_SUMMARY_CHARS)
     summary = breaches[summary_index]
     if len(summary) > budget:
-        summary = summary[: budget - 1].rstrip() + "…"
+        # Cut at whitespace so a URL is never split, and drop a dangling `<…` autolink: without its
+        # closing `>` neither the autolink nor the bare-URL rule in the defanger would match it.
+        cut = summary[: budget - 1]
+        cut = re.sub(r"\s+\S*$", "", cut) or cut
+        summary = re.sub(r"<\S*$", "", cut).rstrip() + "…"
     summary = strip_external_links_markdown(summary)
     summary = re.sub(r"\*\*(.+?)\*\*", r"*\1*", summary)
     summary = re.sub(r"^(\s*)[-*] ", "\\1• ", summary, flags=re.MULTILINE)

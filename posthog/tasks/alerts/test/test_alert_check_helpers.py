@@ -5,7 +5,12 @@ from posthog.schema import AlertConditionType, AlertState, InsightThresholdType
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.tasks.alerts.test.alert_check_helpers import run_alert_check
-from posthog.tasks.alerts.utils import AlertEvaluationResult, add_alert_check, record_alert_delivery
+from posthog.tasks.alerts.utils import (
+    AlertEvaluationResult,
+    _destination_breach_text,
+    add_alert_check,
+    record_alert_delivery,
+)
 
 from products.alerts.backend.models import AlertCheck, AlertConfiguration
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
@@ -156,3 +161,10 @@ class TestRunAlertCheck(APIBaseTest):
             ],
         }
         assert check.notification_sent_at is not None
+
+
+def test_destination_summary_truncated_inside_autolink_does_not_leak_url() -> None:
+    summary = "word " * 296 + "<https://evil.example.com/" + "x" * 100 + ">"
+    text = _destination_breach_text([summary], summary_index=0)
+    assert text.endswith("…")
+    assert "https://evil" not in text
