@@ -45,10 +45,10 @@ class OrganizationAITermsAdmin(admin.ModelAdmin):
     def has_delete_permission(self, request: HttpRequest, obj: OrganizationAITerms | None = None) -> bool:
         return False
 
-    def get_fields(self, request: HttpRequest, obj: OrganizationAITerms | None = None) -> list[str]:
-        fields = ["id", "name", "is_ai_data_processing_approved", "desktop_beta_terms_display"]
+    def get_fields(self, request: HttpRequest, obj: OrganizationAITerms | None = None) -> tuple[str, ...]:
+        fields = ("id", "name", "is_ai_data_processing_approved", "desktop_beta_terms_display")
         if obj is not None and _desktop_beta_terms_accepted(obj):
-            fields.append("revoke_desktop_beta_terms")
+            return (*fields, "revoke_desktop_beta_terms")
         return fields
 
     @admin.display(description="PostHog Desktop beta terms")
