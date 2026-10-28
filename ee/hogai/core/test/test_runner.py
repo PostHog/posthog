@@ -875,8 +875,11 @@ class TestRunnerClientToolCallInterrupt(BaseTest):
             await self.conversation.arefresh_from_db()
             self.assertEqual(remaining, [])
             self.assertEqual(
-                {decision["decision_status"] for decision in self.conversation.approval_decisions.values()},
-                {"rejected"},
+                {
+                    name: self.conversation.approval_decisions[approval.proposal_id]["decision_status"]
+                    for name, approval in approvals.items()
+                },
+                {"first": "auto_rejected", "second": "rejected"},
             )
             return
         self.assertEqual([request.proposal_id for request in remaining], [approvals["first"].proposal_id])
