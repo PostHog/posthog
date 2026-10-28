@@ -10,8 +10,8 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.models.integration import ANY, Integration
-from posthog.models.integration.auth_types import default_auth_type
+from posthog.models.integration import ANY, Integration, auth_types
+from posthog.models.integration.auth_types import default_auth_type, kind_auth_types
 
 from products.integrations.backend.facade.api import IntegrationManager, register_source_kinds, register_usage_provider
 from products.integrations.backend.facade.api_accessors import IntegrationReader
@@ -398,11 +398,21 @@ class TestRegistration(BaseTest):
             build()
 
     def test_register_source_kinds_sets_the_default_of_a_new_kind_only(self) -> None:
-        register_source_kinds({"acme-sdk-test": AuthType.TOKEN, "stripe": AuthType.CREDENTIALS})
+        with patch.dict(auth_types._KIND_AUTH_TYPES):
+            register_source_kinds({"acme-sdk-test": AuthType.TOKEN, "stripe": AuthType.CREDENTIALS})
 
-        assert default_auth_type("acme-sdk-test") == AuthType.TOKEN
-        assert default_auth_type("stripe") == AuthType.OAUTH
-        assert IntegrationManager.source("acme-sdk-test").token.list(self.team.id) == []
+            assert default_auth_type("acme-sdk-test") == AuthType.TOKEN
+            assert default_auth_type("stripe") == AuthType.OAUTH
+            assert AuthType.CREDENTIALS in kind_auth_types("stripe").supported
+            assert IntegrationManager.source("acme-sdk-test").token.list(self.team.id) == []
+
+    def test_source_rows_of_a_catalogue_kind_use_the_warehouse_auth_type(self) -> None:
+        row = IntegrationManager.source("clickup").credentials.create(
+            self.team.id, external_id="new", config={MARKER: "ClickUp"}
+        )
+
+        assert default_auth_type("clickup") == AuthType.OAUTH
+        assert row.config == {MARKER: "ClickUp", "auth_type": "credentials"}
 
     def test_register_source_kinds_rejects_a_changed_default(self) -> None:
         register_source_kinds({"acme-sdk-test-2": AuthType.TOKEN})
