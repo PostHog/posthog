@@ -18,6 +18,16 @@ from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETE
 # The Node API stamps the send's ID with its own clock, which can run ahead of this one.
 _CLOCK_SKEW = timedelta(minutes=5)
 _RETENTION = timedelta(days=EMAIL_STATUS_RETENTION_DAYS)
+# Every row of a message carries the message's own created_at, so the window prunes to its partition.
+_EMAIL_STATUS_QUERY = f"""
+SELECT argMax(status, version), argMax(status_at, version), argMax(reason, version)
+FROM {EMAIL_STATUS_TABLE}
+WHERE team_id = %(team_id)s
+  AND message_id = %(message_id)s
+  AND created_at >= %(start)s
+  AND created_at < %(end)s
+GROUP BY message_id
+"""
 
 
 def queued_at(message_id: UUID) -> datetime | None:
@@ -37,19 +47,10 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     if created_at is None:
         return None
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
-    # Every row of a message carries the message's own created_at, so the window prunes to its partition.
     rows = cast(
         list,
         sync_execute(
-            f"""
-            SELECT argMax(status, version), argMax(status_at, version), argMax(reason, version)
-            FROM {EMAIL_STATUS_TABLE}
-            WHERE team_id = %(team_id)s
-              AND message_id = %(message_id)s
-              AND created_at >= %(start)s
-              AND created_at < %(end)s
-            GROUP BY message_id
-            """,
+            _EMAIL_STATUS_QUERY,
             {
                 "team_id": team_id,
                 "message_id": str(message_id),

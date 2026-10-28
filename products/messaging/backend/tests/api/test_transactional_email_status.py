@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
@@ -17,9 +18,10 @@ from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA
 
 # The read only compares versions, so these ranks must keep the writer's order but not its values. A status only
 # moves forward, and a later status of the same rank wins by its time.
-RANK = {"queued": 0, "failed": 2, "sent": 3, "delivered": 4, "bounced": 5, "complained": 6}
+RANK = {"queued": 0, "failed": 2, "sent": 3, "delivered": 5, "bounced": 6, "complained": 7}
 
 
+@time_machine.travel("2026-06-15T12:00:00Z", tick=False)
 @patch(
     "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
     return_value=True,

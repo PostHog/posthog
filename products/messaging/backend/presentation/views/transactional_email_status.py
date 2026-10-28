@@ -39,7 +39,7 @@ class EmailStatusSerializer(serializers.Serializer):
     reason = serializers.CharField(
         allow_null=True,
         help_text="Why a failed email was not sent, or the bounce type of a bounced email. A failed send has "
-        "`provider_error`. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, "
+        "`provider_error`, or `provider_rejected` when the provider refused the email after it accepted the send. A skipped send has `recipient_suppressed`, `recipient_unreachable`, `recipient_opted_out`, "
         "`missing_recipient`, `sending_paused`, `sending_suspended` or `frequency_capped`. A run that stopped before "
         "the send has `canceled`, `workflow_unavailable` or an error kind such as `timeout`, and more error kinds can "
         "be added. A bounce has `hard`, `soft` or `unknown`. Null otherwise.",
