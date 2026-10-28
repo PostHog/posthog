@@ -43,7 +43,7 @@ describe('Marketing analytics cross sell', () => {
             const rows =
                 query.breakdownBy === WebStatsBreakdown.InitialUTMSource
                     ? utmRows
-                    : (channelRows ?? [[channel, [10, null]]])
+                    : (channelRows ?? [[channel, [500, null]]])
             return [200, { columns: ['context.columns.breakdown_value', 'context.columns.visitors'], results: rows }]
         })
         sources = jest.fn(() => [200, { results: [], next: null, count: 0 }])
@@ -57,11 +57,10 @@ describe('Marketing analytics cross sell', () => {
         unmount()
     })
 
-    const enable = (setup = false, experimentVariant: 'control' | 'test' = 'control'): void => {
+    const enable = (setup = false): void => {
         featureFlagLogic.actions.setFeatureFlags([], {
             [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: true,
             [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP]: setup,
-            [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL_V2]: experimentVariant,
         })
     }
 
@@ -90,7 +89,7 @@ describe('Marketing analytics cross sell', () => {
         }
         render(<MarketingAnalyticsCrossSell breakdown={breakdown} />)
         await act(async () => {})
-        expect(screen.queryByText('Connect ad sources')).toBeNull()
+        expect(screen.queryByText(/visitors came from paid ads/)).toBeNull()
         expect(queries).not.toHaveBeenCalled()
         expect(sources).not.toHaveBeenCalled()
     })
@@ -101,17 +100,14 @@ describe('Marketing analytics cross sell', () => {
     ])('offers source connection with setup flag=%s on %s', async (setup, breakdown) => {
         enable(setup)
         render(<MarketingAnalyticsCrossSell breakdown={breakdown} />)
-        const link = (await screen.findByText('Connect ad sources')).closest('a')!
+        const link = (await screen.findByText('Connect ad accounts')).closest('a')!
         const destination = new URL(link.href)
         expect(destination.searchParams.get('date_from')).toBe('-7d')
         expect(destination.searchParams.get('date_to')).toBe('')
         expect(link.getAttribute('href')).toContain('/marketing?')
         expect(link.getAttribute('href')?.includes('tab=setup')).toBe(setup)
-        expect(queries).toHaveBeenCalledTimes(1)
+        expect(queries).toHaveBeenCalledTimes(2)
         expect(sources).toHaveBeenCalledTimes(1)
-        fireEvent.click(screen.getByLabelText('Dismiss Marketing analytics suggestion'))
-        expect(screen.queryByText('Connect ad sources')).toBeNull()
-        expect(webAnalyticsLogic.values.marketingCrossSellDismissed).toBe(true)
     })
 
     it('reuses the mounted Channels query without another analytics request', async () => {
@@ -121,24 +117,23 @@ describe('Marketing analytics cross sell', () => {
         try {
             await waitFor(() => expect(node.values.response).not.toBeNull())
             render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialChannelType} />)
-            await screen.findByText('Connect ad sources')
-            expect(queries).toHaveBeenCalledTimes(1)
+            await screen.findByText(/visitors came from paid ads/)
+            // The UTM source lookup for the card is the only request after the mounted Channels query.
+            expect(queries).toHaveBeenCalledTimes(2)
         } finally {
             unmountNode()
         }
     })
 
-    it('offers analysis for a native ad source on a later page', async () => {
+    it('finds a native ad source on a later page and shows no card', async () => {
         enable()
         sources
             .mockReturnValueOnce([200, { results: [{ source_type: 'Stripe' }], next: 'next', count: 2 }])
             .mockReturnValueOnce([200, { results: [{ source_type: 'GoogleAds' }], next: null, count: 2 }])
         render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialUTMSourceMediumCampaign} />)
-        const link = (await screen.findByText('Analyze in Marketing analytics')).closest('a')!
-        const destination = new URL(link.href)
-        expect(destination.searchParams.get('date_from')).toBe('-7d')
-        expect(destination.searchParams.get('date_to')).toBe('')
-        expect(sources).toHaveBeenCalledTimes(2)
+        await waitFor(() => expect(sources).toHaveBeenCalledTimes(2))
+        await act(async () => {})
+        expect(screen.queryByText(/visitors came from paid ads/)).toBeNull()
     })
 
     it('does not look up connections for organic traffic', async () => {
@@ -148,10 +143,10 @@ describe('Marketing analytics cross sell', () => {
         const node = getChannelsNode()
         await waitFor(() => {
             expect(node.values.responseLoading).toBe(false)
-            expect(node.values.response).toMatchObject({ results: [['Organic Search', [10, null]]] })
+            expect(node.values.response).toMatchObject({ results: [['Organic Search', [500, null]]] })
         })
         expect(queries).toHaveBeenCalledTimes(1)
-        expect(screen.queryByText('Connect ad sources')).toBeNull()
+        expect(screen.queryByText(/visitors came from paid ads/)).toBeNull()
         expect(sources).not.toHaveBeenCalled()
     })
 
@@ -161,28 +156,27 @@ describe('Marketing analytics cross sell', () => {
         render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialChannelType} />)
         await waitFor(() => expect(sources).toHaveBeenCalledTimes(1))
         await act(async () => {})
-        expect(screen.queryByText('Connect ad sources')).toBeNull()
-        expect(screen.queryByText('Analyze in Marketing analytics')).toBeNull()
+        expect(screen.queryByText(/visitors came from paid ads/)).toBeNull()
     })
 
     it('refreshes channel evidence when the date changes on a UTM tab', async () => {
         enable()
         render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialUTMSource} />)
-        await screen.findByText('Connect ad sources')
+        await screen.findByText(/visitors came from paid ads/)
         const node = getChannelsNode()
         channel = 'Organic Search'
         act(() => webAnalyticsLogic.actions.setDates('-14d', null))
         await waitFor(() => {
             expect(node.values.responseLoading).toBe(false)
-            expect(node.values.response).toMatchObject({ results: [['Organic Search', [10, null]]] })
+            expect(node.values.response).toMatchObject({ results: [['Organic Search', [500, null]]] })
         })
-        expect(screen.queryByText('Connect ad sources')).toBeNull()
-        expect(queries).toHaveBeenCalledTimes(2)
+        expect(screen.queryByText(/visitors came from paid ads/)).toBeNull()
+        expect(queries).toHaveBeenCalledTimes(3)
         expect(sources).toHaveBeenCalledTimes(1)
     })
 
-    it('names the top ad platform in the test arm and snoozes the card on Not now', async () => {
-        enable(true, 'test')
+    it('names the top ad platform and snoozes the card on Not now', async () => {
+        enable(true)
         channelRows = [
             ['Paid Search', [120, null]],
             ['Direct', [880, null]],
@@ -205,20 +199,19 @@ describe('Marketing analytics cross sell', () => {
     it.each([
         ['below the paid traffic threshold', [['Paid Search', [10, null]] as [string, [number, null]]], 'Stripe'],
         ['with an ad source connected', [['Paid Search', [500, null]] as [string, [number, null]]], 'GoogleAds'],
-    ])('shows no card in the test arm %s and skips the UTM lookup', async (_, rows, sourceType) => {
-        enable(true, 'test')
+    ])('shows no card %s and skips the UTM lookup', async (_, rows, sourceType) => {
+        enable(true)
         channelRows = rows
         sources.mockReturnValue([200, { results: [{ source_type: sourceType }], next: null, count: 1 }])
         render(<MarketingAnalyticsCrossSell breakdown={WebStatsBreakdown.InitialChannelType} />)
         await waitFor(() => expect(sources).toHaveBeenCalledTimes(1))
         await act(async () => {})
         expect(screen.queryByText(/visitors came from paid ads/)).toBeNull()
-        expect(screen.queryByText('Connect ad sources')).toBeNull()
         expect(queries).toHaveBeenCalledTimes(1)
     })
 
     it('suggests Marketing analytics while a paid UTM source filter is applied, until dismissed', async () => {
-        enable(true, 'test')
+        enable(true)
         render(<MarketingAnalyticsFilterHint teamId={MOCK_DEFAULT_TEAM.id} />)
         expect(screen.queryByText(/You're viewing/)).toBeNull()
         act(() =>
@@ -238,7 +231,7 @@ describe('Marketing analytics cross sell', () => {
         ['/web', true],
         ['/marketing', false],
     ])('offers the row action on %s only once connection state is known: %s', async (path, shown) => {
-        enable(true, 'test')
+        enable(true)
         router.actions.push(path)
         let resolveSources: () => void = () => {}
         sources.mockImplementation(
