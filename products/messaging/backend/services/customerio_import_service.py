@@ -21,7 +21,7 @@ from products.messaging.backend.models.message_preferences import (
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
-from .customerio_client import CustomerIOClient
+from .customerio_client import CustomerIOAPIError, CustomerIOClient
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ class _ImportedSuppression:
 @frozen
 class SuppressionPage:
     suppression_type: str
-    # How many entries c.io returned, including any without a usable address.
+    # How many entries Customer.io returned, including any without a usable address.
     entries: int
     addresses: dict[str, _ImportedSuppression]
     # The offset of the next page in the same suppression list.
@@ -59,7 +59,7 @@ class SuppressionPage:
 
 @frozen
 class GlobalUnsubscribePage:
-    # How many customers c.io returned, including any without an email address.
+    # How many customers Customer.io returned, including any without an email address.
     customers: int
     emails: tuple[str, ...]
     # The cursor of the next page, or None on the last page.
@@ -87,15 +87,28 @@ class CustomerIOImportService:
             "details": "",
         }
 
-    def connect(self) -> bool:
-        """Find the region the App API key belongs to and keep a client for it. Returns False for an invalid key."""
+    def connect(self, timeout: int = 30) -> bool:
+        """Find the region the App API key belongs to and keep a client for it.
+
+        Returns False when every region rejects the key. Raises CustomerIOAPIError when a region fails in another
+        way, for example a timeout or a server error, because the key can still be valid there.
+        """
         if not self.api_key:
             return False
+        unavailable: CustomerIOAPIError | None = None
         for region in ("us", "eu"):
-            self.client = CustomerIOClient(self.api_key, region=region)
-            if self.client.validate_credentials():
-                return True
+            client = CustomerIOClient(self.api_key, region=region, timeout=timeout)
+            try:
+                client.get_subscription_topics()
+            except CustomerIOAPIError as e:
+                if e.status_code not in (401, 403):
+                    unavailable = e
+                continue
+            self.client = client
+            return True
         self.client = None
+        if unavailable is not None:
+            raise unavailable
         return False
 
     def import_api_data(self) -> dict[str, Any]:
@@ -442,7 +455,7 @@ class CustomerIOImportService:
         self.progress["details"] = f"Processed {total_processed} globally unsubscribed users"
 
     def fetch_global_unsubscribe_pages(self, start: str | None) -> Iterator[GlobalUnsubscribePage]:
-        """Page through c.io's globally unsubscribed customers, starting at the `start` cursor.
+        """Page through Customer.io's globally unsubscribed customers, starting at the `start` cursor.
 
         The caller writes each page, so it decides what a failed write does to the rest of the import.
         """
@@ -485,7 +498,7 @@ class CustomerIOImportService:
                 self.progress["suppressions_imported"] += self.save_suppression_page(page)
 
     def fetch_suppression_pages(self, suppression_type: str, offset: int) -> Iterator[SuppressionPage]:
-        """Page through one c.io suppression list, starting at `offset`.
+        """Page through one Customer.io suppression list, starting at `offset`.
 
         The caller saves each page with `save_suppression_page`, so it decides what a failed request does to the
         rest of the import.
@@ -572,8 +585,12 @@ class CustomerIOImportService:
             # Instead, record the batch failure and continue
             self.progress["errors"].append(f"Failed to update batch of {len(emails)} users: {str(e)[:200]}")
 
-    def save_opt_outs(self, emails: list[str], category_ids: list[str]) -> None:
-        """Opt the recipients out of the categories, keeping their other preferences."""
+    def save_opt_outs(self, emails: list[str], category_ids: list[str]) -> int:
+        """Opt the recipients out of the categories, keeping their other preferences.
+
+        Returns how many recipients were not already opted out of every category.
+        """
+        changed = 0
         with transaction.atomic():
             # Fetch existing preferences
             existing_prefs = {
@@ -588,6 +605,11 @@ class CustomerIOImportService:
                 if email in existing_prefs:
                     # Update existing preference
                     pref = existing_prefs[email]
+                    if any(
+                        pref.preferences.get(str(category_id)) != PreferenceStatus.OPTED_OUT.value
+                        for category_id in category_ids
+                    ):
+                        changed += 1
                     for category_id in category_ids:
                         pref.preferences[str(category_id)] = PreferenceStatus.OPTED_OUT.value
                     to_update.append(pref)
@@ -596,6 +618,7 @@ class CustomerIOImportService:
                     preferences_dict = {
                         str(category_id): PreferenceStatus.OPTED_OUT.value for category_id in category_ids
                     }
+                    changed += 1
                     to_create.append(
                         MessageRecipientPreference(
                             team_id=self.team_id,
@@ -610,6 +633,8 @@ class CustomerIOImportService:
 
             if to_update:
                 MessageRecipientPreference.objects.bulk_update(to_update, ["preferences", "updated_at"], batch_size=500)
+
+        return changed
 
     def _load_topic_mapping(self) -> None:
         """Load topic mapping from existing categories"""
