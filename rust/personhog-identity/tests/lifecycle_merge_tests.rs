@@ -636,6 +636,8 @@ async fn a_direct_postgres_write_between_seal_and_flip_cannot_outrank_the_source
     h.step(op_id).await.expect("document_folded -> flipped");
     let row = h.step(op_id).await.expect("flipped -> completed");
     assert!(row.completed_at.is_some());
+    let outcome: MergeOutcome =
+        serde_json::from_value(row.outcome.expect("terminal outcome")).unwrap();
 
     let (is_deleted, version, _) = h.person_state(source).await;
     assert!(is_deleted);
@@ -649,10 +651,13 @@ async fn a_direct_postgres_write_between_seal_and_flip_cannot_outrank_the_source
         docs[0].version, 11,
         "the death document honors the tombstone"
     );
-    let (_, target_version, _) = h.person_state(target).await;
+    let survivor = outcome
+        .survivor
+        .expect("committed merges carry the survivor");
     assert_eq!(
-        target_version, 3,
-        "the fold is unaffected: it ran before the flip"
+        survivor["version"],
+        json!(8),
+        "the fold reads the seal, not the moved row: max(target 3, sealed 7) + 1"
     );
 }
 
