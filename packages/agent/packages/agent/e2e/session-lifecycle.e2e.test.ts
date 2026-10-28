@@ -18,7 +18,7 @@ import {
  * Live session-lifecycle e2e per adapter: drives a real session end to end against
  * the real gateway + binary on a cheap model. Assertions are structural lifecycle
  * invariants + the on-disk edit, never model prose. Opt-in: each arm self-skips
- * unless `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY` is set (codex also needs the native binary).
+ * unless `POSTHOG_CODE_E2E_GATEWAY_API_KEY` is set (codex also needs the native binary).
  */
 const ADAPTERS: Adapter[] = ["claude", "codex"];
 
