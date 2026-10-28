@@ -3,6 +3,7 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
 import time_machine
 from posthog.test.base import (
     APIBaseTest,
@@ -345,22 +346,35 @@ class TestCountEnrolledPeople(ClickhouseTestMixin, BaseTest):
 
 
 class TestGetStoredPrimaryResult(BaseTest):
-    def test_returns_the_current_stored_result_of_the_primary_metric(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "relative_funnel",
+                {"metric_type": "funnel", "series": [{"kind": "EventsNode", "event": "checkout"}]},
+                {"method": "frequentist"},
+                [0.1, 0.4],
+                0.25,
+            ),
+            (
+                "absolute_thresholded_mean",
+                {"metric_type": "mean", "threshold": 5, "source": {"kind": "EventsNode", "event": "checkout"}},
+                {"method": "frequentist", "frequentist": {"difference_type": "ABSOLUTE"}},
+                [0.02, 0.06],
+                0.2,
+            ),
+        ]
+    )
+    def test_returns_the_current_stored_result_of_the_primary_metric(
+        self, _name: str, metric: dict, stats_config: dict, interval: list[float], change: float
+    ) -> None:
         flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="stored-result")
         experiment = Experiment.objects.create(
             team=self.team,
             feature_flag=flag,
             name="stored result",
             start_date=datetime(2026, 8, 1, tzinfo=UTC),
-            metrics=[
-                {
-                    "uuid": "m1",
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "goal": "decrease",
-                    "series": [{"kind": "EventsNode", "event": "checkout"}],
-                }
-            ],
+            stats_config=stats_config,
+            metrics=[{"uuid": "m1", "kind": "ExperimentMetric", "name": "Checkout", "goal": "decrease", **metric}],
         )
         ExperimentMetricResult.objects.create(
             experiment=experiment,
@@ -379,18 +393,25 @@ class TestGetStoredPrimaryResult(BaseTest):
                         "number_of_samples": 50,
                         "sum": 15,
                         "sum_squares": 15,
-                        "confidence_interval": [0.1, 0.4],
+                        "confidence_interval": interval,
                         "significant": True,
                     }
                 ],
             },
         )
 
-        assert api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment.pk) == StoredPrimaryResult(
-            metric_type="funnel",
+        result = api.get_stored_primary_result(team_id=self.team.pk, experiment_id=experiment.pk)
+
+        assert result == StoredPrimaryResult(
+            metric_name="Checkout",
+            metric_type=metric["metric_type"],
+            proportion=True,
             goal="decrease",
             baseline=StoredArmResult(key="control", number_of_samples=100, mean=0.2),
             variants=(
-                StoredArmResult(key="test", number_of_samples=50, mean=0.3, interval=(0.1, 0.4), significant=True),
+                StoredArmResult(
+                    key="test", number_of_samples=50, mean=0.3, change=result.variants[0].change, significant=True
+                ),
             ),
         )
+        assert result.variants[0].change == pytest.approx(change)

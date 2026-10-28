@@ -30,10 +30,15 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
-from products.experiments.backend.metric_calculation.config import build_primary_calculation_configs
+from products.experiments.backend.logic.result_stats import VariantStats
+from products.experiments.backend.metric_calculation.config import (
+    build_primary_calculation_configs,
+    calculation_metric_name,
+)
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 from products.experiments.backend.running_time_target import load_running_time_target
+from products.experiments.stats.shared.enums import DifferenceType
 
 from .contracts import (
     CreateExperimentInput,
@@ -181,20 +186,31 @@ def get_stored_primary_result(*, team_id: int, experiment_id: int) -> StoredPrim
     experiment = ExperimentModel.objects.filter(team_id=team_id, pk=experiment_id, deleted=False).first()
     config = next(iter(build_primary_calculation_configs(experiment)), None) if experiment else None
     stats = MetricResultStore(experiment_id=experiment_id).current_result(config) if config else None
-    if config is None or stats is None:
+    if experiment is None or config is None or stats is None:
         return None
+    absolute = config.settings.stats.difference_type == DifferenceType.ABSOLUTE
+    base = stats.baseline.mean
+
+    def change(variant: VariantStats) -> float | None:
+        if variant.interval is None:
+            return None
+        if not absolute:
+            return variant.interval.midpoint
+        return variant.interval.midpoint / base if base and base > 0 else None
+
+    definition = config.definition
     return StoredPrimaryResult(
-        metric_type=config.definition.get("metric_type"),
-        goal=config.definition.get("goal"),
-        baseline=StoredArmResult(
-            key=stats.baseline.key, number_of_samples=stats.baseline.number_of_samples, mean=stats.baseline.mean
-        ),
+        metric_name=calculation_metric_name(experiment, config),
+        metric_type=definition.get("metric_type"),
+        proportion=definition.get("metric_type") == "funnel" or definition.get("threshold") is not None,
+        goal=definition.get("goal"),
+        baseline=StoredArmResult(key=stats.baseline.key, number_of_samples=stats.baseline.number_of_samples, mean=base),
         variants=tuple(
             StoredArmResult(
                 key=variant.key,
                 number_of_samples=variant.number_of_samples,
                 mean=variant.mean,
-                interval=(variant.interval.low, variant.interval.high) if variant.interval else None,
+                change=change(variant),
                 significant=variant.significant,
             )
             for variant in stats.variants

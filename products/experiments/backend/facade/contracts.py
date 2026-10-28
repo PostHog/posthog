@@ -25,7 +25,7 @@ class StoredArmResult:
     key: str
     number_of_samples: int
     mean: float | None
-    interval: tuple[float, float] | None = None
+    change: float | None = None
     significant: bool | None = None
 
 
@@ -33,7 +33,9 @@ class StoredArmResult:
 class StoredPrimaryResult:
     """The current stored result of an experiment's primary metric."""
 
+    metric_name: str
     metric_type: str | None
+    proportion: bool
     goal: str | None
     baseline: StoredArmResult
     variants: tuple[StoredArmResult, ...]

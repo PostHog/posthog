@@ -1008,26 +1008,27 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     if experiment.start_date:
         days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
         details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
-    metric = _primary_metric(experiment.metrics)
+    stats = _stored_primary_result(experiment)
+    metric = stats.metric_name if stats else _primary_metric(experiment.metrics)
     if metric:
         details.append(f"Metric: {metric}")
     variants = _flag_variants(experiment.feature_flag)
-    results = _experiment_results(experiment)
-    if results:
+    if stats:
         details.append(f"Split {'/'.join(str(variant['rollout_percentage']) for variant in variants)}")
-    verdict, chart = results or (None, _chart_rows(_variant_rows(variants)))
     return _UnfurlCard(
         label="Experiment",
         title=experiment.name,
         status=_humanize(experiment.status_label),
         details=tuple(details),
-        chart=chart,
-        body="\n\n".join(part for part in (verdict, experiment.description) if part),
+        chart=_experiment_chart(stats) if stats else _chart_rows(_variant_rows(variants)),
+        body="\n\n".join(
+            part for part in (_experiment_verdict(stats) if stats else None, experiment.description) if part
+        ),
         timestamp=experiment.updated_at,
     )
 
 
-def _experiment_results(experiment: Experiment) -> tuple[str, str | None] | None:
+def _stored_primary_result(experiment: Experiment) -> StoredPrimaryResult | None:
     try:
         stats = experiments_facade.get_stored_primary_result(team_id=experiment.team_id, experiment_id=experiment.pk)
     except Exception:
@@ -1040,20 +1041,20 @@ def _experiment_results(experiment: Experiment) -> tuple[str, str | None] | None
         or not stats.variants
     ):
         return None
-    return _experiment_verdict(stats), _experiment_chart(stats)
+    return stats
 
 
 def _variant_delta(stats: StoredPrimaryResult, variant: StoredArmResult) -> float | None:
-    if variant.interval:
-        return (variant.interval[0] + variant.interval[1]) / 2
-    if variant.mean is None or not stats.baseline.mean:
+    if variant.change is not None:
+        return variant.change
+    if variant.mean is None or stats.baseline.mean is None or stats.baseline.mean <= 0:
         return None
     return variant.mean / stats.baseline.mean - 1
 
 
 def _experiment_verdict(stats: StoredPrimaryResult) -> str:
     control = stats.baseline.key
-    if all(variant.interval is None for variant in stats.variants):
+    if all(variant.change is None for variant in stats.variants):
         exposed = stats.baseline.number_of_samples + sum(variant.number_of_samples for variant in stats.variants)
         return f"⏳ *Too early to call.* {exposed:,} exposed so far."
     direction = -1 if stats.goal == "decrease" else 1
@@ -1082,7 +1083,7 @@ def _experiment_chart(stats: StoredPrimaryResult) -> str | None:
         if arm.mean is None:
             value = "—"
         else:
-            value = f"{arm.mean:.1%}" if stats.metric_type == "funnel" else f"{arm.mean:,.2f}"
+            value = f"{arm.mean:.1%}" if stats.proportion else f"{arm.mean:,.2f}"
         if arm is not stats.baseline and (delta := _variant_delta(stats, arm)) is not None:
             value += f"  {delta:+.1%}{' ✓' if arm.significant else ''}"
         bar = _bar((arm.mean or 0.0) / top if top else 0.0) if show_bars else ""

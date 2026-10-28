@@ -295,7 +295,7 @@ class TestCardText:
                 (0.25, None),
                 ["control  ████████████████░░░░  20.0%", "empty    ░░░░░░░░░░░░░░░░░░░░  —"],
             ),
-            ("negative_means", "mean", -10.0, (-5.0, -20.0), ["control    -10.00", "test       -5.00  -50.0%"]),
+            ("negative_means", "mean", -10.0, (-5.0, -20.0), ["control    -10.00", "test       -5.00"]),
         ]
     )
     def test_experiment_chart_shows_measured_values_only(
@@ -307,7 +307,9 @@ class TestCardText:
         expected: list[str],
     ) -> None:
         stats = StoredPrimaryResult(
+            metric_name="Metric",
             metric_type=metric_type,
+            proportion=metric_type == "funnel",
             goal=None,
             baseline=StoredArmResult(key="control", number_of_samples=100, mean=control),
             variants=(
@@ -1200,7 +1202,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("winner", (0.05, 0.25), True, ["*Winner so far: test.* +15.0% vs control.", "20.0%", "23.0%  +15.0% ✓"]),
+            ("winner", 0.15, True, ["*Winner so far: test.* +15.0% vs control.", "20.0%", "23.0%  +15.0% ✓"]),
             ("too_early", None, None, ["*Too early to call.* 10,400 exposed so far.", "23.0%  +15.0%"]),
         ]
     )
@@ -1209,7 +1211,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def test_experiment_card_shows_the_stored_primary_result(
         self,
         _name: str,
-        interval: tuple[float, float] | None,
+        change: float | None,
         significant: bool | None,
         expected: list[str],
         mock_slack_integration_class: MagicMock,
@@ -1231,13 +1233,13 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         )
         experiment = Experiment.objects.create(team=self.team, name="Checkout copy", feature_flag=flag)
         stored = StoredPrimaryResult(
+            metric_name="Completed checkout",
             metric_type="funnel",
+            proportion=True,
             goal=None,
             baseline=StoredArmResult(key="control", number_of_samples=5200, mean=0.2),
             variants=(
-                StoredArmResult(
-                    key="test", number_of_samples=5200, mean=0.23, interval=interval, significant=significant
-                ),
+                StoredArmResult(key="test", number_of_samples=5200, mean=0.23, change=change, significant=significant),
             ),
         )
         mock_resolve.return_value = MagicMock(user=self.user)
@@ -1252,6 +1254,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             self._unfurl_links([url])
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Metric: Completed checkout" in text
         assert "Split 50/50" in text
         for fragment in expected:
             assert fragment in text
