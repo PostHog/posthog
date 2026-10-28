@@ -9,7 +9,7 @@
 #   mirror there or setup fails with "action manifest not found". Mirrors explain intentional
 #   differences in their headers; .github/workflows/ci-depot-action-mirrors.yml checks the rest.
 # - With no inputs, actions/checkout uses Depot's fast clone, which has no remote.
-#   turbo-discover and test-selection-verdict must add `origin` before fetching history.
+#   turbo-discover must add `origin` before fetching history.
 # - Every job has read-only permissions. CI report sections use a posthog-tests token scoped
 #   to pull-requests:write; see .depot/actions/commit-snapshots. check-migrations creates that
 #   token before the SQL and risk steps and skips report writes if token creation fails.
@@ -694,12 +694,6 @@ jobs:
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
                   git rev-parse --verify "$TURBO_SCM_BASE^{commit}"
 
-            - name: Fetch PR base for schema cache
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
-              run: git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null || git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_SHA"
-              retry: 2
             - name: Compute schema cache key from PR base
               id: schema-key
               if: github.event_name == 'pull_request'
@@ -4362,14 +4356,10 @@ jobs:
         permissions:
             contents: read
         steps:
-            # Same shape as turbo-discover: actions/checkout cannot retry the blob fetch of a
-            # blobless checkout, so take the fast clone and fetch the history in a retried step.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-            - name: Fetch history without file contents
-              run: |
-                  git remote get-url origin >/dev/null 2>&1 || git remote add origin "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
-                  git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"
-              retry: 2
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
 
             - name: Install uv
               uses: ./.depot/actions/setup-uv
