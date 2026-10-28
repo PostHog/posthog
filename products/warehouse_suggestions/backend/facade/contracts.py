@@ -60,6 +60,7 @@ class MaterializePayload:
     unique_key: tuple[str, ...] = ()
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
+    recomputed_by_views: int = 0
 
 
 @frozen
@@ -99,6 +100,7 @@ class MaterializeSuggestionPayload:
     unique_key: tuple[str, ...] = ()
     lookback_seconds: int = 0
     refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
+    recomputed_by_views: int = 0
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload

@@ -556,7 +556,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fred/fred.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/fred/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshcaller/freshcaller.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/freshcaller/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/freshchat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshchat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/freshdesk/freshdesk.py
@@ -696,7 +695,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/k6_cloud/k6_cloud.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kandji/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/katana/katana.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/katana/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/kernel/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaus/klaus.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/klaus/settings.py
@@ -821,8 +819,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/openweather/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/opinion_stage.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opinion_stage/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/opsgenie/opsgenie.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/opsgenie/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/opuswatch/opuswatch.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/orb/orb.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/orb/settings.py
@@ -1113,7 +1109,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/travis_ci/travis_ci.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trello/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trello/trello.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/tremendous/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/tremendous/tremendous.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trigger_dev/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/trigger_dev/trigger_dev.py
@@ -1131,8 +1126,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/unleash.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/uppromote.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/upstash/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/uptimerobot/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/uptimerobot/uptimerobot.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/usersnap/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/usersnap/usersnap.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uservoice/settings.py
@@ -1185,7 +1178,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zep/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zep/zep.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoho_crm/zoho_crm.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/zoom.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zuora/zuora.py
 1 products/warehouse_sources/backend/temporal/data_imports/tests/e2e/test_google_ads_source.py

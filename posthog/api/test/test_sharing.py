@@ -1614,6 +1614,24 @@ class TestExportCacheKeyFlow(APIBaseTest):
             timezone="UTC",
         )
 
+    @parameterized.expand([("render", True), ("shared", False)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    @mock_exporter_template
+    def test_threshold_snapshot_is_only_used_by_the_export_renderer(
+        self, _name: str, is_renderer: bool, mock_calculate: MagicMock
+    ) -> None:
+        self.insight.query = {"kind": "BIVisualizationNode"}
+        self.insight.save(update_fields=["query"])
+        self.exported_asset.export_context = {"reference_lines": [{"label": "Threshold snapshot", "value": 250}]}
+        self.exported_asset.save(update_fields=["export_context"])
+        self._calculated_result(mock_calculate)
+        url = self._render_url("") if is_renderer else f"/shared/{self.sharing_config.access_token}"
+        response = self.client.get(url)
+        assert response.status_code == 200
+        assert (b"Threshold snapshot" in response.content) is is_renderer
+        self.insight.refresh_from_db()
+        assert "chartSettings" not in self.insight.query
+
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
