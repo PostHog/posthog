@@ -90,7 +90,7 @@ export interface AgentPromptButtonProps {
     lemonType?: 'primary' | 'secondary'
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
     defaultOpen?: boolean
-    /** Fired whenever a combo runs (agent deeplink opened or clipboard copied). Useful for analytics. */
+    /** Fired whenever a combo runs (agent deeplink opened, or clipboard copied successfully). Useful for analytics. */
     onRun?: (params: { actionKey: string; agentKey: string }) => void
     /** GitHub `owner/repo` slug passed to agents that can open a specific repository (e.g. Claude Code, Codex). */
     repository?: string
@@ -106,8 +106,9 @@ interface AgentDef {
     logoClassName?: string
     /** Verb shown on the main button when this provider is selected. */
     verb: string
-    /** Opens the prompt in this agent. Some agents double-encode or truncate prompts due to URL length limits. */
-    open: (prompt: string, context: AgentOpenContext) => void
+    /** Opens the prompt in this agent. Some agents double-encode or truncate prompts due to URL length limits.
+     * Clipboard returns whether the copy landed. */
+    open: (prompt: string, context: AgentOpenContext) => void | Promise<boolean>
 }
 
 interface AgentOpenContext {
@@ -155,7 +156,9 @@ function buildWithinUrlLength(prompt: string, maxUrlLength: number, build: (prom
 }
 
 function openDeepLink(buildDeepLink: (prompt: string, repository?: string) => string): AgentDef['open'] {
-    return (prompt, { repository }) => window.open(buildDeepLink(prompt, repository), '_blank')
+    return (prompt, { repository }) => {
+        window.open(buildDeepLink(prompt, repository), '_blank')
+    }
 }
 
 export function buildPostHogCodeDeepLink(prompt: string, repository?: string): string {
@@ -244,8 +247,9 @@ const AGENTS: AgentDef[] = [
         name: 'Claude Code on the web',
         logo: claudeLogo,
         verb: 'Open',
-        open: (prompt, { repository }) =>
-            window.open(buildClaudeCodeWebLink(prompt, repository), '_blank', 'noopener,noreferrer'),
+        open: (prompt, { repository }) => {
+            window.open(buildClaudeCodeWebLink(prompt, repository), '_blank', 'noopener,noreferrer')
+        },
     },
     {
         key: 'cursor',
@@ -268,9 +272,7 @@ const AGENTS: AgentDef[] = [
         name: 'Clipboard',
         logo: <IconCopy className="size-4 shrink-0" />,
         verb: 'Copy',
-        open: (prompt, { actionLabel }) => {
-            void copyToClipboard(prompt, actionLabel.toLowerCase())
-        },
+        open: (prompt, { actionLabel }) => copyToClipboard(prompt, actionLabel.toLowerCase()),
     },
 ]
 
@@ -344,12 +346,17 @@ export function AgentPromptButton({
     const runCombo = (actionKey: string, agentKey: AgentPromptDestination): void => {
         const action = actions.find((a) => a.key === actionKey) ?? actions[0]
         const prompt = buildAgentPrompt(action, agentKey, currentProjectId, !!isCloudOrDev)
-        onRun?.({ actionKey, agentKey })
         const agent = availableAgents.find((a) => a.key === agentKey)
         if (!agent) {
             return
         }
-        agent.open(prompt, { askSidePanelMax, actionLabel: action.label, repository })
+        const opened = agent.open(prompt, { askSidePanelMax, actionLabel: action.label, repository })
+        // The clipboard can be unavailable or denied, so a copy is reported only once it lands.
+        if (opened instanceof Promise) {
+            void opened.then((copied) => copied && onRun?.({ actionKey, agentKey }))
+        } else {
+            onRun?.({ actionKey, agentKey })
+        }
     }
 
     const selectAgent = (agentKey: AgentPromptDestination): void => {
