@@ -115,6 +115,9 @@ class TestGetRowsAggregation:
         assert {"filter": 'visitorId>"ab\\"cd"'} in pipeline
 
 
+DAY_MS = 24 * 60 * 60 * 1000
+
+
 def _ms(value: str) -> int:
     return int(datetime.fromisoformat(value).replace(tzinfo=UTC).timestamp() * 1000)
 
@@ -129,39 +132,38 @@ class TestGetRowsEvents:
         with time_machine.travel(datetime(2026, 3, 10, 6, 0, tzinfo=UTC), tick=False):
             yield
 
-    @pytest.mark.parametrize(
-        "inputs, expected_first_window",
-        [
-            ({}, "2025-12-09T12:00:00"),
-            # Local midnight in UTC-5 is 05:00 UTC; the watermark day is re-read.
-            (
-                {"incremental_field": "day", "db_incremental_field_last_value": _ms("2026-03-05T05:00:00")},
-                "2026-03-05T12:00:00",
-            ),
-            # Local midnight in UTC+10 is 14:00 UTC of the previous UTC date.
-            (
-                {"incremental_field": "day", "db_incremental_field_last_value": _ms("2026-03-04T14:00:00")},
-                "2026-03-05T12:00:00",
-            ),
-        ],
-    )
-    def test_walks_one_day_windows_up_to_the_last_started_anchor(
-        self, inputs: dict[str, Any], expected_first_window: str
-    ) -> None:
-        result = _driver().run("page_events", always(ScriptedResponse(json={"results": []})), **inputs)
+    def test_full_refresh_walks_the_lookback_up_to_the_last_started_anchor(self) -> None:
+        result = _driver().run("page_events", always(ScriptedResponse(json={"results": []})))
 
         assert result.raised is None
         windows = _event_window_starts(result)
-        assert windows[0] == _ms(expected_first_window)
+        assert windows[0] == _ms("2025-12-09T12:00:00")
         # Today's noon-UTC anchor is still in the future at 06:00 UTC.
         assert windows[-1] == _ms("2026-03-09T12:00:00")
-        assert all(later - earlier == 24 * 60 * 60 * 1000 for earlier, later in zip(windows, windows[1:]))
+        assert all(later - earlier == DAY_MS for earlier, later in zip(windows, windows[1:]))
 
         source = result.requests[0].json()["request"]["pipeline"][0]["source"]
         assert source["pageEvents"] == {"appId": 'expandAppIds("*")'}
         assert source["timeSeries"]["period"] == "dayRange"
         assert source["timeSeries"]["count"] == 1
 
+    @pytest.mark.parametrize("utc_offset_hours", [-11, -5, 0, 10, 12, 14])
+    def test_incremental_rereads_the_watermark_day_and_the_reprocessing_week(self, utc_offset_hours: int) -> None:
+        watermark = _ms("2026-03-05T00:00:00") - utc_offset_hours * 60 * 60 * 1000
+
+        result = _driver().run(
+            "page_events",
+            always(ScriptedResponse(json={"results": []})),
+            incremental_field="day",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        windows = _event_window_starts(result)
+        assert any(watermark <= anchor < watermark + DAY_MS for anchor in windows)
+        assert windows[0] <= watermark - 7 * DAY_MS + DAY_MS
+
+    @patch(f"{PENDO_PATH}.EVENT_BATCH_SIZE", 1)
     def test_resumes_from_saved_day_and_keys_buckets_without_measures(self) -> None:
         bucket = {"day": _ms("2026-03-09T05:00:00"), "trackTypeId": "t1", "visitorId": "v1", "tabId": "a"}
         first_read = {**bucket, "numEvents": 1, "numMinutes": 1, "lastTime": 1}
@@ -179,7 +181,9 @@ class TestGetRowsEvents:
 
         assert result.raised is None
         assert _event_window_starts(result) == [_ms("2026-03-08T12:00:00"), _ms("2026-03-09T12:00:00")]
+        # The first of the day's two batches leaves the cursor on that day.
         assert result.committed_states == [
+            PendoResumeConfig(next_day="2026-03-08"),
             PendoResumeConfig(next_day="2026-03-09"),
             PendoResumeConfig(next_day="2026-03-10"),
         ]

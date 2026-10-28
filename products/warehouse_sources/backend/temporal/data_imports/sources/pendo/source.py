@@ -137,8 +137,8 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         # Metadata endpoints are full refresh: Pendo exposes no server-side timestamp filter for
-        # them. Event endpoints sync incrementally by day, but each run re-reads the latest day, so
-        # append would duplicate its rows — merge only.
+        # them. Event endpoints sync incrementally by day, but each run re-reads the days Pendo may
+        # still reprocess, so append would duplicate their rows — merge only.
         schemas = [
             SourceSchema(
                 name=endpoint,

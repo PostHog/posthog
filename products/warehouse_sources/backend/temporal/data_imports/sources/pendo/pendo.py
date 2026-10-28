@@ -38,6 +38,11 @@ MAX_RETRIES = 5
 # day at a time requests each local day exactly once.
 EVENT_WINDOW_ANCHOR = timedelta(hours=12)
 EVENT_ALL_APPS = 'expandAppIds("*")'
+# Pendo's daily and weekly reprocessing can add backdated events up to 7 days after the fact, so
+# an incremental run re-reads that many days before the watermark's day.
+EVENTS_REPROCESSING_OVERLAP_DAYS = 7
+# A busy day can hold a very large number of buckets; hand them to the pipeline in bounded batches.
+EVENT_BATCH_SIZE = 5000
 # Measures Pendo sums into each event bucket. The remaining fields identify the bucket, so they
 # alone form its id and a re-read of a still-open day updates the row instead of duplicating it.
 EVENT_MEASURE_FIELDS = frozenset(
@@ -209,8 +214,7 @@ def _events_start_day(db_incremental_field_last_value: Any, today: date) -> date
     watermark = _to_epoch_ms(db_incremental_field_last_value)
     if watermark is None:
         return today - timedelta(days=EVENTS_DEFAULT_LOOKBACK_DAYS)
-    # Start on the watermark's own day: it may have been read before Pendo finished processing it.
-    return (datetime.fromtimestamp(watermark / 1000, tz=UTC) + EVENT_WINDOW_ANCHOR).date()
+    return datetime.fromtimestamp(watermark / 1000, tz=UTC).date() - timedelta(days=EVENTS_REPROCESSING_OVERLAP_DAYS)
 
 
 def _with_bucket_id(row: dict[str, Any]) -> dict[str, Any]:
@@ -249,14 +253,20 @@ def _iter_events(
         }
         response = _request(session, "POST", url, logger, timeout=EVENTS_REQUEST_TIMEOUT_SECONDS, json=body)
         data = response.json()
+        del response
         rows: list[dict[str, Any]] = (data.get("results") or []) if isinstance(data, dict) else data
 
         day += timedelta(days=1)
-        resumable_source_manager.save_state(PendoResumeConfig(next_day=day.isoformat()))
-        if rows:
-            yield [_with_bucket_id(row) for row in rows]
-        else:
+        if not rows:
+            resumable_source_manager.save_state(PendoResumeConfig(next_day=day.isoformat()))
             resumable_source_manager.safe_point()
+            continue
+
+        for start in range(0, len(rows), EVENT_BATCH_SIZE):
+            # Only the day's last batch moves the cursor past it, so a resume re-reads a partly written day.
+            if start + EVENT_BATCH_SIZE >= len(rows):
+                resumable_source_manager.save_state(PendoResumeConfig(next_day=day.isoformat()))
+            yield [_with_bucket_id(row) for row in rows[start : start + EVENT_BATCH_SIZE]]
 
 
 def get_rows(
