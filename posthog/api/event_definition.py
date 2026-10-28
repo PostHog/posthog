@@ -17,9 +17,10 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
 from prometheus_client import Counter
-from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.settings import api_settings
 
+from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
@@ -1017,9 +1018,15 @@ class EventDefinitionViewSet(
             raise serializers.ValidationError("PostHog events can't be dropped from here.")
 
         user = cast(User, request.user)
+        teams = list(Team.objects.filter(project_id=self.project_id))
+        # The request is scoped to one environment, but this writes the filter of each one.
+        try:
+            AccessibleTeams.for_request(request, [team.id for team in teams])
+        except CredentialScopeDenied:
+            raise exceptions.PermissionDenied("You can't change the event filter of every environment in this project.")
         try:
             # This commits before the hide, so ingestion loads the condition as early as possible.
-            add_event_name_drop(list(Team.objects.filter(project_id=self.project_id)), instance.name, user)
+            add_event_name_drop(teams, instance.name, user)
         except DjangoValidationError as error:
             raise serializers.ValidationError(" ".join(error.messages))
 

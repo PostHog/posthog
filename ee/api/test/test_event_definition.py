@@ -1003,6 +1003,26 @@ class TestEventDefinitionStopIngestingAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def test_personal_api_key_must_reach_every_environment(self):
+        Team.objects.create(organization=self.organization, project=self.project, name="Staging")
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(token),
+            scopes=["event_definition:write", "event_filter:write"],
+            scoped_teams=[self.team.id],
+        )
+        event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
+        self.client.logout()
+
+        response = self._stop_ingesting(event, HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert not EventFilterConfig.objects.exists()
+        event.refresh_from_db()
+        assert event.hidden is False
+
     def test_delete_does_not_change_the_event_filter(self):
         event = EnterpriseEventDefinition.objects.create(team=self.team, name="spam_event")
 
