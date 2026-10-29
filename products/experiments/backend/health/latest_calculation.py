@@ -43,19 +43,31 @@ def _load_latest_calculation(experiment: Experiment) -> LatestCalculation:
     # failures, or else the run in progress, whose errors can still change, so the check waits for a finished run.
     run = get_latest_recalculation(experiment)
     if run is None:
-        return LatestCalculation(metric_count=len(configs), finished_at=None, failures=())
+        return LatestCalculation(metric_count=len(configs), finished_at=None, failures=(), completed_count=0)
     metric_errors = run.metric_errors if isinstance(run.metric_errors, dict) else {}
     rows = {
         row.metric_uuid: row for row in MetricResultStore(experiment_id=experiment.id).for_run(run, with_result=False)
     }
-    failures = (
-        _shown_failure(experiment, calculation_config, metric_errors.get(metric_id), rows.get(metric_id))
+    failures = tuple(
+        failure
         for metric_id, calculation_config in configs.items()
+        if (
+            failure := _shown_failure(experiment, calculation_config, metric_errors.get(metric_id), rows.get(metric_id))
+        )
+        is not None
     )
+    failed = {failure.metric_id for failure in failures}
     return LatestCalculation(
         metric_count=len(configs),
         finished_at=run.completed_at,
-        failures=tuple(failure for failure in failures if failure is not None),
+        failures=failures,
+        completed_count=sum(
+            1
+            for metric_id in configs
+            if metric_id not in failed
+            and (row := rows.get(metric_id)) is not None
+            and row.status == ExperimentMetricResult.Status.COMPLETED
+        ),
     )
 
 

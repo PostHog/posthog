@@ -25,6 +25,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.context import (
+    ExposureFilterWithoutColumn,
     LatestCalculation,
     MetricCalculationFailure,
     MetricCompileFailure,
@@ -45,6 +46,8 @@ NO_QUERIES = ExperimentHealthReaderAccess(
     can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
 )
 FINISHED_AT = datetime(2026, 10, 26, 9, 30, tzinfo=UTC)
+OUT_OF_MEMORY = "This query ran out of memory before it could finish."
+PLAN_FILTER = ExposureFilterWithoutColumn(type="group", key="plan")
 CLICKHOUSE_MESSAGE = (
     "Code: 215. DB::Exception: Column `properties` is not under aggregate function and not in GROUP BY keys. "
     "In query SELECT properties FROM events"
@@ -73,8 +76,15 @@ def _failure(
     )
 
 
-def _outcome(*failures: MetricCalculationFailure, **changes: Any) -> ExperimentHealthFinding | CheckSkip | None:
-    calculation = LatestCalculation(metric_count=len(failures), finished_at=FINISHED_AT, failures=failures)
+def _outcome(
+    *failures: MetricCalculationFailure, completed_count: int = 0, **changes: Any
+) -> ExperimentHealthFinding | CheckSkip | None:
+    calculation = LatestCalculation(
+        metric_count=len(failures) + completed_count,
+        finished_at=FINISHED_AT,
+        failures=failures,
+        completed_count=completed_count,
+    )
     return metric_calculation_failed(replace(RUNNING_CONTEXT, latest_calculation=calculation, **changes))
 
 
@@ -319,8 +329,66 @@ class TestMetricCalculationFailed(TestCase):
         self.assertEqual(finding.detail.count(words), 1)
         self.assertNotIn("Revenue", finding.detail)
 
+    @parameterized.expand(
+        [
+            (
+                "every_metric_reached_a_limit_with_an_exposure_filter_without_a_column",
+                (
+                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
+                    _failure(OUT_OF_MEMORY, error_type="out_of_memory", role="secondary"),
+                ),
+                0,
+                (PLAN_FILTER,),
+                ("exposure_criteria", 'filter on the group property "plan", which makes each query read all group'),
+            ),
+            (
+                "another_metric_completed",
+                (_failure(OUT_OF_MEMORY, error_type="out_of_memory"),),
+                1,
+                (PLAN_FILTER,),
+                ("metric", "while another metric of the experiment calculated. Simplify this metric"),
+            ),
+            (
+                "every_metric_reached_a_limit_without_an_exposure_filter_without_a_column",
+                (
+                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
+                    _failure(OUT_OF_MEMORY, error_type="out_of_memory", role="secondary"),
+                ),
+                0,
+                (),
+                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
+            ),
+            (
+                "another_metric_failed_for_another_reason",
+                (
+                    _failure(OUT_OF_MEMORY, error_type="out_of_memory"),
+                    _failure("Queries are a little too busy right now.", error_type="rate_limited", role="secondary"),
+                ),
+                0,
+                (PLAN_FILTER,),
+                (None, 'primary metric "Revenue" failed. Its query needed more memory than PostHog allows for one'),
+            ),
+        ]
+    )
+    def test_names_the_cause_of_a_query_limit(
+        self,
+        _name: str,
+        failures: tuple[MetricCalculationFailure, ...],
+        completed_count: int,
+        filters_without_column: tuple[ExposureFilterWithoutColumn, ...],
+        expected: tuple[str | None, str],
+    ) -> None:
+        finding = _outcome(
+            *failures, completed_count=completed_count, exposure_filters_without_column=filters_without_column
+        )
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        reason, words = expected
+        self.assertEqual((finding.subcode, finding.severity, finding.reason), ("query_limit", WARNING, reason))
+        self.assertEqual(finding.detail.count(words), 1)
+
     def test_waits_for_a_metric_that_the_experiment_calculates(self) -> None:
-        calculation = LatestCalculation(metric_count=0, finished_at=None, failures=())
+        calculation = LatestCalculation(metric_count=0, finished_at=None, failures=(), completed_count=0)
 
         outcome = metric_calculation_failed(
             replace(RUNNING_CONTEXT, latest_calculation=calculation, primary_metric_count=0, secondary_metric_count=0)
@@ -471,6 +539,47 @@ class TestMetricCalculationFailedFromStoredRuns(BaseTest):
         self.assertNotIn("metric_3", finding.evidence)
         self.assertNotIn("purchase_total", finding.detail + str(finding.evidence))
         self.assertIsNone(finding.evidence["metric_2_message"])
+
+    @parameterized.expand(
+        [
+            ("every_metric_reached_a_limit", (), ("exposure_criteria", 'filter on the group property "plan"')),
+            (
+                "other_metrics_completed",
+                ("rejected", "secondary"),
+                ("metric", "while other metrics of the experiment calculated"),
+            ),
+        ]
+    )
+    def test_names_the_cause_of_a_query_limit_from_the_stored_run(
+        self, _name: str, completed_rows: tuple[str, ...], expected: tuple[str, str]
+    ) -> None:
+        self.experiment.exposure_criteria = {
+            "exposure_config": {
+                "kind": "ExperimentEventExposureConfig",
+                "event": "$feature_flag_called",
+                "properties": [
+                    {"key": "plan", "type": "group", "group_type_index": 0, "operator": "exact", "value": ["pro"]}
+                ],
+            }
+        }
+        self.experiment.save()
+        read_limit = {"step": "calculation", "message": "Query read too much data", "error_type": "byte_limit"}
+        self._run(
+            status=ExperimentMetricsRecalculation.Status.FAILED,
+            created_at=timezone.now() - timedelta(hours=2),
+            metric_errors={
+                metric_uuid: read_limit
+                for metric_uuid in ("primary", "rejected", "secondary")
+                if metric_uuid not in completed_rows
+            },
+            completed_rows=completed_rows,
+        )
+
+        [finding] = [finding for finding in self._health().findings if finding.code == CODE]
+
+        reason, words = expected
+        self.assertEqual(finding.reason, reason)
+        self.assertIn(words, finding.detail)
 
     @parameterized.expand(
         [

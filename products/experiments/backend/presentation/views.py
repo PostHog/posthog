@@ -1024,7 +1024,11 @@ class EnterpriseExperimentsViewSet(
         wrote for users), and `calculated_at` is when the calculation finished. It is a
         warning when a primary metric fails for a kind that a change fixes (`query_limit`,
         `settings`, `experiment_too_old`), also after the end, because the calculation after the fix
-        reads the events up to the end. It is info otherwise.
+        reads the events up to the end. It is info otherwise. When the first failure reached the
+        read, memory or time limit, `reason` names the cause that the calculation shows: `metric`
+        when another metric of the same calculation completed, or `exposure_criteria` when every
+        metric reached a limit and the exposure criteria filter on a property that ClickHouse keeps
+        in no column of its own. It is null otherwise.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from
