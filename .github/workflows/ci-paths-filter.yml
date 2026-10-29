@@ -6,7 +6,6 @@ on:
             - '.github/actions/paths-filter/**'
             - '.github/actions/shared-image-releases/**'
             - '.github/workflows/ci-paths-filter.yml'
-            - '.github/workflows/actions.lock'
             - '.github/shared-image-releases.yaml'
             - '.github/workflows/container-images-cd.yml'
 
@@ -29,7 +28,6 @@ jobs:
             run:
                 working-directory: .github/actions/${{ matrix.action }}
         steps:
-            # GitHub enforces these actions' immutable commits from actions.lock.
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag

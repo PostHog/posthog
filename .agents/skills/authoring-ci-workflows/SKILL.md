@@ -294,8 +294,10 @@ Measured checkout-step durations, from the GitHub API on real runs:
 ## Pinning and tool versions
 
 - **Pin third-party actions to full 40-character commit SHAs** with `# vX.Y.Z` comments.
-  Workflows already listed in `.github/workflows/actions.lock` may use exact version tags backed by locked commits. Before editing one or the lockfile, read [Maintaining workflow lockfiles](references/workflow-lockfiles.md).
-  Keep inline SHA pins elsewhere; copying an onboarded workflow does not onboard its copy. The other sanctioned exception is a debug-only action.
+  Workflows already listed in `.github/workflows/actions.lock` may use exact version tags backed by locked commits.
+  Before editing one or the lockfile, read [Maintaining workflow lockfiles](references/workflow-lockfiles.md).
+  Keep inline SHA pins elsewhere: copying an onboarded workflow does not onboard its copy.
+  The other sanctioned exception is a debug-only action.
   In-repo composites use a local path with no ref (`uses: ./.github/actions/pnpm-install`).
 - **Node version comes from `.nvmrc`** — `node-version-file: .nvmrc`, never a hardcoded `node-version:`.
   Sparse-checkout `.nvmrc` if the job has no checkout.

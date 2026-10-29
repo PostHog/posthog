@@ -4,7 +4,6 @@ Read this before changing a workflow listed in `.github/workflows/actions.lock`,
 
 The lockfile's `workflows` section lists the onboarded workflows.
 Onboard another workflow in its own change, and add it to the Renovate exclusion in `.github/renovate.json5` in that change.
-Renovate cannot regenerate the lockfile.
 
 ## Update and verify
 
@@ -16,7 +15,8 @@ When you bump the version, set `LOCK_VERIFIER_SHA256` to the bare hex this comma
 gh release view <tag> --repo github/gh-actions-lock --json assets --jq '.assets[] | select(.name == "linux-amd64") | .digest | ltrimstr("sha256:")'
 ```
 
-After changing an onboarded workflow's action references, regenerate and verify only that workflow:
+After changing an onboarded workflow's action references, regenerate and verify only that workflow.
+Without a workflow path, `gh actions-lock` onboards every workflow.
 
 ```sh
 gh actions-lock .github/workflows/<workflow>.yml
@@ -32,11 +32,9 @@ Review the generated diff:
 
 - Confirm that changed commits match the intended dependency update, and investigate changed repository or owner IDs.
 - Confirm that the run onboarded no other workflow and rewrote no shared action.
-- Keep `actions.lock` in the `paths` of `ci-paths-filter.yml`, so a lockfile-only change runs a workflow that uses the lockfile.
 
 Never delete the lockfile to resolve an error.
 Restore a valid copy and regenerate.
-Do not run `gh actions-lock` without a workflow path, because it onboards every workflow.
 Do not use `--relock` or `--accept-moved` to silence a provenance error before you review the upstream change.
 
 ## Coverage boundaries
