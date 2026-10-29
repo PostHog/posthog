@@ -11,7 +11,8 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
-from posthog.hogql_queries.sql_cache_window import SQL_WINDOW_MAX_AGE, SqlFreshnessClassifier, SqlWindowClass
+from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, classify
+from posthog.hogql_queries.sql_freshness.rules import SQL_WINDOW_MAX_AGE, FreshnessReason, Reject, SqlWindowClass
 
 NOW = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
 NEXT_MIDNIGHT = datetime(2026, 10, 30, tzinfo=UTC)
@@ -20,7 +21,7 @@ PAST_DAY = "select count() from events where timestamp >= '2026-10-28' and times
 YESTERDAY = "select count() from events where toDate(timestamp) = yesterday()"
 
 
-class TestSqlFreshnessClassifier(BaseTest):
+class TestClassify(BaseTest):
     database: Database
 
     @classmethod
@@ -30,13 +31,13 @@ class TestSqlFreshnessClassifier(BaseTest):
 
     def _classify(self, sql: str, now: datetime = NOW, relative_date_range: bool = False, timezone: Any = None):
         context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
-        classifier = SqlFreshnessClassifier(
+        return classify(
+            resolve_types(parse_select(sql), context, dialect="hogql"),
             now=now,
             timezone=timezone or self.team.timezone_info,
             week_start_day=self.team.week_start_day,
             relative_date_range=relative_date_range,
         )
-        return classifier.classify(resolve_types(parse_select(sql), context, dialect="hogql"))
 
     @parameterized.expand(
         [
@@ -142,41 +143,67 @@ class TestSqlFreshnessClassifier(BaseTest):
             relative_date_range=options.get("relative_date_range", False),
             timezone=options.get("timezone"),
         )
-        assert freshness is not None
+        assert isinstance(freshness, SqlFreshness)
         expected_fresh_until = options.get("fresh_until", now + SQL_WINDOW_MAX_AGE[expected_window])
         assert (freshness.window, freshness.fresh_until) == (expected_window, expected_fresh_until)
 
     @parameterized.expand(
         [
-            ("no_time_filter", "select count() from events"),
-            ("upper_bound_only", "select count() from events where timestamp < now()"),
-            ("person_id_follows_merges", "select uniq(person_id) from events where timestamp > now() - interval 7 day"),
+            ("no_time_filter", "select count() from events", FreshnessReason.UNBOUNDED),
+            ("upper_bound_only", "select count() from events where timestamp < now()", FreshnessReason.UNBOUNDED),
+            (
+                "person_id_follows_merges",
+                "select uniq(person_id) from events where timestamp > now() - interval 7 day",
+                FreshnessReason.MUTABLE_FIELD,
+            ),
             (
                 "person_properties",
                 "select count() from events where timestamp > now() - interval 7 day and person.properties.email = 'a'",
+                FreshnessReason.MUTABLE_FIELD,
             ),
             (
                 "group_properties",
                 "select count() from events where timestamp < '2026-10-01' and group_0.properties.plan = 'x'",
+                FreshnessReason.MUTABLE_FIELD,
             ),
             (
                 "revenue_join",
                 "select poe.revenue_analytics.revenue from events "
                 "where timestamp >= '2025-01-01' and timestamp < '2025-02-01'",
+                FreshnessReason.MUTABLE_FIELD,
             ),
-            ("clock_in_select_list", "select current_date(), count() from events where timestamp < '2025-01-01'"),
-            ("shifted_timestamp", "select count() from events where subtractDays(timestamp, 30) < '2026-10-28'"),
+            (
+                "clock_in_select_list",
+                "select current_date(), count() from events where timestamp < '2025-01-01' and timestamp >= '2024-01-01'",
+                FreshnessReason.CLOCK_OUTSIDE_BOUNDS,
+            ),
+            (
+                "shifted_timestamp",
+                "select count() from events where subtractDays(timestamp, 30) < '2026-10-28'",
+                FreshnessReason.UNSUPPORTED_BOUND,
+            ),
             (
                 "or_of_time_ranges",
                 "select count() from events where timestamp > now() - interval 7 day or timestamp < '2020-01-01'",
+                FreshnessReason.UNSUPPORTED_BOUND,
             ),
-            ("join", "select count() from events e join events f on e.uuid = f.uuid where e.timestamp > '2026-01-01'"),
-            ("persons_table", "select count() from persons where created_at < '2025-01-01'"),
+            (
+                "join",
+                "select count() from events e join events f on e.uuid = f.uuid where e.timestamp > '2026-01-01'",
+                FreshnessReason.JOIN,
+            ),
+            (
+                "persons_table",
+                "select count() from persons where created_at < '2025-01-01'",
+                FreshnessReason.MUTABLE_FIELD,
+            ),
             (
                 "timezone_on_a_non_literal",
-                "select count() from events where timestamp < toDateTime(now(), 'America/Los_Angeles')",
+                "select count() from events where timestamp < toDateTime(now(), 'America/Los_Angeles') "
+                "and timestamp >= '2026-01-01'",
+                FreshnessReason.UNSUPPORTED_BOUND,
             ),
         ]
     )
-    def test_keeps_default_age(self, _name: str, sql: str) -> None:
-        assert self._classify(sql) is None
+    def test_keeps_default_age(self, _name: str, sql: str, expected_reason: FreshnessReason) -> None:
+        assert self._classify(sql) == Reject(reason=expected_reason)

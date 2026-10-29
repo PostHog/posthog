@@ -38,13 +38,14 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_acc
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
-from posthog.hogql_queries.sql_cache_window import (
+from posthog.hogql_queries.sql_freshness.classifier import (
     API_SQL_WINDOW_CACHE_AGE_FLAG,
     SqlFreshness,
-    SqlFreshnessClassifier,
+    classify,
     freshness_from_record,
     freshness_record,
 )
+from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 
@@ -63,7 +64,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
-    _sql_freshness: Optional[SqlFreshness] = None
+    _sql_classification: SqlFreshness | Reject | None = None
     # p95 duration of a query service HogQL query is 2.78sec
     QUERY_SERVICE_MAX_EXECUTION_TIME = 10
 
@@ -100,7 +101,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     @property
     def _applicable_sql_freshness(self) -> Optional[SqlFreshness]:
-        return self._sql_freshness if self._api_sql_freshness_enabled else None
+        classification = self._sql_classification
+        return classification if isinstance(classification, SqlFreshness) and self._api_sql_freshness_enabled else None
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         freshness = self._applicable_sql_freshness
@@ -109,35 +111,40 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return super()._is_stale(last_refresh, lazy=lazy)
 
     def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
-        if self._sql_freshness is None:
+        if not isinstance(self._sql_classification, SqlFreshness):
             return response
-        return {**response, CACHE_ENTRY_FRESHNESS_KEY: freshness_record(self._sql_freshness)}
+        return {**response, CACHE_ENTRY_FRESHNESS_KEY: freshness_record(self._sql_classification)}
 
     def _read_cache_entry_freshness(self, record: Any) -> None:
-        self._sql_freshness = freshness_from_record(record)
+        self._sql_classification = freshness_from_record(record)
 
     def _staleness_event_properties(self) -> dict[str, Any]:
-        freshness = self._applicable_sql_freshness
-        if freshness is None or getattr(self, "_cache_age_override", None) is not None:
+        classification = self._sql_classification
+        if not self._api_sql_freshness_enabled or getattr(self, "_cache_age_override", None) is not None:
             return {}
-        return {f"sql_cache_{key}": value for key, value in freshness_record(freshness).items()}
+        if isinstance(classification, Reject):
+            return {"sql_cache_reason": classification.reason.value}
+        if isinstance(classification, SqlFreshness):
+            return {f"sql_cache_{key}": value for key, value in freshness_record(classification).items()}
+        return {}
 
-    def _classify_sql_freshness(self, query: ast.SelectQuery | ast.SelectSetQuery) -> Optional[SqlFreshness]:
+    def _classify_sql_freshness(self, query: ast.SelectQuery | ast.SelectSetQuery) -> SqlFreshness | Reject:
         if "events" not in {name.lower() for name in self._queried_table_names}:
-            return None
+            return Reject(reason=FreshnessReason.NO_EVENTS)
         date_range = self.query.filters.dateRange if self.query.filters else None
         bounds = [date_range.date_from, date_range.date_to] if date_range else []
         try:
             context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
-            classifier = SqlFreshnessClassifier(
-                now=datetime.now(UTC),
-                timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
-                week_start_day=self.team.week_start_day,
-                relative_date_range=any(bound and is_relative_date_value(bound) for bound in bounds),
-            )
-            return classifier.classify(resolve_types(clone_expr(query), context, dialect="hogql"))
+            resolved = resolve_types(clone_expr(query), context, dialect="hogql")
         except Exception:
-            return None
+            return Reject(reason=FreshnessReason.UNPARSEABLE)
+        return classify(
+            resolved,
+            now=datetime.now(UTC),
+            timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
+            week_start_day=self.team.week_start_day,
+            relative_date_range=any(bound and is_relative_date_value(bound) for bound in bounds),
+        )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:
@@ -321,7 +328,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()
-        self._sql_freshness = None
+        self._sql_classification = None
         if self._capped_for_query_service():
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)
@@ -365,7 +372,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
         if self._api_sql_freshness_enabled and self._direct_engine is None:
-            self._sql_freshness = self._classify_sql_freshness(query)
+            self._sql_classification = self._classify_sql_freshness(query)
 
         if self.is_query_service:
             validate_user_query(query, team=self.team)
