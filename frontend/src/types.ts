@@ -6516,6 +6516,8 @@ export interface ExternalDataSource {
     latest_error: string | null
     last_run_at?: Dayjs
     schemas: ExternalDataSourceSchema[]
+    /** The name of the file a file upload source imports. */
+    file_name?: string | null
     sync_frequency: DataWarehouseSyncInterval
     job_inputs: Record<string, any>
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
@@ -6700,6 +6702,8 @@ export type IncrementalSyncBlockedReason = IncrementalSyncBlockedReasonEnumApi
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
+    /** The live table the schema syncs into, also before its first sync when the schema already names one. */
+    table_id?: string | null
     incremental: boolean
     sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     sync_time_of_day: string | null
@@ -6751,6 +6755,8 @@ export interface ExternalDataSchemaSourceSummary {
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     requires_exact_column_metadata?: boolean
+    /** The name of the file a file upload source imports. */
+    file_name?: string | null
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null

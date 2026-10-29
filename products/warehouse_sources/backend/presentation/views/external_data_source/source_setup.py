@@ -89,8 +89,10 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
     set_source_destinations,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    PINNED_TABLE_IDS_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
+    pinned_table_ids,
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
@@ -147,6 +149,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     supports_column_selection = serializers.SerializerMethodField(
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
+    )
+    file_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The name of the file a file upload source imports. Null for other sources or when it is unknown.",
     )
     # Optional on both create and update. On create, missing values default to `api`
     # in the viewset to preserve backward compatibility with direct API callers that
@@ -247,6 +253,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "supports_webhooks",
             "supports_column_selection",
+            "file_name",
             "api_version",
             "api_version_deprecation",
             "connection_warning",
@@ -266,6 +273,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "access_method",
             "supports_webhooks",
             "supports_column_selection",
+            "file_name",
             "api_version",
             "api_version_deprecation",
             "connection_warning",
@@ -334,6 +342,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             capture_exception(e)
             return False
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_file_name(self, instance: ExternalDataSource) -> str | None:
+        try:
+            return SourceRegistry.get_source(ExternalDataSourceType(instance.source_type)).uploaded_file_name(instance)
+        except Exception as e:
+            capture_exception(e)
+            return None
+
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
 
@@ -393,7 +409,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.
-        context = {**self.context, "error_redaction_values": self._error_redaction_values(instance)}
+        context = {
+            **self.context,
+            "error_redaction_values": self._error_redaction_values(instance),
+            PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
+        }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data

@@ -11,6 +11,8 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.team import Team
+
 from products.warehouse_sources.backend.facade.api import FILE_FORMAT_READ_HINTS
 from products.warehouse_sources.backend.facade.testing import (
     find_replaced_self_managed_table,
@@ -880,6 +882,58 @@ class TestFileUploadSources(APIBaseTest):
         assert "Upload the file" in response.json()["message"]
         assert not ExternalDataJob.objects.filter(team=self.team).exists()
         self.trigger.assert_not_called()
+
+    @parameterized.expand(["reload", "resync"])
+    def test_a_table_that_imported_its_file_points_to_replace_file(self, action: str) -> None:
+        _, schema = self._table_with_source()
+        ExternalDataJob.objects.create(
+            team=self.team, pipeline=schema.source, schema=schema, status=ExternalDataJob.Status.COMPLETED
+        )
+        self.trigger.reset_mock()
+
+        response = self.client.post(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/{action}/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Replace file" in response.json()["message"]
+        self.trigger.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("linked", None),
+            ("pinned", "managed/team_{team}/orders.csv"),
+            ("pinned_in_upload_folder", "file_uploads/team_{team}/{upload}/orders.csv"),
+        ]
+    )
+    def test_the_schema_and_source_name_the_table_and_the_file(self, _name: str, migrated_key: str | None) -> None:
+        if migrated_key is None:
+            table, schema = self._table_with_source()
+        else:
+            table, schema = self._migrated_table(migrated_key)
+            assert schema.table_id is None
+
+        schema_body = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/").json()
+        source_body = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{schema.source_id}/"
+        ).json()
+
+        assert schema_body["table_id"] == str(table.id)
+        assert source_body["schemas"][0]["table_id"] == str(table.id)
+        assert source_body["file_name"] == "orders.csv"
+        assert schema_body["source"]["file_name"] == "orders.csv"
+        assert source_body["job_inputs"] == {}
+
+    @parameterized.expand(["other_team", "deleted"])
+    def test_a_pinned_table_that_is_not_live_in_the_team_is_not_returned(self, case: str) -> None:
+        table, schema = self._migrated_table("managed/team_{team}/orders.csv")
+        if case == "deleted":
+            DataWarehouseTable.objects.filter(pk=table.pk).update(deleted=True)
+        else:
+            other_team = Team.objects.create(organization=self.organization, name="Other")
+            DataWarehouseTable.objects.filter(pk=table.pk).update(team=other_team)
+
+        body = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/").json()
+
+        assert body["table_id"] is None
 
     @patch(f"{SOURCE_VIEWS}.delete_discover_schemas_schedule")
     @patch(f"{SOURCE_VIEWS}.delete_external_data_schedule")
