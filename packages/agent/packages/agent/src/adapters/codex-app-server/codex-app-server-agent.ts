@@ -1781,6 +1781,10 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       const completedNativeGoalTurn = turn?.id === this.nativeGoalTurnId;
       if (completedNativeGoalTurn) {
         this.nativeGoalTurnId = undefined;
+        if (this.compactionActive) {
+          this.compactionActive = false;
+          this.emitCompactionBoundary();
+        }
         void this.client
           .extNotification(POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE, {
             sessionId: this.sessionId,

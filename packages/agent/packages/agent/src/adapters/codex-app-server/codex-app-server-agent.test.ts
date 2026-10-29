@@ -714,7 +714,7 @@ describe("CodexAppServerAgent", () => {
       "thread/start": { thread: { id: "thr_1" } },
       "thread/compact/start": {},
     });
-    const { client } = makeFakeClient();
+    const { client, extNotifications } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
       processOptions: { binaryPath: "/bundle/codex" },
       rpcFactory: stub.factory,
@@ -734,6 +734,19 @@ describe("CodexAppServerAgent", () => {
     expect(
       stub.requests.some((request) => request.method === "turn/start"),
     ).toBe(false);
+
+    stub.emit("turn/started", { threadId: "thr_1", turn: { id: "turn_c" } });
+    stub.emit("item/started", {
+      threadId: "thr_1",
+      item: { type: "contextCompaction", id: "c1" },
+    });
+    stub.emit("turn/completed", {
+      threadId: "thr_1",
+      turn: { id: "turn_c", status: "failed" },
+    });
+    expect(
+      extNotifications.filter((n) => n.method === "_posthog/compact_boundary"),
+    ).toHaveLength(1);
   });
 
   it("handles a goal command wrapped in hidden cold-resume context", async () => {
