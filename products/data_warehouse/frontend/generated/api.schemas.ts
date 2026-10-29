@@ -2189,6 +2189,18 @@ export const MaterializationRunDirectionEnumApi = {
 } as const
 
 /**
+ * * `clickhouse` - ClickHouse
+ * * `trino` - Trino
+ */
+export type MaterializationEngineEnumApi =
+    (typeof MaterializationEngineEnumApi)[keyof typeof MaterializationEngineEnumApi]
+
+export const MaterializationEngineEnumApi = {
+    Clickhouse: 'clickhouse',
+    Trino: 'trino',
+} as const
+
+/**
  * Body of the `run` action.
  */
 export interface SavedQueryRunApi {
@@ -2199,6 +2211,11 @@ export interface SavedQueryRunApi {
      * * `upstream` - Upstream
      * * `downstream` - Downstream */
     direction?: MaterializationRunDirectionEnumApi
+    /** Where to build the views. 'clickhouse' (the default) refreshes the tables that queries read. 'trino' builds the same views on the organization's managed warehouse only, and leaves the ClickHouse tables as they are. 'trino' returns 403 when the organization has no managed warehouse, and 409 while another managed warehouse run of these views is in progress.
+     *
+     * * `clickhouse` - ClickHouse
+     * * `trino` - Trino */
+    engine?: MaterializationEngineEnumApi
 }
 
 export interface SavedQueryRunResponseApi {
@@ -3824,6 +3841,7 @@ export interface CredentialApi {
  * * `Beacons` - Beacons
  * * `WooPayments` - WooPayments
  * * `Soniox` - Soniox
+ * * `Nango` - Nango
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5241,6 +5259,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Beacons: 'Beacons',
     WooPayments: 'WooPayments',
     Soniox: 'Soniox',
+    Nango: 'Nango',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

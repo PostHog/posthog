@@ -35,9 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Covers Freshchat's top-level v2 list endpoints (Agents, Users, Groups, Channels, Roles), the
-# single-row account configuration, and the two fan-out tables that reach conversations and their
-# messages — Freshchat exposes no top-level conversations list, so both hang off Users. The
-# outbound-messages and metrics endpoints require time-window params and are not covered.
+# single-row account configuration, outbound messages, and the two fan-out tables that reach
+# conversations and their messages — Freshchat exposes no top-level conversations list, so both hang
+# off Users. The metrics endpoints require a metric name and time-window params, and raw reports are
+# async export jobs, so neither is covered.
 # Freshchat has no server-side incremental cursor on these endpoints, so every endpoint is full
 # refresh, resumable by page number.
 

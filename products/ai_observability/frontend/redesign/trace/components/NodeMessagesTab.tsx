@@ -10,9 +10,15 @@ export interface NodeMessagesTabProps {
     content: NodeContent
     error: string | null
     onViewInThread: (() => void) | null
+    highlightQuery?: string | null
 }
 
-export function NodeMessagesTab({ content, error, onViewInThread }: NodeMessagesTabProps): JSX.Element {
+export function NodeMessagesTab({
+    content,
+    error,
+    onViewInThread,
+    highlightQuery = null,
+}: NodeMessagesTabProps): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             {error ? <ErrorCallout message={error} /> : null}
@@ -27,12 +33,14 @@ export function NodeMessagesTab({ content, error, onViewInThread }: NodeMessages
                         messages={content.input}
                         emptyText="No input captured."
                         defaultOpen="last"
+                        highlightQuery={highlightQuery}
                     />
                     <MessageSection
                         title="Output"
                         messages={content.output}
                         emptyText="No output captured."
                         defaultOpen="all"
+                        highlightQuery={highlightQuery}
                     />
                 </>
             ) : (

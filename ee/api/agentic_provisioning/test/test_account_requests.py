@@ -21,7 +21,7 @@ from posthog.test.authentication_checks import covers_authentication
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
-from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import TEST_PARTNER_JWKS_URI, ProvisioningTestBase, provisioning_config
 
 ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 VALID_CODE_CHALLENGE = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
@@ -39,7 +39,7 @@ class TestAccountRequests(ProvisioningTestBase):
         return payload
 
     def _post_account_request(self, payload):
-        return self._post_with_client_secret(ACCOUNT_REQUESTS_URL, payload)
+        return self._post_as_partner(ACCOUNT_REQUESTS_URL, payload)
 
     def test_no_identified_partner_returns_401(self):
         res = self._post_api(ACCOUNT_REQUESTS_URL, self._account_request_payload())
@@ -244,7 +244,8 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
             client_id="pkce-test-partner",
             name="PKCE Test Partner",
             client_secret="",
-            client_type=OAuthApplication.CLIENT_PUBLIC,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://partner.example.com/callback",
             algorithm="RS256",
@@ -256,7 +257,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         )
 
     def _post_as_pkce_partner(self, data: dict):
-        return self._post_api(ACCOUNT_REQUESTS_URL, data)
+        return self._post_as_partner(ACCOUNT_REQUESTS_URL, data, partner=self.pkce_partner)
 
     def _account_request_payload(self, **overrides):
         payload = {

@@ -299,6 +299,18 @@ CREATE TABLE posthog.duplicate_events (
   _partition UInt64,
   INDEX kafka_timestamp_minmax_duplicate_events _timestamp TYPE minmax GRANULARITY 3
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.duplicate_events', '{replica}-{shard}') ORDER BY (team_id, distinct_id, event, inserted_at) PARTITION BY toYYYYMMDD(inserted_at) TTL inserted_at + toIntervalDay(7) SETTINGS default_compression_codec = 'lz4', index_granularity = 512;
+CREATE TABLE posthog.email_status (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_data');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,

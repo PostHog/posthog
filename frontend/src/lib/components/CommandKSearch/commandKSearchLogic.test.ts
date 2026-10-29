@@ -39,6 +39,21 @@ describe('commandKSearchLogic', () => {
         expect(logic.values.remote === remoteBefore).toBe(!failed)
     })
 
+    it('arrow up from the first row returns to the input, and arrow down stops at the last row', () => {
+        const rows = logic.values.selectableRows
+        expect(rows.length).toBeGreaterThan(1)
+
+        logic.actions.applyKeyIntent({ type: 'move', direction: -1 })
+        expect(logic.values.highlightedRow).toBeNull()
+
+        logic.actions.applyKeyIntent({ type: 'move', direction: 1 })
+        expect(logic.values.highlightedRow).toBe(rows[0])
+
+        logic.actions.setHighlightedKey(rows[rows.length - 1].key)
+        logic.actions.applyKeyIntent({ type: 'move', direction: 1 })
+        expect(logic.values.highlightedRow).toBe(rows[rows.length - 1])
+    })
+
     it('a See all row narrows the search to its type and keeps the words', () => {
         logic.actions.inputChanged('revenue', 7, false)
 
