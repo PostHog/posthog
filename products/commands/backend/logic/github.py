@@ -100,6 +100,7 @@ class InstallationGitHub:
             head_branch=head_branch,
             # A deleted fork reports no head repository, which is no more trustworthy than a fork.
             is_fork=not isinstance(head_repository, str) or head_repository.lower() != repository.lower(),
+            is_private=pr.get("repository_private") is not False,
         )
 
     def react(self, repository: str, comment_id: int, reaction: Reaction) -> None:
