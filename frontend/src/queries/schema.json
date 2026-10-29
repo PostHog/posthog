@@ -485,6 +485,61 @@
             "required": ["kind", "definitionId"],
             "type": "object"
         },
+        "AccountsTableCustomPropertyDefinition": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "display_type": {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyDisplayType"
+                },
+                "has_workflow_reference": {
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_big_number": {
+                    "type": "boolean"
+                },
+                "is_canonical": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "options": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableCustomPropertyOption"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/AccountsTableCustomPropertySource"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["id", "name", "display_type", "is_canonical", "has_workflow_reference"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertyDisplayType": {
+            "enum": ["text", "link", "number", "currency", "percent", "date", "datetime", "boolean", "select"],
+            "type": "string"
+        },
         "AccountsTableCustomPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -562,6 +617,32 @@
                 "is_date_after"
             ],
             "type": "string"
+        },
+        "AccountsTableCustomPropertyOption": {
+            "additionalProperties": false,
+            "properties": {
+                "color": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": ["string", "null"]
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["label", "color"],
+            "type": "object"
+        },
+        "AccountsTableCustomPropertySource": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "type": "string"
+                }
+            },
+            "required": ["id"],
+            "type": "object"
         },
         "AccountsTableCustomPropertyValue": {
             "type": ["string", "number", "boolean", "null"]
@@ -673,6 +754,10 @@
                     },
                     "type": "array"
                 },
+                "ignoreMissingDefinitions": {
+                    "description": "Omit missing definitions and custom-property filters incompatible with their current types.",
+                    "type": "boolean"
+                },
                 "includeChurned": {
                     "description": "Include churned accounts. Churned accounts are hidden by default.",
                     "type": "boolean"
@@ -711,6 +796,9 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useDefaultColumns": {
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -722,6 +810,18 @@
         "AccountsTableQueryResponse": {
             "additionalProperties": false,
             "properties": {
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableResolvedColumn"
+                    },
+                    "type": "array"
+                },
+                "customPropertyDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                    },
+                    "type": "array"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -757,6 +857,12 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "relationshipDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                    },
+                    "type": "array"
                 },
                 "resolved_compare_date_range": {
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -819,6 +925,28 @@
             "required": ["kind", "definitionId"],
             "type": "object"
         },
+        "AccountsTableRelationshipDefinition": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "type": ["string", "null"]
+                },
+                "id": {
+                    "type": "string"
+                },
+                "is_controlled": {
+                    "type": "boolean"
+                },
+                "is_single_holder": {
+                    "type": "boolean"
+                },
+                "name": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "name", "is_controlled"],
+            "type": "object"
+        },
         "AccountsTableRelationshipFilter": {
             "additionalProperties": false,
             "properties": {
@@ -845,6 +973,33 @@
         "AccountsTableRelationshipOperator": {
             "enum": ["exact", "is_not", "is_set", "is_not_set"],
             "type": "string"
+        },
+        "AccountsTableResolvedColumn": {
+            "discriminator": {
+                "propertyName": "kind"
+            },
+            "oneOf": [
+                {
+                    "$ref": "#/definitions/AccountsTableAccountFieldColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableTagsColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableNoteCountColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableRelationshipColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyColumn"
+                },
+                {
+                    "$ref": "#/definitions/AccountsTableCustomPropertyHistoryColumn"
+                }
+            ],
+            "required": ["kind"],
+            "type": "object"
         },
         "AccountsTableRow": {
             "additionalProperties": false,
@@ -7493,6 +7648,18 @@
                     "description": "What triggered the calculation of the query, leave empty if user/immediate",
                     "type": "string"
                 },
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableResolvedColumn"
+                    },
+                    "type": "array"
+                },
+                "customPropertyDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                    },
+                    "type": "array"
+                },
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
@@ -7546,6 +7713,12 @@
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "relationshipDefinitions": {
+                    "items": {
+                        "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                    },
+                    "type": "array"
                 },
                 "resolved_compare_date_range": {
                     "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -20832,6 +21005,18 @@
                         {
                             "additionalProperties": false,
                             "properties": {
+                                "columns": {
+                                    "items": {
+                                        "$ref": "#/definitions/AccountsTableResolvedColumn"
+                                    },
+                                    "type": "array"
+                                },
+                                "customPropertyDefinitions": {
+                                    "items": {
+                                        "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                                    },
+                                    "type": "array"
+                                },
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
@@ -20867,6 +21052,12 @@
                                 "query_status": {
                                     "$ref": "#/definitions/QueryStatus",
                                     "description": "Query status indicates whether next to the provided data, a query is still running."
+                                },
+                                "relationshipDefinitions": {
+                                    "items": {
+                                        "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                                    },
+                                    "type": "array"
                                 },
                                 "resolved_compare_date_range": {
                                     "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -46762,6 +46953,18 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableResolvedColumn"
+                            },
+                            "type": "array"
+                        },
+                        "customPropertyDefinitions": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -46797,6 +47000,12 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "relationshipDefinitions": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                            },
+                            "type": "array"
                         },
                         "resolved_compare_date_range": {
                             "$ref": "#/definitions/ResolvedDateRangeResponse",
@@ -48804,6 +49013,18 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableResolvedColumn"
+                            },
+                            "type": "array"
+                        },
+                        "customPropertyDefinitions": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableCustomPropertyDefinition"
+                            },
+                            "type": "array"
+                        },
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -48839,6 +49060,12 @@
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
                             "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "relationshipDefinitions": {
+                            "items": {
+                                "$ref": "#/definitions/AccountsTableRelationshipDefinition"
+                            },
+                            "type": "array"
                         },
                         "resolved_compare_date_range": {
                             "$ref": "#/definitions/ResolvedDateRangeResponse",

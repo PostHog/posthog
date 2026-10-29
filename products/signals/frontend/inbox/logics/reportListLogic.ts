@@ -1003,6 +1003,9 @@ export const reportListLogic = kea<reportListLogicType>([
         // the affected reports leave it and the counts settle.
         [inboxBulkActionsLogic.actionTypes.bulkDismissSuccess]: () => actions.refresh(),
         [inboxBulkActionsLogic.actionTypes.bulkResolveSuccess]: () => actions.refresh(),
+        // A bulk claim reloads after a failure too, because the server can save some claims before it fails.
+        [inboxBulkActionsLogic.actionTypes.bulkClaimSuccess]: () => actions.refresh(),
+        [inboxBulkActionsLogic.actionTypes.bulkClaimFailure]: () => actions.refresh(),
         // A single report dismissed, resolved, or refunded elsewhere (e.g. the detail pane) – reconcile
         // this section against the server so the report leaves its section and joins Resolved or
         // Dismissed, counts included.

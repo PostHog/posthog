@@ -227,14 +227,21 @@ class TestPrinter(BaseTest):
         )
         return printed
 
-    @parameterized.expand([(12,), (84,)])
+    @parameterized.expand(
+        [
+            (12, "events", "events"),
+            (84, "events", "events"),
+            (12, "posthog.flag_evaluations", "flag_evaluations"),
+        ]
+    )
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-    def test_events_retention_floor_applied(self, months: int):
+    def test_events_retention_floor_applied(self, months: int, table: str, printed_table: str):
         self.team.event_retention_months = months
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
-        sql = self._select("select count() from events", context=context)
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            sql = self._select(f"select count() from {table}", context=context)
         assert f"toIntervalMonth({months})" in sql
-        assert "greater(events.timestamp, minus(now" in sql
+        assert f"greater({printed_table}.timestamp, minus(now" in sql
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_events_retention_floor_not_applied_when_disabled(self):
