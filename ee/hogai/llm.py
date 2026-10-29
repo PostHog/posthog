@@ -1,3 +1,4 @@
+import ssl
 import datetime
 from collections.abc import (  # noqa: F401 — Sequence resolves inherited langchain field annotations lazily in this namespace
     AsyncIterator,
@@ -5,7 +6,7 @@ from collections.abc import (  # noqa: F401 — Sequence resolves inherited lang
     Mapping,
     Sequence,
 )
-from functools import cached_property
+from functools import cache, cached_property
 from typing import Any, ClassVar, cast
 
 from django.conf import settings
@@ -84,6 +85,11 @@ OPENAI_FLEX_MODELS = ["o3", "gpt-5.6-terra", "gpt5", "gpt5-mini", "gpt5-nano"]
 
 # Map "http://", "https://", and "all://" to None in Client's mounts to bypass proxies for MaxChatAnthropic.
 _BYPASS_PROXY_MOUNTS: dict[str, None] = {"http://": None, "https://": None, "all://": None}
+
+
+@cache
+def _ai_gateway_ssl_context() -> ssl.SSLContext:
+    return httpx.create_ssl_context(trust_env=False)
 
 
 def is_ai_gateway_served(output: object) -> bool:
@@ -466,8 +472,8 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             **data,
             "base_url": ai_gateway.url,
             "api_key": ai_gateway.api_key,
-            "http_client": httpx.Client(trust_env=False),
-            "http_async_client": httpx.AsyncClient(trust_env=False),
+            "http_async_client": httpx.AsyncClient(trust_env=False, verify=_ai_gateway_ssl_context()),
+            "timeout": AI_GATEWAY_TIMEOUT,
             "max_retries": 0,
             "ai_gateway_fallback": cls(**data, ai_gateway_fallback=None),
         }
