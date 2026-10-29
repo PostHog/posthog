@@ -55,10 +55,8 @@ import type { Span, SpanInspectorTab } from './types'
 /** What each result row represents: a trace (its root span), an individual span, or an operation or endpoint aggregate. */
 export type TracingDisplayMode = TracingViewMode | 'operations' | 'endpoints'
 
-/** The span list, or one of the aggregate tables. */
 export type TracingResultsTab = 'traces' | 'operations' | 'endpoints'
 
-/** Resolves a `view` URL value (or a tab) to the tab it opens, given which aggregate views are enabled. */
 function resultsTabFromView(view: unknown, operationsEnabled: boolean, endpointsEnabled: boolean): TracingResultsTab {
     if (operationsEnabled && view === 'operations') {
         return 'operations'
