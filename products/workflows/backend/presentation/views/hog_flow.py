@@ -673,6 +673,20 @@ _REPLAY_VISION_STEP_SCOPES = (
 )
 
 
+def _validate_push_action(inputs: Any) -> None:
+    if not isinstance(inputs, dict):
+        return
+
+    def value(key: str) -> Any:
+        entry = inputs.get(key)
+        return entry.get("value") if isinstance(entry, dict) else None
+
+    delivery = value("delivery") or "notification"
+    title = value("title")
+    if delivery != "silent" and not (isinstance(title, str) and title.strip()):
+        raise serializers.ValidationError({"inputs": {"title": "Add a notification title."}})
+
+
 def _strip_replay_vision_code(inputs: Any) -> None:
     # A draft keeps its raw inputs when they fail validation, so client-compiled code or a Liquid template can still
     # be there. The engine would render those instead of the literal value the access checks read.
@@ -2200,6 +2214,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     self._validate_run_scout_action()
                 if strict and template_id == _CLASSIFY_TEMPLATE_ID:
                     self._validate_classify_action(data["config"]["inputs"])
+                if strict and template_id == _FIXED_TEMPLATE_IDS["function_push"]:
+                    _validate_push_action(data["config"]["inputs"])
                 if template_id == _REPLAY_VISION_TEMPLATE_ID:
                     self._validate_replay_vision_action(data["config"].get("inputs") or {}, strict=strict)
                 if template_id == _RUN_SCOUT_TEMPLATE_ID:

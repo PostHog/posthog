@@ -234,6 +234,41 @@ class TestHogFlowAPI(APIBaseTest):
         assert active.status_code == expected_status, active.json()
         assert draft.status_code == 201, draft.json()
 
+    @parameterized.expand(
+        [
+            ("default delivery with a title", None, "Hi", 201),
+            ("default delivery without a title", None, "", 400),
+            ("blank title", "notification", "   ", 400),
+            ("android data only without a title", "android_data_only", "", 400),
+            ("silent without a title", "silent", "", 201),
+        ]
+    )
+    def test_only_a_silent_push_may_skip_the_title(
+        self, _name: str, delivery: str | None, title: str, expected_status: int
+    ) -> None:
+        template = _push_function_template()
+        for schema in template["inputs_schema"]:
+            if schema["key"] == "title":
+                schema["required"] = False
+        template["inputs_schema"].append({"key": "delivery", "type": "choice", "label": "Delivery", "required": False})
+        sync_template_to_db(template)
+        provider = Integration.objects.create(team=self.team, kind="firebase", config={})
+        inputs: dict[str, Any] = {
+            "distinctId": {"value": "{event.distinct_id}"},
+            "channels": {"value": [provider.id]},
+            "title": {"value": title},
+        }
+        if delivery is not None:
+            inputs["delivery"] = {"value": delivery}
+        hog_flow, _ = self._create_hog_flow_with_action({"template_id": "template-native-push", "inputs": inputs})
+        hog_flow["actions"][1]["type"] = "function_push"
+
+        active = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+
+        assert active.status_code == expected_status, active.json()
+        assert draft.status_code == 201, draft.json()
+
     @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
     def test_emits_resource_edited_on_create_and_update(self, mock_emit):
         hog_flow, _ = self._create_hog_flow_with_action(

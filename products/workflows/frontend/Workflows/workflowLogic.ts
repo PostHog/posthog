@@ -4074,6 +4074,14 @@ export const workflowLogic = kea<workflowLogicType>([
                                     channels: 'Select at least one channel to send this notification',
                                 }
                             }
+                            const title = action.config.inputs?.title?.value
+                            if (
+                                action.config.inputs?.delivery?.value !== 'silent' &&
+                                !(typeof title === 'string' && title.trim())
+                            ) {
+                                result.valid = false
+                                result.errors = { ...result.errors, title: 'Add a notification title' }
+                            }
                         }
 
                         if (

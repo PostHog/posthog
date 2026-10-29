@@ -1,8 +1,11 @@
 import { z } from 'zod'
 
 export const PushNotificationPayloadSchema = z.object({
+    // `android_data_only` leaves the notification out on Android so the app draws it, and still shows it on iOS.
+    // `silent` shows nothing on any device and only wakes the app with the data.
+    delivery: z.enum(['notification', 'android_data_only', 'silent']).optional(),
     // Common notification fields
-    title: z.string(),
+    title: z.string().optional(),
     body: z.string().optional(),
     image: z.string().url().optional(),
     data: z.record(z.string(), z.string()).optional(),

@@ -91,7 +91,7 @@ const renderPushPreviewHtml = (payload: PushNotificationPayloadType): string => 
           `<div style="font-size:14px;line-height:1.4;color:#2d2d2d">${escapeHtml(payload.body)}</div>`
         : ''
     // nosemgrep: javascript.express.security.injection.raw-html-format.raw-html-format
-    return `<!doctype html><meta charset="utf-8"><div style="font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;padding:1rem;max-width:420px;margin:1rem auto"><div style="background:#f4f4f5;border-radius:14px;padding:12px 14px"><div style="font-size:15px;font-weight:600;color:#111;margin-bottom:2px">${escapeHtml(payload.title)}</div>${subtitle}${body}${image}</div></div>`
+    return `<!doctype html><meta charset="utf-8"><div style="font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;padding:1rem;max-width:420px;margin:1rem auto"><div style="background:#f4f4f5;border-radius:14px;padding:12px 14px"><div style="font-size:15px;font-weight:600;color:#111;margin-bottom:2px">${escapeHtml(payload.title ?? '')}</div>${subtitle}${body}${image}</div></div>`
 }
 
 const oversizedPlaceholderHtml = (bytes: number): string => {
@@ -183,6 +183,9 @@ export class MessageAssetsService {
             return null
         }
         const payload = params.payload
+        if (payload?.delivery === 'silent') {
+            return null
+        }
         // Same rule as the email row: drop only when there is no content to show. A title-less push
         // still delivered something the recipient saw, so a body alone is worth capturing.
         if (!payload?.title && !payload?.body) {
@@ -205,7 +208,7 @@ export class MessageAssetsService {
             // The person, not the providers that carried it, so the Assets tab's RECIPIENT column means
             // the same thing for push as it does for email. Per-channel outcomes stay in the run log.
             recipient: recipient.distinctId,
-            subject: payload.title,
+            subject: payload.title ?? '',
             status: 'sent',
             sent_at: isoMicroseconds(new Date()),
             version: microsecondsSinceEpoch(),
