@@ -41,6 +41,8 @@ class AudienceSnapshotStatus:
 
 
 def _snapshot_status(job: HogFlowBatchJob) -> AudienceSnapshotStatus:
+    if job.audience_status is None:
+        raise ValueError(f"Batch run {job.id} has no audience snapshot")
     return AudienceSnapshotStatus(
         status=HogFlowBatchJobAudienceStatus(job.audience_status),
         audience_size=job.audience_size,
