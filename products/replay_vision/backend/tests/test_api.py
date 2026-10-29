@@ -777,14 +777,24 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("unknown_field", {"this_field_does_not_exist": True}),
+            ("unknown_field", {"this_field_does_not_exist": True}, "Recording filter is invalid."),
             # An oversized query is copied into every observation's snapshot, so it is capped on save.
-            ("oversized", {"distinct_ids": ["x" * 1_000 for _ in range(100)]}),
+            (
+                "oversized",
+                {"distinct_ids": ["x" * 1_000 for _ in range(100)]},
+                "Recording filter is too large. Keep it under 50 KB.",
+            ),
             # Every rule reads fields off the query, so any other shape must be refused before they run.
-            ("not_an_object", ["kind", "RecordingsQuery"]),
+            ("not_an_object", ["kind", "RecordingsQuery"], "Recording filter must be a JSON object."),
+            # Exposure in the query would skip experiment_targeting's access check.
+            (
+                "experiment_exposure",
+                {"experiment_exposure": {"experiment_id": 1}},
+                "Recording filter can't set experiment exposure directly. Set experiment_targeting instead.",
+            ),
         ]
     )
-    def test_create_rejects_invalid_query(self, _name: str, query: object) -> None:
+    def test_create_rejects_invalid_query(self, _name: str, query: object, detail: str) -> None:
         resp = self.client.post(
             self.scanners_url,
             data={
@@ -797,7 +807,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
             format="json",
         )
         self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "query")
+        self.assertEqual((resp.json()["attr"], resp.json()["detail"]), ("query", detail))
 
     def test_delete(self) -> None:
         scanner = self._create_scanner()
@@ -4202,6 +4212,10 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
                 {"experiment": {"experiment_id": 1}, "experiment_targeting": {"experiment_id": 1, "variant": None}},
             ),
             ("empty_variant_list", {"experiment": {"experiment_id": 1, "variants": []}}),
+            # The estimate takes the same filter a saved scanner keeps, so it applies the same rules.
+            ("query_oversized", {"query": {"distinct_ids": ["x" * 1_000 for _ in range(100)]}}),
+            ("query_experiment_exposure", {"query": {"experiment_exposure": {"experiment_id": 1}}}),
+            ("query_not_an_object", {"query": ["kind", "RecordingsQuery"]}),
         ]
     )
     def test_estimate_rejects_invalid_input(self, _name: str, payload: dict[str, Any]) -> None:

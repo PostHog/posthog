@@ -190,8 +190,6 @@ from products.replay_vision.backend.watch_rank import (
 )
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
 
-# Date is set by the schedule at trigger time, not by the user — strip on save.
-
 
 class ScannerCreationMethod(models.TextChoices):
     """How a person built a scanner in the UI. Reported once at creation, never stored.
@@ -804,7 +802,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._restore_redacted_experiment_config(attrs)
         self._validate_scanner_config(attrs)
         self._validate_experiment_scanner(attrs)
-        self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
         check_scout_scanner_credit_limit(
@@ -976,14 +973,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if message is not None:
             raise serializers.ValidationError({"scanner_config": message})
 
-    def _validate_and_strip_query(self, attrs: dict[str, Any]) -> None:
-        if "query" not in attrs:
-            return
+    def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
-        try:
-            attrs["query"] = clean_scanner_query(attrs["query"])
-        except ScannerQueryError as error:
-            raise serializers.ValidationError({"query": str(error)})
+        return _clean_query(value)
 
     def to_representation(self, instance: ReplayScanner) -> dict[str, Any]:
         data = super().to_representation(instance)
