@@ -524,6 +524,13 @@ jobs:
                         # _EXTERNAL_COMPANION_SKILL_DIRS in products/signals/backend/scout_harness/lazy_seed.py
                         # names this companion skill from another product.
                         - 'products/replay_vision/skills/exploring-replay-vision-observations/**'
+                        # test_unowned_test_directories.py lists the directories that hold unowned
+                        # tests. Only a test file that a PR adds, deletes or moves can change that
+                        # list, including a Jest file in a frontend-only PR. Keep these globs in
+                        # step with runner_for_path in packages/owners-yaml/owners_yaml/census.py.
+                        - added|deleted|renamed: '**/test_*.py'
+                        - added|deleted|renamed: '**/*_test.py'
+                        - added|deleted|renamed: '**/*.{test,spec}.{js,jsx,ts,tsx}'
                       sdk_manifests:
                         # Everything the SDK major-version guard reads. Lockfiles are listed
                         # because a floor-only or `*` spec can move to a new major through

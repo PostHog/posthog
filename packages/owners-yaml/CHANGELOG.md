@@ -15,10 +15,15 @@ the GitHub Release body, so add the entry here before you cut the tag.
 - An optional `sensitive` field, at file level and in rules, marks paths where a small change can change behavior far outside the change. The nearest value wins, as for `status`. The format only states the fact; a consumer decides what to do with it, for example a review assigner that requests the owners for each change. It never makes a review required. An alias file such as `product.yaml` can set it too, so a manifest that already used a `sensitive` key for another purpose now marks its paths as sensitive. `SPEC.md` section 3.7 defines it.
 - The resolver response carries a `sensitive` member, and `Resolution` a `sensitive` field. A consumer treats a missing member as `false`.
 - `lint` warns about a sensitive path that has no owners, because a consumer has no owner to request a review from.
+- `unowned_test_directories(resolver)` returns the directories that hold a tracked test file no team owns.
 
 ### Changed
 
 - A field that a tool does not know is a warning, not an error, at the top level, in a rule, in `teams`, and in `codeowners`. A file that uses a field from a newer release then still passes an older `lint`. `parse_owners_file` takes an optional `warnings` list that collects them. SPEC section 3 adds the rule that an amendment only adds a field that a tool can safely ignore.
+
+### Fixed
+
+- `census` no longer counts files that `owners: null` exempts under `unowned`, as SPEC section 3.1 requires.
 
 ## 0.3.0
 
