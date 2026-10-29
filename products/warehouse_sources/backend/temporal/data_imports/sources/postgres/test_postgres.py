@@ -1087,6 +1087,9 @@ class TestPostgresSourceNonRetryableErrors:
             "missing chunk number 0 for toast value 90210 in pg_toast_16384",
             'index "orders_pkey" contains unexpected zero page at block 42',
             'could not read block 7 in file "base/16384/16385": read only 0 of 8192 bytes',
+            # The server couldn't open the relation file at all (IoError, SQLSTATE 58030) rather than
+            # failing to read a block from one already open.
+            'could not open file "base/16384/1259": Input/output error',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             "InternalError_: missing chunk number 0 for toast value 90210 in pg_toast_16384",
         ],

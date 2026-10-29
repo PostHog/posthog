@@ -1493,6 +1493,15 @@ class PostgresSource(
             "missing chunk number": _SOURCE_PAGE_CORRUPTION_ERROR,
             "unexpected zero page": _SOURCE_PAGE_CORRUPTION_ERROR,
             "could not read block": _SOURCE_PAGE_CORRUPTION_ERROR,
+            # The server failed to open a relation's underlying file at all, rather than failing to
+            # read a block from one already open — psycopg's `IoError` (SQLSTATE 58030), raised as
+            # `could not open file "base/<db>/<relfilenode>": <errno message>`. Reported errno text
+            # includes "Input/output error" (a failing disk or filesystem) and "No such file or
+            # directory" (the file was removed from under a still-open relation, e.g. external
+            # corruption or an out-of-band `rm`). Both are damage on the source's storage, in the
+            # same family as the page-level errors above, and every retry re-opens the same missing
+            # or unreadable file. The volatile file path is excluded from the match.
+            "could not open file": _SOURCE_PAGE_CORRUPTION_ERROR,
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
