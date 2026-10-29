@@ -762,28 +762,10 @@ def send_reviewer_added_slack_notifications(
 ) -> None:
     """Slack-ping reviewers a human just added to a report.
 
-    Runs on a worker because delivery makes several network calls (source-product metadata,
-    Slack user lookups, chat.postMessage) that must not hold up the reviewer-edit request.
+    Runs on a worker because delivery makes several network calls (Slack user lookups,
+    chat.postMessage) that must not hold up the reviewer-edit request.
     Best-effort end to end — the dispatcher logs per-destination failures itself.
     """
-    # Imported here rather than at module level: signal_metadata drags posthog.schema and
-    # posthog.hogql.query onto the django.setup() path (tasks are autodiscovered by celery),
-    # which the startup import budget forbids.
-    from products.signals.backend.signal_metadata import fetch_source_products_for_reports  # noqa: PLC0415
-
-    team = Team.objects.get(id=team_id)
-    # Source products are cosmetic (one metadata line in the message), so a failure fetching
-    # them must not suppress the ping itself.
-    source_products: list[str] | None = None
-    try:
-        meta = fetch_source_products_for_reports(team, [report_id], ch_user=ClickHouseUser.SIGNALS).get(report_id)
-        source_products = meta.source_products if meta else None
-    except Exception:
-        logger.exception(
-            "failed to fetch source products for reviewer-added notification",
-            report_id=report_id,
-            team_id=team_id,
-        )
     github_logins = [value for value in added_github_logins if not value.startswith("user:")]
     user_uuids = [value.removeprefix("user:") for value in added_github_logins if value.startswith("user:")]
     dispatch_reviewer_added_notifications(
@@ -791,7 +773,6 @@ def send_reviewer_added_slack_notifications(
         team_id=team_id,
         added_github_logins=github_logins,
         added_user_uuids=user_uuids,
-        source_products=source_products,
         exclude_user_id=exclude_user_id,
     )
 
