@@ -179,17 +179,23 @@ class TestVerdict(SimpleTestCase):
         assert item.proposal.sync_frequency == "6hour"
 
     def test_prefixes_are_valid_and_unique_per_source_type(self) -> None:
-        first, second, digit_first = _plan_all(
+        first, second, numbered, digit_first = _plan_all(
             (
                 _connection(name="hubspot"),
                 _connection(id="conn_staging", name="hubspot"),
+                _connection(id="conn_other", name="hubspot_2"),
                 _connection(name="3PL Orders"),
             )
         )
 
-        assert first.proposal is not None and second.proposal is not None and digit_first.proposal is not None
-        assert (first.proposal.prefix, second.proposal.prefix) == ("hubspot", "hubspot_2")
-        assert any("`hubspot_2`" in caveat for caveat in second.caveats), second.caveats
+        assert first.proposal and second.proposal and numbered.proposal and digit_first.proposal
+        # `hubspot_2` belongs to another connection, so the repeat skips it.
+        assert (first.proposal.prefix, second.proposal.prefix, numbered.proposal.prefix) == (
+            "hubspot",
+            "hubspot_3",
+            "hubspot_2",
+        )
+        assert any("`hubspot_3`" in caveat for caveat in second.caveats), second.caveats
         assert validate_source_prefix(digit_first.proposal.prefix) == (True, "")
 
     @parameterized.expand(
@@ -236,7 +242,8 @@ class TestTables(SimpleTestCase):
                 ["contacts"],
                 (),
                 ("email_event",),
-                "no PostHog table",
+                ("deals",),
+                "not planned",
             ),
             (
                 "inferred_pair_is_planned_and_marked",
@@ -244,6 +251,7 @@ class TestTables(SimpleTestCase):
                 _HUBSPOT_TABLES,
                 ["contacts", "deals"],
                 (("contact", "contacts"),),
+                (),
                 (),
                 "naming rule",
             ),
@@ -255,7 +263,8 @@ class TestTables(SimpleTestCase):
                 ["contacts"],
                 (),
                 ("contact",),
-                "no PostHog table",
+                ("deals",),
+                "not planned",
             ),
             (
                 "two_tables_one_posthog_table",
@@ -263,7 +272,9 @@ class TestTables(SimpleTestCase):
                 _HUBSPOT_TABLES,
                 ["contacts"],
                 (),
-                (),
+                # Listed, so the user can choose it over the other table.
+                ("contacts",),
+                ("deals",),
                 "same PostHog table",
             ),
             (
@@ -273,6 +284,7 @@ class TestTables(SimpleTestCase):
                 [],
                 (),
                 ("email_event",),
+                ("contacts", "deals"),
                 "every table starts with syncing off",
             ),
             # The source discovers more tables than it lists, so apply checks this name against discovery.
@@ -281,6 +293,7 @@ class TestTables(SimpleTestCase):
                 ("contacts", "users"),
                 _Tables(names=frozenset({"contacts"}), complete=False),
                 ["contacts", "users"],
+                (),
                 (),
                 (),
                 None,
@@ -295,6 +308,7 @@ class TestTables(SimpleTestCase):
         expected: list[str],
         inferred: tuple[tuple[str, str], ...],
         unmatched: tuple[str, ...],
+        unused: tuple[str, ...],
         expected_caveat: str | None,
     ) -> None:
         catalog = _Catalog(known, inferred={"contact": "contacts"})
@@ -303,8 +317,7 @@ class TestTables(SimpleTestCase):
         assert [schema.name for schema in item.proposal.schemas] == expected
         assert [(pair.vendor_table, pair.posthog_table) for pair in item.proposal.inferred_tables] == list(inferred)
         assert item.proposal.unmatched_tables == unmatched
-        # The tables left to choose from come with the unmatched ones, and only then.
-        assert bool(item.proposal.unused_posthog_tables) == bool(unmatched)
+        assert item.proposal.unused_posthog_tables == unused
         if expected_caveat:
             assert any(expected_caveat in caveat for caveat in item.caveats), item.caveats
         else:
