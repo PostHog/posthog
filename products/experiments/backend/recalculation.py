@@ -22,7 +22,7 @@ from prometheus_client import Counter
 from rest_framework.exceptions import Throttled, ValidationError
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
@@ -61,6 +61,7 @@ _STALE_RECALC_THRESHOLD = timedelta(minutes=30)
 MIN_USER_RECALCULATION_INTERVAL = timedelta(minutes=5)
 RECALCULATION_RATE_LIMIT_FEATURE_FLAG = "experiment-metric-recalculation-rate-limit"
 RECALCULATION_ACTIVITY_QUEUE_FEATURE_FLAG = "experiment-recalculation-activity-queue"
+RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG = "experiment-recalculation-clickhouse-user"
 _RATE_LIMITED_TRIGGERS = frozenset(
     {
         ExperimentMetricsRecalculation.Trigger.MANUAL,
@@ -90,6 +91,10 @@ class RecalculationRateLimited(Throttled):
     # DRF appends "Expected available in N seconds." to this, so the wait is not repeated here.
     default_detail = "Metrics were recalculated less than 5 minutes ago."
 
+
+# Mirrors STALE_RESULTS_THRESHOLD_HOURS in experimentMetricsLogic.ts. The frontend judges staleness with the
+# browser clock, so this server-side check stops a client clock that runs ahead from recalculating on every visit.
+STALE_REFRESH_MIN_RESULT_AGE = timedelta(hours=12)
 
 # A daily timeseries point older than this no longer stands in for a recalculation on the cold-start read. The
 # daily run happens once per day, so a fresh experiment always has a point inside the bound.
@@ -170,6 +175,8 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
     # run's window instead of walking the whole table on every poll. The 60s pad absorbs clock skew between
     # the Django clock that stamped started_at and the ClickHouse clock behind event_time.
     since = (recalc.started_at or recalc.created_at) - timedelta(seconds=60)
+    # timeout_overflow_mode must be 'throw'. Under a 'break' profile, a query that reaches max_execution_time
+    # returns zero rows for this keyless aggregate instead of an error. The throw goes to the except below.
     try:
         with tags_context(product=Product.EXPERIMENTS, feature=Feature.CACHE_WARMUP, team_id=recalc.team_id):
             rows = sync_execute(
@@ -194,7 +201,7 @@ def get_live_query_progress(recalc: ExperimentMetricsRecalculation) -> dict | No
                         AND event_date >= toDate(toDateTime(%(since)s))
                         AND event_time >= toDateTime(%(since)s)
                 )
-                SETTINGS skip_unavailable_shards=1, max_execution_time=2
+                SETTINGS skip_unavailable_shards=1, max_execution_time=2, timeout_overflow_mode='throw'
                 """,
                 {"cluster": CLICKHOUSE_CLUSTER, "prefix": prefix, "since": int(since.timestamp())},
                 workload=Workload.ONLINE,
@@ -347,6 +354,16 @@ def _activity_task_queue(organization_id: str) -> str | None:
     return settings.EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE if enabled else None
 
 
+def recalculation_clickhouse_user(organization_id: str) -> ClickHouseUser | None:
+    # None keeps today's routing, also on a flag error, because that routing always works.
+    try:
+        enabled = _organization_flag_enabled(RECALCULATION_CLICKHOUSE_USER_FEATURE_FLAG, organization_id)
+    except Exception as e:
+        capture_exception(e)
+        return None
+    return ClickHouseUser.EXPERIMENTS if enabled else None
+
+
 def _refresh_window_enforced(experiment: Experiment) -> bool:
     # Local development skips the window so a developer can reload at will. Tests keep it, because they assert it.
     if settings.DEBUG and not settings.TEST:
@@ -432,8 +449,9 @@ def request_recalculation(experiment: Experiment, user: User | None, trigger: st
     ``RECALCULATION_MAX_EXPERIMENT_AGE`` ago gets a rejected run: status FAILED, ``is_existing=False``, and the
     caller must not start a workflow for it either. A user-driven trigger inside
     ``MIN_USER_RECALCULATION_INTERVAL`` after the latest completed run finished raises
-    ``RecalculationRateLimited`` when the organization has the rate-limit flag on. Otherwise creates a fresh
-    pending row.
+    ``RecalculationRateLimited`` when the organization has the rate-limit flag on. A ``stale_refresh`` whose
+    latest terminal run has a ``query_to`` inside ``STALE_REFRESH_MIN_RESULT_AGE`` returns that run with
+    ``is_existing=True``, and the caller must not start a workflow. Otherwise creates a fresh pending row.
     """
     return _request_recalculation(experiment, user, trigger, max_age=_recalculation_max_age(experiment))
 
@@ -490,6 +508,15 @@ def _request_recalculation(
                 _recalculation_rate_limited_counter.inc()
                 next_allowed_at = latest.completed_at + MIN_USER_RECALCULATION_INTERVAL
                 raise RecalculationRateLimited(wait=(next_allowed_at - timezone.now()).total_seconds())
+
+        if trigger == ExperimentMetricsRecalculation.Trigger.STALE_REFRESH:
+            latest = _terminal_recalculations(experiment).order_by("-created_at").first()
+            if (
+                latest is not None
+                and latest.query_to is not None
+                and latest.query_to > timezone.now() - STALE_REFRESH_MIN_RESULT_AGE
+            ):
+                return build_job_payload(latest, is_existing=True)
 
         # No fresh active row, but stale tombstones might still hold the per-experiment uniqueness constraint
         # (unique_active_metrics_recalculation_per_experiment). Mark them FAILED so the constraint releases

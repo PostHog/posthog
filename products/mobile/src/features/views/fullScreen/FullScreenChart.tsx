@@ -1,10 +1,7 @@
 import type { QueryKey } from '@tanstack/react-query'
 import { type ReactElement, type ReactNode, useMemo, useState } from 'react'
 import { ScrollView, Text, View } from 'react-native'
-
 import type { InsightSnapshot } from '@/model/views'
-import { BackChip } from '@/ui/BackChip'
-import { BlurEdge } from '@/ui/BlurEdge'
 import { BarList } from '@/ui/chart/BarList'
 import { ChartLegend, useChartLegend } from '@/ui/chart/ChartLegend'
 import { FunnelSteps } from '@/ui/chart/FunnelSteps'
@@ -15,18 +12,19 @@ import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import { SQL_TABLE_MAX_ROWS, sqlRowsText } from '@/ui/chart/sqlCellFormat'
 import type { ChartAccessibilityAction } from '@/ui/chart/types'
 import { Eyebrow } from '@/ui/Eyebrow'
-import { FadeEdge } from '@/ui/FadeEdge'
+import { ScreenChrome } from '@/ui/ScreenChrome'
 import { StateView } from '@/ui/StateView'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles } from '@/ui/theme'
 import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
 import { useInsightChartModel } from '../InsightChart'
 import { InsightNoData } from '../InsightVisual'
 import { OpensOnWeb } from '../OpensOnWeb'
 import { useChartSheets } from '../pointSheet/ChartSheetsProvider'
 import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
-import { VIEW_CONTENT_TOP } from '../screen/ViewChrome'
 import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
 import {
     type InsightDisplay,
@@ -39,10 +37,6 @@ import {
 import { useViewsContext } from '../useViewsContext'
 import { freshnessKey, useSnapshot, viewsKeys } from '../viewsCache'
 
-const CHROME_TOP = 62
-const CHROME_ROW_HEIGHT = 54
-const CHROME_BOTTOM_PADDING = 18
-const CHROME_SOLID = (CHROME_TOP + CHROME_ROW_HEIGHT) / (CHROME_TOP + CHROME_ROW_HEIGHT + CHROME_BOTTOM_PADDING)
 const MIN_CHART_HEIGHT = 220
 /** The legend takes the rows it needs, up to this share of the space; past that it scrolls. */
 const MAX_LEGEND_SHARE = 0.38
@@ -66,10 +60,13 @@ export function FullScreenChart({ shortId, queryKey }: FullScreenChartProps): Re
     const { scope } = useViewsContext()
     const key = useMemo(() => queryKey ?? viewsKeys.insight(scope, shortId, null, '-'), [queryKey, scope, shortId])
     const snapshot = useSnapshot<InsightSnapshot>(key)
+    const scrollTitle = useScrollTitle(snapshot?.name ?? '')
     return (
-        <ViewScreenFrame chrome={<FullScreenChrome onBack={back} />}>
+        <ViewScreenFrame
+            chrome={<ScreenChrome onBack={back} backTestID="chart-fullscreen-back" title={scrollTitle.title} />}
+        >
             {snapshot && insightRenderState(snapshot) !== 'pending' ? (
-                <FullScreenBody snapshot={snapshot} queryKey={key} />
+                <FullScreenBody scrollTitle={scrollTitle} snapshot={snapshot} queryKey={key} />
             ) : (
                 <StateView
                     title="This chart isn't loaded"
@@ -83,21 +80,15 @@ export function FullScreenChart({ shortId, queryKey }: FullScreenChartProps): Re
     )
 }
 
-function FullScreenChrome({ onBack }: { onBack: () => void }): ReactElement {
-    const styles = useStyles()
-    const insets = useScreenInsets()
-    return (
-        <View style={[styles.chrome, { paddingTop: topOffset(insets, CHROME_TOP) }]}>
-            <BlurEdge solid={CHROME_SOLID} />
-            <FadeEdge direction="down" solid={CHROME_SOLID} opacity={layout.chromeTint} />
-            <View style={styles.chromeRow}>
-                <BackChip onPress={onBack} testID="chart-fullscreen-back" />
-            </View>
-        </View>
-    )
-}
-
-function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; queryKey: QueryKey }): ReactElement {
+function FullScreenBody({
+    snapshot,
+    queryKey,
+    scrollTitle,
+}: {
+    snapshot: InsightSnapshot
+    queryKey: QueryKey
+    scrollTitle: ScrollTitleState
+}): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
     const motion = useChartListMotion()
@@ -114,15 +105,17 @@ function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; que
     const empty = insightRenderState(snapshot) === 'empty'
     const rangeText = resolvedRangeText(snapshot.resolvedRange, snapshot.interval)
     const padding = {
-        paddingTop: topOffset(insets, VIEW_CONTENT_TOP),
+        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
         paddingBottom: bottomOffset(insets, 24),
     }
     const header = (
         <View style={styles.header}>
-            <Eyebrow>{`Insight · ${snapshot.kindLabel}`}</Eyebrow>
-            <Text style={styles.title} numberOfLines={2}>
-                {snapshot.name}
-            </Text>
+            <View onLayout={scrollTitle.onTitleLayout} style={styles.titleBlock}>
+                <Eyebrow>{`Insight · ${snapshot.kindLabel}`}</Eyebrow>
+                <Text style={styles.title} numberOfLines={2} accessibilityRole="header">
+                    {snapshot.name}
+                </Text>
+            </View>
             <Text style={styles.meta}>{[metaLead(snapshot, display), rangeText].filter(Boolean).join(' · ')}</Text>
         </View>
     )
@@ -194,7 +187,10 @@ function FullScreenBody({ snapshot, queryKey }: { snapshot: InsightSnapshot; que
     return (
         <ScrollView
             contentContainerStyle={[styles.gutter, padding]}
-            onScroll={motion.onScroll}
+            onScroll={(event) => {
+                motion.onScroll()
+                scrollTitle.onScroll(event)
+            }}
             scrollEventThrottle={16}
             testID="chart-fullscreen"
         >
@@ -277,22 +273,6 @@ function TimeSeries({ snapshot, source, rangeText }: TimeSeriesProps): ReactElem
 }
 
 const useStyles = createStyles(({ colors }) => ({
-    chrome: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: layout.inboxGutter,
-        paddingBottom: CHROME_BOTTOM_PADDING,
-        pointerEvents: 'box-none',
-    },
-    chromeRow: {
-        height: CHROME_ROW_HEIGHT,
-        justifyContent: 'center',
-    },
     fill: {
         flex: 1,
     },
@@ -302,7 +282,10 @@ const useStyles = createStyles(({ colors }) => ({
     header: {
         gap: 4,
         marginBottom: 16,
-        paddingHorizontal: 2,
+        paddingHorizontal: 6,
+    },
+    titleBlock: {
+        gap: 4,
     },
     title: {
         ...type.headline,

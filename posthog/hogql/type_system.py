@@ -1089,11 +1089,41 @@ def infer_tuple_name_access_constant_type(tuple_type: ast.ConstantType, field_na
     return dataclasses.replace(item_type, nullable=tuple_type.nullable or item_type.nullable)
 
 
+# ClickHouse returns Float64 from these for any numeric input.
+_FLOAT64_MATH_FUNCTIONS = frozenset(
+    {
+        "exp",
+        "log",
+        "ln",
+        "exp2",
+        "log2",
+        "exp10",
+        "log10",
+        "log1p",
+        "sqrt",
+        "cbrt",
+        "sin",
+        "cos",
+        "tan",
+        "asin",
+        "acos",
+        "atan",
+    }
+)
+
+
 def _infer_trino_function_type(
     normalized_name: str,
     arg_types: list[ast.ConstantType],
     args: Optional[list[ast.Expr]],
 ) -> ast.ConstantType | None:
+    if (
+        normalized_name in _FLOAT64_MATH_FUNCTIONS
+        and len(arg_types) == 1
+        and isinstance(arg_types[0], (ast.IntegerType, ast.FloatType, ast.DecimalType))
+    ):
+        return ast.FloatType(nullable=arg_types[0].nullable)
+
     if normalized_name == "roundtoexp2" and arg_types and isinstance(arg_types[0], (ast.IntegerType, ast.FloatType)):
         return dataclasses.replace(arg_types[0])
 
@@ -1493,6 +1523,11 @@ def _infer_generic_function_type(
 
     if normalized_name in {"arraysum", "arrayavg", "arraymin", "arraymax"} and arg_types:
         item_type = infer_array_access_constant_type(arg_types[-1])
+        if args and isinstance(args[0], ast.Lambda):
+            # `f(lambda, arr)` reduces `arrayMap(lambda, arr)`, so the lambda decides the element type.
+            lambda_type = _lambda_return_constant_type(args[0])
+            if lambda_type is not None and not isinstance(lambda_type, ast.UnknownType):
+                item_type = dataclasses.replace(lambda_type, nullable=item_type.nullable or lambda_type.nullable)
         if normalized_name == "arrayavg":
             return ast.FloatType(nullable=item_type.nullable)
         return item_type
@@ -2086,7 +2121,8 @@ def _infer_json_extract_type(
     if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
         return None
 
-    runtime_type = parse_sql_runtime_type(type_arg.value, dialect=dialect)
+    # The Trino backend translates HogQL's ClickHouse type names, so the target is ClickHouse syntax there too.
+    runtime_type = parse_sql_runtime_type(type_arg.value, dialect="clickhouse" if dialect == "trino" else dialect)
     if runtime_type.family == "unknown":
         return None
     result_type = constant_type_from_runtime_type(runtime_type)

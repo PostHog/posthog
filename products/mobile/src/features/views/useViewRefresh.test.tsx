@@ -4,7 +4,7 @@ import { act, renderHook } from '@testing-library/react-native'
 import type { Freshness } from '@/model/views'
 
 import { REFRESH_MIN_MS } from './freshness'
-import type { ReadResult } from './refreshQueue'
+import type { ReadResult, RefreshMode } from './refreshQueue'
 import { viewsQueue } from './refreshQueue'
 import { type RefreshContainer, type RefreshItem, useViewRefresh, type ViewRefreshOptions } from './useViewRefresh'
 import { useItemErrors } from './viewsCache'
@@ -69,7 +69,6 @@ describe('useViewRefresh on a dashboard', () => {
             screenKey: 'dashboard:1',
             items,
             container: dashboard(range),
-            bulkFloor: true,
             enabled: true,
             rangeKey: range,
         }
@@ -159,7 +158,7 @@ describe('useViewRefresh on a dashboard', () => {
         }
     }
 
-    test.each(['no requests due', 'refresh window', 'fast list', 'slow list', 'failed list'] as const)(
+    test.each(['fresh list', 'refresh window', 'fast list', 'slow list', 'failed list'] as const)(
         'a pull gives feedback and settles with %s',
         async (scenario) => {
             jest.useFakeTimers()
@@ -190,11 +189,10 @@ describe('useViewRefresh on a dashboard', () => {
                     lists: [
                         {
                             key: 'pins',
-                            updatedAt: () => (scenario === 'no requests due' ? Date.now() : 0),
+                            updatedAt: () => (scenario === 'fresh list' ? Date.now() : 0),
                             refetch,
                         },
                     ],
-                    bulkFloor: true,
                     enabled: true,
                 }
                 const { result, unmount } = renderHook(() => useViewRefresh(props))
@@ -207,10 +205,10 @@ describe('useViewRefresh on a dashboard', () => {
                 await flush()
                 expect(result.current.busy).toBe(true)
                 expect(result.current.pulling).toBe(true)
-                expect(refetch).toHaveBeenCalledTimes(scenario === 'no requests due' ? 0 : 1)
+                expect(refetch).toHaveBeenCalledTimes(1)
                 if (scenario === 'refresh window') {
-                    expect(result.current.hint).toBe('You can refresh again in 2 min.')
-                    expect(reads).toEqual([])
+                    expect(result.current.hint).toBeNull()
+                    expect(reads).toEqual(['7d-tile-0'])
                 }
 
                 await act(async () => jest.advanceTimersByTime(REFRESH_MIN_MS - 1))
@@ -269,7 +267,6 @@ describe('useViewRefresh on a dashboard', () => {
                 dataScope: 'https://us.example.com|1',
                 screenKey: 'insight:abc',
                 items: [item],
-                bulkFloor: false,
                 enabled: true,
             }
             const { result, unmount } = renderHook(() => useViewRefresh(props))
@@ -318,6 +315,94 @@ describe('useViewRefresh on a dashboard', () => {
         expect(reads).toEqual(['7d-dashboard', '7d-dashboard'])
         unmount()
     })
+
+    test.each(
+        (['list', 'dashboard'] as const).flatMap((screen) =>
+            (['item', 'pull'] as const).flatMap((trigger) =>
+                (screen === 'dashboard'
+                    ? (['allowed', 'cooling', 'unknown', 'dashboard_floor'] as const)
+                    : (['allowed', 'cooling', 'unknown'] as const)
+                ).map((window) => ({ screen, trigger, window }))
+            )
+        )
+    )(
+        '$screen $trigger refresh reads immediately with a $window server window',
+        async ({ screen, trigger, window }) => {
+            jest.useFakeTimers()
+            try {
+                const modes: RefreshMode[] = []
+                let snapshot: Freshness = {
+                    ...oldValue(),
+                    ...(window === 'dashboard_floor' ? { lastRefreshAt: new Date().toISOString() } : {}),
+                    cacheTargetAge: new Date(Date.now() + 3_600_000).toISOString(),
+                    nextAllowedRefreshAt:
+                        window === 'unknown'
+                            ? null
+                            : new Date(
+                                  Date.now() + (window === 'allowed' || window === 'dashboard_floor' ? -60_000 : 60_000)
+                              ).toISOString(),
+                }
+                let containerAt: number | null = null
+                const item: RefreshItem = {
+                    key: 'insight-manual',
+                    family: 'insights',
+                    windowMode: 'force_cache',
+                    snapshot: () => snapshot,
+                    read: async (mode) => {
+                        modes.push(mode)
+                        snapshot = { ...snapshot, readAt: Date.now() }
+                        return { status: 'ok', computed: mode === 'force_blocking' }
+                    },
+                }
+                const props: ViewRefreshOptions = {
+                    screen,
+                    dataScope: 'https://us.example.com|1',
+                    screenKey: screen,
+                    items: [item],
+                    enabled: true,
+                    container:
+                        screen === 'dashboard'
+                            ? {
+                                  key: 'dashboard-manual',
+                                  family: 'dashboards',
+                                  readAt: () => containerAt,
+                                  lastRefresh: () => (window === 'dashboard_floor' ? new Date().toISOString() : null),
+                                  read: async () => {
+                                      reads.push('dashboard')
+                                      containerAt = Date.now()
+                                      snapshot = { ...snapshot, readAt: Date.now() }
+                                      return { status: 'ok', computed: false }
+                                  },
+                              }
+                            : undefined,
+                }
+                const { result, unmount } = renderHook(() => useViewRefresh(props))
+                await flush()
+                modes.length = 0
+
+                act(() => (trigger === 'item' ? result.current.refreshItem(item.key) : result.current.onPull()))
+                await flush()
+                await act(async () => jest.advanceTimersByTimeAsync(400))
+
+                expect(modes).toEqual(
+                    window === 'allowed'
+                        ? ['force_blocking']
+                        : screen === 'list' || trigger === 'item'
+                          ? ['force_cache']
+                          : []
+                )
+                expect(reads).toEqual(
+                    screen === 'dashboard' ? (trigger === 'pull' ? ['dashboard', 'dashboard'] : ['dashboard']) : []
+                )
+                expect(result.current.busy).toBe(false)
+                expect(result.current.hint).toBeNull()
+                expect(result.current.pulling).toBe(false)
+                unmount()
+            } finally {
+                jest.useRealTimers()
+            }
+        }
+    )
 
     test('a new range drops the queued reads of the range left, and its own reads go next', async () => {
         const { rerender, unmount } = renderHook((props: ViewRefreshOptions) => useViewRefresh(props), {

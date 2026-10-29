@@ -33,6 +33,7 @@ export interface PermissionToolCall {
 }
 
 export interface PermissionRecord {
+    requestDetails?: string
     requestId: string
     toolCallId: string
     toolName: string

@@ -1,12 +1,8 @@
 name: Mobile Build
 
-# Queues an EAS build of the PostHog mobile app (products/mobile) and, for production
-# builds dispatched from master, submits it to TestFlight and the Play internal track
-# once EAS finishes it. Release steps: products/mobile/docs/RELEASING.md.
-#
-# Required repository secret:
-#   EXPO_TOKEN - an Expo access token with build and submit permissions for the
-#                "posthog" account (https://expo.dev/settings/access-tokens).
+# Queues internal development/preview builds. Production binaries and OTA updates
+# are published only by Mobile Release after a release request merges to master.
+# Release steps: products/mobile/docs/RELEASING.md.
 #
 # Store credentials stay on EAS, set once with `eas credentials`, so this workflow
 # never handles an Apple or Google key.
@@ -23,7 +19,6 @@ on:
                 options:
                     - development
                     - preview
-                    - production
             platform:
                 description: 'Platform'
                 type: choice
@@ -32,15 +27,12 @@ on:
                     - all
                     - ios
                     - android
-            submit:
-                description: 'Submit to TestFlight and Play internal when the build finishes (production from master only)'
-                type: boolean
-                default: false
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.profile }}-${{ inputs.platform }}
-    # A queued EAS build is already paid for, so a second dispatch waits instead of
-    # cancelling the first one's upload half way.
+    # Let an explicit build dispatch finish uploading and submitting to EAS.
+    # This only serializes GitHub runs in this group. With --no-wait, EAS builds
+    # continue independently and may overlap.
     cancel-in-progress: false
 
 permissions:
@@ -48,6 +40,8 @@ permissions:
 
 jobs:
     build:
+        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
+        environment: mobile-build
         name: EAS build (${{ inputs.profile }}, ${{ inputs.platform }})
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 20
@@ -55,27 +49,10 @@ jobs:
             run:
                 working-directory: products/mobile
         steps:
-            # Store submissions publish a release, so they only come from master.
-            # Internal builds (development, preview) cannot go to TestFlight at all.
-            - name: Check submit input
-              if: inputs.submit
-              working-directory: .
-              env:
-                  PROFILE: ${{ inputs.profile }}
-                  REF: ${{ github.ref }}
-              run: |
-                  if [[ "$PROFILE" != "production" ]]; then
-                    echo "::error::Only the production profile can be submitted. Development and preview builds are internal and install from the EAS build page."
-                    exit 1
-                  fi
-                  if [[ "$REF" != "refs/heads/master" ]]; then
-                    echo "::error::Store submissions only run from master. Dispatch from master, or build without submit."
-                    exit 1
-                  fi
-
             - name: Checkout
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  ref: ${{ github.sha }}
                   persist-credentials: false
                   sparse-checkout: products/mobile
                   sparse-checkout-cone-mode: false
@@ -119,27 +96,20 @@ jobs:
               with:
                   # Pinned so a new eas-cli release cannot change a release build unannounced.
                   eas-version: 24.8.0
-                  token: ${{ secrets.EXPO_TOKEN }}
+                  token: ${{ secrets.MOBILE_BUILD_EXPO_TOKEN }}
 
-            # scripts/eas-build.sh uploads products/mobile alone. Without it, EAS archives
-            # the whole repository and installs the root pnpm workspace, which excludes
-            # this app. --auto-submit lets EAS submit once the build finishes, so the job
-            # does not wait for it; `eas submit --latest` here would pick the previous build.
-            - name: EAS build
+            - name: EAS internal build
               env:
                   PLATFORM: ${{ inputs.platform }}
                   PROFILE: ${{ inputs.profile }}
-                  SUBMIT: ${{ inputs.submit }}
               run: |
-                  submit_flag=()
-                  if [[ "$SUBMIT" == "true" ]]; then
-                    submit_flag=(--auto-submit)
+                  if [[ "$PROFILE" != "development" && "$PROFILE" != "preview" ]]; then
+                    echo "::error::Use a merged mobile release request for production builds."
+                    exit 1
                   fi
-                  # Without git, EAS cannot record the commit, so the message carries it.
                   sh scripts/eas-build.sh \
                     --non-interactive \
                     --no-wait \
                     --platform "$PLATFORM" \
                     --profile "$PROFILE" \
-                    --message "${GITHUB_REF_NAME}@${GITHUB_SHA::12}" \
-                    "${submit_flag[@]}"
+                    --message "${GITHUB_REF_NAME}@${GITHUB_SHA::12}"

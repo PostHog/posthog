@@ -41,11 +41,11 @@ import { cacheTargetPassed, hasGoodValue, isDue, READ_FLOOR_MS } from './freshne
 import { type InsightTarget, insightItem, insightItemKey, insightQueryKey, pinTarget } from './items'
 import { listRead, retryListRead } from './listReads'
 import { movedOrder, usePinPrefs, useProjectPinPrefs } from './pinPrefsStore'
-import { rangeLabel } from './rangePresets'
 import { useDeviceRecent } from './recentStore'
 import { viewsQueue } from './refreshQueue'
 import { type PinTarget, pinTargetKey, shortcutInputFor } from './shortcutInput'
 import { type PinDisplayPrefs, resolvePinDisplays } from './smartPinDisplay'
+import { pinRangeLabel } from './snapshotChart'
 import { useSmartPinDisplays } from './useSmartPinDisplays'
 import { type RefreshList, useViewRefresh, type ViewRefresh } from './useViewRefresh'
 import { reportScopeError } from './useViewsAccess'
@@ -455,7 +455,7 @@ export function usePinData(pin: PinView): PinData {
         updating,
         error,
         tileRemoved: pin.kind === 'dashboard' && error === 'deleted',
-        rangeLabel: snapshot ? rangeLabel(null, snapshot.savedRange) : null,
+        rangeLabel: snapshot ? pinRangeLabel(snapshot) : null,
     }
 }
 
@@ -635,7 +635,6 @@ export function useViewsList(): ViewsListState {
         items,
         visibleKeys: visibility.visibleKeys,
         lists,
-        bulkFloor: true,
         enabled: context.ready,
     })
     return {

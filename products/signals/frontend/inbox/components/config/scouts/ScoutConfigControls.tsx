@@ -56,6 +56,7 @@ const SCOUT_MODEL_IDS = [
     'claude-opus-5-5',
     'gpt-6-luna',
     'gpt-5.6-luna',
+    'gpt-6.1-terra',
     'gpt-5.6-terra',
     'gpt-6.1-sol',
     'gpt-6-sol',
@@ -349,6 +350,25 @@ export function ScoutConfigForm({
                     <span className="text-[11.5px] text-muted">Use tags to group scouts and filter the list.</span>
                 </div>
                 <ScoutTagsEditor config={config} onUpdate={onUpdate} updating={updating} />
+            </div>
+            <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col min-w-0">
+                    <span className="text-xs text-default">Show in inbox</span>
+                    <span className="text-[11.5px] text-muted">
+                        Turn this off to keep this scout's reports out of the inbox, for example when you read them in
+                        Slack.
+                    </span>
+                </div>
+                <LemonSwitch
+                    size="small"
+                    checked={config.output_destinations?.inbox ?? true}
+                    disabledReason={updating ? 'Saving scout settings' : undefined}
+                    // The update replaces the stored destinations, so resend Slack and the webhook with the flag.
+                    onChange={(checked) =>
+                        onUpdate(config.id, { output_destinations: { ...config.output_destinations, inbox: checked } })
+                    }
+                    aria-label={`${config.skill_name} show in inbox`}
+                />
             </div>
             <ScoutSlackDestination
                 destination={config.output_destinations?.slack}

@@ -1,7 +1,9 @@
 import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform, RefreshControl, SectionList, Text, View, type ViewToken } from 'react-native'
+
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
+import { useMobileProductFlags } from '@/lib/featureFlags'
 import { openPostHogUrl } from '@/lib/sessionHandoff'
 import { useNow } from '@/lib/useNow'
 import type { BrowseRow, InsightSnapshot, PinDisplayMode, PinView, RecentView, ViewEntry } from '@/model/views'
@@ -16,7 +18,10 @@ import { StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
-
+import { NavPinMenu } from '../../tabs/NavPinMenu'
+import { changeNavPin } from '../../tabs/navPinActions'
+import { openNavTarget } from '../../tabs/navPinRoutes'
+import { type NavPin, useNavPinStore } from '../../tabs/navPinStore'
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
 import { useTabHeader } from '../../tabs/tabHeaderStore'
 import {
@@ -38,11 +43,11 @@ import { INITIAL_VISIBLE_ROWS } from '../useViewRefresh'
 import { useViewsAccess, type ViewsAccess } from '../useViewsAccess'
 import { useViewsContext } from '../useViewsContext'
 import { ViewsReauthState } from '../ViewsReauthState'
-import { ViewsToast } from '../ViewsToast'
+import { useToasts, ViewsToast } from '../ViewsToast'
 import { viewHref } from '../viewRoutes'
 import { useSnapshot } from '../viewsCache'
-import { recordingsWebUrl, viewWebUrl } from '../webLinks'
-import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel } from './BrowseEntryRow'
+import { viewWebUrl } from '../webLinks'
+import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, browseEntryPin } from './BrowseEntryRow'
 import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
@@ -87,6 +92,11 @@ function matchKey(view: Pick<ListView, 'kind' | 'ref'>): string {
 type MenuState =
     | { kind: 'pin'; shortcutId: string; anchor: RowAnchor }
     | { kind: 'row'; view: ListView; entry: ViewEntry; anchor: RowAnchor }
+    | { kind: 'nav-pin'; entry: BrowseEntry; pin: NavPin; anchor: RowAnchor }
+
+function isNavPinned(pin: NavPin): boolean {
+    return useNavPinStore.getState().pins.includes(pin)
+}
 
 /** The Views tab: pinned views first, then Recent and Browse, with search over all of them. */
 export function ViewsScreen(): ReactElement {
@@ -150,6 +160,15 @@ function ViewsBody(): ReactElement {
     const viewport = useCanvasBudgetViewport()
     const sheets = useChartSheets()
     const flows = usePinFlows(actions)
+    const navToasts = useToasts()
+    const { hideToast: hidePinToast } = flows
+    const { show: showToast } = navToasts
+    const navPins = useNavPinStore((state) => state.pins)
+    const { errors, replay } = useMobileProductFlags()
+    const browseEntries = useMemo(
+        () => BROWSE_ENTRIES.filter((entry) => (entry === 'errors' ? errors : entry === 'replay' ? replay : true)),
+        [errors, replay]
+    )
     const [text, setText] = useState('')
     const [menu, setMenu] = useState<MenuState | null>(null)
     const [chooseTile, setChooseTile] = useState<ChooseTileTarget | null>(null)
@@ -220,12 +239,7 @@ function ViewsBody(): ReactElement {
         }
     }, [])
     const openBrowse = useCallback((entry: BrowseEntry) => {
-        const { router: nav, scope } = latest.current
-        if (entry === 'dashboards' || entry === 'insights') {
-            trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })
-            nav.push(`/views/browse/${entry}`)
-            return
-        }
+        const { router: nav } = latest.current
         if (entry === 'web') {
             const href = viewHref({ kind: 'web_analytics', ref: null }, { from: 'browse' })
             if (href) {
@@ -233,12 +247,28 @@ function ViewsBody(): ReactElement {
             }
             return
         }
-        const url = recordingsWebUrl(scope)
-        if (url) {
-            trackViewOpenedInWeb({ viewType: 'recordings', reason: 'web_only' })
-            openPostHogUrl(url).catch(() => undefined)
+        trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })
+        const pin = browseEntryPin(entry)
+        if (pin) {
+            openNavTarget(nav, pin, isNavPinned(pin))
+            return
+        }
+        nav.push(`/views/browse/${entry}`)
+    }, [])
+    const openBrowseMenu = useCallback((entry: BrowseEntry, anchor: RowAnchor) => {
+        const pin = browseEntryPin(entry)
+        if (pin) {
+            setMenu({ kind: 'nav-pin', entry, pin, anchor })
         }
     }, [])
+    // One toast at a time across the Views pins and the nav pins: a nav pin change hides a Views pin toast.
+    const showNavToast = useCallback(
+        (text: string, undo?: () => void) => {
+            hidePinToast()
+            showToast(text, undo)
+        },
+        [hidePinToast, showToast]
+    )
     // A Chart pin reads the saved range, so its Point sheet follows the same cache entry as the pin.
     const openPinPoint = useCallback((pin: PinView, snapshot: InsightSnapshot, point: ChartTooltipPoint) => {
         const { scope, sheets: chartSheets, refreshItem } = latest.current
@@ -365,7 +395,7 @@ function ViewsBody(): ReactElement {
                       : null
                 add(key, title, note ? [note] : viewItems(rows, 'search', key))
             }
-            const browse = BROWSE_ENTRIES.filter((entry) =>
+            const browse = browseEntries.filter((entry) =>
                 browseEntryLabel(entry).toLowerCase().includes(search.query.toLowerCase())
             )
             add(
@@ -416,17 +446,17 @@ function ViewsBody(): ReactElement {
             title: 'Browse',
             first: false,
             editable: false,
-            data: BROWSE_ENTRIES.map(
+            data: browseEntries.map(
                 (entry, position): ListItem => ({
                     type: 'browse',
                     key: `browse:${entry}`,
                     entry,
-                    position: groupPosition(position, BROWSE_ENTRIES.length),
+                    position: groupPosition(position, browseEntries.length),
                 })
             ),
         })
         return result
-    }, [search, pins, recent, list.pinsTruncated, now, hintTargetId])
+    }, [search, pins, recent, list.pinsTruncated, now, hintTargetId, browseEntries])
 
     const renderItem = useCallback(
         ({ item }: { item: ListItem }): ReactElement | null => {
@@ -477,8 +507,9 @@ function ViewsBody(): ReactElement {
                         <BrowseEntryRow
                             entry={item.entry}
                             position={item.position}
-                            enabled={item.entry !== 'recordings' || recordingsWebUrl(context.scope) !== undefined}
+                            enabled={browseEntryPin(item.entry) === null || context.mode === 'live'}
                             onPress={openBrowse}
+                            onMenu={openBrowseMenu}
                         />
                     )
             }
@@ -494,7 +525,8 @@ function ViewsBody(): ReactElement {
             rowHandlers,
             pinnedKeys,
             openBrowse,
-            context.scope,
+            openBrowseMenu,
+            context.mode,
             styles,
         ]
     )
@@ -525,6 +557,7 @@ function ViewsBody(): ReactElement {
     const loading = list.pins.data === undefined && !list.pins.isError
     const status = loading ? 'Loading…' : null
     useTabHeader('views', {
+        refreshing: !loading && refresh.busy,
         hint: loading ? null : refresh.hint,
         status: editing ? 'Changes save as you go' : status,
         editing: editing ? { title: 'Edit pins', onDone: () => edit.finish('done') } : null,
@@ -671,12 +704,35 @@ function ViewsBody(): ReactElement {
                     }}
                 />
             ) : null}
+            {menu?.kind === 'nav-pin' ? (
+                <NavPinMenu
+                    visible
+                    anchor={menu.anchor}
+                    label={browseEntryLabel(menu.entry)}
+                    pinned={navPins.includes(menu.pin)}
+                    onClose={() => setMenu(null)}
+                    onTogglePin={() => {
+                        setMenu(null)
+                        changeNavPin(menu.pin, !navPins.includes(menu.pin), 'views_row', showNavToast)
+                    }}
+                    onOpen={() => {
+                        setMenu(null)
+                        openBrowse(menu.entry)
+                    }}
+                />
+            ) : null}
             <ChooseTileSheet
                 target={chooseTile}
                 onClose={() => setChooseTile(null)}
                 onChoose={(pin, mode, tile) => actions.chooseTile(pin, mode, tile)}
             />
-            <ViewsToast toast={flows.toast} onHide={flows.hideToast} />
+            <ViewsToast
+                toast={flows.toast ?? navToasts.toast}
+                onHide={() => {
+                    flows.hideToast()
+                    navToasts.hide()
+                }}
+            />
         </View>
     )
 }

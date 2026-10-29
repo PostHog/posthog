@@ -12,6 +12,7 @@ import Animated, {
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useNow } from '@/lib/useNow'
 import type { InsightSnapshot, PinView } from '@/model/views'
+import { ChartLegend, useChartLegend } from '@/ui/chart/ChartLegend'
 import { MetricChart } from '@/ui/chart/MetricChart'
 import { Sparkline } from '@/ui/chart/Sparkline'
 import type { ChartTooltipPoint } from '@/ui/chart/types'
@@ -25,15 +26,14 @@ import { DeltaPill, deltaSpoken } from '../DeltaPill'
 import { statusLine } from '../freshness'
 import { type DashboardSnapshot, dashboardQueryKey } from '../items'
 import { type PinData, usePinData } from '../pinHooks'
-import { deltaBasisText, snapshotFormatter, valueAtText } from '../snapshotChart'
+import { deltaBasisText, snapshotChartSeries, snapshotFormatter, valueAtText } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { itemErrorMessage } from '../viewHooks'
 import { useSnapshot } from '../viewsCache'
-import { dataUntil, pinChartSeries } from './pinChart'
+import { dataUntil } from './pinChart'
 import { useMenuTrigger } from './useMenuTrigger'
 import { ViewIcon, viewTypeLabel } from './viewMeta'
 
-// Fixed row and chart heights keep the list still when a chart's canvas replaces its sparkline placeholder.
 const HEAD_HEIGHT = 62
 const NUMBER_BODY_HEIGHT = 50
 const VALUE_ROW_HEIGHT = 33
@@ -262,17 +262,19 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
     const { colors, chartPalette } = useTheme()
     const styles = useStyles()
     const menu = useMenuTrigger(pin, onMenu)
+    const legend = useChartLegend()
     const { snapshot } = data
     const second = dataSecondLine(pin, data)
     const format = snapshot ? snapshotFormatter(snapshot) : null
     const value = snapshot && format && snapshot.value !== null ? format(snapshot.value) : null
     const delta = snapshot && format ? pinDelta(snapshot, format) : null
     const at = snapshot ? valueAtText(snapshot) : null
-    const series = snapshot ? pinChartSeries(snapshot, chartPalette) : []
+    const series = snapshot ? snapshotChartSeries(snapshot, chartPalette) : []
+    const showValue = !snapshot || snapshot.capabilities.number
     const canChart = snapshot ? snapshot.capabilities.chart && series.length > 0 : true
     const slotKey = `pin:${pin.shortcutId}`
     return (
-        <View ref={menu.ref} style={[styles.card, { height: PIN_CHART_HEIGHT }]} testID={pinTestId(pin)}>
+        <View ref={menu.ref} style={styles.card} testID={pinTestId(pin)}>
             <Pressable44
                 onPress={() => onOpen(pin)}
                 onLongPress={menu.onLongPress}
@@ -281,30 +283,32 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                 accessibilityLabel={[pin.name, value, delta?.spoken, second].filter(Boolean).join(', ')}
                 accessibilityHint="Opens the view"
                 pressedBackground={colors.sunken}
-                style={styles.chartTop}
             >
                 <View style={styles.head}>
                     <PinHeadContent pin={pin} second={second} />
                 </View>
-                <View style={[styles.valueRow, snapshot?.refreshFailed && styles.stale]}>
-                    {snapshot || data.error ? (
-                        <>
-                            <Text style={styles.chartValue} numberOfLines={1} testID={pinTestId(pin, 'value')}>
-                                {value ?? '–'}
-                            </Text>
-                            {at ? <Text style={styles.meta}>{at}</Text> : null}
-                            {delta ? <DeltaPill {...delta.props} /> : null}
-                        </>
-                    ) : (
-                        <View style={[styles.skeleton, styles.skeletonValue]} />
-                    )}
-                </View>
+                {showValue ? (
+                    <View style={[styles.valueRow, snapshot?.refreshFailed && styles.stale]}>
+                        {snapshot || data.error ? (
+                            <>
+                                <Text style={styles.chartValue} numberOfLines={1} testID={pinTestId(pin, 'value')}>
+                                    {value ?? '–'}
+                                </Text>
+                                {at ? <Text style={styles.meta}>{at}</Text> : null}
+                                {delta ? <DeltaPill {...delta.props} /> : null}
+                            </>
+                        ) : (
+                            <View style={[styles.skeleton, styles.skeletonValue]} />
+                        )}
+                    </View>
+                ) : null}
             </Pressable44>
             <View style={[styles.chartArea, snapshot?.refreshFailed && styles.stale]}>
                 <DataState data={data} capable={canChart} onUnpin={() => onUnpin(pin)} chart>
                     {snapshot && format ? (
                         <MetricChart
                             series={series}
+                            hiddenKeys={legend.state.hiddenKeys}
                             kind={snapshot.chartKind ?? 'line'}
                             interval={snapshot.interval}
                             label={snapshot.name}
@@ -329,16 +333,31 @@ function ChartPin({ pin, index, data, onOpen, onMenu, onUnpin, onPressTooltip }:
                     ) : null}
                 </DataState>
             </View>
+            {canChart && series.length > 1 ? (
+                <View style={[styles.legend, snapshot?.refreshFailed && styles.stale]}>
+                    <ChartLegend
+                        series={series}
+                        state={legend.state}
+                        onChange={legend.setState}
+                        onPressMore={() => onOpen(pin)}
+                        selectionId={slotKey}
+                        testID={`chart-${pinTestId(pin)}-legend`}
+                    />
+                </View>
+            ) : null}
             <PinDataFooter data={data} />
             <ProgressLine active={data.updating} />
         </View>
     )
 }
 
-function PinDataFooter({ data }: { data: PinData }): ReactElement {
+function PinDataFooter({ data }: { data: PinData }): ReactElement | null {
     const styles = useStyles()
     useNow()
     const freshness = statusLine([data.snapshot], data.updating).text
+    if (!data.rangeLabel && !freshness) {
+        return null
+    }
     return (
         <View style={styles.footer}>
             {data.rangeLabel ? (
@@ -507,9 +526,6 @@ const useStyles = createStyles(({ colors }) => ({
         alignItems: 'center',
         gap: 8,
     },
-    chartTop: {
-        height: HEAD_HEIGHT + VALUE_ROW_HEIGHT,
-    },
     valueRow: {
         height: VALUE_ROW_HEIGHT,
         flexDirection: 'row',
@@ -532,10 +548,12 @@ const useStyles = createStyles(({ colors }) => ({
         paddingBottom: CHART_BOTTOM,
     },
     footer: {
-        height: FOOTER_HEIGHT,
         paddingHorizontal: 14,
         paddingBottom: 8,
-        justifyContent: 'flex-end',
+    },
+    legend: {
+        paddingHorizontal: 14,
+        paddingBottom: 12,
     },
     stale: {
         opacity: 0.45,

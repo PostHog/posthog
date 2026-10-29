@@ -4,7 +4,9 @@ import { Text, View } from 'react-native'
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
+import { ErrorTriangleIcon } from '@/ui/icons/ErrorTriangleIcon'
 import { HomeIcon } from '@/ui/icons/HomeIcon'
+import { RecordingIcon } from '@/ui/icons/RecordingIcon'
 import { SpacesIcon } from '@/ui/icons/SpacesIcon'
 import type { IconProps } from '@/ui/icons/types'
 import { ViewsIcon } from '@/ui/icons/ViewsIcon'
@@ -13,12 +15,36 @@ import { createStyles, useColors, useTheme } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
+import type { NavPin } from './navPinStore'
+
+export type BottomBarSlot = 'home' | 'chats' | 'views' | NavPin
+
 interface BottomBarProps {
-    selected: 'home' | 'chats' | 'views'
+    selected: BottomBarSlot
+    /** Slots after Views, in pin order. */
+    pins: readonly NavPin[]
     onHome: () => void
     onChats: () => void
     onViews: () => void
+    onPin: (pin: NavPin) => void
     onNewChat: () => void
+}
+
+const BAR_GUTTER = 20
+const BAR_GAP = 10
+const SLOT_MIN = 44
+
+function ErrorsNavIcon(props: IconProps): ReactElement {
+    return <ErrorTriangleIcon strokeWidth={2} {...props} />
+}
+
+function ReplayNavIcon(props: IconProps): ReactElement {
+    return <RecordingIcon strokeWidth={2} {...props} />
+}
+
+const PIN_SLOTS: Record<NavPin, { label: string; Icon: ComponentType<IconProps> }> = {
+    errors: { label: 'Errors', Icon: ErrorsNavIcon },
+    replay: { label: 'Sessions', Icon: ReplayNavIcon },
 }
 
 interface NavSlotProps {
@@ -70,7 +96,15 @@ function SelectedSlot({ label, Icon, testID }: SelectedSlotProps): ReactElement 
     )
 }
 
-export function BottomBar({ selected, onHome, onChats, onViews, onNewChat }: BottomBarProps): ReactElement {
+export function BottomBar({
+    selected,
+    pins,
+    onHome,
+    onChats,
+    onViews,
+    onPin,
+    onNewChat,
+}: BottomBarProps): ReactElement {
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -95,6 +129,20 @@ export function BottomBar({ selected, onHome, onChats, onViews, onNewChat }: Bot
                 ) : (
                     <NavSlot label="Views" Icon={ViewsIcon} onPress={onViews} testID="inbox-nav-views" />
                 )}
+                {pins.map((pin) => {
+                    const { label, Icon } = PIN_SLOTS[pin]
+                    return selected === pin ? (
+                        <SelectedSlot key={pin} label={label} Icon={Icon} testID={`nav-pin-${pin}`} />
+                    ) : (
+                        <NavSlot
+                            key={pin}
+                            label={label}
+                            Icon={Icon}
+                            onPress={() => onPin(pin)}
+                            testID={`nav-pin-${pin}`}
+                        />
+                    )
+                })}
             </View>
             <Pressable44
                 onPress={onNewChat}
@@ -120,9 +168,9 @@ const useStyles = createStyles(({ colors }) => ({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 10,
+        gap: BAR_GAP,
         paddingTop: 28,
-        paddingHorizontal: 20,
+        paddingHorizontal: BAR_GUTTER,
         pointerEvents: 'box-none',
     },
     // 54pt content box plus 4pt padding and a 1pt border on each side.
@@ -139,10 +187,11 @@ const useStyles = createStyles(({ colors }) => ({
         paddingVertical: 4,
         paddingHorizontal: 6,
     },
-    // Slots shrink below the handoff's 72pt on phones narrower than the 402pt prototype frame.
+    // Slots shrink below the handoff's 72pt on phones narrower than the 402pt prototype frame, never below 44pt.
     slot: {
         flexBasis: 72,
         flexShrink: 1,
+        minWidth: SLOT_MIN,
         height: 46,
         borderRadius: radii.pill,
         alignItems: 'center',

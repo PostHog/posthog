@@ -1,3 +1,5 @@
+import { isAppReloadBlocked } from '@/lib/appReload'
+
 import { BUDGETS, BudgetExceededError, resetBudgets } from './budget'
 import { apiJson, setAuthProvider } from './client'
 import { resetServerClock, serverOffsetMs } from './serverClock'
@@ -69,6 +71,29 @@ describe('api client send path', () => {
         await apiJson('/api/projects/2/insights/1/')
 
         expect(serverOffsetMs()).toBe(30_000)
+    })
+
+    test.each([false, true])('blocks an app reload until a pending request settles, failure=%s', async (failure) => {
+        let finish!: (response: unknown) => void
+        let fail!: (error: Error) => void
+        fetchMock.mockImplementationOnce(
+            () =>
+                new Promise((resolve, reject) => {
+                    finish = resolve
+                    fail = reject
+                })
+        )
+        const request = apiJson('/api/projects/2/tasks/task-1/', { method: 'PATCH', json: { archived: true } })
+        expect(isAppReloadBlocked()).toBe(true)
+
+        if (failure) {
+            fail(new Error('Offline'))
+            await expect(request).rejects.toThrow('Offline')
+        } else {
+            finish({ ok: true, status: 200, text: async () => '{}' })
+            await request
+        }
+        expect(isAppReloadBlocked()).toBe(false)
     })
 
     test('sends nothing once a budget family has used its minute of tokens', async () => {

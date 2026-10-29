@@ -1,3 +1,4 @@
+import { parsePermissionRequest } from './permissionRequest'
 import {
     defaultPermissionDecision,
     findAllowOptionId,
@@ -90,16 +91,16 @@ describe('toolPolicy', () => {
     })
 
     test.each<[string, PermissionRecord, PermissionDecision]>([
-        ['built-in tool', BUILT_IN, 'auto_allow'],
-        ['exec discovery verb', makeRecord({ input: { command: 'tools' } }), 'auto_allow'],
-        ['exec create', makeRecord({ input: { command: 'call insight-create {"name":"Signups"}' } }), 'auto_allow'],
-        ['exec delete', makeRecord({ input: { command: 'call feature-flag-delete {"key":"x"}' } }), 'auto_allow'],
+        ['built-in tool', BUILT_IN, 'prompt'],
+        ['exec discovery verb', makeRecord({ input: { command: 'tools' } }), 'prompt'],
+        ['exec create', makeRecord({ input: { command: 'call insight-create {"name":"Signups"}' } }), 'prompt'],
+        ['exec delete', makeRecord({ input: { command: 'call feature-flag-delete {"key":"x"}' } }), 'prompt'],
         [
             'exec call with flags before the sub-tool',
             makeRecord({ input: { command: 'call --json --confirm insight-get {}' } }),
-            'auto_allow',
+            'prompt',
         ],
-        ['exec call with no sub-tool', makeRecord({ input: { command: 'call --json' } }), 'auto_allow'],
+        ['exec call with no sub-tool', makeRecord({ input: { command: 'call --json' } }), 'prompt'],
         ['connection call', CONNECTION_CALL, 'prompt'],
         [
             'connection forward',
@@ -117,6 +118,26 @@ describe('toolPolicy', () => {
         ['plan approval in raw tool name', RAW_PLAN, 'prompt'],
     ])('defaultPermissionDecision: %s', (_name, record, expected) => {
         expect(defaultPermissionDecision(record)).toBe(expected)
+    })
+
+    test.each(
+        ['default', 'auto', 'plan', 'bypassPermissions'].flatMap((mode) =>
+            ['mcp__posthog__exec', 'Bash', 'ExampleTool'].map((toolName) => ({ mode, toolName }))
+        )
+    )('relayed $toolName operations remain manual in $mode', ({ mode, toolName }) => {
+        const record = parsePermissionRequest({
+            requestId: 'example-request',
+            options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }],
+            toolCall: {
+                toolCallId: 'example-call',
+                rawInput: { command: 'call --confirm dashboard-delete {"id":123}' },
+                _meta: { claudeCode: { toolName } },
+            },
+        })
+        expect(record).not.toBeNull()
+        expect(routePermissionRequest(record as PermissionRecord, { mode, replayed: false })).toEqual({
+            action: 'prompt',
+        })
     })
 
     test.each<[string, PermissionOption[], string | null]>([
@@ -142,13 +163,13 @@ describe('toolPolicy', () => {
     })
 
     test.each<[string, PermissionRecord, { mode?: string; replayed: boolean }, string]>([
-        ['live built-in is allowed', BUILT_IN, { replayed: false }, 'auto_allow'],
+        ['live built-in requires consent', BUILT_IN, { replayed: false }, 'prompt'],
         ['replayed built-in is never answered for the user', BUILT_IN, { replayed: true }, 'prompt'],
         [
-            'full auto allows another MCP server',
+            'full auto preserves approval for another MCP server',
             OTHER_MCP,
             { mode: 'bypassPermissions', replayed: false },
-            'auto_allow',
+            'prompt',
         ],
         ['full auto still asks a question', QUESTION, { mode: 'bypassPermissions', replayed: false }, 'prompt'],
         ['full auto still asks to approve a plan', PLAN, { mode: 'bypassPermissions', replayed: false }, 'prompt'],
@@ -169,6 +190,17 @@ describe('toolPolicy', () => {
         [
             'full auto still asks for a connected project',
             CONNECTION_CALL,
+            { mode: 'bypassPermissions', replayed: false },
+            'prompt',
+        ],
+        [
+            'raw-input external tool requires consent',
+            makeRecord({
+                toolName: '',
+                rawServerName: 'claude',
+                rawToolName: '',
+                input: { toolName: 'mcp__example__send', arguments: { destination: 'example.com' } },
+            }),
             { mode: 'bypassPermissions', replayed: false },
             'prompt',
         ],

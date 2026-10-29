@@ -1,13 +1,14 @@
 import { type ReactElement, useMemo, useState } from 'react'
 import { RefreshControl, ScrollView, Text, View } from 'react-native'
-
 import type { InsightSnapshot, PinDisplayMode, ViewEntry } from '@/model/views'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import { InfoIcon } from '@/ui/icons/InfoIcon'
 import { Pressable44 } from '@/ui/Pressable44'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
 import { DeltaPill } from '../DeltaPill'
 import { InsightVisual } from '../InsightVisual'
@@ -18,7 +19,7 @@ import type { ChartSheetSource } from '../pointSheet/chartSheetSource'
 import { insightCompareRow } from '../range/compareRow'
 import { ViewRangeControl } from '../range/ViewRangeControl'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
-import { VIEW_CONTENT_TOP, ViewChrome } from '../screen/ViewChrome'
+import { ViewChrome } from '../screen/ViewChrome'
 import { ViewErrorState } from '../screen/ViewErrorState'
 import { ViewMoreSheet } from '../screen/ViewMoreSheet'
 import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
@@ -58,6 +59,7 @@ export function InsightScreen({
     displayMode,
 }: InsightScreenProps): ReactElement {
     const screen = useInsightScreen(shortId, { from, displayMode, dashboardRef: fromDashboard, insightId })
+    const scrollTitle = useScrollTitle(screen.insight.data?.name ?? '')
     const back = useViewBack()
     const { scope } = useViewsContext()
     const [moreOpen, setMoreOpen] = useState(false)
@@ -65,10 +67,22 @@ export function InsightScreen({
     const loaded = Boolean(screen.insight.data)
     return (
         <ViewScreenFrame
-            chrome={<ViewChrome onBack={back} onMore={allowed && loaded ? () => setMoreOpen(true) : undefined} />}
+            chrome={
+                <ViewChrome
+                    title={scrollTitle.title}
+                    onBack={back}
+                    onMore={allowed && loaded ? () => setMoreOpen(true) : undefined}
+                />
+            }
         >
             {allowed ? (
-                <InsightBody screen={screen} shortId={shortId} dashboardRef={fromDashboard} onBack={back} />
+                <InsightBody
+                    scrollTitle={scrollTitle}
+                    screen={screen}
+                    shortId={shortId}
+                    dashboardRef={fromDashboard}
+                    onBack={back}
+                />
             ) : (
                 <ViewsReauthState access={screen.access} />
             )}
@@ -83,13 +97,14 @@ export function InsightScreen({
 }
 
 interface InsightBodyProps {
+    scrollTitle: ScrollTitleState
     screen: InsightScreenState
     shortId: string
     dashboardRef: string | null
     onBack: () => void
 }
 
-function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps): ReactElement {
+function InsightBody({ screen, shortId, dashboardRef, onBack, scrollTitle }: InsightBodyProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -104,7 +119,7 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
         () => (snapshot ? { snapshot, queryKey, itemKey, refreshItem: refresh.refreshItem, dashboardName } : null),
         [snapshot, queryKey, itemKey, refresh.refreshItem, dashboardName]
     )
-    const contentTop = topOffset(insets, VIEW_CONTENT_TOP)
+    const contentTop = topOffset(insets, SCREEN_CONTENT_TOP)
     const contentStyle = [styles.content, { paddingTop: contentTop, paddingBottom: bottomOffset(insets, 48) }]
 
     if (!snapshot || !source) {
@@ -131,7 +146,10 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
     return (
         <ScrollView
             contentContainerStyle={contentStyle}
-            onScroll={motion.onScroll}
+            onScroll={(event) => {
+                motion.onScroll()
+                scrollTitle.onScroll(event)
+            }}
             scrollEventThrottle={16}
             refreshControl={
                 <RefreshControl
@@ -146,6 +164,7 @@ function InsightBody({ screen, shortId, dashboardRef, onBack }: InsightBodyProps
             testID="insight-scroll"
         >
             <ViewTitle
+                onTitleLayout={scrollTitle.onTitleLayout}
                 eyebrow={`Insight · ${snapshot.kindLabel}`}
                 title={snapshot.name}
                 accessories={

@@ -1,14 +1,20 @@
 import type { ReactElement } from 'react'
 import { View } from 'react-native'
 
-import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
+import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { createStyles } from '@/ui/theme'
 
 export function BootSplash(): ReactElement {
     const styles = useStyles()
     return (
-        <View style={styles.screen} accessibilityLabel="Loading PostHog" testID="boot-splash">
-            <PostHogLogomark height={65} />
+        <View
+            style={styles.screen}
+            accessible
+            accessibilityLabel="Loading PostHog"
+            accessibilityState={{ busy: true }}
+            testID="boot-splash"
+        >
+            <AnimatedLogomark height={65} />
         </View>
     )
 }

@@ -716,17 +716,22 @@ def _orphaned_candidate_runs_sql() -> str:
 
 
 def _queue_freshness_sql() -> str:
-    """Age, blocked count, and backlogged groups of the pending set, in one scan.
+    """Two ages, blocked count, and backlogged groups of the pending set, in one scan.
 
     The scan is ``latest_state = 'pending'`` inside ``FRESHNESS_WINDOW``, which
     ``sb_claimable_idx`` serves (its predicate covers 'pending'). The scan is
     aggregated into runs before the failed-run probe, so the probe costs one
     ``sb_run_gate_idx`` descent per run, not one per batch. The result is the
-    same, because a run is blocked or not as a whole.
+    same, because a run is blocked or not as a whole. The runs are then
+    aggregated into groups before the executing probe, so that probe costs one
+    ``sb_schema_busy_idx`` descent per group, the same as in
+    :func:`_queue_depth_sql`. A group with an executing batch is serialized: the
+    claim query holds all its other batches until that batch finishes.
 
-    ``gated_runs`` is MATERIALIZED on purpose. The final SELECT reads ``blocked``
-    in three FILTER clauses. An inlined CTE copies the EXISTS sub-plan into each
-    of them, which runs the probe up to three times per row.
+    ``gated_runs`` and ``gated_groups`` are MATERIALIZED on purpose. The SELECT
+    after each one reads ``blocked`` or ``executing`` in more than one FILTER
+    clause. An inlined CTE copies the EXISTS sub-plan into each of them, which
+    runs the probe once per FILTER for each row.
 
     Split out from its caller so the plan-shape test can EXPLAIN exactly what runs.
     """
@@ -757,15 +762,39 @@ def _queue_freshness_sql() -> str:
                       AND b_failed.latest_state = 'failed'
                 ) AS blocked
             FROM pending_runs r
+        ),
+        pending_groups AS (
+            SELECT
+                g.team_id,
+                g.schema_id,
+                min(g.oldest_created_at) FILTER (WHERE NOT g.blocked) AS oldest_created_at,
+                coalesce(sum(g.batches) FILTER (WHERE g.blocked), 0) AS blocked_batches
+            FROM gated_runs g
+            GROUP BY g.team_id, g.schema_id
+        ),
+        gated_groups AS MATERIALIZED (
+            SELECT
+                p.oldest_created_at,
+                p.blocked_batches,
+                EXISTS (
+                    SELECT 1
+                    FROM {BATCH_TABLE} b_busy
+                    WHERE b_busy.team_id = p.team_id
+                      AND b_busy.schema_id = p.schema_id
+                      AND b_busy.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                      AND b_busy.latest_state = 'executing'
+                ) AS executing
+            FROM pending_groups p
         )
         SELECT
-            EXTRACT(EPOCH FROM (now() - min(oldest_created_at) FILTER (WHERE NOT blocked))),
-            coalesce(sum(batches) FILTER (WHERE blocked), 0),
-            count(DISTINCT (team_id, schema_id)) FILTER (
-                WHERE NOT blocked
+            EXTRACT(EPOCH FROM (now() - min(oldest_created_at) FILTER (WHERE NOT executing))),
+            EXTRACT(EPOCH FROM (now() - min(oldest_created_at) FILTER (WHERE executing))),
+            coalesce(sum(blocked_batches), 0),
+            count(*) FILTER (
+                WHERE NOT executing
                   AND oldest_created_at <= now() - make_interval(secs => %(backlog_threshold)s)
             )
-        FROM gated_runs
+        FROM gated_groups
     """
 
 
@@ -1000,6 +1029,16 @@ _UNFINISHED_EARLIER_BATCHES_SQL = f"""
       AND b.latest_state <> 'succeeded'
 """
 
+_UNFINISHED_BATCHES_OF_JOBS_SQL = f"""
+    SELECT count(*), MIN(b.batch_index), COALESCE(array_agg(DISTINCT b.latest_state), '{{}}')
+    FROM {BATCH_TABLE} b
+    WHERE b.job_id = ANY(%(job_ids)s)
+      AND b.team_id = %(team_id)s
+      AND b.schema_id = %(schema_id)s
+      AND b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+      AND b.latest_state <> 'succeeded'
+"""
+
 
 # Batch metadata key for the watermark that the loaded batches of a run cover once this batch and
 # every earlier batch of the run are loaded. Only the producer writes it (see `get_loaded_prefix_sync`).
@@ -1217,6 +1256,8 @@ class PendingBatch:
             "cdc_table_mode": self.metadata.get("cdc_table_mode"),
             "destination_ids": self.destination_ids or [],
             "external_destination_ids": self.metadata.get("external_destination_ids"),
+            "replace_scope": self.metadata.get("replace_scope"),
+            "continued_job_ids": self.metadata.get("continued_job_ids"),
         }
 
 
@@ -1342,15 +1383,21 @@ class GroupLease:
 class QueueFreshness:
     """What one freshness probe reads off the pending set.
 
-    Three numbers rather than one because they fail differently: the age says
-    how far the queue head has fallen behind, the blocked count says how much
-    of the table can never move, and the group count says how widely the lag
-    is spread. An alert on the age alone cannot tell one wedged tenant from a
-    fleet-wide stall.
+    Four numbers rather than one because they fail differently: the slot-wait
+    age says how far the queue head has fallen behind for lack of a free slot,
+    the serialized age says how long work waits behind its own group, the
+    blocked count says how much of the table can never move, and the group
+    count says how widely the lag is spread. An alert on one blended age cannot
+    tell one slow group from a fleet-wide stall.
     """
 
-    # None when nothing claimable is waiting.
-    oldest_age_seconds: float | None
+    # Oldest pending batch whose group has no batch executing, so a free slot can
+    # claim it now. None when no such batch is waiting.
+    slot_wait_age_seconds: float | None
+    # Oldest pending batch whose group already has a batch executing. The claim
+    # query holds it until that batch finishes, however many slots are free.
+    # None when no such batch is waiting.
+    serialized_age_seconds: float | None
     blocked_batches: int
     backlogged_groups: int
 
@@ -2132,6 +2179,52 @@ class BatchQueue:
         raise AssertionError("unreachable")
 
     @staticmethod
+    def get_unfinished_batches_of_jobs_sync(
+        database_url: str,
+        *,
+        team_id: int,
+        schema_id: str,
+        job_ids: list[str],
+        connect_timeout_seconds: int = 10,
+        statement_timeout_ms: int = UNFINISHED_EARLIER_BATCHES_STATEMENT_TIMEOUT_MS,
+    ) -> UnfinishedEarlierBatches:
+        """The batches of ``job_ids`` that did not reach 'succeeded'.
+
+        The loader asks this before a run that continues the cursor of these jobs
+        completes. Their batches hold the rows before that cursor, so one that did
+        not load means the continuing run is not complete. Same pool and retry as
+        :meth:`get_unfinished_earlier_batches_sync`.
+
+        Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
+        """
+        pool = _sync_connection_pool(database_url, connect_timeout_seconds)
+        params = {
+            "team_id": team_id,
+            "schema_id": schema_id,
+            "job_ids": job_ids,
+        }
+        for attempt in (1, 2):
+            with pool.connection() as conn:
+                try:
+                    # The timeout is transaction-local, so it never leaks into the pooled session.
+                    with conn.transaction():
+                        conn.execute("SELECT set_config('statement_timeout', %s, true)", (str(statement_timeout_ms),))
+                        row = conn.execute(_UNFINISHED_BATCHES_OF_JOBS_SQL, params).fetchone()
+                except psycopg.errors.QueryCanceled:
+                    raise
+                except psycopg.OperationalError:
+                    pool.discard(conn)
+                    if attempt == 2:
+                        raise
+                    continue
+                assert row is not None
+                count, first_batch_index, states = row
+                return UnfinishedEarlierBatches(
+                    count=count, first_batch_index=first_batch_index, states=tuple(sorted(states))
+                )
+        raise AssertionError("unreachable")
+
+    @staticmethod
     def get_loaded_prefix_sync(
         database_url: str,
         *,
@@ -2618,24 +2711,36 @@ class BatchQueue:
         backlog_threshold_seconds: int,
         statement_timeout_ms: int = GAUGE_STATEMENT_TIMEOUT_MS,
     ) -> QueueFreshness:
-        """Three readings off one scan of the pending set, bounded to ``FRESHNESS_WINDOW``.
+        """Four readings off one scan of the pending set, bounded to ``FRESHNESS_WINDOW``.
 
-        ``oldest_age_seconds`` excludes batches whose run already holds a
-        ``failed`` batch. The claim query refuses those (see
-        ``_state_claim_candidates_sql``) and the stranded sweep skips them too,
-        so nothing can ever pick them up: counting them made the gauge report
-        the age of an abandoned row rather than the queue's lag, and it grew at
-        exactly one second per second until retention pruned it.
-        ``get_oldest_non_terminal_batch_age_seconds`` already excludes them for
-        the same reason.
+        Both ages exclude batches whose run already holds a ``failed`` batch.
+        The claim query refuses those (see ``_state_claim_candidates_sql``) and
+        the stranded sweep skips them too, so nothing can ever pick them up:
+        counting them made the gauge report the age of an abandoned row rather
+        than the queue's lag, and it grew at exactly one second per second until
+        retention pruned it. ``get_oldest_non_terminal_batch_age_seconds``
+        already excludes them for the same reason.
 
-        ``blocked_batches`` keeps that excluded population visible in its own
+        The two ages split the remaining pending batches by their (team_id,
+        schema_id) group, with the same rule as the
+        ``slot_waiting_batches``/``serialized_batches`` split of
+        :meth:`get_queue_depth`. ``slot_wait_age_seconds`` covers groups with no
+        batch executing: a free slot can claim that work now, so its age is the
+        loader's lag. ``serialized_age_seconds`` covers groups with a batch
+        executing: the claim query loads a group one batch at a time, so one
+        slow batch or a long full refresh holds the rest of its group back while
+        slots stay idle. A single blended age read that one slow group as a
+        fleet-wide stall.
+
+        ``blocked_batches`` keeps the failed-run population visible in its own
         lane, so a leak still shows up somewhere instead of disappearing.
 
-        ``backlogged_groups`` is the breadth companion to the age: the age is a
-        fleet-wide max, so one wedged (team, schema) pins it and a fleet-wide
-        alert cannot tell one stuck tenant from a real stall. Counting the
-        groups past the threshold separates those.
+        ``backlogged_groups`` is the breadth companion to the slot-wait age, so
+        it counts only groups with no batch executing whose oldest pending batch
+        is past the threshold. The age is a fleet-wide max, so one wedged
+        (team, schema) pins it and a fleet-wide alert cannot tell one stuck
+        tenant from a real stall. Counting the groups past the threshold
+        separates those.
 
         Raises ``psycopg.errors.QueryCanceled`` past ``statement_timeout_ms``.
         """
@@ -2643,11 +2748,14 @@ class BatchQueue:
             await cur.execute(_queue_freshness_sql(), {"backlog_threshold": backlog_threshold_seconds})
             row = await cur.fetchone()
         if row is None:
-            return QueueFreshness(oldest_age_seconds=None, blocked_batches=0, backlogged_groups=0)
+            return QueueFreshness(
+                slot_wait_age_seconds=None, serialized_age_seconds=None, blocked_batches=0, backlogged_groups=0
+            )
         return QueueFreshness(
-            oldest_age_seconds=float(row[0]) if row[0] is not None else None,
-            blocked_batches=int(row[1] or 0),
-            backlogged_groups=int(row[2] or 0),
+            slot_wait_age_seconds=float(row[0]) if row[0] is not None else None,
+            serialized_age_seconds=float(row[1]) if row[1] is not None else None,
+            blocked_batches=int(row[2] or 0),
+            backlogged_groups=int(row[3] or 0),
         )
 
     @staticmethod

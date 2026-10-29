@@ -4,7 +4,7 @@ import { router, usePathname } from 'expo-router'
 import { AppState } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
-import { foregroundNotificationBehavior } from './foregroundNotifications'
+import { foregroundNotificationBehavior, setViewedNotificationTask } from './foregroundNotifications'
 import { findTask } from './taskLookup'
 import { useNotificationRouting } from './useNotificationRouting'
 
@@ -17,8 +17,9 @@ jest.mock('expo-notifications', () => ({
     addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })),
 }))
 jest.mock('expo-router', () => ({
-    router: { push: jest.fn(), navigate: jest.fn() },
+    router: { push: jest.fn(), navigate: jest.fn(), replace: jest.fn() },
     useRootNavigationState: () => ({ key: 'root' }),
+    useNavigationContainerRef: () => mockNavigation,
     usePathname: jest.fn(() => '/inbox'),
 }))
 jest.mock('@/demo/demoMode', () => ({ useDemoMode: { getState: () => ({ enabled: false }) } }))
@@ -26,6 +27,7 @@ jest.mock('./pushSupport', () => ({ notificationsSupported: () => true }))
 jest.mock('./taskLookup', () => ({ findTask: jest.fn() }))
 
 const reportData = { type: 'report', report_id: 'report-1', project_id: 2 }
+const mockNavigation = { getCurrentRoute: jest.fn(() => ({ name: 'inbox' })) }
 function notification(identifier: string): Notifications.Notification {
     return {
         date: Date.now(),
@@ -48,6 +50,8 @@ beforeEach(() => {
     jest.clearAllMocks()
     jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(null)
     jest.mocked(usePathname).mockReturnValue('/inbox')
+    mockNavigation.getCurrentRoute.mockReturnValue({ name: 'inbox' })
+    setViewedNotificationTask(null)
     AppState.currentState = 'active'
     useAuthStore.setState({
         status: 'signed_in',
@@ -115,4 +119,5 @@ test('does not route a task lookup into an account that signed in while it was p
     act(() => useAuthStore.setState({ host: 'https://another.example.com' }))
     await act(async () => resolveLookup({ found: true, reportId: null }))
     expect(router.push).not.toHaveBeenCalled()
+    expect(router.replace).not.toHaveBeenCalled()
 })

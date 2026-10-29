@@ -1,4 +1,5 @@
 import * as Clipboard from 'expo-clipboard'
+import { useRouter } from 'expo-router'
 import { type ReactElement, type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
 import { Gesture, GestureDetector, type NativeGesture } from 'react-native-gesture-handler'
@@ -27,7 +28,7 @@ import { SheetTitle } from '../screen/SheetTitle'
 import { snapshotFormatter } from '../snapshotChart'
 import { useViewsContext } from '../useViewsContext'
 import { type PointActors, usePointActors } from '../viewHooks'
-import { personWebUrl, recordingWebUrl, viewWebUrl } from '../webLinks'
+import { personWebUrl, viewWebUrl } from '../webLinks'
 import { type ChartSheetSource, useLiveSnapshot } from './chartSheetSource'
 import { pointActorsInput, recordingRows } from './pointActorsInput'
 
@@ -113,6 +114,7 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
     const { source, point } = request
     const snapshot = useLiveSnapshot(source)
     const { scope } = useViewsContext()
+    const router = useRouter()
     const { height } = useWindowDimensions()
     const [page, setPage] = useState<Page>('point')
     const [selectedKey, setSelectedKey] = useState(point.rows[0]?.key ?? null)
@@ -196,7 +198,9 @@ function PointBody({ request, actors, listGesture, onClose, onOpenAbout }: Point
                             scopeOpen={Boolean(scope)}
                             onBack={() => setPage('point')}
                             onRetry={() => load(page === 'recordings')}
-                            onOpenRecording={(sessionId) => openLink(recordingWebUrl(scope, sessionId), 'recordings')}
+                            onOpenRecording={(sessionId) =>
+                                router.push({ pathname: '/replay/[sessionId]', params: { sessionId, source: 'chart' } })
+                            }
                             onOpenPerson={(personId) => openLink(personWebUrl(scope, personId), 'person')}
                         />
                     )}
@@ -485,6 +489,7 @@ function ActorList({ rows, recordings, scopeOpen, onOpenRecording, onOpenPerson 
                         title={row.personName}
                         detail={[row.position ?? 'Recording', demoNote].filter(Boolean).join(' · ')}
                         disabled={!scopeOpen}
+                        inApp
                         onPress={() => onOpenRecording(row.sessionId)}
                     />
                 ))}
@@ -517,12 +522,15 @@ function ActorRowView({
     title,
     detail,
     disabled,
+    inApp = false,
     onPress,
 }: {
     icon: ReactNode
     title: string
     detail?: string
     disabled: boolean
+    /** True when the row opens a screen in the app, which takes a chevron instead of the external-link mark. */
+    inApp?: boolean
     onPress: () => void
 }): ReactElement {
     const colors = useColors()
@@ -536,7 +544,11 @@ function ActorRowView({
                 </Text>
                 {detail ? <Text style={styles.actionDetail}>{detail}</Text> : null}
             </View>
-            {disabled ? null : <ExternalLinkIcon size={16} color={colors.tertiary} />}
+            {disabled ? null : inApp ? (
+                <ChevronRightIcon size={13} color={colors.tertiary} />
+            ) : (
+                <ExternalLinkIcon size={16} color={colors.tertiary} />
+            )}
         </Pressable44>
     )
 }

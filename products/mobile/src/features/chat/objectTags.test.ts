@@ -69,7 +69,7 @@ describe('object tags', () => {
             'https://example.com/project/7/sql?open_query=SELECT%201%20%26%202'
         )
         expect(objectWebUrl('https://example.com', 7, 'feature_flag', '42')).toBe(
-            'https://example.com/project/7/feature_flags/42'
+            'https://example.com/project/7/feature-flags/42'
         )
         expect(objectWebUrl('https://example.com', 7, 'flag', 'beta')).toBeUndefined()
         expect(objectWebUrl('javascript:alert(1)', 7, 'insight', 'a')).toBeUndefined()

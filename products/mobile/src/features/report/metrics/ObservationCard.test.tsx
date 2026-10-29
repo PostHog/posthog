@@ -20,9 +20,9 @@ const BASE: MetricView = {
     windowLabel: 'Last 14 days',
     filterCount: 1,
 }
+let client: QueryClient
 
 function renderCard(metric: MetricView): void {
-    const client = new QueryClient()
     const tree: ReactElement = (
         <QueryClientProvider client={client}>
             <ObservationCard metric={metric} reportId="report-1" accent="alert" />
@@ -32,6 +32,12 @@ function renderCard(metric: MetricView): void {
 }
 
 describe('ObservationCard', () => {
+    beforeEach(() => {
+        client = new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } })
+    })
+
+    afterEach(() => client.clear())
+
     test.each<[string, MetricView, string]>([
         [
             'static data',

@@ -58,7 +58,10 @@ function setup({
         appVariant: 'development',
         hostKind: () => 'cloud-us',
     }))
-    jest.doMock('react-native', () => ({ Platform: { OS: platform } }))
+    jest.doMock('react-native', () => ({
+        AppState: { addEventListener: jest.fn() },
+        Platform: { OS: platform },
+    }))
     const authStore = jest.requireMock('@/auth/authStore').useAuthStore
     const demoStore = jest.requireMock('@/demo/demoMode').useDemoMode
     const auth = { status, host: null, projectId: null }

@@ -1,4 +1,4 @@
-import { keepPreviousData, type QueryKey, skipToken, useQuery } from '@tanstack/react-query'
+import { type QueryKey, skipToken, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { type ActorsAtPointInput, actorsAtPointQuery, fetchActorsAtPoint } from '@/api/actors'
@@ -119,8 +119,13 @@ interface Held<T> {
  * The last value a screen showed, kept while the value for a new range loads. The screen then keeps its header and
  * range control instead of falling back to the loading skeleton. An error for the new range drops the old value.
  */
-function useHeldWhileLoading<T>(value: T | undefined, error: ItemErrorKind | null): Held<T> {
+function useHeldWhileLoading<T>(identity: string, value: T | undefined, error: ItemErrorKind | null): Held<T> {
+    const owner = useRef(identity)
     const last = useRef<T | undefined>(value)
+    if (owner.current !== identity) {
+        owner.current = identity
+        last.current = undefined
+    }
     if (value !== undefined) {
         last.current = value
     }
@@ -236,18 +241,20 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         () => dashboardContainer(context.item, dashboardRef, override),
         [context.item, dashboardRef, overrideId]
     )
-    // While a new range loads, the previous range's tiles keep the layout, already keyed for the new range.
+    // Only a range change within this dashboard may retain the previous tile layout.
+    const identity = `${context.identity}|dashboard:${dashboardRef}`
     const current = useQuery<DashboardSnapshot>({
         queryKey: dashboardQueryKey(scope, dashboardRef, override),
         queryFn: skipToken,
-        placeholderData: keepPreviousData,
     })
+    const error = useItemError(container.key)
+    const shown = useHeldWhileLoading(identity, current.data, error)
     const range = useViewRange(
         rangeKey,
         'dashboard',
-        savedQuery.data?.view.savedRange ?? current.data?.view.savedRange ?? NO_RANGE
+        savedQuery.data?.view.savedRange ?? shown.value?.view.savedRange ?? NO_RANGE
     )
-    const view = current.data?.view
+    const view = shown.value?.view
     // biome-ignore lint/correctness/useExhaustiveDependencies: `overrideId` stands for `override`.
     const tiles = useMemo<DashboardTileState[]>(
         () =>
@@ -291,11 +298,9 @@ export function useDashboardScreen(dashboardRef: string, options: ViewOpenOption
         items,
         visibleKeys,
         container,
-        bulkFloor: true,
         enabled: context.ready,
         rangeKey: overrideId,
     })
-    const error = useItemError(container.key)
     useRecordRecentView(view ? { kind: 'dashboard', ref: dashboardRef, name: view.name } : null)
     useViewOpenedEvent('dashboard', options, () => items.map((item) => item.snapshot()))
     useDashboardTilesShownEvent(view, tiles, items)
@@ -397,11 +402,9 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     // Compare needs the insight's `query.source`, which every read of the insight carries, and `compareQuery` sets the
     // range itself. So a range change with compare on sends only the compare query, without a retrieve first. The
     // saved range takes the source of a saved-range read only, because `compareQuery` keeps that source's dates.
-    const lastBase = useRef<InsightSnapshot | undefined>(undefined)
-    if (base) {
-        lastBase.current = base
-    }
-    const compareSource = base ?? baseSaved ?? (range.choice ? lastBase.current : undefined)
+    const identity = `${context.identity}|insight:${shortId}|${dashboardRef ?? ''}`
+    const lastBase = useHeldWhileLoading(identity, base, null)
+    const compareSource = base ?? baseSaved ?? (range.choice ? lastBase.value : undefined)
     // An insight saved with compare answers its saved range with both periods, so the retrieve shows them.
     const savedCompareShown = savedCompare && range.compare && range.choice === null
     const compareSupported = supportsCompare(compareSource?.query)
@@ -425,7 +428,6 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
         dataScope: context.dataScope,
         screenKey: `insight:${shortId}`,
         items,
-        bulkFloor: false,
         enabled: context.ready,
         rangeKey: `${overrideId}|${compareId ?? ''}`,
     })
@@ -453,7 +455,11 @@ export function useInsightScreen(shortId: string, options: InsightScreenOptions)
     const current = compareBody ? compareSnapshot : base
     const currentKey = compareId ? viewsKeys.compare(scope, compareId) : insightQueryKey(scope, target)
     // The key travels with the held snapshot, so full screen and the Point sheet open the entry that is on screen.
-    const shown = useHeldWhileLoading(current ? { snapshot: current, queryKey: currentKey } : undefined, error)
+    const shown = useHeldWhileLoading(
+        identity,
+        current ? { snapshot: current, queryKey: currentKey } : undefined,
+        error
+    )
     return {
         access: context.access,
         insight: viewState(
@@ -508,14 +514,13 @@ export function useWebAnalyticsScreen(options: ViewOpenOptions): WebAnalyticsScr
         dataScope: context.dataScope,
         screenKey: 'web',
         items,
-        bulkFloor: false,
         enabled: context.ready,
         rangeKey: queryId,
     })
     const error = useItemError(items[0]?.key ?? null)
     useRecordRecentView({ kind: 'web_analytics', ref: null, name: 'Web analytics' })
     useViewOpenedEvent('web_analytics', options, () => [snapshot])
-    const shown = useHeldWhileLoading(snapshot, error)
+    const shown = useHeldWhileLoading(`${context.identity}|web`, snapshot, error)
     return {
         access: context.access,
         overview: viewState(

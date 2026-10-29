@@ -1,6 +1,8 @@
+import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
 import { Linking, Text, View } from 'react-native'
 
+import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import type { EvidenceBlock } from '@/model/types'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
@@ -14,15 +16,29 @@ type ReplayBlock = Extract<EvidenceBlock, { kind: 'replay' }>
 export function ReplayRow({ block, reportId }: { block: ReplayBlock; reportId: string }): ReactElement {
     const styles = useStyles()
     const colors = useColors()
+    const router = useRouter()
+    const demo = useDataMode() === 'demo'
     const countLabel = block.count === 1 ? '1 replay' : `${block.count} replays`
     return (
         <Pressable44
             onPress={() => {
                 track('mobile_report_replay_opened', { report_id: reportId, replay_count: block.count })
-                Linking.openURL(block.url).catch(() => undefined)
+                if (demo) {
+                    // Demo sessions exist in no project, so the session screen would have nothing to load.
+                    Linking.openURL(block.url).catch(() => undefined)
+                    return
+                }
+                router.push({
+                    pathname: '/replay/[sessionId]',
+                    params: {
+                        sessionId: block.sessionId,
+                        source: 'report',
+                        ...(block.t !== undefined ? { t: String(block.t) } : {}),
+                    },
+                })
             }}
-            accessibilityRole="link"
-            accessibilityLabel={`Watch a session, ${countLabel}`}
+            accessibilityRole="button"
+            accessibilityLabel={`See the moment, ${countLabel}`}
             style={styles.row}
             pressedStyle={styles.pressed}
         >
@@ -31,7 +47,7 @@ export function ReplayRow({ block, reportId }: { block: ReplayBlock; reportId: s
                     <PlayIcon size={10} color={colors.onInk} />
                 </View>
                 <View style={styles.body}>
-                    <Text style={styles.title}>Watch a session</Text>
+                    <Text style={styles.title}>See the moment</Text>
                     <MonoText color={colors.secondary} style={styles.meta} numberOfLines={1}>
                         {block.meta}
                     </MonoText>

@@ -20,6 +20,7 @@ import { FloatingCard } from '@/ui/FloatingCard'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { OverlayHost } from '@/ui/OverlayPortal'
 import { LoadingView, StateView } from '@/ui/StateView'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout } from '@/ui/tokens'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
@@ -49,7 +50,7 @@ import { reportDetailQuery } from './queries'
 import { ReportMeta } from './ReportMeta'
 import { apiErrorKind, type ReportOpenSource, type SheetEntry, useSheetFunnel } from './reportAnalytics'
 import { TextLinkRow } from './TextLinkRow'
-import { CONTENT_TOP, HEADLINE_GAP, TopChrome } from './TopChrome'
+import { HEADLINE_GAP, TopChrome } from './TopChrome'
 import { useReportReadTracking } from './useReportReadTracking'
 
 type Sheet = 'handoff' | 'resolve' | 'dismiss' | 'assignee' | 'priority'
@@ -364,7 +365,7 @@ function ReportBody({
         <View style={styles.body}>
             <Animated.ScrollView
                 style={styles.scroll}
-                contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, CONTENT_TOP) }]}
+                contentContainerStyle={[styles.content, { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP) }]}
                 keyboardShouldPersistTaps="handled"
                 onScroll={onScroll}
                 onLayout={reading.onLayout}

@@ -58,11 +58,19 @@ interface InsightTileProps {
     index: number
     dashboardRef: string
     dashboardName: string
+    showRangeOverride: boolean
     refreshItem: (itemKey: string) => boolean
 }
 
 /** One insight on a dashboard: a big number, a chart, or a card that opens it on the web. */
-export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshItem }: InsightTileProps): ReactElement {
+export function InsightTile({
+    tile,
+    index,
+    dashboardRef,
+    dashboardName,
+    showRangeOverride,
+    refreshItem,
+}: InsightTileProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
@@ -114,7 +122,7 @@ export function InsightTile({ tile, index, dashboardRef, dashboardName, refreshI
                         {tileMeta(snapshot, view)}
                     </Text>
                 </Pressable44>
-                {view.usesOwnRange ? (
+                {showRangeOverride && view.usesOwnRange ? (
                     <View style={styles.ownRange}>
                         <Text style={styles.ownRangeText}>Uses its own range</Text>
                     </View>

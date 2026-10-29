@@ -63,6 +63,8 @@ import {
     sendNowState,
     shouldQueue,
 } from './messageQueue'
+import { ObjectContextChip } from './ObjectContextChip'
+import type { ChatObjectContext } from './objectContext'
 import { QueuedMessages } from './QueuedMessages'
 import { SessionDecisionPanel } from './session/SessionDecisionPanel'
 import { SessionThread } from './session/SessionThread'
@@ -75,6 +77,8 @@ const MAX_ATTACHED_REPORTS = 5
 
 interface ChatSheetProps {
     initialReportId?: string
+    /** An issue or a recording the chat opens about. It frames each message while its chip stays. */
+    initialObject?: ChatObjectContext | null
     initialTaskId?: string
     initialRunId?: string
     source: ChatSheetSource
@@ -90,6 +94,7 @@ function sessionTarget(taskId: string | undefined, runId: string | undefined): S
 
 export function ChatSheet({
     initialReportId,
+    initialObject = null,
     initialTaskId,
     initialRunId,
     source,
@@ -143,8 +148,13 @@ export function ChatSheet({
         initialReportId && isReportId(initialReportId, demo) ? initialReportId : undefined
     )
     const [draftTaskId, setDraftTaskId] = useState<string | null>(initialTaskId ?? null)
+    const [attachedObject, setAttachedObject] = useState<ChatObjectContext | null>(initialObject)
     const sheetEvents = useChatSheetEvents(
-        { ...source, hasContext: draftReportId !== undefined, resumed: initialTaskId !== undefined },
+        {
+            ...source,
+            hasContext: draftReportId !== undefined || initialObject !== null,
+            resumed: initialTaskId !== undefined,
+        },
         session.runId
     )
     useEffect(() => {
@@ -237,14 +247,17 @@ export function ChatSheet({
         }
         dispatchRunOptions({
             type: 'seed',
-            options: chatRunOptionsFromConfig({
-                runtimeAdapter: seedAdapter,
-                model: seedModel,
-                reasoningEffort: seedEffort,
-                permissionMode: seedMode,
-            }),
+            options: chatRunOptionsFromConfig(
+                {
+                    runtimeAdapter: seedAdapter,
+                    model: seedModel,
+                    reasoningEffort: seedEffort,
+                    permissionMode: seedMode,
+                },
+                target.taskId !== undefined
+            ),
         })
-    }, [hasRunConfig, seedAdapter, seedModel, seedEffort, seedMode])
+    }, [hasRunConfig, seedAdapter, seedModel, seedEffort, seedMode, target.taskId])
 
     // The agent can change mode on its own, such as out of Plan when a plan is approved. Its new mode replaces an
     // earlier pick, as the web drops its mode override on `current_mode_update`.
@@ -257,7 +270,7 @@ export function ChatSheet({
     const items = inbox.data ?? []
     const itemsById = useMemo(() => new Map(items.map((item) => [item.reportId, item])), [items])
     const mentionItems = useMemo(() => items.filter((item) => !attached.includes(item.reportId)), [items, attached])
-    const canMention = attached.length < MAX_ATTACHED_REPORTS && mentionItems.length > 0
+    const canMention = attachedObject === null && attached.length < MAX_ATTACHED_REPORTS && mentionItems.length > 0
     const sheetStyle = useAnimatedStyle(() => ({
         transform: [{ translateY: (1 - progress.value) * windowHeight + drag.value }],
     }))
@@ -293,11 +306,17 @@ export function ChatSheet({
         setReports((previous) => (previous[report.id] === report ? previous : { ...previous, [report.id]: report }))
     }, [])
 
-    const onlyReport = attached.length === 1 ? reports[attached[0] as string] : undefined
+    // A message frames one kind of context. The object wins, so reports a restored draft holds stay hidden until the
+    // object chip goes.
+    const shownReports = attachedObject ? [] : attached
+    const onlyReport = shownReports.length === 1 ? reports[shownReports[0] as string] : undefined
     // The web shows a report's own prompts only when the agent may act on it.
     const suggestedPrompts = onlyReport?.canAct ? onlyReport.suggestedPrompts : undefined
 
     const buildContext = (): ChatContext => {
+        if (attachedObject) {
+            return { kind: 'object', item: attachedObject }
+        }
         if (attached.length > 0) {
             return {
                 kind: 'reports',
@@ -546,6 +565,7 @@ export function ChatSheet({
         }
         setDraftTaskId(null)
         setDraftReportId(undefined)
+        setAttachedObject(null)
         setMentionOpen(false)
         setOptionsOpen(false)
         setAttachOpen(false)
@@ -556,9 +576,12 @@ export function ChatSheet({
     }
 
     const chips =
-        attached.length > 0 || attachments.files.length > 0 ? (
+        attachedObject !== null || shownReports.length > 0 || attachments.files.length > 0 ? (
             <>
-                {attached.map((reportId) => (
+                {attachedObject ? (
+                    <ObjectContextChip object={attachedObject} onRemove={() => setAttachedObject(null)} />
+                ) : null}
+                {shownReports.map((reportId) => (
                     <ContextChip
                         key={reportId}
                         reportId={reportId}

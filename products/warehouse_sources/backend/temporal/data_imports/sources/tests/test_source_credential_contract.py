@@ -88,8 +88,11 @@ OK_ANSWERS: tuple[Answer, ...] = (
 #   connects without urllib3.
 NOT_CHECKABLE: dict[str, str] = {
     "Ably": "config",
+    "AmazonS3": "config",
     "AppStoreConnect": "config",
     "AppleSearchAds": "config",
+    "AwsDocumentDB": "driver",
+    "AzureBlob": "config",
     "AzureCostManagement": "config",
     "BigQuery": "driver",
     "BingAds": "database",
@@ -99,6 +102,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "CircleciInsights": "config",
     "CiscoDuo": "config",
     "Clay": "config",
+    "CloudflareR2": "config",
     "Convex": "config",
     "Coveralls": "config",
     "Criteo": "config",
@@ -107,6 +111,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Depot": "config",
     "Docusign": "config",
     "Dynamics365": "config",
+    "FileUpload": "config",
     "Firebase": "config",
     "Framer": "config",
     "GcpCloudBilling": "config",
@@ -114,6 +119,7 @@ NOT_CHECKABLE: dict[str, str] = {
     "Github": "config",
     "GoogleAds": "driver",
     "GoogleAnalytics": "database",
+    "GoogleCloudStorage": "config",
     "GooglePlayConsole": "config",
     "GoogleSearchConsole": "database",
     "GoogleSheets": "config",
@@ -382,15 +388,17 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
     "Adapty",
     "AdobeAnalytics",
     "Ahrefs",
-    "AmazonS3",
+    "AmazonCloudWatch",
     "Anvil",
     "Apollo",
     "Arcade",
     "Ashby",
     "Automox",
     "Avalara",
+    "AwsAthena",
     "AwsBudgets",
     "AwsComputeOptimizer",
+    "AwsCostAndUsageReport",
     "AzureApplicationInsights",
     "Bettermode",
     "BillCom",
@@ -464,9 +472,7 @@ OK_NEEDS_VENDOR_BODY: set[str] = {
 
 # Sources whose probe raises for these answers. Each entry is a defect to fix: the probe must return
 # `(False, message)`. The value lists the answers that raise.
-RAISES: dict[str, str] = {
-    "AmazonS3": "401 500",
-}
+RAISES: dict[str, str] = {}
 
 # Sources whose probe returns no message for these answers. Each entry is a defect to fix: the person
 # sees a generic message that does not say what is wrong.

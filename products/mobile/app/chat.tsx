@@ -1,18 +1,24 @@
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { type ReactElement, useCallback } from 'react'
 
+import { useDataMode } from '@/demo/demoMode'
 import { ChatSheet } from '@/features/chat/ChatSheet'
 import { chatSheetSource } from '@/features/chat/chatSheetEvents'
+import { objectContextFromParams } from '@/features/chat/objectContext'
 import { currentDefaultPageHref } from '@/features/settings/defaultPageStore'
 
 export default function ChatRoute(): ReactElement {
     const router = useRouter()
-    const { reportId, taskId, runId, entry, origin } = useLocalSearchParams<{
+    const dataMode = useDataMode()
+    const { reportId, taskId, runId, entry, origin, objectType, objectId, objectLabel } = useLocalSearchParams<{
         reportId?: string
         taskId?: string
         runId?: string
         entry?: string
         origin?: string
+        objectType?: string
+        objectId?: string
+        objectLabel?: string
     }>()
     const close = useCallback(() => {
         if (router.canGoBack()) {
@@ -23,10 +29,12 @@ export default function ChatRoute(): ReactElement {
     }, [router])
     return (
         <ChatSheet
+            key={JSON.stringify([dataMode, taskId, runId, reportId, objectId])}
             initialReportId={reportId}
             initialTaskId={taskId}
             initialRunId={runId}
-            source={chatSheetSource({ entry, origin, reportId, taskId })}
+            initialObject={objectContextFromParams({ objectType, objectId, objectLabel })}
+            source={chatSheetSource({ entry, origin, reportId, taskId, objectType })}
             onClosed={close}
         />
     )

@@ -4,12 +4,77 @@
 
 ```sh
 cd products/mobile
+pnpm check:expo
 pnpm typecheck
 pnpm lint
 pnpm test
 ```
 
-CI runs the same three checks, see [CI.md](CI.md).
+`pnpm check:expo` compares dependencies with the installed Expo SDK's bundled compatibility metadata, rather than newer remote patch metadata.
+`pnpm typecheck` includes this compatibility check automatically.
+CI runs typecheck, lint, and tests; see [CI.md](CI.md).
+
+## Authenticated local checks
+
+Run the setup in [README.md](../README.md#sign-in-to-the-local-backend) first.
+Until the backend changes merge, the commands below run from the paired `codex/mobile-dev-environment` checkout; the mobile development build runs from `codex/mobile-app`.
+The backend needs migrated Postgres, object storage, and the normal local services.
+Use the same development environment and `SITE_URL` as the running backend.
+
+```sh
+python manage.py setup_local_dev --json
+python manage.py check_local_dev --json
+```
+
+The first command creates the usual test account only when absent, keeps an existing account and project, registers local OAuth callbacks, and inserts repeatable personal Inbox and Chat examples.
+It does not reset the database or start a real agent.
+Keep the returned project and object IDs for your native checks.
+An existing account with a custom password is preserved and needs its existing sign-in details.
+For another existing account, seed with `python manage.py seed_local_inbox_data --team-id <project-id> --user-id <user-id> --json`.
+
+The second command checks the default test account over HTTP: password login, normal CSRF-protected consent, PKCE code exchange for the registered `posthog-dev://callback`, bearer-authenticated account/project/Inbox/Chat reads, refresh, and revocation.
+Use `--callback posthog://callback` or `--callback posthog-preview://callback` to check another registered mobile scheme.
+It prints a safe summary and revokes the temporary OAuth session.
+It does not exercise the native browser sheet, device callback delivery, app storage, or screen rendering.
+
+On an iOS simulator or Android emulator with a development build:
+
+1. Leave demo mode and sign out. Choose **Self-hosted** with the local backend URL and prefilled local Client ID.
+2. Sign in as `test@posthog.com` with `12345678`, approve access, and verify the browser returns to the app through its variant's callback scheme.
+3. Confirm the account and project match the setup output. Open the ready and pending-input Inbox reports, their details, and the completed Chat. The stored user and assistant messages should load without starting a task run.
+4. Open Views, Errors, and Replay. Confirm saved views and errors load for the same project. A playable replay needs the real recording step below.
+5. Switch to another project available to the account, then back. Each Inbox, Chat, and saved view list must belong to the selected project. If the account only has one project, create another in the local web app before this check.
+6. Background and reopen the app. Verify the account and project remain selected. Sign out and verify returning to the app requires sign-in again.
+
+Use the backend HTTP check to exercise refresh and revocation without waiting for a native access token to expire.
+Only record a native sign-in pass after running the device steps.
+
+### Capture real local session recordings
+
+Replay needs actual browser snapshots as well as analytics events.
+Install the Hedgebox dummy package dependencies first, then run `pnpm exec playwright install chromium` from `tools/hedgebox-dummy` if the browser is missing.
+In the paired backend checkout, run the Hedgebox dummy with the project token shown in that selected project's settings:
+
+```sh
+cd tools/hedgebox-dummy
+NEXT_PUBLIC_POSTHOG_KEY=<selected-project-token> \
+NEXT_PUBLIC_POSTHOG_HOST=http://localhost:8010 \
+pnpm exec next dev --port 3000
+```
+
+In another terminal at that backend checkout's root, run:
+
+```sh
+NEXT_PUBLIC_POSTHOG_KEY=<selected-project-token> \
+NEXT_PUBLIC_POSTHOG_HOST=http://localhost:8010 \
+node products/demo/scripts/capture_sessions.cjs --app-url http://localhost:3000 --sessions 3
+```
+
+The collector checks the SDK uses the selected token and local host, interacts with the dummy, and waits for real snapshot requests to be accepted.
+Its `snapshots_accepted_pending_ingestion` result means capture succeeded; it does not prove replay is playable yet.
+Keep ingestion, ClickHouse, and replay storage running, wait for the returned session IDs to appear in the local web app, then play one there and in the mobile Replay screen.
+If a session is missing, inspect local capture, ingestion, and replay storage logs before recording a playback pass.
+The dummy's normal development shortcut can choose the latest project; the explicit command above keeps the SDK on the account's selected project.
 
 ## Chat drafts and rich replies
 
@@ -54,6 +119,10 @@ On a development build with notifications enabled:
    After expiry, the snooze reminder should appear. Repeat using a task already associated in the cache.
 4. Deliver two distinct `awaiting` notifications for one run: neither should be lost to a run-wide cooldown.
 5. Tap a notification while signed out, sign in, and verify that its report opens once.
+   For chats, open a conversation, enter a draft, background the app and tap a push for that chat.
+   Verify the draft and scroll position stay intact. Repeat with a chat just started in the composer.
+   Tap a push for a different chat and verify its history loads; one Close must return to the screen
+   underneath. Also tap New chat, then tap a push for the conversation you just left; it must reopen.
 6. Repeat a delivery with the app backgrounded or terminated. App-side filtering does **not** provide the same
    guarantees there; server consolidation and synchronized snoozes remain follow-ups in [GAPS.md](GAPS.md).
 
@@ -73,11 +142,11 @@ The flow:
 8. goes Home and taps **Exit demo** in Settings.
 
 It starts and ends on the sign-in screen with demo mode off, so you can run it again right away.
-Every step uses the app's `testID`s, except the scrim tap, which uses the scrim's "Close" label.
+Actions use the app's `testID`s, except the hand-off sheet drag, which starts on its "Choose an agent" header.
 
 ### Set up once
 
-1. Install Argent: `npm install -g @swmansion/argent`.
+1. Install the pinned Argent version: `npm install -g @swmansion/argent@0.30.1`.
 2. Install ffmpeg if you want screen recordings: `brew install ffmpeg`.
 3. Install Xcode with an iOS simulator runtime, and CocoaPods.
 
@@ -102,11 +171,47 @@ Then run the flow from `products/mobile`, because Argent looks for `.argent/flow
 argent flow run demo-smoke --platform ios
 ```
 
-A pass takes about 30 seconds, prints one line per step, and exits with code 0.
+A pass prints one line per step and exits with code 0. Locally, `demo-smoke` took about 49 seconds and
+`views-smoke` about 80 seconds on Xcode 27.1 / iOS 27.0. A fresh native compile took about 8 minutes,
+with simulator setup adding more time.
 If more than one simulator is booted, add `--device <udid>` (see `xcrun simctl list devices booted`).
 
 Two `idle` steps can warn that a small part of the screen was still changing, such as the text caret.
 The step after each one waits for a stable element, so these warnings are expected.
+
+### Demo flows before you merge
+
+CI does not run the simulator flows. Run `demo-smoke` and `views-smoke` locally before you merge a change to a screen,
+navigation, the demo fixtures, or a flow. The `/running-mobile-demo-flows` skill in `.agents/skills/` walks an agent
+through the same steps and the result files.
+
+The scripts below build a bundled Release app with no Metro connection. Argent reads the native view hierarchy,
+so the flows do not need a development build or its overlays.
+
+The build disables analytics and over-the-air updates. The script creates a temporary iPhone 17 Pro simulator,
+installs the app again before each flow, and deletes the simulator on success, failure, or interruption.
+Only demo fixtures are used; no PostHog account, API key, Expo token, or Apple signing credentials are needed.
+Both flows run even when the first fails. JSON reports, failed-step screenshots, and build logs land in the
+artifact directory you pass.
+
+Install the app dependencies, CocoaPods, and Xcode 26.6 with the iOS 26.5 runtime,
+then run from `products/mobile`. A dedicated Argent install keeps the runner separate from an editor's server:
+
+```sh
+DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fund @swmansion/argent@0.30.1
+export PATH="/tmp/mobile-argent-tools/node_modules/.bin:$PATH"
+bash scripts/ci-argent-build.sh /tmp/mobile-argent-build /tmp/mobile-argent-artifacts
+bash scripts/ci-argent.sh \
+    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHog.app \
+    /tmp/mobile-argent-artifacts
+```
+
+The build regenerates the ignored `ios/` project, so run it in a disposable checkout if you have manual native edits.
+To select another installed simulator runtime, set
+`ARGENT_IOS_RUNTIME` to its identifier from `xcrun simctl list runtimes`, for example
+`com.apple.CoreSimulator.SimRuntime.iOS-27-0`. Simulator-only builds do not sign or publish anything.
+Argent's [e2e reference](https://docs.swmansion.com/argent/docs/reference/e2e-yaml/) documents the native
+selectors and the `--output` reports. The older `argent flow` command remains an alias for `argent e2e`.
 
 ### Record a video
 

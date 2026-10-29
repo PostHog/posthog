@@ -15,6 +15,7 @@ import {
     readableErrorMessage,
     ResponseBodyReadError,
 } from 'lib/api-error'
+import { ApiRequestTiming, ApiRequestTimingRecorder } from 'lib/apiRequestTiming'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { apiStatusLogic, awaitReauthentication, isUserActionInProgress } from 'lib/logic/apiStatusLogic'
@@ -38,7 +39,6 @@ import {
     DashboardFilter,
     DatabaseSerializedFieldType,
     DataWarehouseManagedViewsetKind,
-    DomainConnectProviderName,
     EndpointLastExecutionTimesRequest,
     EndpointRequest,
     EndpointRunRequest,
@@ -217,10 +217,12 @@ import type {
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { CopyFlagsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 import type {
+    EmailDomainConnectCheckApi,
     GitHubBranchesResponseApi,
     GitHubReposResponseApi,
 } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
+import type { TasksRunsLogsRetrieveParams } from 'products/logs/frontend/generated/api.schemas'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
@@ -310,6 +312,7 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    onRequestTiming?: (timing: ApiRequestTiming) => void
 }
 
 export interface ApiUploadProgress {
@@ -397,7 +400,12 @@ function apiErrorFallback(response: Response, method: string, url: string): stri
  * with unparsable content) throws `ResponseBodyReadError`, so it can be recognized as wire-level
  * noise and left out of error tracking.
  */
-export async function getJSONFromSuccessResponse(response: Response, method: string, url: string): Promise<any> {
+export async function getJSONFromSuccessResponse(
+    response: Response,
+    method: string,
+    url: string,
+    timing?: ApiRequestTimingRecorder
+): Promise<any> {
     const requestContext = (): string =>
         `[${method} ${new URL(url, location.origin).pathname}] (status ${response.status})`
     // A no-content response must not depend on reading its body: some engines (in our telemetry,
@@ -407,7 +415,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
     }
     let text: string
     try {
-        text = await response.text()
+        text = timing ? await timing.readBody(response) : await response.text()
     } catch (error) {
         if (isAbortError(error)) {
             throw error
@@ -431,7 +439,7 @@ export async function getJSONFromSuccessResponse(response: Response, method: str
         return null
     }
     try {
-        return JSON.parse(text)
+        return timing ? timing.parseJSON(text) : JSON.parse(text)
     } catch {
         throw new ApiError(`Malformed JSON response ${requestContext()}`)
     }
@@ -482,6 +490,22 @@ export class ApiConfig {
 
 /** A workflow's type: the surface that owns it, else what it does. */
 export type HogFlowListType = 'messaging' | 'automation' | 'loop' | 'broadcast'
+
+function parseLogEntries(text: string): Record<string, any>[] {
+    const entries: Record<string, any>[] = []
+    for (const line of text.split('\n')) {
+        const trimmed = line.trim()
+        if (!trimmed) {
+            continue
+        }
+        try {
+            entries.push(JSON.parse(trimmed))
+        } catch {
+            // Skip unparseable lines — the stream is best-effort historical replay.
+        }
+    }
+    return entries
+}
 
 export class ApiRequest {
     private pathComponents: string[]
@@ -1874,10 +1898,6 @@ export class ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
-    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
-        return this.messagingCategories().addPathComponent('import_from_customerio')
-    }
-
     public messagingCategoriesOptOutSyncConfig(): ApiRequest {
         return this.messagingCategories().addPathComponent('optout_sync_config')
     }
@@ -2877,6 +2897,8 @@ const api = {
                 limit?: number
                 offset?: number
                 includeImpact?: boolean
+                groupByEndpoint?: boolean
+                includeHealth?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -5044,20 +5066,58 @@ const api = {
                     .taskRun(taskId, runId, options.projectId)
                     .withAction('logs')
                     .getResponse({ signal: options.signal })
-                const text = await response.text()
-                const entries: Record<string, any>[] = []
-                for (const line of text.split('\n')) {
-                    const trimmed = line.trim()
-                    if (!trimmed) {
-                        continue
-                    }
-                    try {
-                        entries.push(JSON.parse(trimmed))
-                    } catch {
-                        // Skip unparseable lines — the stream is best-effort historical replay.
-                    }
+                return parseLogEntries(await response.text())
+            },
+            /**
+             * Fetch part of a run's resume-chain log. With `tailBytes`, the latest turns (at least `tailBytes`, from a
+             * cut where a user turn starts) that end before entry index `before`, or with `start`, every entry from
+             * that index on. The page starts with `preamble` earlier entries that still set run state; `offset` is
+             * the full-log index of the first entry after them, `count` is the full-log size, and `turnsBefore`
+             * counts the user turns before `offset`. Without `tailBytes`, or for a log the server does not page, the
+             * response is the full log and `indexed` is false.
+             */
+            async getLogPage(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: {
+                    signal?: AbortSignal
+                    projectId?: TeamType['id']
+                    tailBytes?: number
+                    before?: number
+                    start?: number
+                    view?: TasksRunsLogsRetrieveParams['view']
                 }
-                return entries
+            ): Promise<{
+                entries: Record<string, any>[]
+                offset: number
+                count: number
+                preamble: number
+                turnsBefore: number
+                origin: string
+                indexed: boolean
+            }> {
+                const response = await new ApiRequest()
+                    .taskRun(taskId, runId, options.projectId)
+                    .withAction('logs')
+                    .withQueryString({
+                        ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
+                        ...(options.before !== undefined ? { before: options.before } : {}),
+                        ...(options.start !== undefined ? { start: options.start } : {}),
+                        ...(options.view ? { view: options.view } : {}),
+                    })
+                    .getResponse({ signal: options.signal })
+                const entries = parseLogEntries(await response.text())
+                const indexed = response.headers.get('X-Log-Offset') !== null
+                const header = (name: string): number => Number(response.headers.get(name) ?? 0) || 0
+                return {
+                    entries,
+                    offset: header('X-Log-Offset'),
+                    count: indexed ? header('X-Log-Count') : entries.length,
+                    preamble: header('X-Log-Preamble'),
+                    turnsBefore: header('X-Log-Turns-Before'),
+                    origin: response.headers.get('X-Log-Origin') ?? '',
+                    indexed,
+                }
             },
             /**
              * Open the live SSE stream for a run as a `fetch` response (the caller reads it with
@@ -6024,14 +6084,7 @@ const api = {
         ): Promise<IntegrationType> {
             return await new ApiRequest().integrationEmail(integrationId).update({ data })
         },
-        async domainConnectCheck(domain: string): Promise<{
-            supported: boolean
-            provider_name: DomainConnectProviderName | null
-            available_providers: {
-                endpoint: string
-                name: DomainConnectProviderName
-            }[]
-        }> {
+        async domainConnectCheck(domain: string): Promise<EmailDomainConnectCheckApi> {
             return await new ApiRequest()
                 .integrationsDomainConnectCheck()
                 .withQueryString(`domain=${encodeURIComponent(domain)}`)
@@ -6099,8 +6152,8 @@ const api = {
     },
 
     queryStatus: {
-        async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
-            return await new ApiRequest().queryStatus(queryId, showProgress).get()
+        async get(queryId: string, showProgress: boolean, options?: ApiMethodOptions): Promise<QueryStatusResponse> {
+            return await new ApiRequest().queryStatus(queryId, showProgress).get(options)
         },
     },
 
@@ -6129,8 +6182,11 @@ const api = {
         async delete(id: PersonalAPIKeyType['id']): Promise<void> {
             await new ApiRequest().personalApiKey(id).delete()
         },
-        async roll(id: PersonalAPIKeyType['id']): Promise<PersonalAPIKeyType> {
-            return await new ApiRequest().personalApiKey(id).withAction('roll').create()
+        async roll(
+            id: PersonalAPIKeyType['id'],
+            data: Pick<Partial<PersonalAPIKeyType>, 'expires_at'> = {}
+        ): Promise<PersonalAPIKeyType> {
+            return await new ApiRequest().personalApiKey(id).withAction('roll').create({ data })
         },
     },
 
@@ -6288,6 +6344,8 @@ const api = {
             type?: HogFlowListType[]
             /** JSON-encoded object the stored trigger must contain, e.g. `{"type":"batch"}`. */
             trigger?: string
+            /** JSON-encoded list of tag names. A workflow matches when it carries at least one. */
+            tags?: string
             limit?: number
             offset?: number
         }): Promise<CountedPaginatedResponse<HogFlow>> {
@@ -6697,11 +6755,13 @@ const api = {
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get<T = any>(url: string, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.getResponse(url, options)
-        return await getJSONFromSuccessResponse(res, 'GET', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.getResponse(url, options, timing)
+            return await getJSONFromSuccessResponse(res, 'GET', url, timing)
+        })
     },
 
-    async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
+    async getResponse(url: string, options?: ApiMethodOptions, timing?: ApiRequestTimingRecorder): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
 
@@ -6713,7 +6773,8 @@ const api = {
         }
 
         return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 signal: options?.signal,
                 headers: {
                     ...objectClean(options?.headers ?? {}),
@@ -6722,6 +6783,8 @@ const api = {
                     ...authHeaders,
                 },
             })
+            timing?.recordHeaders(response)
+            return response
         })
     },
 
@@ -6762,17 +6825,25 @@ const api = {
     },
 
     async create<T = any, P = any>(url: string, data?: P, options?: ApiMethodOptions): Promise<T> {
-        const res = await api.createResponse(url, data, options)
-        return await getJSONFromSuccessResponse(res, 'POST', url)
+        return await withRequestTiming(options, async (timing) => {
+            const res = await api.createResponse(url, data, options, timing)
+            return await getJSONFromSuccessResponse(res, 'POST', url, timing)
+        })
     },
 
-    async createResponse(url: string, data?: any, options?: ApiMethodOptions): Promise<Response> {
+    async createResponse(
+        url: string,
+        data?: any,
+        options?: ApiMethodOptions,
+        timing?: ApiRequestTimingRecorder
+    ): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
+        return await handleFetch(url, 'POST', async () => {
+            timing?.startFetch(url)
+            const response = await fetch(url, {
                 method: 'POST',
                 headers: {
                     ...objectClean(options?.headers ?? {}),
@@ -6784,7 +6855,9 @@ const api = {
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
             })
-        )
+            timing?.recordHeaders(response)
+            return response
+        })
     },
 
     /**
@@ -7176,6 +7249,31 @@ async function isStaleSessionResponse(response: Response): Promise<boolean> {
         return data?.code === 'sensitive_action_required_reauth'
     } catch {
         return false
+    }
+}
+
+async function withRequestTiming<T>(
+    options: ApiMethodOptions | undefined,
+    request: (timing?: ApiRequestTimingRecorder) => Promise<T>
+): Promise<T> {
+    const onRequestTiming = options?.onRequestTiming
+    if (!onRequestTiming) {
+        return await request()
+    }
+    const timing = new ApiRequestTimingRecorder()
+    try {
+        return await request(timing)
+    } catch (error) {
+        if (error instanceof ApiError) {
+            timing.recordFailure(error)
+        }
+        throw error
+    } finally {
+        try {
+            onRequestTiming(timing.finish())
+        } catch {
+            // Observability must not change request success, failure, or cancellation.
+        }
     }
 }
 

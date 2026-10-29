@@ -1,8 +1,9 @@
 import { fetch as streamingFetch } from 'expo/fetch'
 
+import { withAppReloadBlocked } from '@/lib/appReload'
 import { isRecord } from '@/lib/records'
 
-import { BudgetExceededError, budgetFamilyFor, trySpend } from './budget'
+import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
 import { recordServerDate } from './serverClock'
 
 export interface ApiAuth {
@@ -67,6 +68,8 @@ export interface ApiInit extends Omit<RequestInit, 'body' | 'headers'> {
     body?: RequestInit['body']
     headers?: Record<string, string>
     query?: Record<string, QueryValue>
+    /** Spends this budget instead of the one the path belongs to. */
+    budgetFamily?: BudgetFamily
 }
 
 function requireAuth(): ApiAuth {
@@ -117,7 +120,7 @@ export function projectWebUrl(path: string): string | undefined {
 }
 
 function buildInit(init: ApiInit, accessToken: string, accept: string): RequestInit {
-    const { json, query: _query, headers, ...rest } = init
+    const { json, query: _query, budgetFamily: _budgetFamily, headers, ...rest } = init
     const merged: Record<string, string> = {
         Accept: accept,
         Authorization: `Bearer ${accessToken}`,
@@ -147,7 +150,7 @@ function isSameSession(a: ApiAuth, b: ApiAuth): boolean {
 async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: string): Promise<Response> {
     const auth = requireAuth()
     const url = apiUrl(path, init.query)
-    const family = budgetFamilyFor(path)
+    const family = init.budgetFamily ?? budgetFamilyFor(path)
     if (family && !trySpend(family)) {
         throw new BudgetExceededError(family)
     }
@@ -192,16 +195,18 @@ async function parseBody(response: Response): Promise<unknown> {
 
 /** Sends a request and returns the raw response. Refreshes the token once on a 401. */
 export async function apiFetch(path: string, init: ApiInit = {}): Promise<Response> {
-    return send((url, options) => fetch(url, options), path, init, 'application/json')
+    return withAppReloadBlocked(() => send((url, options) => fetch(url, options), path, init, 'application/json'))
 }
 
 export async function apiJson<T>(path: string, init: ApiInit = {}): Promise<T> {
-    const response = await apiFetch(path, init)
-    const body = await parseBody(response)
-    if (!response.ok) {
-        throw new ApiError(response.status, body, response.headers)
-    }
-    return body as T
+    return withAppReloadBlocked(async () => {
+        const response = await apiFetch(path, init)
+        const body = await parseBody(response)
+        if (!response.ok) {
+            throw new ApiError(response.status, body, response.headers)
+        }
+        return body as T
+    })
 }
 
 /** Uses expo's fetch, which exposes `response.body` as a readable stream on native. */

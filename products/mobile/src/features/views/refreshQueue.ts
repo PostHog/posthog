@@ -36,9 +36,9 @@ export interface JobRequest {
     mode: RefreshMode
     run: (mode: RefreshMode, signal: AbortSignal) => Promise<ReadResult>
     /**
-     * A person tapped "Try again" on a view with nothing to show. The read goes out even inside the item's minute
-     * floor, because the person asked for it. It still joins a running read, waits out a family pause, and takes a
-     * budget token.
+     * A person requested a refresh or retry. The read goes out even inside the automatic minute floor. It still
+     * joins a running read, waits out a family pause, and takes a budget token. Callers honor the server's window
+     * before requesting a forced recomputation.
      */
     userRetry?: boolean
 }
@@ -71,11 +71,6 @@ export interface RefreshQueueOptions {
     canSpend?: (family: BudgetFamily) => boolean
 }
 
-/**
- * The one queue every Views data read goes through: at most 2 requests in flight, one queued or running request per
- * freshness key (a second caller joins the first), at most one request per item per minute, a pause per budget family
- * after a 429 or 503, and one retry 5 s after a rate-limited answer. It never polls.
- */
 export class RefreshQueue {
     private readonly maxInFlight: number
     private readonly itemFloorMs: number
@@ -326,7 +321,6 @@ export class RefreshQueue {
         this.pump()
     }
 
-    // The rate-limited retry is the only request allowed inside an item's one-minute floor.
     private scheduleRetry(job: Job): void {
         job.retried = true
         job.state = 'waiting'

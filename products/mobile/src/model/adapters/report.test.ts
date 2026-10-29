@@ -244,6 +244,7 @@ describe('report view adapter', () => {
             {
                 kind: 'replay',
                 sessionId: 'sess-1',
+                t: 3,
                 meta: 'at 0:08 · Blank chart after load',
                 count: 1,
                 url: 'https://us.example.com/project/2/replay/sess-1?t=3',

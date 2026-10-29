@@ -1,11 +1,13 @@
 from collections.abc import Sequence
 
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.models.organization import OrganizationMembership
 
+from products.approvals.backend.actions.experiment_holdouts import UpdateExperimentHoldoutAction
 from products.approvals.backend.models import ApprovalPolicy
 from products.approvals.backend.policies import PolicyEngine
 
@@ -378,3 +380,52 @@ class TestBypassRolesValidation(APIBaseTest):
         policy.set_bypass_roles([])
 
         assert policy.bypass_roles.count() == 0
+
+
+class TestHoldoutFallbackPolicySelection(APIBaseTest):
+    """A holdout change is gated as one operation and borrows the policy that would gate its
+    flag writes. Which policy that is depends on how far the organization has moved between
+    families, and reading the wrong one answers from an hourly mirror instead of the live row.
+    """
+
+    def _policy(self, action_key: str) -> ApprovalPolicy:
+        return ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+    @parameterized.expand(
+        [("before_handoff", False, "feature_flag.update"), ("after_handoff", True, "experiment.update")]
+    )
+    def test_the_borrowed_policy_follows_the_rollout(self, _name: str, scoped: bool, expected: str) -> None:
+        self._policy("feature_flag.update")
+        self._policy("experiment.update")
+
+        with patch(
+            "products.approvals.backend.actions.experiment_holdouts.scope_by_owner_enabled",
+            return_value=scoped,
+        ):
+            policy = PolicyEngine().get_policy_for_action(UpdateExperimentHoldoutAction, self.team, self.organization)
+
+        assert policy is not None
+        assert policy.action_key == expected
+
+    def test_the_mirror_is_not_borrowed_before_handoff(self) -> None:
+        """Only the mirror exists, so the holdout change must find no policy rather than it.
+
+        The mirror lags the flag policy by up to an hour, so honouring it here would keep a
+        revoked bypass working until the next sync run.
+        """
+        self._policy("experiment.update")
+
+        with patch(
+            "products.approvals.backend.actions.experiment_holdouts.scope_by_owner_enabled",
+            return_value=False,
+        ):
+            policy = PolicyEngine().get_policy_for_action(UpdateExperimentHoldoutAction, self.team, self.organization)
+
+        assert policy is None

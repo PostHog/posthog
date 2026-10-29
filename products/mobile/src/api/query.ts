@@ -4,6 +4,7 @@ import { abortError } from '@/lib/abort'
 import { isRecord } from '@/lib/records'
 import { sleep } from '@/lib/sleep'
 
+import type { BudgetFamily } from './budget'
 import { apiJson, projectPath } from './client'
 import { type ProjectScope, scopeKey } from './reports'
 
@@ -67,6 +68,8 @@ export interface RunQueryOptions {
      * value instead of sending `GET query/{id}/` polls.
      */
     poll?: boolean
+    /** Spends this budget instead of the Views `query` budget. */
+    budgetFamily?: BudgetFamily
 }
 
 /**
@@ -80,6 +83,7 @@ export async function runQuery(query: unknown, options: RunQueryOptions = {}): P
         timeoutMs = QUERY_POLL_TIMEOUT_MS,
         refresh = 'blocking',
         poll = true,
+        budgetFamily,
     } = options
     const deadline = Date.now() + timeoutMs
     const controller = new AbortController()
@@ -101,6 +105,7 @@ export async function runQuery(query: unknown, options: RunQueryOptions = {}): P
             method: 'POST',
             json: { query, client_query_id: randomUUID(), refresh },
             signal: controller.signal,
+            budgetFamily,
         })
         if (signal?.aborted) {
             throw abortError()
@@ -122,6 +127,7 @@ export async function runQuery(query: unknown, options: RunQueryOptions = {}): P
             await sleep(Math.min(pollIntervalMs, Math.max(0, deadline - Date.now())), controller.signal)
             const polled: unknown = await apiJson<unknown>(projectPath(`query/${encodeURIComponent(status.id)}/`), {
                 signal: controller.signal,
+                budgetFamily,
             })
             if (signal?.aborted) {
                 throw abortError()

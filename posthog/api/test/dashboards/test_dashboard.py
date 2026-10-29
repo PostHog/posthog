@@ -1,6 +1,7 @@
 import json
 import datetime
 from collections.abc import Callable
+from typing import Any
 
 import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
@@ -54,6 +55,7 @@ from products.dashboards.backend.api.dashboard import (
     DashboardTileErrorSerializer,
     serialize_tile_with_context,
 )
+from products.dashboards.backend.constants import MAX_GROUP_KEY_LENGTH, MAX_GROUP_TITLE_LENGTH, MAX_GROUPS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import ButtonTile, DashboardTile, Text
@@ -728,108 +730,225 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
 
-    def test_dashboard_group_titles_are_saved_replaced_cleared_and_duplicated(self) -> None:
+    def test_dashboard_groups_are_saved_replaced_cleared_and_duplicated(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        self.dashboard_api.update_dashboard(dashboard_id, {"grid_spacing": "relaxed"})
 
         _, updated = self.dashboard_api.update_dashboard(
-            dashboard_id, {"group_titles": {"plans": "Pricing plans", "regions": "Regions"}}
+            dashboard_id,
+            {
+                "grid_spacing": "relaxed",
+                "groups": {
+                    "plans": {"title": "Pricing plans", "collapsed": True, "color": "purple"},
+                    "regions": {},
+                },
+            },
         )
         self.assertEqual(
             updated["customization"],
-            {"tile_spacing": "relaxed", "group_titles": {"plans": "Pricing plans", "regions": "Regions"}},
+            {
+                "tile_spacing": "relaxed",
+                "group_titles": {"plans": "Pricing plans"},
+                "groups": {
+                    "plans": {"title": "Pricing plans", "collapsed": True, "color": "purple"},
+                    "regions": {"collapsed": False, "color": None},
+                },
+            },
         )
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": {"plans": "Plans"}})
-        self.assertEqual(updated["customization"], {"tile_spacing": "relaxed", "group_titles": {"plans": "Plans"}})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"groups": {"plans": {"title": "Plans"}}})
+        plans_only = {
+            "tile_spacing": "relaxed",
+            "group_titles": {"plans": "Plans"},
+            "groups": {"plans": {"title": "Plans", "collapsed": False, "color": None}},
+        }
+        self.assertEqual(updated["customization"], plans_only)
+        self.assertEqual(
+            Dashboard.objects.get(id=dashboard_id).customization,
+            {"tile_spacing": "relaxed", "groups": {"plans": {"title": "Plans"}}},
+        )
 
         _, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
-        self.assertEqual(copied["customization"], {"tile_spacing": "relaxed", "group_titles": {"plans": "Plans"}})
+        self.assertEqual(copied["customization"], plans_only)
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": None})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"groups": None})
         self.assertEqual(updated["customization"], {"tile_spacing": "relaxed"})
 
-    def test_dashboard_group_title_keys_are_stripped_to_match_tile_group_keys(self) -> None:
+    @parameterized.expand(
+        [
+            ("replace", {" plans ": "New plans", "new": "New group"}, {"plans": "New plans", "new": "New group"}),
+            ("empty", {}, {}),
+            ("null", None, {}),
+        ]
+    )
+    def test_legacy_group_titles_preserve_group_settings(
+        self, _name: str, titles: dict[str, str] | None, expected_titles: dict[str, str]
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        settings = {"collapsed": True, "color": "purple"}
+        Dashboard.objects.filter(id=dashboard_id).update(
+            customization={
+                "tile_spacing": "relaxed",
+                "group_titles": {"legacy": "Legacy title"},
+                "groups": {"plans": {"title": "Plans", **settings}, "regions": {"title": "Regions", **settings}},
+            }
+        )
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": titles})
+
+        stored_groups: dict[str, dict[str, Any]] = {"plans": dict(settings), "regions": dict(settings)}
+        for key, title in expected_titles.items():
+            stored_groups.setdefault(key, {})["title"] = title
+        self.assertEqual(updated["customization"].get("group_titles", {}), expected_titles)
+        self.assertEqual(
+            updated["customization"]["groups"],
+            {key: {"collapsed": False, "color": None, **group} for key, group in stored_groups.items()},
+        )
+        self.assertEqual(
+            Dashboard.objects.get(id=dashboard_id).customization, {"tile_spacing": "relaxed", "groups": stored_groups}
+        )
+
+    def test_legacy_group_titles_on_create_are_stored_as_groups(self) -> None:
+        dashboard_id, response = self.dashboard_api.create_dashboard(
+            {"name": "dashboard", "group_titles": {"plans": "Plans"}}
+        )
+
+        self.assertEqual(response["customization"]["group_titles"], {"plans": "Plans"})
+        self.assertEqual(
+            Dashboard.objects.get(id=dashboard_id).customization, {"groups": {"plans": {"title": "Plans"}}}
+        )
+
+    @parameterized.expand([("create",), ("update",)])
+    def test_groups_and_group_titles_together_are_rejected(self, action: str) -> None:
+        data = {"group_titles": {"old": "Old"}, "groups": {"new": {"title": "New"}}}
+        if action == "create":
+            _, response = self.dashboard_api.create_dashboard(
+                {"name": "dashboard", **data}, expected_status=status.HTTP_400_BAD_REQUEST
+            )
+        else:
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+            _, response = self.dashboard_api.update_dashboard(
+                dashboard_id, data, expected_status=status.HTTP_400_BAD_REQUEST
+            )
+
+        self.assertEqual(response["attr"], "groups")
+
+    @parameterized.expand(
+        [
+            ("drop_groups_left_with_only_a_title", 100, False, 1),
+            ("keep_settings_at_limit", 99, True, 100),
+            ("reject_above_limit", 100, True, None),
+        ]
+    )
+    def test_legacy_group_titles_respect_group_limit(
+        self, _name: str, count: int, collapsed: bool, expected_count: int | None
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        customization = {
+            "groups": {
+                str(index): {"title": "Old title", **({"collapsed": True} if collapsed else {})}
+                for index in range(count)
+            }
+        }
+        Dashboard.objects.filter(id=dashboard_id).update(customization=customization)
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"group_titles": {"new": "New title"}},
+            expected_status=status.HTTP_400_BAD_REQUEST if expected_count is None else status.HTTP_200_OK,
+        )
+        if expected_count is None:
+            self.assertEqual(response["attr"], "group_titles")
+            self.assertEqual(Dashboard.objects.get(id=dashboard_id).customization, customization)
+        else:
+            self.assertEqual(len(response["customization"]["groups"]), expected_count)
+            self.assertEqual(response["customization"]["group_titles"], {"new": "New title"})
+
+    def test_writing_groups_replaces_group_titles_saved_earlier(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        Dashboard.objects.filter(id=dashboard_id).update(customization={"group_titles": {"plans": "Pricing plans"}})
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"groups": {"regions": {"title": "Regions"}}})
+
+        self.assertEqual(
+            Dashboard.objects.get(id=dashboard_id).customization, {"groups": {"regions": {"title": "Regions"}}}
+        )
+
+    def test_dashboard_group_keys_are_stripped_to_match_tile_group_keys(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
         tile_id = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
 
         self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "group_key": " plans "}]})
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": {" plans ": "Pricing plans"}})
-
-        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
-        self.assertEqual(updated["customization"], {"group_titles": {"plans": "Pricing plans"}})
-        self.assertEqual(dashboard["tiles"][0]["group_key"], "plans")
-        self.assertEqual(dashboard["customization"]["group_titles"], {"plans": "Pricing plans"})
-
-    def test_dashboard_group_titles_with_padded_keys_saved_earlier_are_read_stripped(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        Dashboard.objects.filter(id=dashboard_id).update(
-            customization={"group_titles": {" plans ": "Pricing plans", "   ": "Blank"}}
+        _, updated = self.dashboard_api.update_dashboard(
+            dashboard_id, {"groups": {" plans ": {"title": "Pricing plans"}}}
         )
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
-
-        self.assertEqual(dashboard["customization"], {"group_titles": {"plans": "Pricing plans"}})
+        stripped = {"plans": {"title": "Pricing plans", "collapsed": False, "color": None}}
+        self.assertEqual(updated["customization"], {"groups": stripped, "group_titles": {"plans": "Pricing plans"}})
+        self.assertEqual(dashboard["tiles"][0]["group_key"], "plans")
+        self.assertEqual(dashboard["customization"]["groups"], stripped)
 
     @parameterized.expand(
         [
-            ("blank_key", {"   ": "Blank"}),
-            ("too_long_key", {"k" * 101: "Too long"}),
-            ("keys_equal_after_strip", {"plans": "Plans", " plans ": "Padded plans"}),
-            ("null_character_key", {"plans\u0000": "Plans"}),
-            ("too_many_titles", {f"group-{index}": "Title" for index in range(101)}),
+            ("blank_key", {"   ": {}}),
+            ("too_long_key", {"k" * 101: {}}),
+            ("keys_equal_after_strip", {"plans": {}, " plans ": {}}),
+            ("null_character_key", {"plans\u0000": {}}),
+            ("too_many_groups", {f"group-{index}": {} for index in range(101)}),
+            ("title_too_long", {"plans": {"title": "t" * 201}}),
+            ("unknown_color", {"plans": {"color": "pink"}}),
+            ("settings_not_an_object", {"plans": "Pricing plans"}),
         ]
     )
-    def test_dashboard_group_titles_are_rejected_when_invalid(self, _name: str, group_titles: dict[str, str]) -> None:
+    def test_dashboard_groups_are_rejected_when_invalid(self, _name: str, groups: dict) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
-            dashboard_id, {"group_titles": group_titles}, expected_status=status.HTTP_400_BAD_REQUEST
+            dashboard_id, {"groups": groups}, expected_status=status.HTTP_400_BAD_REQUEST
         )
 
-        self.assertEqual(response["attr"], "group_titles")
+        self.assertTrue(response["attr"].startswith("groups"), response)
 
-    @parameterized.expand([("horizontal",), ("stable",)])
-    def test_dashboard_layout_compaction_is_saved_and_duplicated(self, layout_compaction: str) -> None:
+    @parameterized.expand(
+        [
+            ("layout_compaction", "horizontal"),
+            ("layout_compaction", "stable"),
+            ("group_display", "tabs"),
+        ]
+    )
+    def test_dashboard_display_mode_is_saved_and_duplicated(self, setting: str, mode: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": layout_compaction})
-        self.assertEqual(updated["customization"], {"layout_compaction": layout_compaction})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {setting: mode})
+        self.assertEqual(updated["customization"], {setting: mode})
 
         copied_id, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
-        self.assertEqual(copied["customization"], {"layout_compaction": layout_compaction})
-        self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {"layout_compaction": layout_compaction})
+        self.assertEqual(copied["customization"], {setting: mode})
+        self.assertEqual(Dashboard.objects.get(id=copied_id).customization, {setting: mode})
 
+    @parameterized.expand(
+        [
+            ("layout_compaction", "dashboard grid compaction configured", "vertical", "horizontal"),
+            ("group_display", "dashboard group display configured", "sections", "tabs"),
+        ]
+    )
     @patch("products.dashboards.backend.api.dashboard.report_user_action")
-    def test_dashboard_layout_compaction_reports_every_mode_change(self, mock_report_user_action: MagicMock) -> None:
+    def test_dashboard_display_mode_reports_every_mode_change(
+        self, setting: str, event: str, default_mode: str, other_mode: str, mock_report_user_action: MagicMock
+    ) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         mock_report_user_action.reset_mock()
 
-        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "horizontal"})
-        self.dashboard_api.update_dashboard(dashboard_id, {"layout_compaction": "vertical"})
+        self.dashboard_api.update_dashboard(dashboard_id, {setting: other_mode})
+        self.dashboard_api.update_dashboard(dashboard_id, {setting: default_mode})
 
-        compaction_calls = [
-            call
-            for call in mock_report_user_action.call_args_list
-            if call.args[1] == "dashboard grid compaction configured"
-        ]
-        self.assertEqual(len(compaction_calls), 2)
+        mode_calls = [call for call in mock_report_user_action.call_args_list if call.args[1] == event]
         self.assertEqual(
-            compaction_calls[0].args[2],
-            {
-                "dashboard_id": dashboard_id,
-                "previous_layout_compaction": "vertical",
-                "layout_compaction": "horizontal",
-            },
-        )
-        self.assertEqual(
-            compaction_calls[1].args[2],
-            {
-                "dashboard_id": dashboard_id,
-                "previous_layout_compaction": "horizontal",
-                "layout_compaction": "vertical",
-            },
+            [call.args[2] for call in mode_calls],
+            [
+                {"dashboard_id": dashboard_id, f"previous_{setting}": default_mode, setting: other_mode},
+                {"dashboard_id": dashboard_id, f"previous_{setting}": other_mode, setting: default_mode},
+            ],
         )
 
     def test_dashboard_tile_spacing_recovers_from_malformed_customization(self):
@@ -851,15 +970,16 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response["attr"], "grid_spacing")
 
-    def test_dashboard_layout_compaction_requires_a_known_mode(self) -> None:
+    @parameterized.expand([("layout_compaction",), ("group_display",)])
+    def test_dashboard_display_mode_requires_a_known_mode(self, setting: str) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id,
-            {"layout_compaction": "none"},
+            {setting: "none"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertEqual(response["attr"], "layout_compaction")
+        self.assertEqual(response["attr"], setting)
 
     @patch("products.product_analytics.backend.presentation.insight.record_dashboard_cache_outcome")
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
@@ -2033,6 +2153,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         ]
         self.assertEqual(len(marking_calls), 1)
         self.assertEqual(marking_calls[0].args[2]["badge"], "winner")
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
 
         _, copied = self.dashboard_api.create_dashboard(
             {"name": "copy", "use_dashboard": dashboard_id, "duplicate_tiles": duplicate_tiles}
@@ -2068,7 +2195,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id,
             {
-                "group_titles": {"plans": "Pricing plans"},
+                "groups": {"plans": {"title": "Pricing plans"}},
                 "tiles": [
                     {"id": first_tile_id, "badge": "winner"},
                     {"id": second_tile_id, **invalid_marking},
@@ -2081,6 +2208,77 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
         self.assertEqual([tile["badge"] for tile in dashboard["tiles"]], [None, None])
         self.assertEqual(dashboard["customization"], {})
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_is_reported_once_per_new_group_for_content_tiles(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "tiles": [
+                    {"text": {"body": "a"}, "layouts": {}, "group_key": "plans"},
+                    {"text": {"body": "b"}, "layouts": {}, "group_key": "plans"},
+                ]
+            },
+        )
+
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_ignores_tiles_hidden_by_a_deleted_insight(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
+        tile_id = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "group_key": "plans"}]})
+        Insight.objects.filter(team=self.team).update(deleted=True)
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id, {"tiles": [{"text": {"body": "a"}, "layouts": {}, "group_key": "plans"}]}
+        )
+
+        group_created_calls = [
+            call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"
+        ]
+        self.assertEqual(
+            [call.args[2] for call in group_created_calls],
+            [{"dashboard_id": dashboard_id, "group_display": "sections", "group_count": 1}],
+        )
+
+    @patch("products.dashboards.backend.api.dashboard.report_user_action")
+    def test_dashboard_tile_group_created_is_not_reported_when_the_update_rolls_back(
+        self, mock_report_user_action: MagicMock
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "test"})
+        mock_report_user_action.reset_mock()
+
+        self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {
+                "tiles": [
+                    {"text": {"body": "a"}, "layouts": {}, "group_key": "plans"},
+                    {"id": 999999, "group_key": "plans"},
+                ]
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        self.assertEqual(
+            [call for call in mock_report_user_action.call_args_list if call.args[1] == "dashboard tile group created"],
+            [],
+        )
 
     @parameterized.expand(
         [
@@ -2099,7 +2297,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             dashboard_id,
             {
                 "name": "renamed",
-                "group_titles": {"plans": "Pricing plans"},
+                "groups": {"plans": {"title": "Pricing plans"}},
                 "tiles": [{"id": text_tile["id"], "text": {"body": "edited"}, **invalid_marking}],
             },
             expected_status=status.HTTP_400_BAD_REQUEST,
@@ -2128,6 +2326,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "duplicated": False,
                 "duplicated_from_dashboard_id": None,
                 "from_template": True,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": True,
                 "is_shared": False,
                 "item_count": 6,
@@ -2174,6 +2374,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "created_at": mock.ANY,
                 "creation_mode": "default",
                 "dashboard_id": dashboard_id,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": False,
                 "is_shared": False,
                 "item_count": 0,
@@ -2869,7 +3071,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.get_dashboard(dashboard.pk, team_id=team2.pk, expected_status=status.HTTP_403_FORBIDDEN)
 
     def test_patch_api_as_form_data(self):
-        dashboard = Dashboard.objects.create(team=self.team, name="dashboard", created_by=self.user)
+        customization = {"groups": {"plans": {"title": "Plans"}}}
+        dashboard = Dashboard.objects.create(
+            team=self.team, name="dashboard", created_by=self.user, customization=customization
+        )
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard.pk}/",
             data="name=replaced",
@@ -2877,6 +3082,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()["name"], "replaced")
+        self.assertEqual(Dashboard.objects.get(id=dashboard.pk).customization, customization)
 
     def test_dashboard_does_not_load_insight_that_was_deleted(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
@@ -3487,6 +3693,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "dashboard_id": dashboard["id"],
                 "duplicated": False,
                 "from_template": True,
+                "group_count": 0,
+                "group_display": "sections",
                 "has_description": True,
                 "is_shared": False,
                 "item_count": 1,
@@ -3602,17 +3810,100 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         ]
 
-    def test_create_from_template_json_rejects_oversized_agent_context(self) -> None:
+    @parameterized.expand([("template_json",), ("saved_template",)])
+    def test_dashboard_from_template_keeps_tile_groups_and_customization(self, source: str) -> None:
         template: dict = {
             **valid_template,
             "tiles": [
-                {
-                    "type": "TEXT",
-                    "body": "hello world",
-                    "agent_context": "x" * 10_001,
-                    "layouts": {},
-                }
+                {"type": "TEXT", "body": "grouped", "layouts": {}, "group_key": "plans"},
+                {"type": "TEXT", "body": "loose", "layouts": {}},
             ],
+            "customization": {
+                "tile_spacing": "tight",
+                "groups": {"plans": {"title": "Plans", "color": "green"}},
+            },
+        }
+
+        if source == "template_json":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+                {"template": template},
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            dashboard_id = response.json()["id"]
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboard_templates",
+                {**template, "scope": "team"},
+                format="json",
+            )
+            assert response.status_code == 201, response.content
+            dashboard_id, _ = self.dashboard_api.create_dashboard(
+                {"name": "from saved template", "use_template": template["template_name"]}
+            )
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard["customization"] == {
+            "tile_spacing": "tight",
+            "groups": {"plans": {"title": "Plans", "color": "green", "collapsed": False}},
+            "group_titles": {"plans": "Plans"},
+        }
+        assert {tile["text"]["body"]: tile["group_key"] for tile in dashboard["tiles"]} == {
+            "grouped": "plans",
+            "loose": None,
+        }
+
+    @parameterized.expand(
+        [
+            ("groups_empty", {"groups": {}}, {"tile_spacing": "tight"}),
+            ("groups_null", {"groups": None}, {"tile_spacing": "tight"}),
+            (
+                "group_titles_keep_template_settings",
+                {"group_titles": {"plans": "Renamed"}},
+                {
+                    "tile_spacing": "tight",
+                    "groups": {"plans": {"title": "Renamed", "color": "green", "collapsed": False}},
+                    "group_titles": {"plans": "Renamed"},
+                },
+            ),
+        ]
+    )
+    def test_dashboard_from_template_applies_requested_groups(
+        self, _name: str, request_groups: dict, expected_customization: dict
+    ) -> None:
+        template = {
+            **valid_template,
+            "tiles": [{"type": "TEXT", "body": "grouped", "layouts": {}, "group_key": "plans"}],
+            "customization": {"tile_spacing": "tight", "groups": {"plans": {"title": "Plans", "color": "green"}}},
+            "scope": "team",
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/dashboard_templates", template, format="json")
+        assert response.status_code == 201, response.content
+
+        dashboard_id, _ = self.dashboard_api.create_dashboard(
+            {"name": "from saved template", "use_template": template["template_name"], **request_groups}
+        )
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
+        assert dashboard["customization"] == expected_customization
+
+    @parameterized.expand(
+        [
+            ("oversized_agent_context", {"agent_context": "x" * 10_001}, None),
+            ("long_tile_group_key", {"group_key": "k" * (MAX_GROUP_KEY_LENGTH + 1)}, None),
+            ("too_many_groups", {}, {"groups": {f"group-{index}": {} for index in range(MAX_GROUPS + 1)}}),
+            ("long_group_key", {}, {"groups": {"k" * (MAX_GROUP_KEY_LENGTH + 1): {"title": "Long"}}}),
+            ("long_legacy_group_title", {}, {"group_titles": {"plans": "t" * (MAX_GROUP_TITLE_LENGTH + 1)}}),
+        ]
+    )
+    def test_create_from_template_json_rejects_invalid_template(
+        self, _name: str, tile_fields: dict, customization: dict | None
+    ) -> None:
+        template: dict = {
+            **valid_template,
+            "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}, **tile_fields}],
+            "customization": customization,
         }
         dashboard_count = Dashboard.objects.count()
         text_count = Text.objects.count()
@@ -3754,6 +4045,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         },
                     },
                     "resolved_date_range": ANY,
+                    "action_names": None,
                     "query_status": None,
                     "query_scan": None,
                     "warnings": None,

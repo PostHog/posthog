@@ -19,13 +19,21 @@ export interface AlertsRecommendationMeta {
 
 export type AlertsRecommendation = RecommendationWithMeta<'alerts', AlertsRecommendationMeta>
 
-export interface SourceMapsRecommendationMeta {
+export type SourceMapsPlatform = 'javascript' | 'java' | 'native'
+
+export interface SourceMapsPlatformStats {
     total_frames: number
     unresolved_frames: number
     unresolved_pct: number
+}
+
+export interface SourceMapsRecommendationMeta extends SourceMapsPlatformStats {
     threshold_pct: number
     min_sample_frames: number
     lookback_hours: number
+    // The platform the top-level counts describe. Absent on rows computed before per-platform scoring.
+    platform?: SourceMapsPlatform | null
+    platforms?: Record<SourceMapsPlatform, SourceMapsPlatformStats>
 }
 
 export type SourceMapsRecommendation = RecommendationWithMeta<'source_maps', SourceMapsRecommendationMeta>

@@ -63,6 +63,8 @@ describe('environment', () => {
         ['http://localhost:8010', 'local'],
         ['http://127.0.0.1:8000', 'local'],
         ['http://[::1]:8010', 'local'],
+        ['http://127.0.0.2:8010', 'custom'],
+        ['http://10.0.2.2:8010', 'custom'],
         ['https://posthog.example.com', 'custom'],
         ['https://us.posthog.com.example.com', 'custom'],
         ['not a url', 'custom'],

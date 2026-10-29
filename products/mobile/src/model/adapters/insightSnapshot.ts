@@ -15,14 +15,7 @@ import type {
 import { displaySeriesLabel, rankingView } from './breakdown'
 import { funnelView } from './funnel'
 import { insightValueFormat } from './insightFormatting'
-import {
-    asTrendsInsight,
-    drawableChartKind,
-    hasBreakdown,
-    isSummableMath,
-    timeSeriesChartKind,
-    trendsInterval,
-} from './metric'
+import { asTrendsInsight, hasBreakdown, isSummableMath, timeSeriesChartKind, trendsInterval } from './metric'
 import { retentionView } from './retention'
 import {
     effectiveSqlDisplay,
@@ -166,7 +159,7 @@ export function kindLabelOf(query: unknown, sqlTable: SqlTableView | null = null
         return 'Big number'
     }
     if (kind === 'TrendsQuery') {
-        const drawable = drawableChartKind(asTrendsInsight(query))
+        const drawable = timeSeriesChartKind(asTrendsInsight(query))
         if (drawable) {
             return drawable === 'bar' ? 'Bar' : 'Line'
         }
@@ -216,7 +209,7 @@ function trendsEntries(result: unknown): JsonRecord[] {
 /**
  * Number: a big number, or a trends insight with one series or one result (a formula), and no breakdown. With several
  * series or breakdown values the first one would stand for the whole insight. Chart: a drawable trends series, or a
- * SQL chart over time, whose first y column a pin draws. Without its result, a SQL insight on Auto has neither.
+ * SQL chart over time. Without its result, a SQL insight on Auto has neither.
  */
 export function capabilitiesOf(
     query: unknown,
@@ -230,7 +223,7 @@ export function capabilitiesOf(
         return { number: display === 'number', chart, people: false }
     }
     const display = displayOf(query)
-    const chart = kind === 'TrendsQuery' && drawableChartKind(asTrendsInsight(query)) !== undefined
+    const chart = kind === 'TrendsQuery' && timeSeriesChartKind(asTrendsInsight(query)) !== undefined
     let number = false
     if (kind === 'TrendsQuery') {
         const current = trendsEntries(result).filter((entry) => compareOf(entry) !== 'previous')

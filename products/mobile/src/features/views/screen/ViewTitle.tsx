@@ -1,5 +1,5 @@
 import type { ReactElement, ReactNode } from 'react'
-import { Text, View } from 'react-native'
+import { type LayoutChangeEvent, Text, View } from 'react-native'
 
 import { Eyebrow } from '@/ui/Eyebrow'
 import { RefreshHint } from '@/ui/RefreshHint'
@@ -9,6 +9,7 @@ import { lineHeight, prettyWrap, type } from '@/ui/tokens'
 import type { ViewRefresh } from '../useViewRefresh'
 
 interface ViewTitleProps {
+    onTitleLayout?: (event: LayoutChangeEvent) => void
     /** "Insight · Line" above an insight's title. */
     eyebrow?: string
     title: string
@@ -22,20 +23,30 @@ interface ViewTitleProps {
 }
 
 /** The top of a view's content: title with its buttons, the status line, the refresh hint and the range. */
-export function ViewTitle({ eyebrow, title, accessories, refresh, range, rangeDetail }: ViewTitleProps): ReactElement {
+export function ViewTitle({
+    eyebrow,
+    title,
+    accessories,
+    refresh,
+    range,
+    rangeDetail,
+    onTitleLayout,
+}: ViewTitleProps): ReactElement {
     const styles = useStyles()
     return (
         <View style={styles.block}>
-            {eyebrow ? (
-                <View style={styles.eyebrow}>
-                    <Eyebrow>{eyebrow}</Eyebrow>
+            <View onLayout={onTitleLayout}>
+                {eyebrow ? (
+                    <View style={styles.eyebrow}>
+                        <Eyebrow>{eyebrow}</Eyebrow>
+                    </View>
+                ) : null}
+                <View style={styles.titleRow}>
+                    <Text style={styles.title} accessibilityRole="header" lineBreakStrategyIOS="standard">
+                        {title}
+                    </Text>
+                    {accessories}
                 </View>
-            ) : null}
-            <View style={styles.titleRow}>
-                <Text style={styles.title} accessibilityRole="header" lineBreakStrategyIOS="standard">
-                    {title}
-                </Text>
-                {accessories}
             </View>
             <Text
                 style={styles.status}
@@ -62,7 +73,7 @@ export function ViewTitle({ eyebrow, title, accessories, refresh, range, rangeDe
 
 const useStyles = createStyles(({ colors }) => ({
     block: {
-        paddingHorizontal: 2,
+        paddingHorizontal: 6,
         marginBottom: 16,
     },
     eyebrow: {

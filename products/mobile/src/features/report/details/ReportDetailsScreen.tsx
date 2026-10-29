@@ -2,20 +2,20 @@ import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import Animated, { useAnimatedScrollHandler, useSharedValue } from 'react-native-reanimated'
-
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import type { ReportView } from '@/model/types'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { headlineText } from '../Headline'
 import { useReport } from '../hooks'
-import { CONTENT_TOP, HEADLINE_GAP, TopChrome } from '../TopChrome'
+import { HEADLINE_GAP, TopChrome } from '../TopChrome'
 import { useReportReadTracking } from '../useReportReadTracking'
 import { DetailsFooter } from './DetailsFooter'
 import { DetailsHeader } from './DetailsHeader'
@@ -128,7 +128,10 @@ function DetailsBody({ report, refreshing, onBack }: DetailsBodyProps): ReactEle
                 style={styles.scroll}
                 contentContainerStyle={[
                     styles.content,
-                    { paddingTop: topOffset(insets, CONTENT_TOP), paddingBottom: bottomOffset(insets, CONTENT_BOTTOM) },
+                    {
+                        paddingTop: topOffset(insets, SCREEN_CONTENT_TOP),
+                        paddingBottom: bottomOffset(insets, CONTENT_BOTTOM),
+                    },
                 ]}
                 onScroll={onScroll}
                 onLayout={reading.onLayout}

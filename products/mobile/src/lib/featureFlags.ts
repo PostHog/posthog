@@ -1,6 +1,14 @@
 import { create } from 'zustand'
 
-export const FEATURE_FLAGS = { modelScoreSort: 'mobile-inbox-model-score-sort' } as const
+import { useAuthStore } from '@/auth/authStore'
+
+import { hostKind } from './environment'
+
+export const FEATURE_FLAGS = {
+    modelScoreSort: 'mobile-inbox-model-score-sort',
+    sessionReplay: 'mobile-session-replay',
+    errorTracking: 'mobile-error-tracking',
+} as const
 
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 
@@ -22,12 +30,31 @@ const FORCED_FLAGS: ReadonlySet<string> = new Set(
         : []
 )
 
+const LOCAL_DEVELOPMENT_FLAGS: ReadonlySet<FeatureFlagKey> = new Set([
+    FEATURE_FLAGS.errorTracking,
+    FEATURE_FLAGS.sessionReplay,
+])
+
 export function setFeatureFlags(flags: Record<string, boolean | string>): void {
     useFeatureFlagsStore.setState({ flags })
 }
 
-/** False until flags load. A multivariate flag counts as on for any variant. */
+/** Remote flags default off. Local development and explicit development overrides can enable them sooner. */
 export function useFeatureFlag(key: FeatureFlagKey): boolean {
     const value = useFeatureFlagsStore((state) => state.flags[key])
-    return FORCED_FLAGS.has(key) || (value !== undefined && value !== false)
+    const localDevelopment = useAuthStore(
+        (state) => __DEV__ && state.status === 'signed_in' && state.host !== null && hostKind(state.host) === 'local'
+    )
+    return (
+        FORCED_FLAGS.has(key) ||
+        (localDevelopment && LOCAL_DEVELOPMENT_FLAGS.has(key)) ||
+        (value !== undefined && value !== false)
+    )
+}
+
+export function useMobileProductFlags(): { errors: boolean; replay: boolean } {
+    return {
+        errors: useFeatureFlag(FEATURE_FLAGS.errorTracking),
+        replay: useFeatureFlag(FEATURE_FLAGS.sessionReplay),
+    }
 }

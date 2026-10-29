@@ -128,6 +128,9 @@ playwright/__snapshots__/
 frontend/.cache/
 frontend/@posthog/apps-common/dist/
 frontend/dist/
+# Temporary folders of the app build's per-chunk minify step
+frontend/.unminified-chunks/
+frontend/.stable-chunks-rewritten/
 frontend/dist-report/
 frontend/eager-graph-report*.json
 frontend/pnpm-error.log

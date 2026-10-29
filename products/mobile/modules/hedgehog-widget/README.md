@@ -17,7 +17,7 @@ So the app's JavaScript plans the choreography and the widget plays it back:
 2. `useHedgehogWidgetSync` hands the script to this native module on launch and when the app returns to the foreground.
    The module writes it to shared storage the widget can read (an App Group on iOS, SharedPreferences on Android) and asks the OS to refresh the widget.
 3. Each platform plays the script with what the OS allows:
-   - **iOS (WidgetKit)** cannot animate continuously, so it uses the script's *keyframes*, one timeline entry per 2-second beat.
+   - **iOS (WidgetKit)** cannot animate continuously, so it uses the script's _keyframes_, one timeline entry per 2-second beat.
      From iOS 17 WidgetKit animates the change between entries, and each keyframe's `motion` says what that change is.
      A walk glides x linearly over the whole beat, at hedgehog-mode's walking speed. A jump plays its main hop for its
      `airtime`, then up to two bounces as delayed, nested full-turn rotations: each is a loop about a point above the
@@ -50,16 +50,16 @@ So the app's JavaScript plans the choreography and the widget plays it back:
 
 The simulation uses sprite heights (one 80 px sprite) as its unit and hedgehog-mode's constants:
 
-| | hedgehog-mode (Matter.js) | Simulation |
-| --- | --- | --- |
-| Step | 60 Hz runner | fixed 1/60 s |
-| Gravity | `gravity.y` 2, scale 0.001 | 25 sprites/s² |
-| Jump | velocity y -15 px/step, at most 2 jumps before landing | 11.25 sprites/s |
-| Walk | `walkSpeed` ±1 px/step sets x velocity every step | 0.75 sprites/s |
-| Air friction | `frictionAir` 0.01 | velocity × 0.99 per step |
-| Bounce | `restitution` 0.5 | rebounds at half the impact speed; a rebound under 1.5 sprites/s settles |
-| Sprites | airborne `fall`, sliding `walk`, else `idle`; 30 frames/s | same |
-| AI | `walk` 10, `wait` 3, `jump` 1, `wave` 1, a new action every 1 s; a wave adds its animation and 1 s | same |
+|              | hedgehog-mode (Matter.js)                                                                          | Simulation                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| Step         | 60 Hz runner                                                                                       | fixed 1/60 s                                                             |
+| Gravity      | `gravity.y` 2, scale 0.001                                                                         | 25 sprites/s²                                                            |
+| Jump         | velocity y -15 px/step, at most 2 jumps before landing                                             | 11.25 sprites/s                                                          |
+| Walk         | `walkSpeed` ±1 px/step sets x velocity every step                                                  | 0.75 sprites/s                                                           |
+| Air friction | `frictionAir` 0.01                                                                                 | velocity × 0.99 per step                                                 |
+| Bounce       | `restitution` 0.5                                                                                  | rebounds at half the impact speed; a rebound under 1.5 sprites/s settles |
+| Sprites      | airborne `fall`, sliding `walk`, else `idle`; 30 frames/s                                          | same                                                                     |
+| AI           | `walk` 10, `wait` 3, `jump` 1, `wave` 1, a new action every 1 s; a wave adds its animation and 1 s | same                                                                     |
 
 With air friction a jump from the ground flies 0.8 s, peaks at 2.05 sprites, and bounces twice (0.35 s and 0.15 s).
 The AI runs once per 2-second beat for iOS keyframes and once per second for Android loops.
@@ -81,47 +81,47 @@ type Pose = 'idle' | 'walk' | 'jump' | 'wave' | 'action' | 'fall'
 type Facing = 'left' | 'right'
 
 interface Tick {
-    pose: Pose
-    frame: number // index into the pose's sprite frames, see "Sprites"
-    x: number // 0..1, centre of the hedgehog across the widget width (0 = left edge, 1 = right edge; renderers clamp so it stays inside)
-    y: number // 0..1, height above the floor: 0 = feet on the floor, 1 = top of the available rise (the apex of a jump from the ground)
-    facing: Facing
-    motion?: Motion // iOS keyframes only, see below
-    bubble?: string // legacy dialogue; ignored by the native renderers
-    turn?: number // legacy half-turn markers; iOS plays one complete flip when entering an airborne sequence
-    hoggie?: 'coffee_cup' | 'party' | 'wizard' | 'explorer' | 'superhero' | 'reading' | 'float'
-    // A bundled illustration replaces the pixel sprite. Missing/unknown artwork falls back to the pixel sprite.
-    // Consecutive ticks with a turn add up, and the run ends on whole turns with y 0, so the hedgehog lands upright
+  pose: Pose
+  frame: number // index into the pose's sprite frames, see "Sprites"
+  x: number // 0..1, centre of the hedgehog across the widget width (0 = left edge, 1 = right edge; renderers clamp so it stays inside)
+  y: number // 0..1, height above the floor: 0 = feet on the floor, 1 = top of the available rise (the apex of a jump from the ground)
+  facing: Facing
+  motion?: Motion // iOS keyframes only, see below
+  bubble?: string // legacy dialogue; ignored by the native renderers
+  turn?: number // legacy half-turn markers; iOS plays one complete flip when entering an airborne sequence
+  hoggie?: 'coffee_cup' | 'party' | 'wizard' | 'explorer' | 'superhero' | 'reading' | 'float'
+  // A bundled illustration replaces the pixel sprite. Missing/unknown artwork falls back to the pixel sprite.
+  // Consecutive ticks with a turn add up, and the run ends on whole turns with y 0, so the hedgehog lands upright
 }
 
 // How the hedgehog gets from the previous keyframe to this one within the beat. Every keyframe with a motion has y 0.
 // Its pose and frame are the sprite the beat shows most: `fall` for a jump, `wave` for a wave, else `walk` or `idle`.
 type Motion =
-    | { kind: 'idle' } // stands still; x may differ by up to 0.02 from the slide after a walk; facing may change
-    | { kind: 'walk' } // x glides linearly from the previous keyframe's x to this x over the whole beat
-    | {
-          kind: 'jump'
-          airtime: number // seconds, takes off at the start of the beat
-          apex: number // 0..1 of the available rise
-          bounces: { airtime: number; apex: number }[] // in order after the landing; airtime + all bounce airtimes <= keyframeSec
-          turns?: number // whole flips during the main airtime, clockwise on screen (negative = counterclockwise)
-      }
+  | { kind: 'idle' } // stands still; x may differ by up to 0.02 from the slide after a walk; facing may change
+  | { kind: 'walk' } // x glides linearly from the previous keyframe's x to this x over the whole beat
+  | {
+      kind: 'jump'
+      airtime: number // seconds, takes off at the start of the beat
+      apex: number // 0..1 of the available rise
+      bounces: { airtime: number; apex: number }[] // in order after the landing; airtime + all bounce airtimes <= keyframeSec
+      turns?: number // whole flips during the main airtime, clockwise on screen (negative = counterclockwise)
+    }
 // A jump does not move x: it stays at the previous keyframe's x. Legacy `turn` markers are not used by keyframes with a motion.
 
 interface Choreography {
-    version: 1
-    seed: number
-    generatedAt: string // ISO 8601 UTC
-    startsAt: string // ISO 8601 UTC; keyframes[0] is shown from here
-    keyframeSec: 2 // iOS: one keyframe every keyframeSec seconds
-    keyframes: Tick[] // 900 (30 minutes). A renderer that runs past the end wraps around (index modulo length), and the last keyframe leads back to the first
-    tickMs: 120 // Android: one tick every tickMs milliseconds
-    loopMinutes: 10 // Android: loop index = floor(minutesSince(startsAt) / loopMinutes) modulo loops.length
-    loops: Tick[][] // each loop is a closed cycle (last tick ends near the first) of at most 120 ticks
-    // Loop ticks sample the simulation every tickMs: y follows the jump arc, pose is `fall` while airborne, and frames advance at 30 per second (3 or 4 per tick)
-    reaction: { keyframes: Tick[]; ticks: Tick[] } // legacy tap reaction, retained for compatibility with older native builds.
-    surprises?: { keyframes: Tick[]; ticks: Tick[] }[] // legacy illustrated reactions, retained for older native builds
-    // Reaction ticks are authored at x 0.5 facing right. A renderer shifts every x by (current x - 0.5), clamps, and keeps the current facing, so the hedgehog reacts where it stands.
+  version: 1
+  seed: number
+  generatedAt: string // ISO 8601 UTC
+  startsAt: string // ISO 8601 UTC; keyframes[0] is shown from here
+  keyframeSec: 2 // iOS: one keyframe every keyframeSec seconds
+  keyframes: Tick[] // 900 (30 minutes). A renderer that runs past the end wraps around (index modulo length), and the last keyframe leads back to the first
+  tickMs: 120 // Android: one tick every tickMs milliseconds
+  loopMinutes: 10 // Android: loop index = floor(minutesSince(startsAt) / loopMinutes) modulo loops.length
+  loops: Tick[][] // each loop is a closed cycle (last tick ends near the first) of at most 120 ticks
+  // Loop ticks sample the simulation every tickMs: y follows the jump arc, pose is `fall` while airborne, and frames advance at 30 per second (3 or 4 per tick)
+  reaction: { keyframes: Tick[]; ticks: Tick[] } // legacy tap reaction, retained for compatibility with older native builds.
+  surprises?: { keyframes: Tick[]; ticks: Tick[] }[] // legacy illustrated reactions, retained for older native builds
+  // Reaction ticks are authored at x 0.5 facing right. A renderer shifts every x by (current x - 0.5), clamps, and keeps the current facing, so the hedgehog reacts where it stands.
 }
 ```
 
@@ -131,10 +131,10 @@ New scripts contain no automatic visitor scenes. The first character is the pixe
 
 Shared storage:
 
-| Platform | Store | Keys |
-| --- | --- | --- |
-| iOS | `UserDefaults(suiteName: "group.<app bundle id>")`, for example `group.com.posthog.code.mobile` | `choreography` (JSON string); per family: `selectedHog.<family>` and `timeline.v2.<family>` (encoded scheduled entries) |
-| Android | `SharedPreferences` file `hedgehog_widget` | `choreography` (JSON string); per widget ID: `selectedHog.<id>` and `loop.v2.<id>` (saved movement loop; the version in the key replaces loops pinned by older renderers once) |
+| Platform | Store                                                                                           | Keys                                                                                                                                                                           |
+| -------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| iOS      | `UserDefaults(suiteName: "group.<app bundle id>")`, for example `group.com.posthog.code.mobile` | `choreography` (JSON string); per family: `selectedHog.<family>` and `timeline.v2.<family>` (encoded scheduled entries)                                                        |
+| Android  | `SharedPreferences` file `hedgehog_widget`                                                      | `choreography` (JSON string); per widget ID: `selectedHog.<id>` and `loop.v2.<id>` (saved movement loop; the version in the key replaces loops pinned by older renderers once) |
 
 ## Garden background
 
@@ -193,12 +193,12 @@ Android also bundles mirrored `_l` copies. The widget never downloads artwork at
 
 ## Identifiers
 
-| | iOS | Android |
-| --- | --- | --- |
-| Widget | kind `HedgehogWidget`, target `HedgehogWidget`, bundle id `<app bundle id>.HedgehogWidget` | receiver `HedgehogWidgetProvider` |
-| App Group | `group.<app bundle id>` | n/a |
-| Tap on the hedgehog | `PokeHedgehogIntent` (AppIntent) | broadcast `com.posthog.code.mobile.HEDGEHOG_POKE` |
-| Tap anywhere else | opens the app (default widget tap) | launch intent on `hedgehog_root` |
+|                     | iOS                                                                                        | Android                                           |
+| ------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------- |
+| Widget              | kind `HedgehogWidget`, target `HedgehogWidget`, bundle id `<app bundle id>.HedgehogWidget` | receiver `HedgehogWidgetProvider`                 |
+| App Group           | `group.<app bundle id>`                                                                    | n/a                                               |
+| Tap on the hedgehog | `PokeHedgehogIntent` (AppIntent)                                                           | broadcast `com.posthog.code.mobile.HEDGEHOG_POKE` |
+| Tap anywhere else   | opens the app (default widget tap)                                                         | launch intent on `hedgehog_root`                  |
 
 The app bundle id depends on the build variant: `com.posthog.code.mobile` for store builds, with `.dev` or `.preview` appended for internal builds (see `src/lib/appVariants.json`).
 Both Swift readers derive the App Group from their own bundle id, so the variants keep separate widget stores.

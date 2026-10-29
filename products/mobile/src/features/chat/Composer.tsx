@@ -118,7 +118,7 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                 keyboardAppearance={scheme}
                 style={styles.input}
                 autoFocus
-                multiline={false}
+                multiline
                 returnKeyType="send"
                 // Keeps the keyboard up after sending, so a follow-up is one tap away.
                 submitBehavior="submit"
@@ -225,11 +225,13 @@ const useStyles = createStyles(({ colors }) => ({
     },
     input: {
         ...inputReset,
-        height: 40,
+        minHeight: 40,
+        maxHeight: 120,
         paddingHorizontal: 6,
         paddingVertical: 0,
         ...type.input,
         color: colors.ink,
+        textAlignVertical: 'top',
     },
     toolbar: {
         flexDirection: 'row',

@@ -1,18 +1,19 @@
 import { useIsFocused } from 'expo-router'
 import { type ReactElement, useCallback, useRef, useState } from 'react'
 import { FlatList, type ListRenderItem, RefreshControl, ScrollView, Text, View, type ViewToken } from 'react-native'
-
 import type { DashboardView, InsightSnapshot, PinDisplayMode, ViewEntry } from '@/model/views'
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
 import { useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 import { PinButton } from '../PinButton'
 import { dashboardCompareRow } from '../range/compareRow'
 import { ViewRangeControl } from '../range/ViewRangeControl'
 import { RefreshFailedBanner } from '../screen/RefreshFailedBanner'
-import { VIEW_CONTENT_TOP, ViewChrome } from '../screen/ViewChrome'
+import { ViewChrome } from '../screen/ViewChrome'
 import { ViewErrorState } from '../screen/ViewErrorState'
 import { ViewMoreSheet } from '../screen/ViewMoreSheet'
 import { useViewBack, ViewScreenFrame } from '../screen/ViewScreenFrame'
@@ -40,6 +41,7 @@ interface DashboardScreenProps {
  */
 export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardScreenProps): ReactElement {
     const screen = useDashboardScreen(dashboardRef, { from, displayMode })
+    const scrollTitle = useScrollTitle(screen.dashboard.data?.name ?? '')
     const back = useViewBack()
     const { scope } = useViewsContext()
     const [moreOpen, setMoreOpen] = useState(false)
@@ -49,11 +51,22 @@ export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardSc
     const dashboard = screen.dashboard.data
     return (
         <ViewScreenFrame
-            chrome={<ViewChrome onBack={back} onMore={allowed && dashboard ? () => setMoreOpen(true) : undefined} />}
+            chrome={
+                <ViewChrome
+                    title={scrollTitle.title}
+                    onBack={back}
+                    onMore={allowed && dashboard ? () => setMoreOpen(true) : undefined}
+                />
+            }
         >
             {allowed ? (
                 <ChartCanvasBudget active={focused}>
-                    <DashboardBody screen={screen} dashboardRef={dashboardRef} onBack={back} />
+                    <DashboardBody
+                        scrollTitle={scrollTitle}
+                        screen={screen}
+                        dashboardRef={dashboardRef}
+                        onBack={back}
+                    />
                 </ChartCanvasBudget>
             ) : (
                 <ViewsReauthState access={screen.access} />
@@ -69,6 +82,7 @@ export function DashboardScreen({ dashboardRef, from, displayMode }: DashboardSc
 }
 
 interface DashboardBodyProps {
+    scrollTitle: ScrollTitleState
     screen: DashboardScreenState
     dashboardRef: string
     onBack: () => void
@@ -87,7 +101,7 @@ function useViewableItems(
     }).current
 }
 
-function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): ReactElement {
+function DashboardBody({ screen, dashboardRef, onBack, scrollTitle }: DashboardBodyProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
@@ -96,9 +110,10 @@ function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): Re
     const onViewableItemsChanged = useViewableItems(screen.onViewableItemsChanged, viewport.onViewableItemsChanged)
     const { refresh, tiles } = screen
     const dashboard = screen.dashboard.data
+    const hasDashboardRange = tiles.some((tile) => tile.view.kind === 'insight' && !tile.view.usesOwnRange)
     const contentStyle = [
         styles.content,
-        { paddingTop: topOffset(insets, VIEW_CONTENT_TOP), paddingBottom: bottomOffset(insets, 48) },
+        { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP), paddingBottom: bottomOffset(insets, 48) },
     ]
 
     const renderItem = useCallback<ListRenderItem<DashboardTileState>>(
@@ -111,10 +126,11 @@ function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): Re
                     index={index}
                     dashboardRef={dashboardRef}
                     dashboardName={dashboard?.name ?? ''}
+                    showRangeOverride={hasDashboardRange}
                     refreshItem={refresh.refreshItem}
                 />
             ),
-        [dashboardRef, dashboard?.name, refresh.refreshItem]
+        [dashboardRef, dashboard?.name, hasDashboardRange, refresh.refreshItem]
     )
 
     if (!dashboard) {
@@ -140,7 +156,14 @@ function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): Re
             data={tiles}
             keyExtractor={(tile) => String(tile.view.tileId)}
             renderItem={renderItem}
-            ListHeaderComponent={<DashboardHeader screen={screen} dashboard={dashboard} dashboardRef={dashboardRef} />}
+            ListHeaderComponent={
+                <DashboardHeader
+                    onTitleLayout={scrollTitle.onTitleLayout}
+                    screen={screen}
+                    dashboard={dashboard}
+                    dashboardRef={dashboardRef}
+                />
+            }
             ListEmptyComponent={
                 <Text style={styles.empty}>This dashboard has no tiles yet. Add insights to it on the web.</Text>
             }
@@ -148,7 +171,10 @@ function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): Re
             contentContainerStyle={contentStyle}
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={screen.viewabilityConfig}
-            onScroll={motion.onScroll}
+            onScroll={(event) => {
+                motion.onScroll()
+                scrollTitle.onScroll(event)
+            }}
             scrollEventThrottle={16}
             initialNumToRender={INITIAL_VISIBLE_ROWS}
             windowSize={5}
@@ -159,7 +185,7 @@ function DashboardBody({ screen, dashboardRef, onBack }: DashboardBodyProps): Re
                     tintColor={colors.tertiary}
                     progressBackgroundColor={colors.surface}
                     colors={[colors.tertiary]}
-                    progressViewOffset={topOffset(insets, VIEW_CONTENT_TOP)}
+                    progressViewOffset={topOffset(insets, SCREEN_CONTENT_TOP)}
                 />
             }
             testID="dashboard-tiles"
@@ -173,6 +199,7 @@ function TileGap(): ReactElement {
 }
 
 interface DashboardHeaderProps {
+    onTitleLayout: ScrollTitleState['onTitleLayout']
     screen: DashboardScreenState
     dashboard: DashboardView
     dashboardRef: string
@@ -180,7 +207,7 @@ interface DashboardHeaderProps {
 
 const NO_TILE = { itemKey: null, queryKey: null }
 
-function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderProps): ReactElement {
+function DashboardHeader({ screen, dashboard, dashboardRef, onTitleLayout }: DashboardHeaderProps): ReactElement {
     const styles = useStyles()
     // The dashboard response has no resolved dates, so the header uses those of the first tile that follows the range.
     const rangeTile = screen.tiles.find((tile) => tile.view.kind === 'insight' && !tile.view.usesOwnRange)
@@ -203,6 +230,7 @@ function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderPro
     return (
         <View>
             <ViewTitle
+                onTitleLayout={onTitleLayout}
                 title={dashboard.name}
                 accessories={
                     <PinButton
@@ -212,13 +240,15 @@ function DashboardHeader({ screen, dashboard, dashboardRef }: DashboardHeaderPro
                 }
                 refresh={screen.refresh}
                 range={
-                    <ViewRangeControl
-                        range={screen.range}
-                        resolved={resolved}
-                        detail={detail}
-                        zoneHint={zoneHint}
-                        compare={dashboardCompareRow(screen.range, screen.compareSupported)}
-                    />
+                    rangeTile ? (
+                        <ViewRangeControl
+                            range={screen.range}
+                            resolved={resolved}
+                            detail={detail}
+                            zoneHint={zoneHint}
+                            compare={dashboardCompareRow(screen.range, screen.compareSupported)}
+                        />
+                    ) : null
                 }
                 rangeDetail={detail ? <Text style={styles.rangeDetail}>{detail}</Text> : null}
             />

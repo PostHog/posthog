@@ -99,8 +99,11 @@ export type EvidenceBlock =
     | {
           kind: 'replay'
           sessionId: string
+          /** Seconds into the recording where the evidence happens, when the signal names it. */
+          t?: number
           meta: string
           count: number
+          /** The web player. The demo opens it, because its sessions do not exist in a project. */
           url: string
       }
 
@@ -235,6 +238,7 @@ export interface DecisionOption {
 }
 
 export interface DecisionQuestion {
+    details?: string
     id: string
     question: string
     options: DecisionOption[]

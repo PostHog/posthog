@@ -6,6 +6,7 @@ import { reportKeys } from '@/api/reports'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { demoDecisionMeta } from '@/demo/briefings'
 import { useDemoMode } from '@/demo/demoMode'
+import { useAiApproval } from '@/features/ai/aiApproval'
 import { track } from '@/lib/analytics'
 import { type AsyncAction, useAsyncAction } from '@/lib/useAsyncAction'
 import type { DecisionAnswerInput, DecisionQuestion } from '@/model/types'
@@ -48,7 +49,7 @@ export function useDecisionAnswer(reportId: string): HandoffAnswer | undefined {
             questionId: answer.questionId,
             text: answer.text,
             ...(answer.optionId ? { optionId: answer.optionId } : {}),
-            canUndo: answer.delivery === 'sending',
+            canUndo: false,
         }
     }, [demo, demoAnswer, entry])
 }
@@ -75,13 +76,14 @@ export function useHandoffActions(reportId: string): HandoffActions {
     const demoUndo = useDemoMode((state) => state.undoAnswer)
     const queryClient = useQueryClient()
     const scope = useProjectScope()
+    const approval = useAiApproval('handoff', reportId)
 
     const refreshReport = (): void => {
         void queryClient.invalidateQueries({ queryKey: reportKeys.report(scope, reportId) })
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
     }
 
-    // Undo aborts the delivery while it is in flight; after the agent confirms, the answer stands.
+    // Aborting delivery stops local work; it cannot retract an answer accepted by the server.
     const deliverAnswer = async (
         question: DecisionQuestion,
         input: DecisionAnswerInput,
@@ -91,7 +93,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
         const { requestId } = target
         const store = useHandoffStore.getState()
         const originatingRun = handoffEntry(reportId).live
-        if (!originatingRun) {
+        if (!originatingRun || approval.signal.aborted) {
             return
         }
         const isCurrentRun = (): boolean => {
@@ -103,6 +105,8 @@ export function useHandoffActions(reportId: string): HandoffActions {
             )
         }
         const controller = new AbortController()
+        const abort = (): void => controller.abort()
+        approval.signal.addEventListener('abort', abort, { once: true })
         deliveries.get(reportId)?.abort()
         deliveries.set(reportId, controller)
         const answer: StoredAnswer = {
@@ -149,6 +153,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
             store.setAnswer(reportId, undefined)
             store.setNotice(reportId, answerErrorMessage(error))
         } finally {
+            approval.signal.removeEventListener('abort', abort)
             if (deliveries.get(reportId) === controller) {
                 deliveries.delete(reportId)
             }
@@ -163,13 +168,20 @@ export function useHandoffActions(reportId: string): HandoffActions {
             useRunOptionsStore.getState().reset()
             return
         }
+        if (!(await approval.request())) {
+            return
+        }
         const store = useHandoffStore.getState()
         store.setNotice(reportId, undefined)
         try {
             const options = useRunOptionsStore.getState().options
             const run = buildHandoffRunRequest(options, await fetchRunDefaults(queryClient, scope))
+            if (approval.signal.aborted) {
+                return
+            }
             const started = await kickOffReportTask(reportId, {
                 run,
+                signal: approval.signal,
                 taskId: handoffEntry(reportId).unstartedTaskId,
                 onTaskCreated: (taskId) => useHandoffStore.getState().setUnstartedTask(reportId, taskId),
             })
@@ -217,6 +229,19 @@ export function useHandoffActions(reportId: string): HandoffActions {
                 useHandoffStore.getState().setPartial(reportId, { requestId, labels: [...answered, plan.label] })
                 return
             }
+            if (!(await approval.request())) {
+                return
+            }
+            const current = handoffEntry(reportId)
+            if (
+                approval.signal.aborted ||
+                current.live?.taskId !== run.taskId ||
+                current.live.runId !== run.runId ||
+                current.live.pending?.record.requestId !== requestId ||
+                currentDecision(current)?.id !== question.id
+            ) {
+                return
+            }
             await deliverAnswer(question, input, { requestId, kind: live.pending.kind }, (signal) =>
                 deliverPermissionResponse(run, plan.params, { signal })
             )
@@ -229,14 +254,6 @@ export function useHandoffActions(reportId: string): HandoffActions {
             demoUndo(reportId)
             return
         }
-        const controller = deliveries.get(reportId)
-        if (!controller || handoffEntry(reportId).answer?.delivery !== 'sending') {
-            return
-        }
-        controller.abort()
-        deliveries.delete(reportId)
-        useHandoffStore.getState().setAnswer(reportId, undefined)
-        track('mobile_decision_undone', { report_id: reportId })
     })
 
     return { handOff, answerDecision, undoDecision }

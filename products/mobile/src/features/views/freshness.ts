@@ -5,14 +5,12 @@ import type { BlockedReason } from './analytics'
 
 /** An automatic read checks an item again at least this often. */
 export const RECHECK_MS = 5 * 60_000
-/** At most one request per item in this time. */
 export const READ_FLOOR_MS = 60_000
 /** The server's `Date` header has 1 s resolution and latency adds more, so a force waits this long past the window. */
 export const FORCE_MARGIN_MS = 2_000
-/** One pull pass per list or dashboard in this time, like the web dashboard's refresh button. */
 export const BULK_FLOOR_MS = 5 * 60_000
 export const HINT_MS = 3_000
-/** Keep tap and pull feedback visible even when a refresh sends nothing or finishes immediately. */
+/** Manual refresh shows its spinner at least this long, including a fast cache read. */
 export const REFRESH_MIN_MS = 400
 
 export function hasGoodValue(snapshot: Freshness | undefined): boolean {
@@ -48,21 +46,17 @@ export function cacheTargetPassed(snapshot: Freshness | undefined, now: number =
 }
 
 /**
- * Server ms from which a tap may force this item: past `next_allowed_client_refresh`, and a minute after its last read,
- * because the queue sends at most one request per item per minute. Null for an item with no good value, which never
- * forces.
+ * Server ms from which a tap may force this item: past `next_allowed_client_refresh`. Reading a cached value does not
+ * delay a manual refresh. Null for an item with no good value or no known refresh window, which never forces.
  */
-export function forceAllowedAt(snapshot: Freshness | undefined, offsetMs: number = serverOffsetMs()): number | null {
+export function forceAllowedAt(snapshot: Freshness | undefined): number | null {
     if (!hasGoodValue(snapshot) || !snapshot?.nextAllowedRefreshAt) {
         return null
     }
-    return Math.max(
-        Date.parse(snapshot.nextAllowedRefreshAt) + FORCE_MARGIN_MS,
-        snapshot.readAt + offsetMs + READ_FLOOR_MS
-    )
+    const allowedAt = Date.parse(snapshot.nextAllowedRefreshAt) + FORCE_MARGIN_MS
+    return Number.isFinite(allowedAt) ? allowedAt : null
 }
 
-/** True when a tap may force this item: it has a good value, its window has passed, and its last read is a minute old. */
 export function isEligible(snapshot: Freshness | undefined, now: number = serverNow()): boolean {
     const allowedAt = forceAllowedAt(snapshot)
     return allowedAt !== null && now >= allowedAt
@@ -71,20 +65,6 @@ export function isEligible(snapshot: Freshness | undefined, now: number = server
 /** True when the last read of the item is at least `READ_FLOOR_MS` old, so a cache-only re-read may go out. */
 export function readFloorPassed(readAt: number | null | undefined, now: number = Date.now()): boolean {
     return !readAt || now - readAt >= READ_FLOOR_MS
-}
-
-/**
- * True when a pull may re-read one item from the cache. On a screen with a bulk floor, which is the list,
- * each item re-reads at most once per 5 minutes. Otherwise a pull every minute re-reads every pin each minute and
- * empties the insights bucket within the hour, which stops every insight read in the app. A single view re-reads after
- * a minute.
- */
-export function cacheReadAllowed(
-    readAt: number | null | undefined,
-    bulkFloor: boolean,
-    now: number = Date.now()
-): boolean {
-    return !readAt || now - readAt >= (bulkFloor ? RECHECK_MS : READ_FLOOR_MS)
 }
 
 export type StatusLine =
@@ -140,7 +120,7 @@ export function statusLine(
 }
 
 export interface BlockedState {
-    /** Nothing may be forced: a pull only shows the hint and re-reads from the cache. */
+    /** Nothing may be forced; manual refresh can still read the latest cached results. */
     blocked: boolean
     /** Server ms when a force is allowed again. */
     until: number | null
@@ -152,21 +132,13 @@ export const NOT_BLOCKED: BlockedState = { blocked: false, until: null, reason: 
 export interface BlockedInput {
     /** The visible data items. */
     snapshots: readonly (Freshness | undefined)[]
-    /** Server ms when this screen's bulk floor ends. */
-    bulkFloorUntil: number | null
     /** Server ms when the dashboard's shared floor ends. */
     dashboardFloorUntil?: number | null
     now?: number
 }
 
-/**
- * "Nothing may be forced": a bulk floor is active, or every visible item has a good value and none is past its
- * window. An item without a good value never blocks, because a pull reads it with `blocking`. A screen with no data
- * items is never blocked; its pull re-reads the lists.
- */
 export function blockedState(input: BlockedInput): BlockedState {
     const now = input.now ?? serverNow()
-    const floor = input.bulkFloorUntil && input.bulkFloorUntil > now ? input.bulkFloorUntil : null
     const dashboardFloor =
         input.dashboardFloorUntil && input.dashboardFloorUntil > now ? input.dashboardFloorUntil : null
     const { snapshots } = input
@@ -174,7 +146,7 @@ export function blockedState(input: BlockedInput): BlockedState {
         snapshots.length > 0 &&
         snapshots.every(hasGoodValue) &&
         !snapshots.some((snapshot) => isEligible(snapshot, now))
-    if (!floor && !dashboardFloor && !windowBlocked) {
+    if (!dashboardFloor && !windowBlocked) {
         return NOT_BLOCKED
     }
     const allowedTimes = snapshots.flatMap((snapshot) => {
@@ -182,20 +154,20 @@ export function blockedState(input: BlockedInput): BlockedState {
         return allowedAt === null ? [] : [allowedAt]
     })
     const earliestItem = allowedTimes.length > 0 ? Math.min(...allowedTimes) : null
-    const until = Math.max(floor ?? 0, dashboardFloor ?? 0, windowBlocked ? (earliestItem ?? 0) : 0)
-    const reason: BlockedReason = floor ? 'bulk_floor' : dashboardFloor ? 'dashboard_floor' : 'item_window'
+    const until = Math.max(dashboardFloor ?? 0, windowBlocked ? (earliestItem ?? 0) : 0)
+    const reason: BlockedReason = dashboardFloor ? 'dashboard_floor' : 'item_window'
     return { blocked: true, until: until > 0 ? until : null, reason }
 }
 
 /** Whole minutes from now until `until`, rounded up, at least 1. */
-export function minutesUntil(until: number | null, now: number = serverNow()): number {
-    if (until === null) {
-        return 1
-    }
+export function minutesUntil(until: number, now: number = serverNow()): number {
     return Math.max(1, Math.ceil((until - now) / 60_000))
 }
 
 export function refreshHintText(until: number | null, now: number = serverNow()): string {
+    if (until === null || !Number.isFinite(until) || until <= now) {
+        return 'Showing the latest available data.'
+    }
     return `You can refresh again in ${minutesUntil(until, now)} min.`
 }
 
@@ -220,19 +192,4 @@ export function dashboardFloorUntil(
         return null
     }
     return end
-}
-
-// One bulk floor per screen (`list`, `dashboard:{id}`), in memory, so it survives leaving and reopening the screen.
-const bulkFloors = new Map<string, number>()
-
-export function bulkFloorUntil(screenKey: string): number | null {
-    return bulkFloors.get(screenKey) ?? null
-}
-
-export function startBulkFloor(screenKey: string, now: number = serverNow()): void {
-    bulkFloors.set(screenKey, now + BULK_FLOOR_MS)
-}
-
-export function clearBulkFloors(): void {
-    bulkFloors.clear()
 }

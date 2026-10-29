@@ -133,6 +133,10 @@ class Pipeline:
     iteration_budget_remaining: int
     iterations_per_run: int
     research_interval_days: int | None
+    agent_model: str | None
+    agent_reasoning_effort: str | None
+    effective_agent_model: str
+    effective_agent_reasoning_effort: str | None
     training_phase: str
     next_research_at: datetime | None
     success_auc: float | None
@@ -236,6 +240,10 @@ class TrainingRun:
     task_url: str | None
     status: str
     kickoff_reason: str | None
+    agent_runtime_adapter: str | None
+    agent_model: str | None
+    agent_model_label: str | None
+    agent_reasoning_effort: str | None
     iteration_budget: int
     iteration_count: int
     best_holdout_score: float | None
@@ -307,6 +315,31 @@ class Run:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class AgentReasoningEffortOption:
+    value: str
+    label: str
+
+
+@dataclass(frozen=True)
+class AgentModelOption:
+    model: str
+    label: str
+    runtime_adapter: str
+    supported_efforts: list[AgentReasoningEffortOption]
+    cost_multiplier: str | None
+
+
+@dataclass(frozen=True)
+class AgentModelOptions:
+    """The models a pipeline's training agent may run on, and what a blank setting resolves to."""
+
+    default_model: str
+    default_model_label: str
+    default_reasoning_effort: str | None
+    models: list[AgentModelOption]
+
+
 # ── Write contracts ────────────────────────────────────────────────────────
 
 
@@ -331,6 +364,8 @@ class PipelineWrite:
     iteration_budget: int = 50
     iterations_per_run: int = 5
     research_interval_days: int | None = 7
+    agent_model: str | None = None
+    agent_reasoning_effort: str | None = None
     success_auc: float | None = None
     plateau_iterations: int = 10
     output_person_property: str = ""

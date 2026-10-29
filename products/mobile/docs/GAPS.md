@@ -90,6 +90,11 @@ Known gaps and behavior that stays on the device.
 - **Local dev app is not first-party.** On a local stack the consent screen shows and access tokens last 1 hour.
 - **No proactive refresh timer.** The app refreshes at launch when the token is nearly expired and on any 401, not on a schedule.
 - **Project switcher lists environments as projects** when a project has more than one environment (team), because it lists teams.
+- **Production OAuth apps may not allow the Errors and Sessions scopes yet.** `error_tracking:read`, `error_tracking:write`, `session_recording:read`, `replay_scanner:read` and `replay_scanner:write` need a human to add them to the US and EU mobile applications' ceiling in Django admin. Until then the server drops them and both screens show "isn't available yet".
+- **Web links do not open the app.** `app.config.ts` declares no iOS associated domains and no Android intent filters, so an `https://` issue or recording link opens the browser. `webLinkTarget()` maps such links once a universal link reaches the app (from a custom-scheme link or a future associated domain). `webLinkTarget()` ignores the link's project id, so a link to another project opens in the current one and its request can fail.
+- **Shared screen chrome lives in Views.** Errors and Sessions import `features/views/screen/*`, `ViewsToast` and `ViewsReauthState`. Move them to `src/ui/` (or one shared module) in a follow-up, so features import only other features' hooks again.
+- **Only one list can be pinned.** Errors and Sessions share the one user slot in the nav pill (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
+- **Views' sign-in state hides Browse.** While Views lacks its own scopes, the Browse group is hidden, so Errors and Sessions are reachable only through a pin.
 - **Production OAuth apps may not allow `today:read` yet.** The server drops scopes outside the app's ceiling without an error, so the report screen would always use signal evidence. Check the US and EU mobile apps in Django admin (see [AUTH.md](AUTH.md#server-side-ceiling)).
 
 ## Notification follow-ups
@@ -139,7 +144,7 @@ The following need shared server policy or additional product work:
 - **No EAS build has run yet.** The `.easignore` archive could not be inspected without an Expo login (`eas build:inspect` needs one).
 - **Internal variants need portal setup before their first build.** The dev and preview bundle ids, widget ids, App Groups, push credentials and OAuth redirect URIs do not exist until someone registers them. See [RELEASING.md](RELEASING.md#one-time-setup).
 - **Per-variant widget stores were not run on a device.** Both Swift readers derive the App Group from their bundle id. Only the generated entitlements and a Swift typecheck were checked.
-- **OTA publishing is manual.** No workflow runs `eas update`.
+- **Shared OTA publishing is pending.** A repository workflow is needed before OTA updates are part of the shared release process.
 - **Chat composer under the keyboard (iOS).** On iPhone 17 with iOS 27, the composer's bottom row (Add a report, Send) sits about 30pt behind the keyboard, so Send cannot be tapped while typing. The return key still sends. See the `KeyboardAvoidingView` in `src/features/chat/ChatSheet.tsx`.
 - **Sheets do not hide the screen under them from VoiceOver.** The report's controls stay in the accessibility tree under the hand-off, snooze and chat sheets.
 - **Dev build overlays.** The Expo dev client's tools button covers the inbox More button, and its fast refresh banner covers Back and Close. Release builds do not have them. [TESTING.md](TESTING.md) says how to turn them off.
@@ -174,3 +179,47 @@ by the mobile footer change:
   into the server's execution policy, preserving the existing decision rules. This is separate
   work so opening a report is not what enables unattended execution. The frontend policy has
   not been broadened here.
+
+## Errors
+
+- **No push for a new or spiking issue.** Error tracking alerts reach Slack and webhooks only. Backend ask: a mobile
+  push destination for `ErrorTrackingAlert` (or a HogFunction that calls `send_user_push`) with the issue id, so a tap
+  opens `/errors/{id}`. Today an issue reaches the phone through an Inbox report or a link.
+- **Assign covers the viewer only.** Listing teammates and roles needs `organization_member:read` (and the roles list),
+  which the app does not request. Another person's assignment shows as "A teammate" or "A role" without a name.
+- **No Reopened badge.** No read the app can make says an issue came back after a resolve. Backend ask: a
+  `reopened_at` (or last status change) on the issue resource.
+- **No full stack, code context or source maps.** The trace card shows up to three in-app frames as text. Exception
+  chains, code lines, variables and symbol-set problems stay on the web.
+- **No search, severity, release or library filters**, no sort other than users, and no resolved or suppressed lists.
+- **New and Spiking filter loaded pages.** Load more checks another 15 issues. An empty partial page is not a
+  project-wide empty result. Mine filters on the server, and also loads 15 issues per page.
+- **Sample sessions open at the start.** The session screen gets no `t`, because the exception's offset into the
+  recording needs the recording's start time, which the issue reads do not return.
+- **No merge, split, or external issue links** (Linear, GitHub, Jira).
+- **Not checked against a live project.** The request and response shapes come from the serializers in this
+  repository and the tests; the first real run needs an account whose sign-in includes `error_tracking:read` and
+  `error_tracking:write`.
+
+## Session replay
+
+- **No player.** The phone shows the summary, chapter frames and the event timeline. Watching the recording is
+  "Open full replay", the web player in the browser. No inspector, console or network panes.
+- **No clip video.** Replay Vision renders an MP4 with idle time cut, but playing it needs `expo-video`, a native
+  module the app does not ship. Adding it needs a new native build, not an over-the-air update.
+- **No push when a summary is ready.** The screen polls for two minutes while it is open. Backend ask: a hook on scan
+  completion that sends a mobile push with the session id, so a tap opens `/replay/{sessionId}`.
+- **Frames need two requests.** The thumbnail endpoint answers with a redirect to a signed URL, so each frame costs an
+  API call before the image loads, and the signed URL expires (the app keeps it for 4 minutes). The web build cannot
+  read a manual redirect, so frames show the empty tile there.
+- **Opening a session does not mark it viewed** on the web, because that needs `session_recording:write`.
+- **No filters and a fixed window.** The list covers the last 7 days, 10 newest recordings per page, with up to 5
+  optional recommendations below the recordings. No search, collections or playlists.
+- **Clicks in the timeline are a sample.** At most 20 clicks of a session show, spread over its length. The page view
+  and click query reads the first 300 events, so a long session loses its later pages and clicks; the count then
+  reads "301+ events". Errors and rage clicks have their own query and always show (up to 100).
+- **Rows from the feed may lack a length.** A feed pick outside the loaded recording pages has no duration or click
+  count, because the feed carries the observation, not the recording.
+- **The full report's "Watch session" opens at the start.** A signal carries the session id but no offset into it.
+- **Not checked against a live project.** The shapes come from the serializers in this repository and the tests; the
+  first real run needs a sign-in with `session_recording:read`, `replay_scanner:read` and `replay_scanner:write`.

@@ -8,9 +8,12 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.sumo_logic.settings import (
@@ -108,7 +111,7 @@ def validate_credentials(deployment: Optional[str], access_id: str, access_key: 
 
 
 def _make_fetch(session: requests.Session, logger: FilteringBoundLogger) -> Any:
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((SumoLogicRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(RETRY_ATTEMPTS),
         wait=wait_exponential_jitter(initial=1, max=30),
@@ -272,6 +275,94 @@ def _get_collector_fan_out_rows(
             break
         offset += collectors_config.page_size
         resumable_source_manager.save_state(SumoLogicResumeConfig(offset=offset))
+
+
+def _get_single_page_rows(fetch: Any, host: str, config: SumoLogicEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    items = _extract_items(fetch("GET", _build_url(host, config.path, dict(config.extra_params))), config)
+    if items:
+        yield items
+
+
+def _get_slo_sli_rows(
+    fetch: Any,
+    host: str,
+    config: SumoLogicEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[SumoLogicResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the SLO search pages and bulk-fetch the current SLI status of each page's SLOs.
+
+    The SLI endpoint only reads SLOs by id, so the SLO search supplies the ids. Resume state tracks
+    the SLO search offset.
+    """
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    offset = resume.offset if resume and resume.offset is not None else 0
+    slos_config = SUMO_LOGIC_ENDPOINTS["slos"]
+
+    while True:
+        params: dict[str, Any] = {"limit": slos_config.page_size, "offset": offset, **slos_config.extra_params}
+        items = _extract_items(fetch("GET", _build_url(host, slos_config.path, params)), slos_config)
+        slo_ids = [
+            str(slo["id"])
+            for slo in (_unnest_item(item, slos_config) for item in items)
+            if slo.get("id") is not None and slo.get("contentType") != "Folder"
+        ]
+
+        rows: list[dict[str, Any]] = []
+        if slo_ids:
+            statuses = fetch("GET", _build_url(host, config.path, {"ids": ",".join(slo_ids)}))
+            if isinstance(statuses, dict):
+                rows = [{"slo_id": slo_id, **status} for slo_id, status in statuses.items() if isinstance(status, dict)]
+
+        is_last_page = len(items) < slos_config.page_size
+        if not is_last_page:
+            resumable_source_manager.save_state(SumoLogicResumeConfig(offset=offset + slos_config.page_size))
+
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+        if is_last_page:
+            break
+        offset += slos_config.page_size
+
+
+def _get_content_folder_rows(
+    fetch: Any,
+    host: str,
+    config: SumoLogicEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[SumoLogicResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk the content library folder tree breadth-first from the personal folder of the key's user.
+
+    Each folder read lists its direct children, so every subfolder costs one request. The child list
+    is dropped from the row: child items point back at their folder through ``parentId``.
+    """
+    pending: deque[str] = deque(["personal"])
+    seen: set[str] = set()
+
+    while pending:
+        folder_id = pending.popleft()
+        try:
+            folder = fetch("GET", _build_url(host, config.path.format(folder_id=folder_id), {}))
+        except requests.HTTPError as e:
+            # A folder deleted after its parent was read 404s; the rest of the tree is still valid.
+            if e.response is not None and e.response.status_code == 404 and folder_id != "personal":
+                resumable_source_manager.safe_point()
+                continue
+            raise
+        if not isinstance(folder, dict):
+            continue
+
+        if folder.get("id") is not None:
+            seen.add(str(folder["id"]))
+        for child in folder.get("children") or []:
+            child_id = child.get("id") if isinstance(child, dict) else None
+            if child_id is not None and child.get("itemType") == "Folder" and str(child_id) not in seen:
+                seen.add(str(child_id))
+                pending.append(str(child_id))
+
+        yield [{key: value for key, value in folder.items() if key != "children"}]
 
 
 def _message_row(message: dict[str, Any]) -> dict[str, Any]:
@@ -447,6 +538,12 @@ def get_rows(
         )
     elif config.fan_out_over_collectors:
         batches = _get_collector_fan_out_rows(fetch, host, config, resumable_source_manager)
+    elif config.pagination == "slo_sli":
+        batches = _get_slo_sli_rows(fetch, host, config, resumable_source_manager)
+    elif config.pagination == "content_tree":
+        batches = _get_content_folder_rows(fetch, host, config, resumable_source_manager)
+    elif config.pagination == "single":
+        batches = _get_single_page_rows(fetch, host, config)
     elif config.pagination == "offset":
         batches = _get_offset_paginated_rows(fetch, host, config, resumable_source_manager)
     else:

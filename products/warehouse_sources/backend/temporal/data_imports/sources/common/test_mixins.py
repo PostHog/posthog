@@ -13,7 +13,7 @@ from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import (
@@ -112,15 +112,25 @@ class TestIsHostSafe(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("postwh_us", "entirely-chief-wildcat.us.postwh.com"),
-            ("postwh_eu", "my-db.eu.postwh.com"),
-            ("postwh_bare", "something.postwh.com"),
+            ("legacy_us_shape", "entirely-chief-wildcat.us.postwh.com"),
+            ("legacy_eu_shape", "my-db.eu.postwh.com"),
+            ("bare_suffix", "something.postwh.com"),
+            ("managed_shape", "acme.dw.us.postwh.com"),
         ]
     )
-    @override_settings(CLOUD_DEPLOYMENT="US")
-    def test_allows_postwh_hosts(self, _name: str, host: str):
-        valid, _ = _is_host_safe(host, team_id=999)
-        assert valid
+    @override_settings(CLOUD_DEPLOYMENT="US", MANAGED_WAREHOUSE_INGRESS_IPS="10.1.0.1")
+    def test_a_postwh_name_alone_earns_no_exemption(self, _name: str, host: str):
+        # The exemption used to be the `.postwh.com` suffix. A name is now only a prefilter: the
+        # organization's own control-plane host and the resolved ingress address both have to
+        # agree, and no control plane is configured here, so every one of these is refused.
+        with patch(
+            f"{_MIXINS_MODULE}.socket.getaddrinfo",
+            return_value=[(None, None, None, None, ("10.1.0.1", 0))],
+        ):
+            valid, error = _is_host_safe(host, team_id=999, port=5432, source_type="postgres")
+
+        assert not valid
+        assert error is not None
 
     @parameterized.expand(
         [
@@ -665,11 +675,11 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         ]
     )
     def test_retries_transient_db_error_then_succeeds(self, _name: str, message: str):
-        integration = object()
+        integration = mock.Mock(auth_type="oauth")
         get = mock.Mock(side_effect=[OperationalError(message), OperationalError(message), integration])
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections") as close,
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -685,10 +695,10 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
     def test_success_does_not_evict_connection(self):
         # Closing the connection on the happy path would tear down the caller's open transaction
         # (e.g. inside a transactional test), so eviction must only happen between retries.
-        integration = object()
+        integration = mock.Mock(auth_type="oauth")
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", return_value=integration),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", return_value=integration),
             patch(f"{_MIXINS_MODULE}.close_old_connections") as close,
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -702,7 +712,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -715,10 +725,10 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=Integration.DoesNotExist())
+        get = mock.Mock(side_effect=IntegrationNotFound())
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep") as sleep,
         ):
@@ -730,13 +740,25 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         assert get.call_count == 1
         sleep.assert_not_called()
 
-    def test_deletion_during_retry_is_surfaced_as_not_found(self):
-        # The row vanishes after a transient failure: the retry must convert DoesNotExist into the
-        # stable non-retryable ValueError rather than letting raw DoesNotExist escape and be retried.
-        get = mock.Mock(side_effect=[OperationalError("query_wait_timeout"), Integration.DoesNotExist()])
+    @parameterized.expand([("token",), ("credentials",)])
+    def test_row_of_another_auth_type_is_surfaced_as_not_found(self, auth_type: str):
+        get = mock.Mock(return_value=mock.Mock(auth_type=auth_type))
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
+            patch(f"{_MIXINS_MODULE}.close_old_connections"),
+            patch(f"{_MIXINS_MODULE}.time.sleep"),
+        ):
+            with pytest.raises(ValueError, match="^Integration not found: 1$"):
+                OAuthMixin().get_oauth_integration(integration_id=1, team_id=2)
+
+    def test_deletion_during_retry_is_surfaced_as_not_found(self):
+        # The row vanishes after a transient failure: the retry must convert IntegrationNotFound into the
+        # stable non-retryable ValueError rather than letting the raw error escape and be retried.
+        get = mock.Mock(side_effect=[OperationalError("query_wait_timeout"), IntegrationNotFound()])
+
+        with (
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep"),
         ):
@@ -747,7 +769,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("deleted_integration", Integration.DoesNotExist(), 4212),
+            ("deleted_integration", IntegrationNotFound(), 4212),
             ("unset_integration_id", None, 0),
         ]
     )
@@ -760,7 +782,7 @@ class TestOAuthMixinIntegrationFetchResilience(SimpleTestCase):
         get = mock.Mock(side_effect=side_effect)
 
         with (
-            patch(f"{_MIXINS_MODULE}.Integration.objects.get", get),
+            patch(f"{_MIXINS_MODULE}.IntegrationManager.any.get", get),
             patch(f"{_MIXINS_MODULE}.close_old_connections"),
             patch(f"{_MIXINS_MODULE}.time.sleep"),
         ):
@@ -920,7 +942,6 @@ class TestCheckResolvedAddresses(SimpleTestCase):
         [
             ("team_allowlist", "US", "db.internal.example.com", 2),
             ("not_cloud", None, "db.internal.example.com", 999),
-            ("posthog_managed", "US", "warehouse.postwh.com", 999),
         ]
     )
     def test_exemptions_skip_the_check_and_keep_the_set(

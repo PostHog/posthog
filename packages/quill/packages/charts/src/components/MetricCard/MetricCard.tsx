@@ -32,7 +32,7 @@ export interface MetricCardProps {
     /** Formats a label for the default subtitle, e.g. an ISO time as a short date. The sparkline
      *  keeps the raw `labels`, which must stay unique. */
     formatLabel?: (label: string) => React.ReactNode
-    /** Required when `data` is present. */
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
     theme?: ChartTheme
     /** Sparkline line + fill color. Falls back to `theme.colors[0]`. */
     color?: string
@@ -47,6 +47,7 @@ export interface MetricCardProps {
     /** Classes for the headline number. Replaces the default `text-4xl` size, e.g. with container
      *  query sizes so a narrow tile keeps the number on one line. */
     headlineClassName?: string
+    /** Formats the change pill. Receives a percent, so `8` for +8%, as in {@link MetricChange.value}. */
     formatChange?: (percent: number) => string
     showChange?: boolean
     /** Fixed comparison pill. Supplied → no hover-driven fallback. Pass `null` to suppress. */
@@ -80,10 +81,9 @@ export interface MetricCardProps {
 }
 
 export function MetricCard(props: MetricCardProps): React.ReactElement | null {
-    const { onError, ...rest } = props
     return (
-        <ChartErrorBoundary onError={onError}>
-            <MetricCardInner {...rest} />
+        <ChartErrorBoundary onError={props.onError}>
+            <MetricCardInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -119,8 +119,9 @@ function MetricCardInner({
     hoverIntentMs = 60,
     className,
     dataAttr,
-}: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {
-    const sparklineData = data != null && data.length > 0 && theme != null ? data : null
+    onError,
+}: MetricCardProps): React.ReactElement | null {
+    const sparklineData = data != null && data.length > 0 ? data : null
     const lastIndex = sparklineData ? sparklineData.length - 1 : -1
 
     const [hoverIndex, setHoverIndex] = useState(-1)
@@ -214,7 +215,7 @@ function MetricCardInner({
                 </div>
             )}
 
-            {sparklineData && theme && (
+            {sparklineData && (
                 <Sparkline
                     data={sparklineData}
                     labels={labels}
@@ -227,6 +228,7 @@ function MetricCardInner({
                     onHoverIndexChange={setHoverIndex}
                     className={sparklineClassName}
                     dataAttr="metric-card-sparkline"
+                    onError={onError}
                 />
             )}
         </div>

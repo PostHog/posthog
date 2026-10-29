@@ -54,6 +54,18 @@ class TrendsQueryRunResult:
 
 
 @dataclass(frozen=True)
+class TrendsActorsDateWindow:
+    """The time window of the events that the actors of one Trends data point have.
+
+    ``date_to`` is exclusive, unless ``date_to_inclusive`` is true.
+    """
+
+    date_from: datetime
+    date_to: datetime
+    date_to_inclusive: bool
+
+
+@dataclass(frozen=True)
 class SavedInsightDefinition:
     id: int
     short_id: str
@@ -127,6 +139,22 @@ class InsightDataChecks:
 
 
 @dataclass(frozen=True)
+class SavedTrendsInsight:
+    team_id: int
+    insight_id: int
+    # The trends interval, "day" when the query sets none.
+    interval: str
+
+
+@dataclass(frozen=True)
+class ViewableInsight:
+    id: int
+    short_id: str
+    # The saved name, else the generated one. None when the insight has neither.
+    name: str | None
+
+
+@dataclass(frozen=True)
 class TeamEmailAccess:
     # A match reveals that an email belongs to the team, so each source needs the caller to be allowed to read it.
     member_emails: bool
@@ -154,3 +182,13 @@ class InsightDashboardContext:
     filters: dict[str, Any]
     tile_filters: dict[str, Any] | None = None
     variables: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class OrganizationEventsRetention:
+    """The window an organization set for its projects, and the windows its admins can set, in months."""
+
+    organization_months: int | None
+    plan_months: int
+    min_months: int
+    max_months: int

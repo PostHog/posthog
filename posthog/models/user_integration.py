@@ -3,7 +3,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from django.conf import settings
 from django.db import models, transaction
 from django.utils.functional import Promise
 
@@ -13,7 +12,7 @@ import structlog
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, github_app_oauth_credentials
 from posthog.models.integration import github_account_type, invalidate_github_repository_caches_for_installation
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.utils import UUIDModel
@@ -319,8 +318,9 @@ class UserGitHubIntegration(GitHubIntegrationBase):
         Strips the stored tokens and raises :class:`ReauthorizationRequired` when GitHub
         signals the refresh token can't produce a new access token.
         """
-        client_id = settings.GITHUB_APP_CLIENT_ID
-        client_secret = settings.GITHUB_APP_CLIENT_SECRET
+        credentials = github_app_oauth_credentials()
+        client_id = credentials.client_id
+        client_secret = credentials.client_secret
         refresh_token = self.user_refresh_token
         if not client_id or not client_secret:
             raise Exception("GITHUB_APP_CLIENT_ID / GITHUB_APP_CLIENT_SECRET not configured, cannot refresh user token")

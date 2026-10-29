@@ -8,18 +8,18 @@ For each item, it also names the app change that follows when the backend work l
 
 Ranked by user value, highest first.
 
-| Item | What users get | Backend change | Size | Priority |
-| --- | --- | --- | --- | --- |
-| 1. Refresh on focus, checked on the server | Views refresh when they come back into focus, without a tap | The server enforces `next_allowed_client_refresh` for app callers: a forced read inside the window returns the cache | M | P1 |
-| 2. Display mode and chosen tile sync across devices | Number and Chart pins survive a new phone, a reinstall and a new sign-in | Two nullable fields on `FileSystemShortcut`, with serializer fields and a migration | S | P1 |
-| 3. Insights viewed on the web appear in Recent | Recent on the phone lists the insights the person opened on the web | `required_scopes` on `insights/my_last_viewed/` | XS | P1 |
-| 4. Phone views count as "recently viewed" | Phone opens show in the web's "Recently viewed" and in Recent on other phones | The explicit `log_view` endpoint logs views for OAuth callers | S | P2 |
-| 5. Pin order sync with the web's starred order | One pin order on the phone and on the web | `required_scopes` on `reorder` and `bulk_update`, project-wide scoping, and no `team_id` rewrite in `update()` | S | P2 (the `update()` fix is P1, because item 2 needs it) |
-| 6. "New" badge for agent-built dashboards | A small badge on dashboards an AI agent built in the last 7 days | Provenance fields on `Dashboard` | S | P3 |
-| 7. Trustworthy freshness on capacity errors | No API client shows "Updated just now" over a failed refresh | `last_refresh=None` on a rate-limited result with no data | XS | P2 |
-| 8. A "Last year" date preset | One tap for the previous calendar year | Fix `-1yEnd` in `posthog/utils.py` | XS | P3 |
-| 9. SQL insight staleness matches its `cache_target_age` | SQL insights refresh on the schedule their response describes | Align `_is_stale` and `cache_target_age` in `HogQLQueryRunner` | XS | P3 |
-| Web, optional: a "Pinned" group in the new web navigation | Phone pins show in the web's Views pane | Web only, no backend change | M | Optional |
+| Item                                                      | What users get                                                                | Backend change                                                                                                       | Size | Priority                                               |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ---- | ------------------------------------------------------ |
+| 1. Refresh on focus, checked on the server                | Views refresh when they come back into focus, without a tap                   | The server enforces `next_allowed_client_refresh` for app callers: a forced read inside the window returns the cache | M    | P1                                                     |
+| 2. Display mode and chosen tile sync across devices       | Number and Chart pins survive a new phone, a reinstall and a new sign-in      | Two nullable fields on `FileSystemShortcut`, with serializer fields and a migration                                  | S    | P1                                                     |
+| 3. Insights viewed on the web appear in Recent            | Recent on the phone lists the insights the person opened on the web           | `required_scopes` on `insights/my_last_viewed/`                                                                      | XS   | P1                                                     |
+| 4. Phone views count as "recently viewed"                 | Phone opens show in the web's "Recently viewed" and in Recent on other phones | The explicit `log_view` endpoint logs views for OAuth callers                                                        | S    | P2                                                     |
+| 5. Pin order sync with the web's starred order            | One pin order on the phone and on the web                                     | `required_scopes` on `reorder` and `bulk_update`, project-wide scoping, and no `team_id` rewrite in `update()`       | S    | P2 (the `update()` fix is P1, because item 2 needs it) |
+| 6. "New" badge for agent-built dashboards                 | A small badge on dashboards an AI agent built in the last 7 days              | Provenance fields on `Dashboard`                                                                                     | S    | P3                                                     |
+| 7. Trustworthy freshness on capacity errors               | No API client shows "Updated just now" over a failed refresh                  | `last_refresh=None` on a rate-limited result with no data                                                            | XS   | P2                                                     |
+| 8. A "Last year" date preset                              | One tap for the previous calendar year                                        | Fix `-1yEnd` in `posthog/utils.py`                                                                                   | XS   | P3                                                     |
+| 9. SQL insight staleness matches its `cache_target_age`   | SQL insights refresh on the schedule their response describes                 | Align `_is_stale` and `cache_target_age` in `HogQLQueryRunner`                                                       | XS   | P3                                                     |
+| Web, optional: a "Pinned" group in the new web navigation | Phone pins show in the web's Views pane                                       | Web only, no backend change                                                                                          | M    | Optional                                               |
 
 Sizes: XS is under 100 changed lines, S under 300, M under 800, L over 800, tests included.
 Priorities: P1 first, then P2, then P3.
@@ -46,9 +46,9 @@ With a server-side check, the app can do that refresh for them.
 **What the app does today:**
 
 - Open, focus and foreground never force. They send `refresh=blocking`, which computes only past `cache_target_age`.
-- The button and pull to refresh send `force_blocking` only for items whose `next_allowed_client_refresh` has passed, in server time with a 2 s margin.
-- The list and dashboards also have a bulk floor: one forced pass per 5 minutes per screen.
-- One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one request per item per 60 s. It pauses on `Retry-After`.
+- Pull and tile refresh read immediately, bypassing the device's automatic minute floor. They send `force_blocking` only for items whose `next_allowed_client_refresh` has passed, in server time with a 2 s margin, and honor the dashboard's shared rule based on `Dashboard.last_refresh`.
+- Items inside their window, or without a known window, read cached results. The app adds no device-local five-minute floor.
+- One queue (`src/features/views/refreshQueue.ts`) allows 2 requests in flight and one automatic request per item per 60 s. Manual reads still join existing requests, respect budgets and pause on `Retry-After`.
 - Token buckets in `src/api/budget.ts` cap each budget family at 25% of the published limits.
 - The window check lives in the app only, so forcing on focus would depend on every app version getting it right.
 

@@ -30,6 +30,10 @@ pub enum DecodeError {
     SchemaVersion { value: Value },
     #[error("merge event with merged_at_ms {value}, expected a positive integer")]
     MergedAt { value: Value },
+    #[error("person row with {field} {value}, expected 0 or 1")]
+    PersonFlag { field: &'static str, value: Value },
+    #[error("person row whose properties are not a JSON object")]
+    Properties,
     #[error("merge event {old} -> {new} produced under key {actual:?}, expected {expected:?}")]
     Key {
         old: Uuid,
@@ -158,7 +162,7 @@ impl MergeEvent {
     }
 }
 
-fn parse_uuid(value: &Value) -> Option<Uuid> {
+pub(super) fn parse_uuid(value: &Value) -> Option<Uuid> {
     value.as_str().and_then(|s| Uuid::parse_str(s).ok())
 }
 

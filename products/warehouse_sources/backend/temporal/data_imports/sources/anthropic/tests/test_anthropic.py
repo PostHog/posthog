@@ -32,6 +32,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.anthropic.source import AnthropicSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
+    RESTClientRetryableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -365,6 +368,18 @@ class TestClaudeCodeDayFanOut:
         assert len(result.rows) == 1
         assert result.params("page") == ["P2"]
         assert result.params("starting_at") == [today.isoformat()]
+
+    def test_fails_at_once_with_the_delay_when_a_rate_limit_asks_for_an_hour(self) -> None:
+        today = datetime.now(UTC).date()
+        result = _driver().run(
+            "claude_code_analytics",
+            [ScriptedResponse(status=429, headers={"Retry-After": "3600"})],
+            incremental_field="date",
+            db_incremental_field_last_value=_midnight(today),
+        )
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert result.raised.retry_after == 3600
+        assert len(result.requests) == 1
 
 
 class TestRetiredEndpoint:

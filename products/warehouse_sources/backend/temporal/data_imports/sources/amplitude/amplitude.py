@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.settings import (
     AMPLITUDE_ENDPOINTS,
@@ -21,7 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amplitude.
     EVENTS_EXPORT_WINDOW_HOURS,
     AmplitudeEndpointConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
@@ -132,7 +135,7 @@ def validate_credentials(api_key: str, secret_key: str, region: str) -> tuple[bo
     return False, f"Unexpected response from Amplitude (status {response.status_code})."
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((AmplitudeRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(RETRY_MAX_ATTEMPTS),
     wait=wait_exponential_jitter(initial=2, max=60),

@@ -21,10 +21,29 @@ export function coversScope(scopes: readonly string[], scope: string): boolean {
     return scopes.includes(scope) || (level === 'read' && scopes.includes(`${object}:write`))
 }
 
-/** The first Views scope a grant lacks, or null for an unknown grant. */
-export function missingViewsScope(granted: readonly string[] | null): string | null {
+/** The scopes the issues list and issue screen need. The write covers status and assignee changes. */
+export const ERRORS_SCOPES = ['error_tracking:read', 'error_tracking:write'] as const
+
+/** The scopes the sessions list and session screen need. `replay_scanner` covers the AI summary. */
+export const REPLAY_SCOPES = ['session_recording:read', 'replay_scanner:read', 'replay_scanner:write'] as const
+
+export type ScopedFeature = 'views' | 'errors' | 'replay'
+
+export const FEATURE_SCOPES: Record<ScopedFeature, readonly string[]> = {
+    views: VIEWS_SCOPES,
+    errors: ERRORS_SCOPES,
+    replay: REPLAY_SCOPES,
+}
+
+/** The first scope of `feature` a grant lacks, or null for an unknown grant. */
+export function missingFeatureScope(granted: readonly string[] | null, feature: ScopedFeature): string | null {
     if (!granted) {
         return null
     }
-    return VIEWS_SCOPES.find((scope) => !coversScope(granted, scope)) ?? null
+    return FEATURE_SCOPES[feature].find((scope) => !coversScope(granted, scope)) ?? null
+}
+
+/** The first Views scope a grant lacks, or null for an unknown grant. */
+export function missingViewsScope(granted: readonly string[] | null): string | null {
+    return missingFeatureScope(granted, 'views')
 }

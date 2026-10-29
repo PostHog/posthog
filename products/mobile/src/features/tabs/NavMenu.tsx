@@ -6,7 +6,9 @@ import { ProjectSheet } from '@/features/projects/ProjectSheet'
 import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChevronUpDownIcon } from '@/ui/icons/ChevronUpDownIcon'
+import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { GripIcon } from '@/ui/icons/GripIcon'
+import { PinIcon } from '@/ui/icons/PinIcon'
 import { SettingsIcon } from '@/ui/icons/SettingsIcon'
 import { SignOutIcon } from '@/ui/icons/SignOutIcon'
 import type { IconProps } from '@/ui/icons/types'
@@ -23,6 +25,8 @@ interface NavMenuProps {
     projectName: string
     /** The focused tab's Edit pins row, in its own section above Settings. Null leaves the section out. */
     editPins: TabHeaderSlot['editPins']
+    /** A pinned list's rows, at the top while its tab is focused. Null leaves the section out. */
+    navList: { onUnpin: () => void; onOpenWeb: (() => void) | null } | null
     onClose: () => void
     onSettings: () => void
     onSignOut: () => void
@@ -65,6 +69,7 @@ export function NavMenu({
     visible,
     projectName,
     editPins,
+    navList,
     onClose,
     onSettings,
     onSignOut,
@@ -138,6 +143,25 @@ export function NavMenu({
                     />
                 ) : (
                     <>
+                        {navList ? (
+                            <>
+                                <MenuRow
+                                    label="Unpin from navigation"
+                                    Icon={PinIcon}
+                                    onPress={navList.onUnpin}
+                                    testID="nav-list-unpin"
+                                />
+                                {navList.onOpenWeb ? (
+                                    <MenuRow
+                                        label="Open on web"
+                                        Icon={ExternalLinkIcon}
+                                        onPress={navList.onOpenWeb}
+                                        testID="nav-list-open-web"
+                                    />
+                                ) : null}
+                                <View style={[styles.divider, styles.sectionDivider]} />
+                            </>
+                        ) : null}
                         {editPins ? (
                             <>
                                 <MenuRow

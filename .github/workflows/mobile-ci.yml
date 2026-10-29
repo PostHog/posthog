@@ -1,18 +1,19 @@
 name: Mobile CI
 
-# Typecheck, lint and unit tests for the PostHog mobile app (products/mobile).
+# Typecheck, lint, unit tests and release metadata checks for the mobile app.
 # The app is its own pnpm workspace with its own lockfile, so this workflow never
 # installs the repo root workspace.
+#
+# "Mobile CI Pass" reports on every pull request so repository rules can require it.
+# PR housekeeping calls this workflow on each PR event, and the changes job turns
+# the run into a no-op when the diff does not touch the app. A trigger-level
+# paths filter would leave unrelated PRs waiting for a status that never arrives.
 
 on:
-    # Trigger paths keep the workflow inert on every PR that does not touch the app.
-    # Markdown is excluded because no check here reads it.
-    pull_request:
-        paths:
-            - 'products/mobile/**'
-            - '!products/mobile/**/*.md'
-            - 'products/signals/frontend/generated/api.schemas.ts'
-            - '.github/workflows/mobile-ci.yml'
+    workflow_call:
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
+                required: true
     # Master pushes refresh the pnpm store cache that PR runs restore.
     push:
         branches: [master]
@@ -20,20 +21,66 @@ on:
             - 'products/mobile/**'
             - '!products/mobile/**/*.md'
             - 'products/signals/frontend/generated/api.schemas.ts'
+            - 'products/error_tracking/frontend/generated/api.schemas.ts'
             - '.github/workflows/mobile-ci.yml'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # github.workflow is the caller's name, so the release caller and the PR
+    # caller never cancel or wait on each other.
+    group: mobile-ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: read
 
 jobs:
+    changes:
+        name: Detect mobile changes
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            # A push has no PR diff to filter: a master push already matched the
+            # trigger paths, and the release caller validates its exact commit.
+            mobile: ${{ steps.filter.outputs.mobile || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+                  permission-pull-requests: read
+            - uses: ./.github/actions/paths-filter
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      mobile:
+                          - 'products/mobile/**'
+                          - '!products/mobile/**/*.md'
+                          - 'products/signals/frontend/generated/api.schemas.ts'
+                          - 'products/error_tracking/frontend/generated/api.schemas.ts'
+                          - '.github/workflows/mobile-ci.yml'
+
     check:
         name: Typecheck, lint and test
+        needs: changes
+        if: needs.changes.outputs.mobile == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
+        env:
+            # Reusable workflows keep the caller's name. Only the direct master
+            # trigger warms the cache; release callers must validate their commit.
+            MOBILE_RUN_CHECKS: ${{ github.event_name != 'push' || github.workflow != 'Mobile CI' }}
         defaults:
             run:
                 working-directory: products/mobile
@@ -45,6 +92,7 @@ jobs:
                   sparse-checkout: |
                       products/mobile
                       products/signals/frontend/generated/api.schemas.ts
+                      products/error_tracking/frontend/generated/api.schemas.ts
                   sparse-checkout-cone-mode: false
 
             # Reads packageManager from the app's package.json, not the repo root's,
@@ -94,10 +142,58 @@ jobs:
                   key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
 
             - name: Typecheck
+              if: env.MOBILE_RUN_CHECKS == 'true'
               run: pnpm typecheck
 
             - name: Lint
+              if: env.MOBILE_RUN_CHECKS == 'true'
               run: pnpm lint
 
             - name: Test
+              if: env.MOBILE_RUN_CHECKS == 'true'
               run: pnpm test --ci
+
+            # Workflow changes also reach branches that have not rebased onto the
+            # release tooling yet. Those branches still run the existing checks.
+            - name: Fetch release validation base
+              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != '' && (github.event.pull_request.base.sha != '' || github.event.before != '')
+              env:
+                  MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+              run: git fetch --no-tags --depth=1 --filter=blob:none origin "$MOBILE_RELEASE_BASE"
+
+            - name: Validate release requests
+              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              env:
+                  MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+              run: pnpm release:check
+
+            - name: Test release policy
+              if: env.MOBILE_RUN_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              run: pnpm release:test
+
+    mobile_checks:
+        name: Mobile CI Pass
+        needs: [changes, check]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: ${{ !cancelled() }}
+        steps:
+            - name: Check all mobile jobs
+              run: |
+                  # Fail if change detection failed or was cancelled (outputs are empty on cancel, so a skipped check would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" ]]; then
+                    echo "Mobile checks were skipped (no relevant changes)"
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.check.result }}" != "success" && "${{ needs.check.result }}" != "skipped" ]]; then
+                    echo "Mobile typecheck, lint, test or release checks failed."
+                    exit 1
+                  fi
+
+                  echo "All mobile checks passed."

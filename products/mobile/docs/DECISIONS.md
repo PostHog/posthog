@@ -186,6 +186,12 @@ Choices the build contract left open, with the reason for each.
   bubble the thread would show no trace of what the person picked.
 - **One sheet, two modes.** The sheet mounts `useConversation` and `useSession` and switches with a
   `mode` state, so the header, composer, @-mentions and drag dismissal stay one implementation.
+- **Object context uses the web's item types.** An issue goes in as `error_tracking_issue` (the web's issue scene and
+  context picker) and a recording as `session_recording` (the web's replay player), so the agent reads the same line
+  from either client. A static trusted line per type names the skill and the MCP tool that fetch the object, adapted
+  from the web's replay-player instruction; the id and the label stay in the untrusted block.
+- **One kind of context per message.** An attached issue or recording wins over reports, so @-mentions are off and a
+  restored draft's report chips stay hidden while the object chip is there.
 
 ## Inbox and report data
 
@@ -229,6 +235,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
   The project list comes from `@me.organization.teams` plus `GET /api/organizations/{id}/` for the other organizations, not from the token's `scoped_teams`.
 - **Projects are teams.** The switcher lists team ids, which is what `/api/projects/{id}/` paths take.
   The default project is the last one picked on this device, then the user's current web team, then the first one.
+- **Five scopes for Errors and Sessions.** The sign-in asks for `error_tracking:read`, `error_tracking:write`, `session_recording:read`, `replay_scanner:read` and `replay_scanner:write`, never `session_recording:write`. Each feature checks its own scopes (`useFeatureAccess`) and records its own refused 403, so a grant without them leaves Views, the inbox and chats working and shows the feature's sign-in or "isn't available yet" state.
 - **Own token exchange.** The code exchange and refresh post JSON with `fetch` instead of `exchangeCodeAsync`, so the app controls error handling and reads the raw response.
 - **Refresh failure policy.** 400, 401 and 403 from `/oauth/token` end the session. Network errors and 5xx keep it, so a user is never signed out by being offline.
 - **Single-flight refresh.** Concurrent 401s share one refresh. Two parallel refreshes would race the rotation and could trip reuse protection, which revokes the whole token family.
@@ -237,7 +244,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **One redirect to sign in.** `useAuthRedirect()` sends every screen to `/sign-in` when the session ends and demo mode is off, including a refresh failure in the middle of a session.
 - **In-place confirmation.** Sign out confirms inside Settings, and inside the inbox menu, instead of `Alert.alert`, which does nothing on react-native-web.
   Both use `SignOutConfirm` and `useSignOutAction`. A demo session without an account leaves the demo with no confirmation.
-- **OAuth sign in is native only.** The web build has no registered redirect, so Sign in on the web says to use the apps or the demo. Dev builds can use a personal API key on the web.
+- **OAuth sign in is native only.** The web build has no registered redirect, so Sign in on the web says to use the apps or the demo. The sign-in screen does not offer personal API keys, including in development builds.
 - **Sign-out tasks.** `addSignOutTask()` lets the notifications feature unregister its token without the auth store importing a feature.
   `addSessionEndTask()` runs device cleanup on every session end, an expired session too: the snooze feature clears its store and cancels the reminders, and the hand-off feature clears its store.
 - **Push prompt.** The app asks for notification permission once, right after the first sign in, never on the sign-in screen. Later prompts come only from the Settings button.
@@ -254,7 +261,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Notification taps wait for sign-in.** A cold-start response stays pending until navigation and the account
   are ready. Receiving the same response through both startup and the listener opens it once.
 - **Task pushes name their project.** Routing looks the task up in that project only. A push without `projectId` (sent before the server added it) looks in the current project first, then the others, up to 8 lookups, and opens the inbox when none has it.
-- **Analytics.** `src/lib/posthogClient.ts` creates the `posthog-react-native` client only when `EXPO_PUBLIC_POSTHOG_KEY` is set (host `EXPO_PUBLIC_POSTHOG_HOST`, default `https://us.i.posthog.com`). It identifies by `distinct_id` after sign in and on restore, and resets on sign out. `track()` stays the only capture call site, with `trackScreen()` for `$screen` and `captureError()` for `$exception` beside it in `src/lib/analytics.ts`. Code that can run before `initAnalytics()` (`app/+native-intent.tsx`) uses `trackWhenReady()`, which holds up to five events until the client exists. `useScreenTracking()` in the root layout sends one `$screen` per route, named by the route pattern without groups (`inbox`, `report/[id]`), with `report_id` on reports. `RouteErrorBoundary` sends `mobile_screen_error_shown` (`screen`, `error_name`) and one `captureError()` per error, and `mobile_screen_error_retried`. The root layout sends `mobile_splash_hidden` with `reason` (`first_screen`, `timeout` or `not_held`) and `wait_ms` once per cold start.
+- **Analytics.** `src/lib/posthogClient.ts` creates the `posthog-react-native` client only when `EXPO_PUBLIC_POSTHOG_KEY` is set (host `EXPO_PUBLIC_POSTHOG_HOST`, default `https://us.i.posthog.com`). It identifies by `distinct_id` after sign in and on restore, and resets on sign out. Lifecycle events remain enabled, but the SDK's `Application Opened` event omits the launch URL before it enters the analytics queue; deep-link analytics carry only `path_kind` and `initial`. Feature flag evaluation includes the signed-in email only when the account explicitly has `anonymize_data: false`. Anonymized accounts and older persisted accounts whose preference is unknown send `email: null` for flag evaluation, overriding any stored email used for targeting; other flag rules still apply. Changing the preference clears cached flag person properties and re-evaluates flags. `track()` stays the only capture call site, with `trackScreen()` for `$screen` and `captureError()` for `$exception` beside it in `src/lib/analytics.ts`. Code that can run before `initAnalytics()` (`app/+native-intent.tsx`) uses `trackWhenReady()`, which holds up to five events until the client exists. `useScreenTracking()` in the root layout sends one `$screen` per route, named by the route pattern without groups (`inbox`, `report/[id]`), with `report_id` on reports. `RouteErrorBoundary` sends `mobile_screen_error_shown` (`screen`, `error_name`) and one `captureError()` per error, and `mobile_screen_error_retried`. The root layout sends `mobile_splash_hidden` with `reason` (`first_screen`, `timeout` or `not_held`) and `wait_ms` once per cold start.
 
 ## Hand-off and task runs
 
@@ -262,14 +269,14 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **One run follows per report screen.** The current claim's task wins over local starts and historical artefacts. A user or external claim suppresses historical execution. The run is `GET tasks/{id}/`'s `latest_run`, because an artefact's run id can be stale.
 - **Live state lives in a zustand store** (`handoffStore.ts`), keyed by report, so the answer action can read the pending request and mark it handled while the stream keeps writing. Screens subscribe with an equality check (`sameVisibleEntry`) so message chunks do not re-render the screen many times a second.
 - **The overlay hook is `useReportWithLiveRun` in its own file**, not in `handoff/hooks.ts`, because `report/hooks.ts` imports `useHandoffActions` from there and the overlay imports `useReport` from `report/hooks.ts`.
-- **The tool policy is a faithful port** of the web's, including full-auto routing and "never answer a replayed request for the user". If allowing fails, the request becomes a decision.
+- **Every relayed approval stays manual**, including built-in tools, PostHog operations, external tools and unrecognized tool names in every mode. The server decides which calls need approval. Replayed requests are never answered automatically. Each approval shows the original request details as selectable plain text.
 - **Replayed requests show as decisions.** On first connect the durable log replays. A request still unresolved at the end is something the agent waits on, so the card shows it, like the web.
 - **Another client's answer clears a live card** when the asked-about tool call completes or fails, or the turn or run ends, because resolution frames only appear in the replay.
 - **A completed turn is idle, not an input request.** Only a structured outstanding question, plan or permission produces the Needs your answer row and decision sheet. Continue the implementation in its task chat; report discussion remains a separate conversation.
 - **Several questions in one request show one at a time.** Earlier picks stay on the device and all answers go out together, because the agent expects one reply with every answer.
 - **Typed text never approves.** A typed reply to a permission or plan goes with the option that takes text, else a reject option. Only a question's typed answer uses `option_0`, as the web does.
 - **Plan approval offers the web's two modes**, "Approve the plan" (`auto`) and "Approve in full auto" (`bypassPermissions`), with the web's mode descriptions shortened.
-- **The decided card outlives delivery.** After the agent confirms an answer the card stays, without Undo, until the run shows new activity (a tool call, a step, a message). Undo is offered only while the answer is in flight.
+- **The decided card outlives delivery.** After the agent confirms an answer the card stays until the run shows new activity (a tool call, a step, a message). Live answers have no Undo: once dispatched, a response may already have authorized the action. Demo answers remain reversible.
 - **Errors show in the footer.** Hand-off and answer actions resolve and put one orange line above the cards, because every caller fires them without awaiting. This differs from the `ReportActions` doc comment ("rejects with an Error").
 - **Execution, attention and PR state are independent.** Known PRs stay available through working, idle, unknown, failed and canceled execution. Claims do not imply execution; reconnecting and unavailable streams do not imply the run stopped. PR URL discovery does not imply review readiness, and missing CI stays unknown.
 - **Tool titles read as progress.** Paths become file names and Read, Edit, Write, Find, Fetch and Search become "Reading", "Editing" and so on, to match the design's "Reading ChartLegend.tsx".
@@ -283,7 +290,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **EAS uploads only `products/mobile`.** `scripts/eas-build.sh` sets `EAS_NO_VCS=1` and an absolute `EAS_PROJECT_ROOT`. With git, EAS archives the whole repository and installs the root pnpm workspace, which excludes this app. eas-cli 24 still asks git for the root when only `EAS_NO_VCS` is set, so both variables are needed. `.easignore` replaces `.gitignore` for the archive and keeps local `ios/` and `android/` folders out, so EAS always runs prebuild.
 - **Each build profile names its EAS environment** (`development`, `preview`, `production`), and the update scripts pass the same `--environment`. Expo SDK 55 and later require `--environment` for `eas update`, and it keeps `EXPO_PUBLIC_*` values equal between a build and its updates.
 - **`pnpm` is pinned in `eas.json`** (`10.29.3`, the `packageManager` version), next to `node`.
-- **No `update` script.** `pnpm update` runs pnpm's own dependency upgrade, so the scripts are `update:preview` and `update:production`, each tied to its channel.
+- **Shared OTA publishing needs a repository workflow.** The channel and environment requirements are in [OTA.md](OTA.md).
 - **Submissions only from production builds on `master`.** Preview builds use ad hoc signing, which App Store Connect does not take, so TestFlight gets production builds. The Mobile Build workflow uses `--auto-submit` with `--no-wait`, so EAS submits the build it just made, not the previous one.
 - **eas-cli 24.8.0 is pinned in CI** instead of `latest`, so a new release does not change a release build without a review.
 - **Mobile CI reads Node from `.node-version` and pnpm from this `package.json`**, not from the repo root, so CI, EAS and local runs use the same versions. The check is not required, so it can use trigger paths.
@@ -300,3 +307,107 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **A tap on the hog cycles its character and keeps it selected.** Selection persists per iOS widget family or Android widget ID, independently of daily choreography. Taps change the artwork without interrupting the route; background taps open the app. Both widgets bundle the grass layer of PostHog’s Keyboard Garden wallpaper. Dialogue is hidden, including in legacy scripts.
 - **Sprites are committed PNGs** cut from the `@posthog/hedgehog-mode` atlas by `scripts/extract_hedgehog_sprites.py` at 2x nearest-neighbour. Android also gets mirrored `_l` copies, because `RemoteViews` cannot flip an `ImageView`.
 - **`.gitignore` anchors `/ios/` and `/android/`**, so the module's native folders are tracked and only the prebuild output at the root is ignored.
+
+## Navigation pins
+
+- **Errors and Sessions are Views rows, not fixed tabs.** The Browse group lists Dashboards, Insights, Web analytics, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web.
+- **A pin adds one slot after Views.** Long-press the Views row, or use the list's More menu, for "Pin to navigation". Both changes confirm with the Views toast and Undo.
+- **One user slot.** Five 44pt slots and the labelled Chat button do not fit a 375pt or 393pt phone: about 199pt and 217pt are left for 220pt of slots. Four fit everywhere, so the pill has Home, Chats, Views and one pin. Pinning the other list replaces the pin, the toast says "Pinned, replacing Errors", short enough for one line beside Undo on a 393pt phone, and Undo puts the old pin back. The store keeps a list (`MAX_NAV_PINS`), so a larger cap needs no change to the saved format.
+- **A device preference.** `navPinStore` keeps the pins in AsyncStorage for every project, and sign-out keeps them, like the pin hint: they hold no account data.
+- **Both tab routes are always registered.** `app/(tabs)/errors.tsx` and `app/(tabs)/replay.tsx` exist whether pinned or not; the bar draws a slot only for a pin. A list unpinned from its own tab keeps its slot until the person leaves it, so Undo has a place to return to.
+- **`/errors` is the pushed screen.** The tab and the stack screen share the path, and Expo Router resolves a path without a group to the stack screen. `openNavTarget` reaches the tab as `/(tabs)/errors`. `navPinRoutes.test.tsx` checks both.
+- **The lists count their own opens.** The bar sends `mobile_inbox_opened` and `mobile_chats_opened` only; `mobile_errors_opened` and `mobile_replay_opened` come from the list screens with `chrome`, because the same screens also open pushed from Views.
+- **Rows are disabled in the demo**, as Recordings was, because the demo has no issues or recordings.
+
+## Errors
+
+- **The compact `error_tracking/query/` endpoints, not raw `query/`.** They are the agent and MCP surface: typed
+  request serializers, small answers, impact, trend, releases and breakdowns already computed. Every read then needs
+  only `error_tracking:read`, the scope the Errors gate checks, and none spends the Views query budget.
+- **Most users first, active only.** The list is `status: 'active'`, `orderBy: 'users'`, 15 rows per page, 24h by default
+  with 7d one tap away. Load more follows the server's next offset. Resolved and suppressed issues stay on the web.
+- **New, Spiking and Mine filter the list, one at a time.** New and Spiking narrow loaded pages on the device.
+  A partial empty result offers Load more. Mine is a server filter (`assignee: { type: 'user', id }`).
+- **New is first seen inside the window. Spiking is the server's spike detection.** The badge reads
+  `error_tracking/spike_events/`, the read the web's issue list uses, so the phone and the web call the same issues
+  spiking. New wins over Spiking for the displayed badge, but an issue can match either filter.
+  Spike reads cover each loaded page, and a failed read offers a retry in the Spiking filter.
+- **Counts on the list, charts on the issue.** The list requests `volumeResolution: 0` to reduce the initial response
+  and time-bucket work. The issue detail still requests its volume chart.
+- **No Reopened badge.** Nothing the app can read says an issue came back after a resolve: the issue resource has no
+  history field, and the activity log needs `activity_log:read`.
+- **Statuses and wording match the web.** `active`, `resolved`, `suppressed` with the labels of the web's
+  `ISSUE_STATUS_CONFIG`. Resolve and Reopen are one tap with a toast and Undo; Suppress confirms with the web's
+  "New occurrences of this issue are ignored." first. The status changes on the screen at once and rolls back when the
+  `PATCH` fails, and the pill shows progress and takes no second tap while it is in flight.
+- **Assign is "Assign to me" only.** `assign/` takes a numeric user id, and the only one the app knows is the viewer's
+  (`@me`). The member list needs `organization_member:read`, which the app does not request, so another person's
+  assignment shows as "A teammate" and passing an issue on opens the web.
+- **Frames come from the newest event, without `stack_frames/batch_get/`.** Frames in `$exception_list` are symbolicated
+  at ingestion, so the resolved name, file and line are already there. The card shows the innermost in-app frame and
+  expands to three; code context stays on the web.
+- **Breakdowns are their own request.** `includeBreakdown` adds an aggregate query, and the server answers an error for
+  the whole call when that query fails, so the impact numbers load without waiting on it and a failed breakdown only
+  hides the card.
+- **Sample sessions are the newest exception events with a `$session_id`**, up to three, deduplicated. Rows open
+  `/replay/{sessionId}` without `t`: an event timestamp alone does not give the offset into the recording.
+- **The linked report is a cheap read.** `signals/reports/?source_product=error_tracking&source_id={issue id}` names
+  the Inbox report built from the issue's signals. A failed read hides the row.
+- **Chat is the only agent verb.** The round Chat button opens the chat sheet with the issue attached
+  (`ISSUE_OBJECT_TYPE`). It uses the compose glyph of the report's Chat button.
+- **No header refresh button.** The prototype shows one, but pull to refresh is the app's only manual refresh (see
+  the tabs header in DESIGN.md), so both errors screens use it instead.
+- **Demo mode shows an empty state.** The demo has no issues, and the Views row that opens the list is disabled there.
+
+## Session replay
+
+- **The REST recordings list, not `RecordingsQuery`.** `GET session_recordings/` checks `session_recording:read`, the
+  scope the Sessions gate checks. The web's `RecordingsQuery` through `query/` would need only `query:read`, so a token
+  without the replay scope could list recordings it cannot open.
+- **Newest first, recommendations afterward.** The list loads 10 recordings per page from the last 7 days and
+  follows the server's continuation cursor. It displays recordings without waiting for `vision/scanners/watch_feed/`.
+  The optional feed starts afterward with a limit of 5. It enriches loaded recordings in place and puts other picks
+  below the recordings, so a late response never changes their order.
+- **No filters on the phone.** The prototype's Today, 7d, Errors and Rage clicks chips are out: the build contract keeps
+  filters on the web. The window is a fixed 7 days, the feed's own default.
+- **The timeline comes from events, not from the recording.** Two HogQL queries bounded by the recording's start and
+  end, so ClickHouse stays on its days: page views and clicks (first 300), and errors and rage clicks (first 100) on
+  their own, so a session with hundreds of clicks still shows an error near its end. The adapter merges them by time.
+  Errors and rage clicks always stay, then page views, then up to 20 clicks spread over the session, 60 rows at most
+  (`sessionTimeline`, tested). A capped first query shows "301+ events". Rows group by minute, the first 25 show, and
+  "Show N more" opens the rest. The row nearest a link's `t` is highlighted and always shown.
+- **The timeline has its own query budget.** It posts to `query/` like Views, but spends the `replay` buckets, so a
+  heavy Views refresh never turns into "Couldn't load this session's events".
+- **An exception row opens the issue** when the event carries `$exception_issue_id`, with `from: 'replay'`. Other rows
+  do nothing: the phone has no player to seek.
+- **The headline is the scan's title.** Without a summary, a title from the events ("4 min on /files with 1 error
+  and 3 rage clicks"), as the prototype shows. The person label leads the meta line and names the session in the chat
+  chip and the share sheet.
+- **Only summarizer scans count as a summary.** A monitor or classifier answers one question, not what happened. A
+  finished summary wins over a re-scan still running.
+- **A failed or ineligible scan is final.** The server answers `already_scanned` to another Summarize, so the card
+  says "The summary didn't work for this session" (with the ineligible reason when there is one), offers no
+  Summarize, and points at Open full replay. The wait and the polling stop at any terminal status.
+- **Summarize sends the web button's own scan** (`built_in: 'summarize_recording'`), so a summary made on the phone
+  shows on the web and the other way round. It is offered when the project's organization approved AI data processing,
+  or when the app does not know yet (the server then answers 400). Each `scan_outcome` has its own line: the credit
+  limit, too many scans running, or a summary this user cannot read.
+- **Polling, not push.** After Summarize, and whenever a summary is already running, the screen reloads the
+  observations every 5 seconds while it is focused and the app is active, for 2 minutes. Then it says "Still working.
+  Check back in a minute." with Check again.
+- **Frames load from the signed URL, never through a header.** The thumbnail endpoint redirects to object storage. A
+  request with `redirect: 'manual'` reads the `Location`, so the bearer token stays on the PostHog host, and
+  `<Image>` loads the signed URL. Cached for 4 minutes, because signed URLs expire.
+- **"Open full replay" appears once**, in the top-right pill. More holds "Share link at m:ss" (the native share sheet
+  with the web URL at the linked `t`, else the key moment, else the start) and "Copy session ID". Open full replay
+  opens at the same moment: a `t` from a report or link is what the person came to see.
+- **The Chat button matches the report's.** A round ink button with the compose glyph, bottom right, the one agent
+  verb on the screen. It opens the chat with `RECORDING_OBJECT_TYPE` and the person label plus the date.
+- **No "Play from" in the frame sheet.** A play button would be a second way to the web player, and the phone has no
+  clip player yet. The sheet shows the frame, the chapter, Previous and Next.
+- **Opening a session does not mark it viewed.** The web PATCHes `viewed`, which needs `session_recording:write`.
+- **"See the moment" replaces "Watch a session"** on the report's replay row, which now opens the session screen at the
+  signal's `seek_seconds`. The demo keeps opening its `example.com` URL, because demo sessions exist in no project.
+- **Events use `mobile_replay_*`.** `mobile_session_*` already names chat sessions (`mobile_session_sent`), so the
+  session screen's events are `mobile_replay_session_opened`, `mobile_replay_full_replay_opened` and so on. The
+  reauth state reuses `mobile_views_reauth_shown` with `feature: 'replay'`.

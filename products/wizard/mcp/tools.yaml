@@ -1,0 +1,39 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product wizard
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product wizard
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Wizard
+feature: wizard
+url_prefix: /wizard/runs
+ui_apps: {}
+tools:
+    wizard-install-start:
+        operation: wizard_installs_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Start PostHog setup on a GitHub repository
+        description: >
+            Start Wizard, PostHog's setup agent, in the cloud on a GitHub repository of the current project. The setup
+            agent adds the PostHog SDK and first events to the code and opens a pull request for the user to review. The
+            project must be connected to GitHub, and the repository must be one the GitHub connection can access
+            (integrations-github-repos-retrieve). To connect GitHub, give the user the link <base
+            URL>/integrations/connect/github/?project_id=<project id>&connect_from=mcp. In this version the setup agent
+            works at the repository root, so a monorepo app in a subdirectory may not be set up. Pass an idempotency_key
+            and reuse it when you retry the same request. Each user can have one setup run active per project. Returns
+            run_id; poll wizard-install-status with it about every 30 seconds until the status is completed, failed, or
+            cancelled.
+    wizard-install-status:
+        operation: wizard_installs_retrieve
+        enabled: true
+        title: Get PostHog setup run status
+        description: >
+            Get the status of a setup run started with wizard-install-start: lifecycle status, current stage, task list,
+            failure reason, and the pull request URL once it exists. Poll about every 30 seconds while status is created
+            or running. Always relay next_step to the user; it says what is happening or what to do next. When
+            pull_request_url is set, share it so the user can review and merge the changes.
+        param_overrides:
+            run_id:
+                description: The run_id returned by wizard-install-start.

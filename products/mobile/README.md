@@ -56,18 +56,53 @@ xcrun simctl openurl booted "posthog://report/demo-report-load-time/details"
 
 A build made with `APP_VARIANT=development` or `preview` uses the `posthog-dev://` or `posthog-preview://` scheme instead.
 
+### Sign in to the local backend
+
+Until the backend setup changes merge, run the PostHog stack from the paired `codex/mobile-dev-environment` branch and the mobile app from `codex/mobile-app`.
+The backend branch contains the setup commands and shared seed data; it does not contain this mobile workspace yet.
+Use the normal [local development setup](../../docs/published/handbook/engineering/developing-locally.md), wait for migrations, then run from that backend checkout:
+
+```sh
+python manage.py setup_local_dev --json
+python manage.py check_local_dev --json
+```
+
+The setup creates the usual `test@posthog.com` / `12345678` account when absent, registers the local OAuth callbacks, and adds personal Inbox reports and a completed Chat with saved messages.
+It preserves an existing account and selected project.
+It stops with instructions if migrations are missing or an existing account has different sign-in details.
+The JSON output contains the project and seeded object IDs.
+
+From this mobile workspace, build the development app:
+
+```sh
+APP_VARIANT=development pnpm ios
+```
+
+Leave demo mode, choose **Self-hosted**, and enter `http://localhost:8010`.
+Keep the prefilled local Client ID, then sign in as the usual test account and approve access.
+The browser returns through `posthog-dev://callback`.
+A production-identity local build uses `posthog://callback`; a preview build uses `posthog-preview://callback`.
+All three callbacks are registered by `setup_tasks_oauth`.
+
+The iOS simulator can reach the Mac's loopback backend.
+For an Android emulator, run `adb reverse tcp:8010 tcp:8010` before using the same localhost URL.
+A physical device's localhost refers to the device; use a reachable HTTPS backend and register its OAuth configuration instead.
+The web preview supports render checks; native OAuth sign-in needs iOS or Android.
+See [Authenticated local checks](docs/TESTING.md#authenticated-local-checks) for the backend and device checklist.
+
 ### Environment variables
 
-| Variable | Use |
-| --- | --- |
-| `EXPO_PUBLIC_POSTHOG_KEY` | Project API key for the app's own usage analytics. Analytics are off when it is not set. |
+| Variable                                                           | Use                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EXPO_PUBLIC_POSTHOG_KEY`                                          | Project API key for the app's own usage analytics. Analytics are off when it is not set.                                                                                                                                                                              |
 | `EXPO_PUBLIC_POSTHOG_REPLAY` | `1` opts an internal native build into masked demo-only recording. Requires a rebuilt native binary and recording enabled in the analytics project. |
 | `EXPO_PUBLIC_POSTHOG_HANDOFF` | `1` enables internal-build handoff correlation and preserves the native SDK session across app restarts within SDK timeouts. The receiving web app must enable `mobile-session-handoff`. |
-| `EXPO_PUBLIC_POSTHOG_HOST` | Host for those analytics, for example `https://us.i.posthog.com`. |
-| `EXPO_PUBLIC_DEMO_MODE` | `1` starts a development bundle in demo mode. Release bundles ignore it, so **Try the demo** is the only way into demo mode there. |
-| `EXPO_PUBLIC_SIGNUP_LINK` | `0` hides the "Create an account" link on the sign-in screen, for store builds where a link out to sign-up is not allowed. The `production` profile in `eas.json` and `pnpm update:production` set it, so store builds hide the link. |
-| `APP_VARIANT` | Build-time only: `development`, `preview` or `production` (the default). It sets the app name, bundle id, URL scheme, App Group and icon, so the variants install side by side. `eas.json` sets it per profile. See [RELEASING.md](docs/RELEASING.md#build-variants). |
-| `GOOGLE_SERVICES_JSON` | Build-time only: path to the Firebase `google-services.json` that Android push needs. On EAS it is a file variable; locally, a `google-services.json` in this directory is used instead. See [PUSH.md](docs/PUSH.md#credentials). |
+| `EXPO_PUBLIC_POSTHOG_HOST`                                         | Host for those analytics, for example `https://us.i.posthog.com`.                                                                                                                                                                                                     |
+| `EXPO_PUBLIC_DEMO_MODE`                                            | `1` starts a development bundle in demo mode. Release bundles ignore it, so **Try the demo** is the only way into demo mode there.                                                                                                                                    |
+| `EXPO_PUBLIC_SIGNUP_LINK`                                          | `0` hides the "Create an account" link on the sign-in screen, for store builds where a link out to sign-up is not allowed. Production builds and OTA bundles set it to `0`.                                                                                           |
+| `EXPO_PUBLIC_OAUTH_US_CLIENT_ID`, `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` | Separate non-first-party Cloud OAuth application IDs for native development and preview builds. Required for Cloud sign-in in these builds; see [AUTH.md](docs/AUTH.md#redirect-uris).                                                                                |
+| `APP_VARIANT`                                                      | Build-time only: `development`, `preview` or `production` (the default). It sets the app name, bundle id, URL scheme, App Group and icon, so the variants install side by side. `eas.json` sets it per profile. See [RELEASING.md](docs/RELEASING.md#build-variants). |
+| `GOOGLE_SERVICES_JSON`                                             | Build-time only: path to the Firebase `google-services.json` that Android push needs. On EAS it is a file variable; locally, a `google-services.json` in this directory is used instead. See [PUSH.md](docs/PUSH.md#credentials).                                     |
 
 For local runs, put them in `.env.local` (git ignores it). Expo loads it when Metro starts.
 A local run without `APP_VARIANT` builds the store identity, but the app treats any Metro bundle as a development build: it shows the environment ribbon and the Settings Environment group, and accepts `http://localhost`.
@@ -76,11 +111,16 @@ EAS builds and updates read them from the EAS environment of their profile, see 
 ## Check
 
 ```sh
-pnpm typecheck        # tsc --noEmit
+pnpm check:expo       # compare installed Expo SDK compatibility metadata
+pnpm typecheck        # Expo compatibility check, then tsc --noEmit
 pnpm lint             # biome check .   (pnpm fix to apply fixes)
 pnpm test             # jest (jest-expo preset)
 npx expo-doctor
 ```
+
+`pnpm check:expo` compares dependencies with the installed Expo SDK's bundled compatibility metadata.
+It does not compare newer patch metadata from a remote service.
+`pnpm typecheck` runs this check automatically before TypeScript.
 
 ## Assets
 
@@ -100,7 +140,8 @@ Regenerate them after an icon change with `uv run --with pillow python scripts/m
 - [Decisions](docs/DECISIONS.md): choices the build contract left open
 - [Gaps](docs/GAPS.md): known gaps and local-only behavior
 - [API](docs/API.md), [Push](docs/PUSH.md)
-- [Releasing](docs/RELEASING.md): local standalone phone installs, EAS builds, TestFlight and the Play internal track
+- [Releasing](docs/RELEASING.md): workflow builds, TestFlight and the Play internal track
+- [Release checks](../../docs/internal/mobile-release-checks.md): build checks and manual smoke checks before sharing a release
 - [OTA updates](docs/OTA.md): update channels, runtime version, rollbacks
 - [CI](docs/CI.md): the Mobile CI and Mobile Build workflows
-- [Testing](docs/TESTING.md): the demo walkthrough on the iOS simulator with Argent
+- [Testing](docs/TESTING.md): authenticated local checks and demo walkthroughs on the iOS simulator with Argent

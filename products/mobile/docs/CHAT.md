@@ -7,47 +7,49 @@ The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteraction
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `src/features/chat/ChatSheet.tsx` | The sheet: header, thread or empty state, composer, the options reducer, draft restore |
-| `src/features/chat/chatSheetEvents.ts` | The sheet's `entry` from the route params, and the opened and closed events |
-| `src/features/chat/ChatAccessGate.tsx` | The organization AI approval and the personal consent before the composer (see [AI consent](#ai-consent)) |
-| `src/features/chat/session/useSession.ts` | `useSession({ taskId?, runId? })`: create, follow, send, sync options, resume, stop, answer, reset, demo replies |
-| `src/features/chat/session/sessionRun.ts` | Pure request bodies: the create shapes, run fields, the `set_config_option` plan, the tracked run config |
-| `src/features/chat/session/sessionReducer.ts` | Folds run log lines and stream frames into the thread, as the web's `foldLogFromCheckpoint` does |
-| `src/features/chat/session/sessionDisplay.ts` | Groups thoughts and tool calls into activity rows, error copy |
-| `src/features/chat/session/sessionTurn.ts` | `SessionTurnTracker`: one `mobile_session_finished` per turn the person started |
-| `src/features/chat/session/SessionThread.tsx` | The thread, its rows, the PR card and the status line |
-| `src/features/chat/session/SessionDecisionPanel.tsx` | The notice line and a pending question, plan approval or permission |
-| `src/features/chat/messageQueue.ts` | The queue reducer, the hold, and the queue, drain and Send now rules |
-| `src/features/chat/QueuedMessages.tsx` | The queue banner above the composer: count, rows, remove and Send now |
-| `src/features/chat/chatRunOptions.ts` | `ChatRunOptions` (model and permission mode), its reducer, the chip label, seeding from a run |
-| `src/features/chat/ChatOptionsSheet.tsx` | The Model and Mode pages in a sheet over the chat |
-| `src/features/chat/contextPrompt.ts` | The leading context blocks, `bareQuestion`, `stripInjectedContext` |
-| `src/features/chat/attachments/` | Files in the composer: the limits and content types (`attachmentRules.ts`), the pickers, the three-step upload (`uploadAttachments.ts`), `useComposerAttachments`, the Attach sheet and the file chip (see [Attachments](#attachments)) |
-| `src/features/chat/chatErrors.ts` | Maps HTTP and network failures to copy, including the PostHog Desktop gate |
-| `src/features/chat/*.tsx` | `Composer`, `ContextChip`, `MentionPopover`, `ChatEmptyState`, `ChatMarkdown`, `ChatErrorBubble`, `ChatProgressLine`, `UserBubble` |
-| `src/features/chats/` | The Chats screen: list, search, day groups and `useChatList()` (see [DESIGN.md](DESIGN.md)) |
-| `src/demo/sessionThreads.ts` | Demo run logs keyed by the demo task ids in `src/demo/chats.ts`, and the demo replies |
+| File                                                 | Role                                                                                                                                                                                                                                    |
+| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/features/chat/ChatSheet.tsx`                    | The sheet: header, thread or empty state, composer, the options reducer, draft restore                                                                                                                                                  |
+| `src/features/chat/chatSheetEvents.ts`               | The sheet's `entry` from the route params, and the opened and closed events                                                                                                                                                             |
+| `src/features/chat/ChatAccessGate.tsx`               | The organization AI approval and the personal consent before the composer (see [AI consent](#ai-consent))                                                                                                                               |
+| `src/features/chat/session/useSession.ts`            | `useSession({ taskId?, runId? })`: create, follow, send, sync options, resume, stop, answer, reset, demo replies                                                                                                                        |
+| `src/features/chat/session/sessionRun.ts`            | Pure request bodies: the create shapes, run fields, the `set_config_option` plan, the tracked run config                                                                                                                                |
+| `src/features/chat/session/sessionReducer.ts`        | Folds run log lines and stream frames into the thread, as the web's `foldLogFromCheckpoint` does                                                                                                                                        |
+| `src/features/chat/session/sessionDisplay.ts`        | Groups thoughts and tool calls into activity rows, error copy                                                                                                                                                                           |
+| `src/features/chat/session/sessionTurn.ts`           | `SessionTurnTracker`: one `mobile_session_finished` per turn the person started                                                                                                                                                         |
+| `src/features/chat/session/SessionThread.tsx`        | The thread, its rows, the PR card and the status line                                                                                                                                                                                   |
+| `src/features/chat/session/SessionDecisionPanel.tsx` | The notice line and a pending question, plan approval or permission                                                                                                                                                                     |
+| `src/features/chat/messageQueue.ts`                  | The queue reducer, the hold, and the queue, drain and Send now rules                                                                                                                                                                    |
+| `src/features/chat/QueuedMessages.tsx`               | The queue banner above the composer: count, rows, remove and Send now                                                                                                                                                                   |
+| `src/features/chat/chatRunOptions.ts`                | `ChatRunOptions` (model and permission mode), its reducer, the chip label, seeding from a run                                                                                                                                           |
+| `src/features/chat/ChatOptionsSheet.tsx`             | The Model and Mode pages in a sheet over the chat                                                                                                                                                                                       |
+| `src/features/chat/contextPrompt.ts`                 | The leading context blocks, `bareQuestion`, `stripInjectedContext`                                                                                                                                                                      |
+| `src/features/chat/objectContext.ts`                 | The issue and recording item types, `objectContextFromParams`, their trusted lines (see [Object context](#object-context))                                                                                                              |
+| `src/features/chat/attachments/`                     | Files in the composer: the limits and content types (`attachmentRules.ts`), the pickers, the three-step upload (`uploadAttachments.ts`), `useComposerAttachments`, the Attach sheet and the file chip (see [Attachments](#attachments)) |
+| `src/features/chat/chatErrors.ts`                    | Maps HTTP and network failures to copy, including the PostHog Desktop gate                                                                                                                                                              |
+| `src/features/chat/*.tsx`                            | `Composer`, `ContextChip`, `MentionPopover`, `ChatEmptyState`, `ChatMarkdown`, `ChatErrorBubble`, `ChatProgressLine`, `UserBubble`                                                                                                      |
+| `src/features/chats/`                                | The Chats screen: list, search, day groups and `useChatList()` (see [DESIGN.md](DESIGN.md))                                                                                                                                             |
+| `src/demo/sessionThreads.ts`                         | Demo run logs keyed by the demo task ids in `src/demo/chats.ts`, and the demo replies                                                                                                                                                   |
 
 The transport is `src/api/tasks.ts`, shared with the hand-off (see [HANDOFF.md](HANDOFF.md)).
 Every request carries `X-PostHog-Client-Platform: mobile`, so `run/` never reuses a warm run a web composer booted.
 
 ## AI consent
 
-The composer area shows only when both checks pass. `ChatAccessGate` (`src/features/chat/ChatAccessGate.tsx`) wraps the composer and the decision panel, so every chat entry, including a report's Chat button, goes through it.
+The same approval rules cover Chat, Create PR/task handoff, and replay summarization. The chat composer and decision panel remain hidden until approval is known.
 
-- **Organization approval.** `/api/users/@me/` and `/api/organizations/{id}/` carry `is_ai_data_processing_approved`; the auth store keeps it on each organization as `aiDataProcessingApproved`.
-  The flag of the selected project's organization counts. When it is not `true`, a notice takes the composer's place, as the web blocks its chat.
-  Open settings goes to `{host}/project/{project id}/settings/organization-details#organization-ai-consent` (the "AI service providers" switch), and Check again reloads the account.
-  A session stored before the app kept the flag reloads the account once; if that fails, the notice says the app could not check and offers Check again.
-- **Personal consent.** The first time a person opens the composer on this device, a sheet says what is sent (messages, attached reports, project data the agent reads), where it goes (PostHog AI and its third-party model providers), and links to https://posthog.com/privacy.
-  Continue stores consent in AsyncStorage (`posthog-mobile-ai-consent`, keyed `{host}|{user uuid}`). Not now, a drag down, or a tap on the scrim closes the chat.
-  Sign out and session expiry clear every stored consent, so the next sign-in asks again.
-- Demo mode skips both checks, because demo chats send nothing.
-- Analytics: `mobile_ai_consent_shown`, `mobile_ai_consent_accepted`, `mobile_ai_consent_declined`, `mobile_ai_org_notice_shown` (with `reason`: `not_approved` or `unknown`) and `mobile_ai_org_settings_opened`.
+- **Organization approval.** The selected project's organization must have `is_ai_data_processing_approved: true`. The app reads the requesting user's `membership_level` from `OrganizationSerializer` in `/api/users/@me/` and `/api/organizations/{id}/`: 8 is an administrator and 15 is an owner. Only those confirmed roles see Open settings; other members and unknown roles see instructions to ask an admin or owner. The settings link opens the organization's existing web approval control; mobile never changes that setting itself.
+- **Personal consent.** The shared sheet explains that messages, reports, attached files and photos, selected recordings, and project data used by the agent can go to PostHog AI and third-party model providers. It links to the privacy policy. Continue records the disclosure on this device for this host and user; Not now sends nothing. The broader disclosure invalidates consent saved by older versions of the chat-only sheet. Sign-out and session expiry clear consent.
+- **Fresh checks.** Every submitted message (including queue delivery), handoff, decision answer, and replay summary first reads the organization's current approval. The chat also rechecks on foreground before showing role-specific controls. Unknown approval, a failed read, and removed project access stop the action. Changing host, user, project or session, or leaving the originating screen while the sheet is open, cancels its pending action.
+- Demo mode skips approval and sends no live requests.
+
+These client checks supplement existing server scopes, resource RBAC and product checks. They do not grant an organization role or replace server authorization. Revocation after a check must still be enforced by the backend; mobile cannot stop an agent that is already running on the server.
 
 ## Composer drafts
+
+The message input wraps long text onto multiple lines and grows up to 120 points tall.
+Longer drafts scroll vertically within the input. The keyboard's Send action sends the message
+and keeps the keyboard open for a follow-up.
 
 Text and attached report IDs are saved separately for each task, each report discussion, and
 the new-chat composer. Native drafts use encrypted device storage, scoped to the account,
@@ -96,19 +98,30 @@ Two create shapes (`chatStartRequests` in `sessionRun.ts`):
 - **PostHog AI chat** (no report, or more than one report attached). `POST tasks/`:
 
   ```json
-  { "title": "", "description": "<bare question>", "origin_product": "posthog_ai",
-    "initial_permission_mode": "auto", "pending_user_message": "<context blocks>\n\n<question>" }
+  {
+    "title": "",
+    "description": "<bare question>",
+    "origin_product": "posthog_ai",
+    "initial_permission_mode": "auto",
+    "pending_user_message": "<context blocks>\n\n<question>"
+  }
   ```
 
   The server generates the title from `description` in the create request, so the response already carries it.
   The app sends no `branch` and no `repository`, so the create never claims a warm run.
+
 - **Inbox "Discuss"** (exactly one attached report). `POST tasks/`:
 
   ```json
-  { "title": "<report title>", "description": "<prompt>", "origin_product": "signal_report",
-    "signal_report": "<report id>", "signal_report_task_relationship": "discussion",
+  {
+    "title": "<report title>",
+    "description": "<prompt>",
+    "origin_product": "signal_report",
+    "signal_report": "<report id>",
+    "signal_report_task_relationship": "discussion",
     "signal_report_discussion_question": "<question as typed, at most 4000 characters>",
-    "pending_user_message": "<prompt>" }
+    "pending_user_message": "<prompt>"
+  }
   ```
 
   The server exempts a repo-less report discussion from the PostHog Desktop gate.
@@ -143,8 +156,10 @@ bold model and Default labels, and a checkmark. A known default reasoning effort
 filled pill as an explicit choice. Picking another model or resetting to default moves these
 selection indicators to the active options.
 
-- **Seeding.** When a chat opens, or the run's config becomes known, the sheet seeds the options from `session.runConfig`:
+- **Seeding.** When an existing chat opens, the sheet seeds the options from `session.runConfig`:
   the run's model and effort as a pinned model, and its permission mode.
+  A new chat keeps "Default" after sending, even when the run resolves a model and effort.
+  Its model changes only when the person picks a model or effort.
   A run with no known harness or model seeds "Default"; an unknown mode seeds Auto.
   Seeding stops once the person picks anything in this sheet, and New chat starts seeding again.
   While seeding, the Mode chip follows the mode the stream reports (`current_mode_update`), also for a run the app started.
@@ -345,6 +360,14 @@ The web thread strips only leading blocks, so the blocks lead and the question f
 - `description` and the bubble get the bare question. `stripInjectedContext` removes leading blocks from echoes and logs.
 - The blocks go with every message while a chip stays attached, because the chip says it is attached.
 
+### Object context
+
+The issue and session screens open the sheet with `entry` (`issue` or `replay`), `objectType`, `objectId` and `objectLabel`.
+`objectContextFromParams` in `objectContext.ts` keeps only the two types the web uses, `error_tracking_issue` and `session_recording`.
+The message carries one untrusted item line, `- {type} {id} ("{label}")`, and one static trusted line that names the investigating skill and the fetch tool (`query-error-tracking-issue`, `session-recording-get`).
+The object shows as a removable chip with the issue or recording icon. While it is attached, @-mentions are off and report chips stay hidden, because a message frames one kind of context.
+New chat drops it.
+
 ## Rendering
 
 - Assistant text renders as markdown with `react-native-markdown-display`, styled from `src/ui/tokens.ts`.
@@ -369,6 +392,12 @@ The empty state with suggested prompts shows while there is no task and no messa
 `mobile_chat_report_attached` with `attached_count`, and `mobile_chat_report_removed` (a chip's ×) with `attached_count` and `initial` (the report the sheet opened with).
 
 ## Sheet lifecycle
+
+The navigator keeps one chat screen. Opening another chat reuses that screen and loads fresh
+conversation state. A notification for the chat already on screen leaves its session, draft and
+scroll position intact, including a chat started from the composer. A notification for a different
+chat replaces the open chat, so one Close returns to the screen underneath. Starting New chat
+does not prevent a later notification from reopening the previous conversation.
 
 Changing the selected account, host or project closes an open chat and aborts its scoped work. Callbacks captured in the old scope cannot send to the newly selected project.
 A send waiting for encrypted draft storage is cancelled by New chat or closing the sheet, and its text remains recoverable in the original draft.

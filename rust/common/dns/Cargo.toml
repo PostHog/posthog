@@ -8,9 +8,15 @@ workspace = true
 
 [features]
 smithy = ["aws-smithy-runtime-api"]
+test-util = ["dep:tracing-subscriber"]
 
 [dependencies]
 aws-smithy-runtime-api = { workspace = true, optional = true }
 futures = { workspace = true }
 reqwest = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

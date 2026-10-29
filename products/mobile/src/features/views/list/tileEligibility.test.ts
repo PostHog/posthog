@@ -38,8 +38,8 @@ describe('tileEligibility', () => {
 
     it.each<[Partial<DashboardTileView>, 'number' | 'chart', string]>([
         [{ kind: 'text', kindLabel: 'Text', seriesCount: 0 }, 'number', 'Text card'],
-        [{ hasBreakdown: true, seriesCount: 2 }, 'chart', 'Has a breakdown'],
-        [{ seriesCount: 2 }, 'chart', 'Has 2 series'],
+        [{ hasBreakdown: true, seriesCount: 2 }, 'number', 'Has a breakdown'],
+        [{ seriesCount: 2 }, 'number', 'Has 2 series'],
         [{ kindLabel: 'Pie' }, 'chart', 'Not a chart over time'],
     ])('names the reason for %o in %s mode', (overrides, mode, reason) => {
         expect(tileLimitReason(tile({ tileId: 9, ...overrides }), mode)).toBe(reason)

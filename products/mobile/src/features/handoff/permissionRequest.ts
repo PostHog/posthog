@@ -21,7 +21,7 @@ const PLAN_APPROVAL_OPTIONS: Record<string, Omit<DecisionOption, 'id'>> = {
     },
     bypassPermissions: {
         title: 'Approve in full auto',
-        meta: 'Never asks. Can change or delete live data on its own.',
+        meta: 'Can change or delete live data. Some tools still ask for approval.',
     },
 }
 
@@ -112,6 +112,7 @@ export function parsePermissionRequest(frame: unknown): PermissionRecord | null 
     const title = typeof toolCall.title === 'string' && toolCall.title ? toolCall.title : undefined
     return {
         requestId: record.requestId,
+        requestDetails: JSON.stringify(toolCall, null, 2),
         toolCallId,
         toolName: extractAgentToolName(meta) ?? rawToolName,
         options,
@@ -179,12 +180,18 @@ export function decisionQuestionFor(pending: PendingRequest, answered: readonly 
         }
     }
     if (pending.kind === 'plan') {
-        return { id: record.requestId, question: 'Approve the plan?', options: planOptions(record) }
+        return {
+            id: record.requestId,
+            question: 'Approve the plan?',
+            details: record.requestDetails ?? JSON.stringify(record.rawToolCall, null, 2),
+            options: planOptions(record),
+        }
     }
     const subject = record.title ?? record.toolName
     return {
         id: record.requestId,
         question: subject ? `Allow ${subject}?` : 'Allow this action?',
+        details: record.requestDetails ?? JSON.stringify(record.rawToolCall, null, 2),
         options: record.options.map((option) => ({ id: option.optionId, title: optionTitle(option) })),
     }
 }

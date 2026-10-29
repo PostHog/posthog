@@ -464,6 +464,27 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<ListPersonsForTeamResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+
+    async fn raise_person_version_floors(
+        &self,
+        _: Request<RaisePersonVersionFloorsRequest>,
+    ) -> Result<Response<RaisePersonVersionFloorsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn restore_persons(
+        &self,
+        _: Request<RestorePersonsRequest>,
+    ) -> Result<Response<RestorePersonsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+
+    async fn write_distinct_ids(
+        &self,
+        _: Request<WriteDistinctIdsRequest>,
+    ) -> Result<Response<WriteDistinctIdsResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------

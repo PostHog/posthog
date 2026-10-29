@@ -3,9 +3,9 @@ import { Text, View } from 'react-native'
 
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
+import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { FilterIcon } from '@/ui/icons/FilterIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
-import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
 import { RefreshHint } from '@/ui/RefreshHint'
@@ -34,7 +34,13 @@ const SOLID_WITH_STATUS = STATUS_BOTTOM / (STATUS_BOTTOM + HEADER_FADE)
 
 const FILTER_DOT = 8
 
-const TITLES: Record<TabKey, string> = { inbox: 'Inbox', chats: 'Chats', views: 'Views' }
+const TITLES: Record<TabKey, string> = {
+    inbox: 'Inbox',
+    chats: 'Chats',
+    views: 'Views',
+    errors: 'Errors',
+    replay: 'Sessions',
+}
 
 interface TabsHeaderProps {
     tab: TabKey
@@ -44,7 +50,7 @@ interface TabsHeaderProps {
 }
 
 /**
- * The header of the Inbox, Chats and Views tabs. The tabs layout draws it once, so the logo, the title and the controls
+ * The header of the Inbox, Chats and Views tabs and the pinned lists. The tabs layout draws it once, so the logo, the title and the controls
  * keep their place and their state across a tab switch. The status line is absolutely positioned, so it never moves
  * the title row, and the refresh hint takes its place while it shows, so every tab's content starts at the same offset.
  */
@@ -72,7 +78,15 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
             <FadeEdge direction="down" solid={solid} opacity={layout.chromeTint} />
             <View style={styles.titleStack}>
                 <View style={styles.titleGroup}>
-                    <PostHogLogomark height={18} />
+                    <View
+                        accessible
+                        accessibilityRole="image"
+                        accessibilityLabel="PostHog"
+                        accessibilityState={{ busy: slot?.refreshing ?? false }}
+                        testID="tabs-logomark"
+                    >
+                        <AnimatedLogomark height={18} animate={slot?.refreshing ?? false} />
+                    </View>
                     <Text style={styles.title} numberOfLines={1} accessibilityRole="header" testID="tabs-title">
                         {editing ? editing.title : TITLES[tab]}
                     </Text>

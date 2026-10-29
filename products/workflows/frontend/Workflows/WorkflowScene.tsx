@@ -7,10 +7,8 @@ import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
@@ -19,7 +17,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
@@ -27,8 +24,10 @@ import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
 import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
 import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
+import { WorkflowImportNotesBanner } from './import/WorkflowImportNotesBanner'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
+import { WorkflowBatchOverview } from './overview/WorkflowBatchOverview'
 import { WorkflowOverview } from './overview/WorkflowOverview'
 import { WorkflowSuggestions } from './suggestions/WorkflowSuggestions'
 import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSuggestionsAvailabilityLogic'
@@ -45,6 +44,7 @@ import {
 } from './workflowAgentContext'
 import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
+import { WorkflowBroadcastMoveBanner } from './WorkflowBroadcastMoveBanner'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -114,10 +114,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         useMemo(() => ({ workflow, id: workflowSceneProps.id ?? 'new' }), [workflow, workflowSceneProps.id]),
         500
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
-    const tileCanvasEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS]
     const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
@@ -177,12 +174,16 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     }
 
     const tabs: (LemonTab<WorkflowTab> | null)[] = [
-        // Batch workflows report per run, so a rolling overview does not fit them.
-        overviewTabEnabled && originalWorkflow.trigger?.type !== 'batch' && originalWorkflow.status === 'active'
+        originalWorkflow.status === 'active'
             ? {
                   label: 'Overview',
                   key: 'overview',
-                  content: <WorkflowOverview id={workflowSceneProps.id!} />,
+                  content:
+                      originalWorkflow.trigger?.type === 'batch' ? (
+                          <WorkflowBatchOverview id={workflowSceneProps.id!} />
+                      ) : (
+                          <WorkflowOverview id={workflowSceneProps.id!} />
+                      ),
               }
             : null,
         {
@@ -244,36 +245,31 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     // A deep link to a tab the flag hides would leave LemonTabs with no active tab and a blank page.
     const activeTab = tabs.some((tab) => tab?.key === currentTab) ? currentTab : 'workflow'
-    const renderScene = (editorShowsHeaderInBar: boolean): JSX.Element => {
-        const headerInWorkflowBar = editorShowsHeaderInBar && (activeTab === 'workflow' || !isSavedWorkflow)
-        return (
-            <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
-                <BindLogic logic={workflowLogic} props={workflowProps}>
-                    <WorkflowSceneHeader {...props} headerInWorkflowBar={headerInWorkflowBar} />
-                    <WorkflowEmailPauseBanner />
-                    {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
-                    {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
-                    {/* Only show Logs and Metrics tabs if the workflow has already been created */}
-                    {!props.id || props.id === 'new' ? (
-                        <Workflow {...workflowProps} />
-                    ) : (
-                        <LemonTabs
-                            activeKey={activeTab}
-                            onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
-                            tabs={tabs}
-                            sceneInset
-                            rightSlot={headerInWorkflowBar ? <SceneTitlePanelButton /> : undefined}
-                            className={clsx({
-                                'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow':
-                                    currentTab === 'workflow',
-                            })}
-                        />
-                    )}
-                </BindLogic>
-            </SceneContent>
-        )
-    }
-
-    // The tile canvas carries the header in its own bar. Reading the flag here keeps the editor logic off the other tabs.
-    return renderScene(tileCanvasEnabled)
+    return (
+        <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
+            <BindLogic logic={workflowLogic} props={workflowProps}>
+                <WorkflowSceneHeader {...props} />
+                <WorkflowEmailPauseBanner />
+                {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
+                {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
+                {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
+                {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
+                {/* Only show Logs and Metrics tabs if the workflow has already been created */}
+                {!props.id || props.id === 'new' ? (
+                    <Workflow {...workflowProps} />
+                ) : (
+                    <LemonTabs
+                        activeKey={activeTab}
+                        onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
+                        tabs={tabs}
+                        sceneInset
+                        className={clsx({
+                            'flex min-h-0 flex-1 flex-col [&>div]:flex [&>div]:min-h-0 [&>div]:flex-1 [&>div]:flex-col':
+                                activeTab === 'workflow',
+                        })}
+                    />
+                )}
+            </BindLogic>
+        </SceneContent>
+    )
 }

@@ -7,6 +7,8 @@ export interface AuthUser {
     uuid: string
     distinctId: string
     email: string
+    /** Unknown in older persisted sessions until the account reloads; analytics must withhold email. */
+    anonymizeData?: boolean
     name: string
 }
 
@@ -15,6 +17,7 @@ export interface AuthOrganization {
     name: string
     /** Undefined in a session persisted before the app stored it, until the next account reload. */
     aiDataProcessingApproved?: boolean
+    membershipLevel?: OrganizationApi['membership_level']
 }
 
 export interface AuthProject {
@@ -50,11 +53,22 @@ export function buildAccount(me: MeApi, organizations: OrganizationApi[]): Accou
         }
     }
     return {
-        user: { id: me.id, uuid: me.uuid, distinctId: me.distinct_id, email: me.email, name: displayName(me) },
+        user: {
+            id: me.id,
+            uuid: me.uuid,
+            distinctId: me.distinct_id,
+            email: me.email,
+            anonymizeData: me.anonymize_data !== false,
+            name: displayName(me),
+        },
         organizations: organizations.map((organization) => ({
             id: organization.id,
             name: organization.name,
-            aiDataProcessingApproved: organization.is_ai_data_processing_approved === true,
+            aiDataProcessingApproved:
+                organization.is_ai_data_processing_approved === undefined
+                    ? undefined
+                    : organization.is_ai_data_processing_approved === true,
+            membershipLevel: organization.membership_level,
         })),
         projects,
         webTeamId: me.team?.id ?? null,

@@ -756,6 +756,47 @@ class TestHasDuplicatePrimaryKeys:
 
         mock_capture.assert_called_once()
 
+    @parameterized.expand(
+        [
+            (
+                "remote_disconnected",
+                "Caused by ProxyError('Cannot connect to proxy.', "
+                "RemoteDisconnected('Remote end closed connection without response'))",
+            ),
+            ("timeout", "Caused by ProxyError('Cannot connect to proxy.', TimeoutError('timed out'))"),
+            (
+                "new_connection_error",
+                "Caused by ProxyError('Cannot connect to proxy.', NewConnectionError('could not connect'))",
+            ),
+        ]
+    )
+    def test_egress_proxy_blip_leaves_key_unverified_without_capturing(self, _name, cause):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(
+            f"HTTPSConnectionPool(host='ch.example.com', port=8443): Max retries exceeded with url: / ({cause})"
+        )
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
+
+        mock_capture.assert_not_called()
+
+    def test_access_denied_leaves_key_unverified_without_capturing(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse import clickhouse as ch_module
+
+        client = MagicMock()
+        client.query.side_effect = ClickHouseError(
+            "Code: 497. DB::Exception: posthog: Not enough privileges. To execute this query, it's necessary "
+            "to have the grant SELECT ON db.t. (ACCESS_DENIED)"
+        )
+
+        with patch.object(ch_module, "capture_exception") as mock_capture:
+            assert _has_duplicate_primary_keys(client, "db", "t", ["id"], self._logger()) is None
+
+        mock_capture.assert_not_called()
+
 
 class TestDuplicateProbeTargetsMergeKey:
     _MEMORY_LIMIT = ClickHouseError("Code: 241. DB::Exception: Query memory limit exceeded. (MEMORY_LIMIT_EXCEEDED)")
@@ -909,14 +950,24 @@ class TestGetPartitionSettings:
     def _logger(self):
         return MagicMock()
 
-    def test_unexpected_error_is_captured(self):
+    @parameterized.expand(
+        [
+            ("unexpected_error", "Code: 62. DB::Exception: Syntax error", True),
+            (
+                "read_timeout",
+                "HTTPSConnectionPool(host='ch.example.com', port=8443): Read timed out. (read timeout=120)",
+                False,
+            ),
+        ]
+    )
+    def test_falls_back_and_captures_only_actionable_errors(self, _name, message, should_capture):
         client = MagicMock()
-        client.query.side_effect = ClickHouseError("Code: 62. DB::Exception: Syntax error")
+        client.query.side_effect = ClickHouseError(message)
 
         with patch.object(ch_module, "capture_exception") as mock_capture:
             assert _get_partition_settings(client, "db", "t", self._logger()) is None
 
-        mock_capture.assert_called_once()
+        assert mock_capture.called is should_capture
 
 
 class TestGetRowsBatching:

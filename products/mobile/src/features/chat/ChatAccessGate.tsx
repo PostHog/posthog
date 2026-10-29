@@ -55,6 +55,7 @@ export function ChatAccessGate({ onDecline, children }: ChatAccessGateProps): Re
         return (
             <AiOrgNotice
                 reason={access.kind === 'org_blocked' ? 'not_approved' : 'unknown'}
+                canApprove={access.kind === 'org_blocked' && access.canApprove}
                 organizationName={access.kind === 'org_blocked' ? access.organizationName : null}
                 onOpenSettings={
                     settingsUrl

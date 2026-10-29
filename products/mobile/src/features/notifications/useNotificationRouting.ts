@@ -1,20 +1,24 @@
 import * as Notifications from 'expo-notifications'
-import { router, usePathname, useRootNavigationState } from 'expo-router'
+import { router, useNavigationContainerRef, usePathname, useRootNavigationState } from 'expo-router'
 import { useEffect } from 'react'
 
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
+import { withAppReloadBlocked } from '@/lib/appReload'
 
-import { setViewedNotificationReport } from './foregroundNotifications'
-import { notificationKind, resolveNotificationRoute } from './notificationRouting'
+import { isViewedNotificationTask, setViewedNotificationReport } from './foregroundNotifications'
+import { notificationKind, notificationTarget, resolveNotificationRoute } from './notificationRouting'
 import { notificationsSupported } from './pushSupport'
 import { findTask } from './taskLookup'
 
 /** A cold-start tap can arrive both as the last response and through the listener. */
 const handled = new Set<string>()
 
-async function openFromNotification(response: Notifications.NotificationResponse): Promise<void> {
+async function openFromNotification(
+    response: Notifications.NotificationResponse,
+    isChatOpen: () => boolean
+): Promise<void> {
     const auth = useAuthStore.getState()
     if (auth.status !== 'signed_in') {
         return
@@ -51,15 +55,41 @@ async function openFromNotification(response: Notifications.NotificationResponse
     if (route.switchToProjectId !== null) {
         useAuthStore.getState().selectProject(route.switchToProjectId, 'push')
     }
+    const target = notificationTarget(data)
+    const chatOpen = isChatOpen()
+    const isChatRoute = route.pathname.startsWith('/chat?')
+    const projectId = route.switchToProjectId ?? auth.projectId
+    // Creating a task or tapping New chat changes the live session without changing the route's taskId.
+    if (
+        chatOpen &&
+        isChatRoute &&
+        target?.type === 'task' &&
+        auth.host &&
+        auth.user &&
+        projectId !== null &&
+        isViewedNotificationTask({
+            accountKey: `${auth.host.replace(/\/$/, '')}|${auth.user.uuid}`,
+            projectId,
+            taskId: target.id,
+        })
+    ) {
+        return
+    }
     if (route.pathname === '/inbox') {
         router.navigate('/inbox')
     } else {
-        router.push(`${route.pathname}${route.pathname.includes('?') ? '&' : '?'}from=push`)
+        const href = `${route.pathname}${route.pathname.includes('?') ? '&' : '?'}from=push`
+        if (chatOpen && isChatRoute) {
+            router.replace(href)
+        } else {
+            router.push(href)
+        }
     }
 }
 
 // Waits until the navigator is mounted and the session has loaded, because the route depends on the user's projects.
 export function useNotificationRouting(): void {
+    const navigation: { getCurrentRoute: () => { name: string } | undefined } = useNavigationContainerRef()
     const navigationReady = Boolean(useRootNavigationState()?.key)
     const signedIn = useAuthStore((state) => state.status === 'signed_in')
     const host = useAuthStore((state) => state.host)
@@ -82,7 +112,9 @@ export function useNotificationRouting(): void {
             return
         }
         const open = (response: Notifications.NotificationResponse): void => {
-            openFromNotification(response).catch(() => undefined)
+            void withAppReloadBlocked(() =>
+                openFromNotification(response, () => navigation.getCurrentRoute()?.name === 'chat')
+            ).catch(() => undefined)
         }
         const last = Notifications.getLastNotificationResponse()
         if (last) {
@@ -90,5 +122,5 @@ export function useNotificationRouting(): void {
         }
         const subscription = Notifications.addNotificationResponseReceivedListener(open)
         return () => subscription.remove()
-    }, [navigationReady, signedIn])
+    }, [navigationReady, signedIn, navigation])
 }

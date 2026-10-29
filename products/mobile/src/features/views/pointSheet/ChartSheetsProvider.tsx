@@ -1,9 +1,9 @@
 import { createContext, type ReactElement, type ReactNode, useCallback, useContext, useMemo, useState } from 'react'
 
 import type { ChartTooltipPoint } from '@/ui/chart/types'
-
 import { AboutSheet } from '../about/AboutSheet'
 import { trackChartAboutOpened, trackChartPointSheetOpened } from '../analytics'
+import { useViewsContext } from '../useViewsContext'
 import type { ChartSheetSource } from './chartSheetSource'
 import { PointSheet, type PointSheetRequest } from './PointSheet'
 
@@ -25,6 +25,11 @@ const ChartSheetsContext = createContext<ChartSheets | null>(null)
  * not close the pinned tooltip behind it.
  */
 export function ChartSheetsProvider({ children }: { children: ReactNode }): ReactElement {
+    const { identity } = useViewsContext()
+    return <SessionChartSheets key={identity}>{children}</SessionChartSheets>
+}
+
+function SessionChartSheets({ children }: { children: ReactNode }): ReactElement {
     const [point, setPoint] = useState<PointSheetRequest | null>(null)
     const [about, setAbout] = useState<ChartSheetSource | null>(null)
 

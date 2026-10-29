@@ -1,8 +1,10 @@
 import { QueryClient } from '@tanstack/react-query'
 
 import { type InsightApi, readInsight } from '@/api/insights'
+import { insightSnapshot } from '@/model/adapters/insightSnapshot'
 
-import { type ItemContext, insightItem } from './items'
+import { type ItemContext, insightItem, insightQueryKey } from './items'
+import { pinRangeLabel } from './snapshotChart'
 import { useItemErrors } from './viewsCache'
 
 jest.mock('@/api/insights', () => ({
@@ -32,10 +34,47 @@ describe('Views insight reads', () => {
     let context: ItemContext
 
     beforeEach(() => {
-        context = { client: new QueryClient(), scope: null, demo: false }
+        context = {
+            client: new QueryClient({ defaultOptions: { queries: { gcTime: Infinity } } }),
+            scope: null,
+            demo: false,
+        }
         useItemErrors.getState().reset()
         jest.mocked(readInsight).mockReset()
     })
+
+    afterEach(() => context.client.clear())
+
+    test.each([
+        [undefined, true, 'Oct 1 – 20'],
+        [false, false, 'Last 7 days'],
+    ])(
+        'keeps a dashboard tile range across a direct pin refresh, with explicit override %s',
+        async (own, expected, label) => {
+            const target = { ...TARGET, dashboardRef: '12', usesOwnRange: own }
+            const data = response({
+                query: {
+                    kind: 'InsightVizNode',
+                    source: { kind: 'TrendsQuery', series: [], dateRange: { date_from: '-7d' } },
+                },
+                resolved_date_range: { date_from: '2026-10-01T00:00:00Z', date_to: '2026-10-20T23:59:59Z' },
+            })
+            context.client.setQueryData(
+                insightQueryKey(null, target),
+                insightSnapshot(data, undefined, { readAt: 1, serverNow: 1, usesOwnRange: true })
+            )
+            jest.mocked(readInsight).mockResolvedValue(data)
+
+            const item = insightItem(context, target)
+            await item.read('blocking', new AbortController().signal)
+
+            const snapshot = context.client.getQueryData<ReturnType<typeof insightSnapshot>>(
+                insightQueryKey(null, target)
+            )
+            expect(snapshot).toMatchObject({ usesOwnRange: expected })
+            expect(snapshot && pinRangeLabel(snapshot)).toBe(label)
+        }
+    )
 
     test('an HTTP 200 query error keeps metadata and exposes a recoverable error until a good result arrives', async () => {
         jest.mocked(readInsight)

@@ -10,18 +10,19 @@ interface TimelineItemProps {
     time: string
     via?: string
     isLast: boolean
+    alert?: boolean
 }
 
-export function TimelineItem({ text, time, via, isLast }: TimelineItemProps): ReactElement {
+export function TimelineItem({ text, time, via, isLast, alert = false }: TimelineItemProps): ReactElement {
     const styles = useStyles()
     return (
         <View style={styles.row}>
             <View style={styles.rail}>
-                <View style={styles.node} />
+                <View style={[styles.node, alert && styles.nodeAlert]} />
                 {isLast ? null : <View style={styles.line} />}
             </View>
             <View style={[styles.body, !isLast && styles.bodySpaced]}>
-                <RichText text={text} style={styles.text} boldStyle={styles.bold} />
+                <RichText text={text} style={styles.text} boldStyle={[styles.bold, alert && styles.boldAlert]} />
                 <View style={styles.meta}>
                     {via ? (
                         <View style={styles.via}>
@@ -55,6 +56,9 @@ const useStyles = createStyles(({ colors }) => ({
         backgroundColor: colors.background,
         marginTop: 5,
     },
+    nodeAlert: {
+        borderColor: colors.orange,
+    },
     line: {
         flex: 1,
         width: 1,
@@ -75,6 +79,9 @@ const useStyles = createStyles(({ colors }) => ({
     bold: {
         fontWeight: '600',
         color: colors.ink,
+    },
+    boldAlert: {
+        color: colors.orange,
     },
     meta: {
         marginTop: 4,

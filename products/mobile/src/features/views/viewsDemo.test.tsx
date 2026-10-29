@@ -51,7 +51,7 @@ describe('views in demo mode', () => {
         jest.useRealTimers()
     })
 
-    test('reads the pins, forces once when allowed, then explains the wait', async () => {
+    test('refreshes immediately after open, then reads the cache inside the server window', async () => {
         const { result } = renderHook(() => useViewsList(), { wrapper })
 
         expect(result.current.pins.data?.map((pin) => [pin.kind, pin.ref, pin.display.mode])).toEqual([
@@ -64,10 +64,6 @@ describe('views in demo mode', () => {
 
         await advance(1000)
         expect(result.current.refresh.status.text).toBe('Updated 42 min ago')
-        // The first read was under a minute ago, and each item gets at most one request a minute.
-        expect(result.current.refresh.blocked.blocked).toBe(true)
-
-        await advance(60_000)
         expect(result.current.refresh.blocked.blocked).toBe(false)
         act(() => result.current.refresh.onPull())
         await advance(1000)
@@ -75,8 +71,11 @@ describe('views in demo mode', () => {
         expect(result.current.refresh.blocked.blocked).toBe(true)
 
         act(() => result.current.refresh.onPull())
-        expect(result.current.refresh.hint).toBe('You can refresh again in 5 min.')
-        await advance(3000)
+        expect(result.current.refresh.pulling).toBe(true)
+        await advance(1000)
+        expect(result.current.refresh.status.text).toBe('Updated just now')
+        expect(result.current.refresh.pulling).toBe(false)
+        expect(result.current.refresh.busy).toBe(false)
         expect(result.current.refresh.hint).toBeNull()
     })
 

@@ -1,7 +1,113 @@
 # Releasing
 
-How to build the app with EAS, install it on test devices, and ship it to TestFlight, the Play internal track and the stores.
+Use **Mobile Release** for native store builds and production OTA updates after a release request merges to `master`.
+Native releases stop at TestFlight and the Play internal track; public-store promotion follows testing.
+Use **Mobile Build** for development and preview builds. Both workflows are documented in [CI.md](CI.md).
 Over-the-air JavaScript updates are in [OTA.md](OTA.md). The CI workflows are in [CI.md](CI.md).
+
+## Request a hosted release
+
+Production releases run in GitHub Actions after a release request merges to `master` and an authorized reviewer approves the `mobile-production` deployment.
+Add the request to the same PR as the app changes. Do not publish production builds or updates from a local checkout.
+The implementation includes no active request, so merging the release tooling alone publishes nothing.
+
+From `products/mobile`, choose one:
+
+```sh
+# First hosted release: raise version in app.config.ts above 1.4.0 first.
+pnpm release:request native --id native-150 --initial --notes "Describe the changes testers should verify."
+
+# Later native release: raise version again; name the last completed request.
+pnpm release:request native --id native-160 --previous native-150 --notes "Describe the native changes."
+
+# JavaScript/assets only: keep the installed native runtime version.
+pnpm release:request ota --id chart-legend-fix --previous native-160 --notes "Fix the chart legend."
+
+pnpm release:check
+pnpm release:test
+```
+
+Commit the generated `releases/requests/<id>.json` with the source changes. Review its kind, version, predecessor and release notes.
+IDs use lowercase letters, digits and hyphens. Requests are append-only: never edit, rename or delete one after merging it.
+Only one new request may appear in a master push. `previousRelease` names the last completed request, including OTA requests. A corrective request can explicitly follow that receipt when an earlier request failed before publication; the failed manifest remains historical and inert.
+The template at `releases/request.json.example` is inert and may also be copied and filled in manually.
+Release notes and receipts are public; keep customer data, credentials and private operational details out of them.
+
+`native` produces both production binaries, waits for both builds to finish, then submits those exact build IDs to TestFlight and Play internal testing.
+It never selects `--latest`. The job waits for EAS submission to finish; Apple can still need processing time before TestFlight makes the build available.
+Public App Store review and Play production promotion remain manual after testing.
+
+`ota` requires a successful hosted native release first. The request version must match the current app version and that native receipt's runtime.
+The workflow compares Expo fingerprints for both platforms against the recorded native baseline.
+Native build results must also provide matching EAS fingerprints before either binary is submitted.
+A new native dependency, native configuration change, widget/plugin change or other fingerprint difference blocks OTA and requires a native request with a higher app version.
+Remote EAS variables that affect native configuration must stay stable for a runtime; change them only with a new native release.
+The first hosted native release must raise `version` above the existing `1.4.0` baseline in `releases/config.json`.
+This deliberately establishes new binaries and a verified baseline instead of guessing compatibility with older manually built apps.
+
+### What runs after merge
+
+1. `Mobile Release` checks the exact master push diff. It selects only the newly added request, rather than sweeping historical requests.
+2. The reusable `Mobile CI` runs typecheck, lint, Jest, release metadata validation and release policy tests on that exact commit. The simulator demo flows do not run in CI; run them locally before you merge.
+3. An authorized reviewer approves the exact commit in the protected `mobile-production` GitHub environment. The publisher then loads the EAS `production` environment, fixes `APP_VARIANT=production` and disables the signup link.
+4. Before contacting EAS to build or publish, it creates a durable draft GitHub receipt at `mobile-release/<id>`. This claims the request so an interrupted retry cannot duplicate a release.
+5. A `mobile-staging` deployment records the stage. Native requests build production binaries with the pinned public OTA certificate; OTA requests sign and publish to an unlinked `mobile-staging-<id>` EAS branch.
+6. Native requests submit the completed binaries. OTA requests sign and republish the exact staged group to the production channel; they do not rebuild the bundle during promotion.
+7. The receipt records the source commit, request, staging deployment, build IDs or update groups, and the native runtime/fingerprints and OTA certificate fingerprint. It becomes a GitHub prerelease, and the dedicated annotated `mobile-production` tag points at the completed source.
+
+The workflow runs only on trusted master pushes in `PostHog/posthog`. Pull requests have no publishing step or Expo token.
+Development/preview builds remain manually available from `master` through `Mobile Build`; production is handled by release requests.
+The package's old production build, submit and update commands stop with a hosted-release instruction.
+
+### One-time hosted release setup
+
+Keep the EAS credentials and store setup below. Also:
+
+- Protect the `mobile-production` GitHub environment with **required reviewer Chris Volzer (`@cvolzer3`)**, allow self-review so the release owner can explicitly approve their own requests, disable administrator bypass, and restrict deployments to `master`. Review the request and full source diff of the exact deployment commit before approval. The workflow's `environment` field does not configure these server-side protections: a repository administrator must set them before any release request merges.
+- Store a dedicated `MOBILE_PRODUCTION_EXPO_TOKEN` only in `mobile-production`. Create a separate `mobile-build` environment restricted to `master`, with a different `MOBILE_BUILD_EXPO_TOKEN` environment secret for internal builds. Do not create repository or organization secrets under these names; that would make them available outside their environment. Neither workflow falls back to the shared `EXPO_TOKEN`. Remove or revoke the inherited shared `EXPO_TOKEN` access to this production EAS project; changing these workflow references does not revoke an organization secret or its Expo authority. Coordinate any other workflows that still use it. Use the narrowest Expo account/project access available for the new tokens. Separate tokens do not impose EAS channel or build-profile authorization: both workflows also require trusted master source, and production OTA has an independent signing key.
+- Provision OTA signing as described below before the first hosted native release. The public certificate belongs in the repository; the private key belongs only in the protected `mobile-production` environment. Native build jobs and dependency installation do not receive the private key.
+- Permit the workflow's `GITHUB_TOKEN` to create releases/tags and deployment records. The workflow requests only contents and deployments write access in its publishing job.
+- Keep production build-time variables readable as Plain text or Sensitive. The publisher audits both project variables and linked account variables before claiming a request; any Secret value blocks the release because it cannot be included in the compatibility check. Native signing/submission keys belong in EAS credentials; the OTA signing key belongs in the protected GitHub environment. Neither belongs in these variables.
+- Set `GOOGLE_SERVICES_JSON` to a **Sensitive file** variable. The publisher reads its base64 file content through the authenticated Expo API, writes an ignored file with owner-only permissions, and uses it during fingerprinting and configuration. Neither contents nor other variable values appear in receipts or artifacts. Secret files, unreadable file values and other file-variable names fail closed before an EAS build or OTA publish. Native EAS fingerprint results must match these materialized inputs.
+- The native environment is audited and fingerprinted again after staging. A change to variable names, types or contents blocks production publication, including removed values. Snapshot hashes stay in memory. Variables that overwrite GitHub identity, credentials or the runner command environment are rejected before any values are applied; the script imports the audited environment itself.
+- Complete the initial Play Console app/signing/internal-tester setup before requesting the first Android submission. Confirm the production iOS App Store Connect record and stored API key.
+- Stop using the older Desktop Mobile Build/Promote workflows for this iOS store identity. The release request flow does not retire those separate workflows.
+
+### OTA signing setup and rotation
+
+An operator must provision the signing material; no production key or certificate is generated by this implementation.
+Follow [Expo's code-signing guide](https://docs.expo.dev/eas-update/code-signing/) using an account with the required EAS plan.
+Generate an RSA key of at least 2048 bits outside this checkout. Commit only its public certificate as `releases/ota-certificate.pem`; keep the private key in the team's secure key store and as the `MOBILE_OTA_SIGNING_KEY` PEM secret only in `mobile-production`.
+Never put it in EAS variables, the app directory, artifacts or a repository/organization secret.
+
+Production config pins that certificate with key id `main` and algorithm `rsa-v1_5-sha256`.
+Without the certificate, local development still works with production OTA disabled, and hosted native/OTA releases fail before claiming a request.
+The publisher rejects an invalid or expired certificate and requires its matching private key before OTA staging.
+Only an approved OTA publishing step writes the private key to an owner-readable temporary file outside the app upload; it deletes the file on exit.
+Staging and promotion both pass the key to EAS, which signs the manifests locally. The native client verifies updates against its embedded certificate before applying them.
+
+The first signed release must be **native**, with a version above the unsigned `1.4.0` baseline. Existing unsigned binaries must upgrade through TestFlight or the stores; this change cannot add verification to them through OTA.
+The native receipt records the certificate fingerprint. An OTA request must match it as well as the native fingerprints; a receipt without a certificate fingerprint cannot authorize an OTA.
+Rotate the key and certificate together, retain the old material securely for older runtimes, and raise the app version in a new native release before publishing updates with the new key.
+
+### Receipts, ordering and retries
+
+The workflow run and `mobile-production` deployment report its outcome. The `mobile-staging` deployment records the build/update staging outcome.
+The GitHub prerelease `mobile-release/<id>` contains a machine-readable JSON receipt; the Actions run also retains a receipt artifact, including a claimed receipt if publishing fails.
+A completed request rerun does not repeat EAS publication. If only the production pointer update failed, rerunning repairs it without resubmitting.
+
+GitHub keeps at most one pending job in a concurrency group. When several requests merge quickly, a newer pending job can replace an older one.
+The predecessor check prevents the newer request from skipping it: it fails before claiming or publishing, with the missing predecessor named in its request.
+Rerun the original predecessor workflow, then rerun its successor. Keep one release outstanding at a time for the simplest operation.
+No run automatically changes its checkout to a newer master commit.
+
+If a request has a draft/claimed receipt, **do not delete it and blindly rerun**. A timeout may have happened after EAS accepted an upload or submission.
+Use its source commit, run URL, staged build IDs/group and EAS message (`mobile-release:<id>@<commit>`) to reconcile both platforms in EAS and the stores.
+If nothing reached EAS, an operator may remove the draft receipt and rerun the original workflow.
+If publication happened, repair that receipt and production pointer from the verified EAS results, without resubmitting; retain the claim until reconciliation is complete.
+A partially submitted native release needs operator recovery of the unfinished platform using its recorded build ID, rather than a new automatic build.
+A corrective request may follow the last completed receipt only when the failed request was never claimed. Any sibling request with a receipt blocks that correction until its publication or production pointer has been reconciled.
+These recovery operations require release access and are exceptional; routine publication stays in GitHub Actions.
 
 ## Store records this app uses
 
@@ -10,15 +116,15 @@ The iOS store build keeps the existing identity, so an update replaces the old a
 Android uses `com.posthog.mobile`, which installs separately from the older `com.posthog.code.mobile` app.
 Development and preview builds use their own identities, see [Build variants](#build-variants).
 
-| Field | Value |
-| --- | --- |
-| App name | PostHog |
-| iOS bundle id | `com.posthog.code.mobile` |
-| Android package | `com.posthog.mobile` |
-| Expo owner and slug | `posthog` / `posthog` |
-| EAS project id | `4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` |
-| App Store Connect app id | `6762366098` |
-| Google Play track for submissions | `internal` |
+| Field                             | Value                                  |
+| --------------------------------- | -------------------------------------- |
+| App name                          | PostHog                                |
+| iOS bundle id                     | `com.posthog.code.mobile`              |
+| Android package                   | `com.posthog.mobile`                   |
+| Expo owner and slug               | `posthog` / `posthog`                  |
+| EAS project id                    | `4eb57b2f-79f6-4ab0-ae2c-bbd82af2cef9` |
+| App Store Connect app id          | `6762366098`                           |
+| Google Play track for submissions | `internal`                             |
 
 The old app's source is `products/desktop/apps/mobile`, and its workflows are "Desktop Mobile Build" and "Desktop Mobile Promote".
 Both iOS apps share the same store record and remote build-number counter.
@@ -37,23 +143,34 @@ The image picker's config plugin writes the photo library usage description and 
 Every EAS profile needs a new native build before it can run `1.2.0` code.
 Do not publish `1.2.0` code as an update to `1.1.0` builds: the runtime versions differ, so those builds never receive it, and the picker modules are not in them.
 
+Version `1.3.0` adds `expo-system-ui`, automatic native appearance and a dark launch screen.
+Every EAS profile needs a new native build to include these changes.
+JavaScript-only updates for existing `1.2.0` and `1.2.1` builds must retain their native dependencies and configuration.
+
 ## Build profiles
 
 Profiles are in `eas.json`. Each profile has its own update channel and EAS environment.
 
-| Profile | Signing | Who installs it | Update channel | Command |
-| --- | --- | --- | --- | --- |
-| `development` | Ad hoc (iOS), APK (Android) | Developers, with Metro for live reload | `development` | `pnpm build:dev`, `pnpm build:dev:android` |
-| `preview` | Ad hoc (iOS), APK (Android) | Internal testers on registered devices | `preview` | `pnpm build:preview`, `pnpm build:preview:android` |
-| `production` | App Store (iOS), app bundle (Android) | TestFlight, Play internal track, then the stores | `production` | `pnpm build:production`, `pnpm build:production:android` |
+| Workflow profile | Signing                               | Who installs it                                  | Update channel |
+| ---------------- | ------------------------------------- | ------------------------------------------------ | -------------- |
+| `development`    | Ad hoc (iOS), APK (Android)           | Developers, with Metro for live reload           | `development`  |
+| `preview`        | Ad hoc (iOS), APK (Android)           | Internal testers on registered devices           | `preview`      |
+| `production`     | App Store (iOS), app bundle (Android) | TestFlight, Play internal track, then the stores | `production`   |
 
 `appVersionSource` is `remote`, so EAS stores the iOS build number and the Android version code.
-Production builds raise them automatically (`autoIncrement`).
+Production builds raise them automatically (`autoIncrement`); the public app/runtime version still needs a deliberate bump in each native release PR.
 Check the current values with `eas build:version:get`.
 
-The `pnpm build:*` scripts run `scripts/eas-build.sh`.
-It uploads only `products/mobile`, filtered by `.easignore`.
+Mobile Build runs `scripts/eas-build.sh`; Mobile Release uses the hosted release helper.
+Both upload only `products/mobile`, filtered by `.easignore`.
 Without it, EAS uploads the whole repository and installs the root pnpm workspace, which excludes this app.
+
+The hosted publisher accepts only these EAS production inputs: `APP_VARIANT`, `APPLE_TEAM_ID`,
+`GOOGLE_SERVICES_JSON`, `EXPO_PUBLIC_POSTHOG_KEY`, `EXPO_PUBLIC_POSTHOG_HOST`,
+`EXPO_PUBLIC_DEMO_MODE`, `EXPO_PUBLIC_SIGNUP_LINK`, `EXPO_PUBLIC_OAUTH_US_CLIENT_ID`, and
+`EXPO_PUBLIC_OAUTH_EU_CLIENT_ID`. It refuses unrecognized names before importing any values.
+Adding an app build input requires updating the publisher's allowlist. The publisher always sets
+`APP_VARIANT=production` and `EXPO_PUBLIC_SIGNUP_LINK=0`.
 
 ## Build variants
 
@@ -61,20 +178,19 @@ Each profile sets `APP_VARIANT` in its `env` block in `eas.json`, and `app.confi
 The three variants install side by side on one device. They do not share sign-in, settings or the widget's data.
 The names, id suffixes and schemes are in `src/lib/appVariants.json`.
 
-| Variant | Profile | App name | iOS bundle id | Android package | URL scheme | iOS App Group | Icon |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `development` | `development` | PostHog Dev | `com.posthog.code.mobile.dev` | `com.posthog.mobile.dev` | `posthog-dev` | `group.com.posthog.code.mobile.dev` | `icon-dev.png`, amber DEV band |
-| `preview` | `preview` | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band |
-| `production` | `production` | PostHog | `com.posthog.code.mobile` | `com.posthog.mobile` | `posthog` | `group.com.posthog.code.mobile` | `app.icon` on iOS 26, `icon.png` elsewhere |
+| Variant       | Profile       | App name        | iOS bundle id                     | Android package              | URL scheme        | iOS App Group                           | Icon                                       |
+| ------------- | ------------- | --------------- | --------------------------------- | ---------------------------- | ----------------- | --------------------------------------- | ------------------------------------------ |
+| `development` | `development` | PostHog Dev     | `com.posthog.code.mobile.dev`     | `com.posthog.mobile.dev`     | `posthog-dev`     | `group.com.posthog.code.mobile.dev`     | `icon-dev.png`, amber DEV band             |
+| `preview`     | `preview`     | PostHog Preview | `com.posthog.code.mobile.preview` | `com.posthog.mobile.preview` | `posthog-preview` | `group.com.posthog.code.mobile.preview` | `icon-preview.png`, purple PREVIEW band    |
+| `production`  | `production`  | PostHog         | `com.posthog.code.mobile`         | `com.posthog.mobile`         | `posthog`         | `group.com.posthog.code.mobile`         | `app.icon` on iOS 26, `icon.png` elsewhere |
 
 - The widget extension's bundle id is the app's id plus `.HedgehogWidget`, for example `com.posthog.code.mobile.dev.HedgehogWidget`.
 - The production profile also sets `EXPO_PUBLIC_SIGNUP_LINK=0`, so store builds hide "Create an account".
-- A local build without `APP_VARIANT` (`pnpm ios`, `pnpm android`, and the local phone installs below) gets the production identity.
-  `APP_VARIANT=development pnpm ios` builds the dev identity locally; its Xcode workspace is `ios/PostHogDev.xcworkspace`, because prebuild names the project after the app.
 - In the app, `src/lib/environment.ts` reads the variant from the bundle id, so an update cannot change it.
   A Metro bundle always counts as development.
 - Development and preview builds show an environment ribbon on the sign-in screen and in Settings, and a Settings Environment group.
-  They accept `http://localhost` hosts and prefill the local dev OAuth client id. Store builds do none of this.
+  They accept HTTP on `localhost`, `127.0.0.1` and `[::1]`, and prefill the local dev OAuth client id. Store builds do none of this.
+  Android's release network policy allows those exact loopback hosts only in development and preview variants; production release binaries deny cleartext. Local debug builds retain Expo's cleartext allowance for Metro on the local network, including with the store identity. A native rebuild is needed to change either policy. See [Auth](AUTH.md#redirect-uris) for port forwarding.
   A store build shows a red ribbon only when the session's host is not PostHog Cloud.
 
 ## One-time setup
@@ -110,9 +226,10 @@ Someone with these accounts does each step once. An agent cannot do them.
    - App Groups `group.com.posthog.code.mobile.dev` and `group.com.posthog.code.mobile.preview`.
    - Turn on the App Groups capability for all four App IDs and select the group of the same variant. Turn on Push Notifications for the two app ids.
 
-   The first `pnpm build:dev` or `pnpm build:preview` with Apple login lets EAS create missing App IDs, sync capabilities and make the ad hoc provisioning profiles.
-   Check afterwards that each App ID has its App Group linked. A missing group leaves the widget without the app's data.
+   Configure the matching ad hoc provisioning profiles in EAS before starting the workflow.
+   Check that each App ID has its App Group linked. A missing group leaves the widget without the app's data.
    Android needs no registration for these packages, because development and preview builds are APKs outside Google Play.
+
 6. Add the store submission keys in `eas credentials`:
    - iOS: an App Store Connect API key, under the production profile.
    - Android: a Google Play service account key with release access.
@@ -125,285 +242,10 @@ Someone with these accounts does each step once. An agent cannot do them.
    eas env:set production --name EXPO_PUBLIC_POSTHOG_HOST --value https://us.i.posthog.com --visibility plaintext
    ```
 
-   Do not add `APP_VARIANT` or `EXPO_PUBLIC_SIGNUP_LINK` here. `eas.json` and the update scripts set them.
-9. Add `posthog-dev://callback` and `posthog-preview://callback` to the redirect URIs of the US and EU mobile OAuth applications in Django admin, so internal builds can sign in to PostHog Cloud. See [AUTH.md](AUTH.md#redirect-uris).
-10. Check that the repository secret `EXPO_TOKEN` exists. The desktop mobile workflows already use it.
-   The "Mobile Build" workflow reads the same secret.
+   Do not add `APP_VARIANT` or `EXPO_PUBLIC_SIGNUP_LINK` here. `eas.json` and the hosted publisher set them.
 
-## Install the current checkout on a connected iPhone
-
-Use a local Release build to put the current source on a phone with its JavaScript bundled in.
-It runs without Metro or a connection to the Mac. This builds the selected checkout, including
-uncommitted changes; it does not fetch a newer branch or install the latest store release.
-Check the branch and local changes first. The displayed app version comes from `app.config.ts`,
-so two local builds can show the same version while containing different code.
-
-### Prepare the Mac and phone
-
-- Use macOS with Xcode and its command-line tools selected (`xcode-select -p`), CocoaPods,
-  the Node version in `.node-version`, and pnpm 10.
-- Add an Apple Developer account in Xcode's Settings, Accounts. Its team must be allowed to
-  sign `com.posthog.code.mobile`, the `HedgehogWidget` extension, and their shared App Group.
-  A signing certificate alone does not establish access to those identifiers.
-- Connect the iPhone by USB, unlock it, and accept **Trust This Computer** if prompted.
-  On iOS 16 and later, enable **Developer Mode** in Settings, Privacy & Security, and complete
-  the restart and confirmation. Keep the phone connected through installation and launch.
-
-Run commands from this app's workspace, not the repository root:
-
-```sh
-cd products/mobile
-pnpm install --frozen-lockfile
-pnpm typecheck
-xcrun devicectl list devices
-```
-
-Select a row whose reality is `physical`, rather than a simulator. Copy its identifier and
-use the Apple team ID from Xcode's account settings; do not reuse another developer's device
-identifier or assume their signing team is available:
-
-```sh
-export DEVICE_ID='<physical device identifier>'
-export APPLE_TEAM_ID='<Apple Developer team ID>'
-xcrun devicectl device info details --device "$DEVICE_ID"
-security find-identity -v -p codesigning
-```
-
-The device details should report a paired, connected phone with Developer Mode enabled.
-`security find-identity` should list a valid Apple Development identity with its private key
-available in the login keychain. Xcode manages the corresponding provisioning profiles.
-
-### Generate, build and install
-
-```sh
-CI=1 pnpm exec expo prebuild --platform ios --pnpm --skip-dependency-update react,react-native
-CI=1 pnpm exec expo run:ios --device "$DEVICE_ID" --configuration Release --no-bundler --no-install
-```
-
-The first command regenerates the ignored `ios/` directory and installs CocoaPods. With the
-current Expo CLI, regeneration clears the existing native directory by default; preserve any
-manual native experiments before running it. Native changes belong in config plugins or
-the source under `modules/` and `targets/`, so they survive regeneration. This also applies
-the app's scene-lifecycle plugin and generates the widget target.
-
-For repeat installs after JavaScript or TypeScript changes only, reuse the generated native
-project: rerun the dependency install and type check, then the `expo run:ios` command above.
-Regenerate first when changing native dependencies, app configuration, config plugins,
-native modules or widget sources, or when switching app variants.
-
-The second command builds the workspace for that physical device, signs both targets,
-installs the app, and launches it. `Release` embeds the current JavaScript and assets.
-The output can still say **Starting Metro Bundler** while generating that bundle;
-`--no-bundler` avoids leaving a development server running. `--no-install` skips another
-dependency installation because prebuild already installed the pods.
-Expo can also print **Waiting on http://localhost:8081** at the end of a successful Release
-build. That message alone does not mean the installed app requires Metro.
-
-Install over the existing app to retain its data when signing is compatible. Do not uninstall
-as a routine update step. These local builds use development signing and do not consume the
-EAS remote build-number counter or select an EAS update channel. Use the preview or production
-profiles below when testing channel updates or distributing a build to other people.
-
-### Verify the installation
-
-```sh
-xcrun devicectl device info apps --device "$DEVICE_ID" --bundle-id com.posthog.code.mobile
-xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing com.posthog.code.mobile
-xcrun devicectl device info processes --device "$DEVICE_ID" --search PostHog
-```
-
-Confirm that the installed version matches `app.config.ts`, the launch succeeds, and the
-PostHog process remains running. Inspect the phone: the app should render its sign-in screen
-or the existing session, rather than a development-server picker or an error screen.
-Relaunch without Metro to check that the embedded bundle works. Launch success alone does
-not verify sign-in, API calls, push notifications, or the full [demo walkthrough](TESTING.md).
-
-On Xcode versions that provide screen capture, a local screenshot can help verify rendering:
-
-```sh
-xcrun devicectl device capture screenshot --device "$DEVICE_ID" --destination /tmp/posthog-mobile-install.png
-```
-
-Keep device identifiers, signing details, logs and screenshots out of committed notes;
-screenshots of an existing session can contain private project data.
-
-### If installation or launch fails
-
-- **Prebuild fails updating the widget target with `removeFromProject` undefined:** rerun
-  the prebuild command above without `--no-clean`. With `@bacons/apple-targets` 5.0.0,
-  updating an existing widget target can fail; regenerating the native project succeeds.
-  Preserve any manual native experiments first.
-- **Signing or provisioning fails:** open `ios/PostHog.xcworkspace` in Xcode and check
-  Signing & Capabilities for both PostHog and HedgehogWidget. Use the authorized team and
-  automatic signing. Resolve certificate, device-registration and App Group access through
-  that team; do not change the app's identifiers to bypass an error.
-- **The build succeeds but installation fails:** reconnect and unlock the phone, then retry
-  the signed `.app` from the successful build with the commands below. Set `APP_PATH` to the
-  actual `Release-iphoneos/PostHog.app` path from that build, not a simulator binary.
-- **The phone is locked:** unlock it and retry launch. Trust and Developer Mode prompts
-  require interaction on the phone.
-- **A native module or scene-lifecycle error appears:** regenerate with prebuild and rebuild;
-  restarting Metro does not update native code. Build through the `.xcworkspace`, which
-  includes Pods, rather than the `.xcodeproj`.
-
-```sh
-export APP_PATH='<absolute path to the signed Release-iphoneos/PostHog.app>'
-xcrun devicectl device install app --device "$DEVICE_ID" "$APP_PATH"
-xcrun devicectl device process launch --device "$DEVICE_ID" --terminate-existing com.posthog.code.mobile
-```
-
-For a connected Android phone, use the [local Android process below](#install-the-current-checkout-on-a-connected-android-phone).
-For devices that are not connected to the build machine, use the
-[preview-build distribution process](#share-a-preview-build). Android takes the APK directly;
-iOS ad hoc builds must include each recipient's device in the provisioning profile.
-TestFlight uses production builds and does not require registering each tester's device.
-
-References: [Expo local builds](https://docs.expo.dev/guides/local-app-development/),
-[Expo CLI](https://docs.expo.dev/more/expo-cli/), and
-[Apple Developer Mode](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device).
-
-### Swift errors after upgrading Xcode
-
-If importing `ExpoModulesJSI` fails with `cannot find type '__ObjC::expo' in scope`,
-the generated bridge framework may belong to the previous SDK. Its cache can survive
-an Xcode upgrade when the Swift compiler version stays the same, as described in
-[this upstream report](https://github.com/expo/expo/issues/50365).
-
-The recovery verified with Xcode 27.1 regenerates the physical-device bridge slice and
-builds Expo modules from source. Run from this app's workspace, with the existing `ios/`
-project and the device and signing setup above:
-
-```sh
-rm node_modules/expo-modules-jsi/apple/Products/ExpoModulesJSI.xcframework/ios-arm64/.build-hash
-(cd ios && EXPO_USE_PRECOMPILED_MODULES=0 pod install)
-CI=1 EXPO_USE_PRECOMPILED_MODULES=0 pnpm exec expo run:ios --device "$DEVICE_ID" --configuration Release --no-bundler --no-install
-```
-
-The removed file is a generated cache marker; it is recreated by the bridge build.
-For a simulator error, invalidate the corresponding simulator slice instead of `ios-arm64`.
-The source-build setting applies to this local pod installation; a later pod install or
-prebuild without it returns to the default. No dependency-source or Swift-interface edits
-are needed. After installation, repeat the launch and rendering checks above.
-
-### Verification record
-
-On October 14, 2026, this process installed app version `1.1.0` (local build `1`) from the
-current working tree on a physical iPhone running iOS 26.2, using Xcode 27.0 and Expo SDK 57.
-The frozen dependency install, type check, prebuild and Release build succeeded.
-The signed app and embedded extension passed `codesign --verify --deep --strict`.
-After installation, an explicit relaunch succeeded, the PostHog process remained running,
-and a local screenshot confirmed that the inbox rendered with the existing session.
-No server was listening on Metro's default port 8081. Full feature QA and installation on
-other devices were not performed; the parameters and distribution options above cover reuse.
-
-On October 16, 2026, the Xcode 27.1 recovery above produced and installed a new Release
-build of `1.1.0`. The type check and signature verification passed. An explicit relaunch
-kept the app running, and a local screenshot confirmed the inbox with the existing session.
-
-## Install the current checkout on a connected Android phone
-
-This produces a local Release APK with JavaScript and assets embedded, so the installed app
-runs without Metro. It builds the current checkout, including local changes.
-
-### Prepare the build machine and phone
-
-Install the app's Node and pnpm versions, a JDK compatible with the Gradle wrapper, and the
-Android SDK. The verified setup uses JDK 17, Android SDK platform and build tools 36, and
-NDK `27.1.12297006`. Gradle reports its required SDK and NDK versions during configuration.
-Find your SDK location in Android Studio's SDK settings, then set these for your machine:
-
-```sh
-export ANDROID_HOME='<Android SDK directory>'
-export JAVA_HOME='<JDK home directory>'
-export PATH="$ANDROID_HOME/platform-tools:$JAVA_HOME/bin:$PATH"
-```
-
-On the phone, enable Developer options and **USB debugging**, connect a data-capable USB
-cable, unlock the screen, and accept the debugging authorization prompt. Then run:
-
-```sh
-adb devices -l
-```
-
-Select the physical device's row, whose state must be `device`. `unauthorized` means the
-phone still needs to approve the Mac. `offline` means it is not ready; reconnect and check
-again. An identifier beginning with `emulator-` belongs to an emulator.
-
-Keep the serial for commands that target the phone, and the row's `model:` value for Expo:
-
-```sh
-export ANDROID_SERIAL='<physical device serial>'
-export ANDROID_DEVICE_NAME='<model value from adb devices -l>'
-adb -s "$ANDROID_SERIAL" shell getprop ro.build.version.release
-adb -s "$ANDROID_SERIAL" shell getprop ro.product.cpu.abilist
-```
-
-### Sync, build and install
-
-From the repository root:
-
-```sh
-cd products/mobile
-pnpm install --frozen-lockfile
-pnpm typecheck
-CI=1 pnpm exec expo prebuild --platform android --no-clean --pnpm --skip-dependency-update react,react-native
-CI=1 pnpm exec expo run:android --device "$ANDROID_DEVICE_NAME" --variant release --no-bundler --no-install
-```
-
-Prebuild updates the ignored Android project from `app.config.ts`, including the version;
-`--no-clean` preserves the existing native directory. If native configuration is stale,
-regenerate without `--no-clean`, after preserving any manual native experiments.
-The build includes native dependencies, creates the APK, installs it on the selected phone,
-and launches it. The first Release build can compile libraries for several CPU architectures.
-Later builds reuse Gradle's cache. Metro messages during bundling do not mean a server must
-remain running after installation.
-
-Expo's `--device` selects by device name. If multiple connected phones have the same model,
-build without choosing a device and install explicitly by serial instead:
-
-```sh
-cd android
-./gradlew :app:assembleRelease
-cd ..
-adb -s "$ANDROID_SERIAL" install -r android/app/build/outputs/apk/release/app-release.apk
-```
-
-The generated local Release variant uses the project's debug keystore. Keep that key for
-subsequent local updates. Store releases use the existing production signing credentials
-through EAS. If `install -r` reports a signing mismatch, use a build signed with the matching
-key; do not uninstall the existing app automatically, because that clears its app data.
-
-### Verify the installation
-
-```sh
-adb -s "$ANDROID_SERIAL" shell dumpsys package com.posthog.mobile
-adb -s "$ANDROID_SERIAL" shell am force-stop com.posthog.mobile
-adb -s "$ANDROID_SERIAL" shell am start -W -n com.posthog.mobile/.MainActivity
-adb -s "$ANDROID_SERIAL" shell pidof com.posthog.mobile
-adb -s "$ANDROID_SERIAL" exec-out screencap -p > /tmp/posthog-mobile-android-install.png
-```
-
-Check `versionName` against `app.config.ts`, confirm launch succeeds and the process remains
-running, then inspect the phone or screenshot after startup. A fresh device should show sign-in;
-an update can retain the existing session. This verifies installation and startup, not every
-feature or a new sign-in. Keep serials, private screenshots and device logs out of the repository.
-
-If a screenshot is black, wake and unlock the phone before checking the screen. USB debugging
-can remain connected while the display is off. `adb -s "$ANDROID_SERIAL" shell input keyevent KEYCODE_WAKEUP`
-wakes the display; complete any secure unlock on the phone itself.
-
-### Verification record
-
-On October 15, 2026, this process installed version `1.1.0` (local build `1`) on a physical
-Moto G Play (2024) running Android 14 with an ARM64 CPU. The frozen dependency install, type
-check, Android prebuild and Gradle Release build succeeded. The APK passed `apksigner verify`.
-An explicit cold launch succeeded, the app stayed running in the foreground, and a local
-screenshot confirmed that the sign-in screen rendered. The app was left ready for sign-in;
-no account credentials were entered and full feature QA was not performed.
-
-References: [Android hardware-device setup](https://developer.android.com/studio/run/device),
-[Expo CLI](https://docs.expo.dev/more/expo-cli/), and
-[Android APK distribution](https://docs.expo.dev/build-reference/apk/).
+9. Create separate non-first-party public OAuth applications in US and EU for `posthog-dev://callback` and `posthog-preview://callback`. Set their IDs as `EXPO_PUBLIC_OAUTH_US_CLIENT_ID` and `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` in both EAS internal environments. Production first-party applications must keep only `posthog://callback`; remove internal callback URIs if already added. See [AUTH.md](AUTH.md#redirect-uris).
+10. Complete the protected environments and separate token setup in [One-time hosted release setup](#one-time-hosted-release-setup). The desktop mobile workflows' shared `EXPO_TOKEN` is not used by these workflows.
 
 ## Install a development build on an iPhone
 
@@ -419,14 +261,10 @@ It loads JavaScript from Metro on your Mac, so you rebuild it only when native c
 
    Open the link or scan the QR code on the iPhone and install the profile it offers.
    On iOS 16 and later, turn on Developer Mode in Settings, Privacy & Security.
-2. Build:
 
-   ```sh
-   pnpm build:dev
-   ```
-
-   When EAS asks, include the new device in the provisioning profile.
-3. When the build finishes, scan the QR code that `eas` prints, or open the build page on the iPhone, and tap Install.
+2. Include the device in the development provisioning profile in EAS. Start **Mobile Build** from
+   GitHub Actions with profile `development` and platform `ios`.
+3. When the build finishes, open the EAS build page on the iPhone and tap Install.
 4. Start Metro on your Mac and open the app on the iPhone:
 
    ```sh
@@ -436,7 +274,7 @@ It loads JavaScript from Metro on your Mac, so you rebuild it only when native c
    The iPhone and the Mac must be on the same network.
    The app lists the running server. You can also scan the QR code from the terminal with the camera.
 
-For Android, run `pnpm build:dev:android` and install the APK from the build page.
+For Android, use the same workflow with profile `development` and platform `android`, then install the APK from the EAS build page.
 No device registration is needed.
 
 The development build installs as "PostHog Dev" next to the store app, and shows an amber "Dev build" ribbon on the sign-in screen and in Settings.
@@ -449,12 +287,7 @@ a new native module, a config plugin, or a native field in `app.config.ts`.
 Preview builds have the release JavaScript bundled in, and they take updates from the `preview` channel.
 Use them to test a change before it goes to TestFlight.
 
-```sh
-pnpm build:preview            # iOS, for devices registered with eas device:create
-pnpm build:preview:android    # Android APK
-```
-
-You can also run the "Mobile Build" workflow with the `preview` profile.
+Start **Mobile Build** in GitHub Actions with profile `preview` and the platforms to test.
 Testers install from the EAS build page. iOS testers need a registered device.
 
 ## Ship to TestFlight and the Play internal track
@@ -472,19 +305,9 @@ The store listing and other setup tasks can be completed before expanding beyond
 See [Google Play internal testing](https://support.google.com/googleplay/android-developer/answer/9845334)
 and [Expo manual submission](https://docs.expo.dev/submit/android-manual/).
 
-From your machine:
-
-```sh
-pnpm build:production                 # iOS
-pnpm submit:ios --latest              # to App Store Connect, then TestFlight
-pnpm build:production:android
-pnpm submit:android --latest          # to the Play internal track
-```
-
-Pass `--latest` without a `--` before it. pnpm forwards a `--` to `eas`, which then reads `--latest` as an argument instead of a flag.
-
-From CI: run the "Mobile Build" workflow from `master` with profile `production`, platform `all`, and submit checked.
-EAS submits each build when it finishes. Follow progress on the EAS project page.
+Add a `native` release request to the app PR as described above. Once it merges and the hosted checks pass,
+`Mobile Release` builds both platforms and waits for submission to TestFlight and the Play internal track.
+Use the receipt's exact build IDs to follow progress in EAS and the stores.
 
 After the iOS upload, App Store Connect processes the build for 5 to 30 minutes before it shows in TestFlight.
 
@@ -493,10 +316,8 @@ After the iOS upload, App Store Connect processes the build for 5 to 30 minutes 
 1. Test the TestFlight build and the Play internal build.
 2. In App Store Connect, add the build to a new version, write the release notes, and submit it for review.
 3. In the Play Console, promote the internal release to production.
-4. Raise `version` in `app.config.ts` after the release, so the next native build gets a new version and runtime version.
+4. Keep the released version while shipping compatible OTA fixes. Raise `version` in the PR for the next native release, so that request establishes a new runtime.
 
 ## Before you share a build
 
-- `pnpm typecheck`, `pnpm lint` and `pnpm test` pass.
-- The demo walkthrough passes on the iOS simulator. See [TESTING.md](TESTING.md).
-- Sign in to a real project and open a report, on the build you are about to share.
+Complete the [mobile app release checks](../../../docs/internal/mobile-release-checks.md), including the demo walkthrough and real-account checks on each platform being shared. Hosted checks validate code and release policy; they do not verify store credentials, real sign-in, push delivery or physical-device behavior.

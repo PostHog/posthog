@@ -1,5 +1,5 @@
 import { trackWhenReady } from '@/lib/analytics'
-import { deepLinkKind } from '@/lib/deepLinkKind'
+import { deepLinkKind, webLinkTarget } from '@/lib/deepLinkKind'
 import { receiveSessionHandoff } from '@/lib/sessionHandoff'
 
 // Internal builds register posthog-dev:// or posthog-preview://, see src/lib/appVariants.json.
@@ -14,7 +14,8 @@ export function redirectSystemPath({ path, initial }: { path: string; initial: b
         trackWhenReady('mobile_deep_link_opened', { path_kind: kind, initial })
     }
     if (!AUTH_CALLBACK.test(path)) {
-        return receiveSessionHandoff(path)
+        const target = receiveSessionHandoff(path)
+        return webLinkTarget(target) ?? target
     }
     // A cold start from a callback has no sign-in waiting for it, so start the app normally.
     return initial ? '/' : null

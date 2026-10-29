@@ -1,4 +1,5 @@
 import type { BudgetFamily } from '@/api/budget'
+import type { ScopedFeature } from '@/api/scopeErrors'
 import { track } from '@/lib/analytics'
 import type { PinDisplayMode, ViewEntry, ViewKind } from '@/model/views'
 
@@ -176,13 +177,20 @@ export function trackChartFullScreenOpened(props: { entry: FullScreenEntry; disp
 export function trackViewsReauthShown(props: {
     missingScope: string | null
     state: 'reauth' | 'unavailable' | 'personal-key-missing-scopes'
+    feature: ScopedFeature
 }): void {
-    track('mobile_views_reauth_shown', { missing_scope: props.missingScope, state: props.state })
+    track('mobile_views_reauth_shown', {
+        missing_scope: props.missingScope,
+        state: props.state,
+        feature: props.feature,
+    })
 }
 
 export type BrowseSection = 'dashboards' | 'insights'
 
-export function trackBrowseListOpened(props: { section: BrowseSection; from: 'browse' | 'search' }): void {
+export type BrowseListEntry = BrowseSection | 'errors' | 'replay'
+
+export function trackBrowseListOpened(props: { section: BrowseListEntry; from: 'browse' | 'search' }): void {
     track('mobile_browse_list_opened', { section: props.section, from: props.from })
 }
 

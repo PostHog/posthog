@@ -309,6 +309,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.WebPageDirectoryQuery]: {
+        name: 'Page directory',
+        description: 'See how each page earns its traffic, from search engines through to AI crawlers.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.WebVitalsQuery]: {
         name: 'Web vitals',
         description: 'View web vitals.',
@@ -357,6 +363,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCorrelationAnalysis,
         inMenu: false,
     },
+    [NodeKind.ErrorTrackingIssueEventsQuery]: {
+        name: 'Error Tracking Issue Exceptions',
+        description: "List an issue's exceptions, optionally only the ones with a session recording.",
+        icon: IconWarning,
+        inMenu: false,
+    },
     [NodeKind.ErrorTrackingSimilarIssuesQuery]: {
         name: 'Error Tracking Similar Issues',
         description: 'Explore issues similar to the selected one.',
@@ -400,14 +412,14 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: false,
     },
     [NodeKind.ExperimentTrendsQuery]: {
-        name: 'Experiment Trends Result',
-        description: 'View experiment trend result.',
+        name: 'Legacy experiment trends metric',
+        description: 'Trends metric from the legacy experiments engine. Its results are no longer available.',
         icon: IconFlask,
         inMenu: false,
     },
     [NodeKind.ExperimentFunnelsQuery]: {
-        name: 'Experiment Funnels Result',
-        description: 'View experiment funnel result.',
+        name: 'Legacy experiment funnel metric',
+        description: 'Funnel metric from the legacy experiments engine. Its results are no longer available.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -432,6 +444,18 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.ExperimentExposureNode]: {
         name: 'Experiment Exposure',
         description: 'Retention metric start resolved to the experiment exposure.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentWarehouseNativeNode]: {
+        name: 'Experiment Warehouse-native Node',
+        description: 'Experiment metric source run in the customer warehouse.',
+        icon: IconFlask,
+        inMenu: false,
+    },
+    [NodeKind.ExperimentWarehouseNativeExposureConfig]: {
+        name: 'Experiment Warehouse-native Exposure Config',
+        description: 'Experiment exposures run in the customer warehouse.',
         icon: IconFlask,
         inMenu: false,
     },
@@ -587,6 +611,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.AccountsTableQuery]: {
         name: 'Accounts table',
         icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.AccountUsersQuery]: {
+        name: 'Account users',
+        icon: IconPerson,
         inMenu: false,
     },
     [NodeKind.EndpointsUsageOverviewQuery]: {

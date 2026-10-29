@@ -49,7 +49,7 @@ describe('RefreshQueue', () => {
         now = 1_000_000
         calls = []
         pending = new Map()
-        spendable = { insights: true, dashboards: true, query: true }
+        spendable = { insights: true, dashboards: true, query: true, replay: true }
         queue = new RefreshQueue({ now: () => now, canSpend: (family) => spendable[family] })
     })
 
@@ -59,7 +59,7 @@ describe('RefreshQueue', () => {
 
     test('runs two requests at a time and joins a second caller for the same key', async () => {
         const first = queue.enqueue(request('a'))
-        const joined = queue.enqueue(request('a', { group: 'dashboard:1', mode: 'force_blocking' }))
+        const joined = queue.enqueue(request('a', { group: 'dashboard:1', mode: 'force_blocking', userRetry: true }))
         void queue.enqueue(request('b'))
         void queue.enqueue(request('c'))
 
@@ -92,7 +92,7 @@ describe('RefreshQueue', () => {
         await settle('a', new ApiError(429, {}, { get: () => '10' } as unknown as Headers))
         await expect(failed).resolves.toMatchObject({ status: 'failed' })
 
-        void queue.enqueue(request('b'))
+        void queue.enqueue(request('b', { userRetry: true }))
         void queue.enqueue(request('d', { family: 'dashboards' }))
         expect(calls.map((call) => call.key)).toEqual(['a', 'd'])
 
@@ -159,10 +159,13 @@ describe('RefreshQueue', () => {
         expect(queue.isBusy('list')).toBe(false)
     })
 
-    test('sends nothing when the family budget is empty', async () => {
+    test.each([false, true])('sends nothing when the family budget is empty, user request: %s', async (userRetry) => {
         spendable.insights = false
 
-        await expect(queue.enqueue(request('a'))).resolves.toMatchObject({ status: 'capped', family: 'insights' })
+        await expect(queue.enqueue(request('a', { userRetry }))).resolves.toMatchObject({
+            status: 'capped',
+            family: 'insights',
+        })
         expect(calls).toHaveLength(0)
     })
 

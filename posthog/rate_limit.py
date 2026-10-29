@@ -402,8 +402,8 @@ class LoginPrecheckThrottle(IPThrottle):
     """
     Rate limit login precheck requests by IP.
 
-    The response reveals which sign-in methods a passwordless account has, so cap it per-IP to make
-    bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
+    The response reveals whether an account exists and which sign-in methods it has, so cap it
+    per-IP to make bulk enumeration expensive. Per-email throttling would be useless here — enumeration uses a
     different email on every request.
     """
 
@@ -696,6 +696,19 @@ class ErrorTrackingFingerprintProjectionSustainedRateThrottle(_TeamBucketRateThr
     rate = "100/hour"
 
 
+# The source maps examples scan reads the properties of every exception in the last 24 hours, and
+# browser sessions skip the default throttles. A team-wide bucket caps the project's total scans.
+# Each open of the examples dialog runs one scan, so these rates leave room for normal use.
+class ErrorTrackingSourceMapsExamplesBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_source_maps_examples_burst"
+    rate = "10/minute"
+
+
+class ErrorTrackingSourceMapsExamplesSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "error_tracking_source_maps_examples_sustained"
+    rate = "100/hour"
+
+
 # The logs anomaly scan aggregates weeks of baseline slices from ClickHouse in one synchronous
 # request — the heaviest single query the logs product exposes, budgeted at gigabytes of reads
 # per call. A team-wide bucket caps the project's total spend regardless of how many users or
@@ -765,17 +778,24 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
-# The watch feed windows, ranks and hydrates a slice of the team's observation history per call, and
+# The highlight feed windows, ranks and hydrates a slice of the team's observation history per call, and
 # its primary caller is the session-authenticated home tab, which the default Burst/Sustained
 # throttles bypass. Team-wide bucket so minting keys doesn't multiply the budget.
-class ReplayVisionWatchFeedBurstRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_burst"
+class ReplayVisionHighlightFeedBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_burst"
     rate = "60/minute"
 
 
-class ReplayVisionWatchFeedSustainedRateThrottle(_TeamBucketRateThrottle):
-    scope = "replay_vision_watch_feed_sustained"
+class ReplayVisionHighlightFeedSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_sustained"
     rate = "600/hour"
+
+
+# Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
+# team's feed bucket.
+class ReplayVisionHighlightFeedImpressionsRateThrottle(_UserBucketRateThrottle):
+    scope = "replay_vision_highlight_feed_impressions"
+    rate = "120/minute"
 
 
 # Each observation search makes a synchronous embedding request and a brute-force cosine scan over
@@ -1850,6 +1870,18 @@ class GitHubRepositoryRefreshThrottle(PersonalApiKeyOrUserRateThrottle):
     # per team to avoid bypass via rotated API keys, sessions, or integrations.
     scope = "github_repository_refresh"
     rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
+class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Keyed per team, so a large migration cannot flood ingestion by spreading calls across keys.
+    scope = "push_token_import"
+    rate = "60/minute"
 
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)

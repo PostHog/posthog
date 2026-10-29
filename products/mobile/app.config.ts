@@ -49,6 +49,9 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
     // The HedgehogWidget target and both Swift readers of the shared store derive the same name from the bundle id.
     const appGroup = `group.${appId}`
     const icons = ICONS[variant]
+    const otaCertificate = './releases/ota-certificate.pem'
+    // Local builds work before key provisioning; the hosted publisher refuses this unsigned configuration.
+    const hasOtaCertificate = existsSync(join(projectRoot, otaCertificate))
 
     return {
         ...config,
@@ -56,7 +59,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
         slug: 'posthog',
         owner: 'posthog',
         scheme,
-        version: '1.2.1',
+        version: '1.4.0',
         orientation: 'portrait',
         userInterfaceStyle: 'automatic',
         icon: icons.png,
@@ -132,7 +135,7 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     image: './assets/splash-icon.png',
                     imageWidth: 120,
                     resizeMode: 'contain',
-                    backgroundColor: '#FFFFFF',
+                    backgroundColor: '#F6F6F3',
                     dark: {
                         image: './assets/splash-icon-dark.png',
                         backgroundColor: '#1D1F27',
@@ -150,12 +153,21 @@ export default ({ config, projectRoot }: ConfigContext): ExpoConfig => {
                     microphonePermission: false,
                 },
             ],
+            ['./plugins/withAndroidLoopbackNetworking', { allowLoopback: variant !== 'production' }],
             './plugins/withAndroidAdaptiveIconInsets',
             './plugins/withIosSceneLifecycle',
             '@bacons/apple-targets',
         ],
         updates: {
             url: `https://u.expo.dev/${EAS_PROJECT_ID}`,
+            ...(variant === 'production'
+                ? hasOtaCertificate
+                    ? {
+                          codeSigningCertificate: otaCertificate,
+                          codeSigningMetadata: { keyid: 'main', alg: 'rsa-v1_5-sha256' },
+                      }
+                    : { enabled: false }
+                : {}),
         },
         runtimeVersion: {
             policy: 'appVersion',

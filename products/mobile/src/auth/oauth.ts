@@ -24,6 +24,11 @@ export const OAUTH_SCOPES = [
     'dashboard:read',
     'insight:read',
     'file_system_shortcut:write',
+    'error_tracking:read',
+    'error_tracking:write',
+    'session_recording:read',
+    'replay_scanner:read',
+    'replay_scanner:write',
 ] as const
 
 const REQUEST_TIMEOUT_MS = 20_000
@@ -31,7 +36,7 @@ const REVOKE_TIMEOUT_MS = 5_000
 
 /**
  * `posthog://callback` in store builds, `posthog-dev://callback` and `posthog-preview://callback` in internal builds.
- * Each one must be a redirect URI of the OAuth application. Expo Go gets its own `exp://` URL.
+ * Internal schemes belong to separate non-first-party OAuth applications so sign-in requires consent.
  */
 export function redirectUri(): string {
     return makeRedirectUri({ scheme: appScheme, path: 'callback' })

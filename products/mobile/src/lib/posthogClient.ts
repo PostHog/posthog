@@ -1,5 +1,5 @@
 import PostHog from 'posthog-react-native'
-import { Platform } from 'react-native'
+import { AppState, Platform } from 'react-native'
 
 import { useAuthStore } from '@/auth/authStore'
 import { useDemoMode } from '@/demo/demoMode'
@@ -53,6 +53,15 @@ export function initAnalytics(): void {
     const posthog = new PostHog(apiKey, {
         host: process.env.EXPO_PUBLIC_POSTHOG_HOST || DEFAULT_HOST,
         captureAppLifecycleEvents: true,
+        before_send: (event) => {
+            if (!event || event.event !== 'Application Opened') {
+                return event
+            }
+            // The SDK adds the launch URL, which can contain OAuth credentials or private object labels.
+            const properties = { ...event.properties }
+            delete properties.url
+            return { ...event, properties }
+        },
         capturePushNotificationSubscriptions: false,
         capturePushNotificationOpened: false,
         rageClickConfig: { enabled: false },
@@ -74,34 +83,55 @@ export function initAnalytics(): void {
     const registerSuperProperties = (): void => {
         void posthog.register(superProperties())
     }
-    // Flags target a project through this person property, such as a flag for team 2 only.
-    let flagProjectId: number | null = null
-    const syncFlagProject = (): void => {
+    let flagContext: string | undefined
+    let flagRequest = 0
+    const syncFlagContext = (force = false): void => {
+        const { status, host, user } = useAuthStore.getState()
         const projectId = signedInProjectId()
-        if (projectId === flagProjectId) {
+        const email = status === 'signed_in' && user?.anonymizeData === false ? user.email.trim().toLowerCase() : null
+        const context = JSON.stringify([status, host, user?.uuid, user?.anonymizeData, email, projectId])
+        if (context === flagContext && !force) {
             return
         }
-        flagProjectId = projectId
-        if (projectId === null) {
-            posthog.resetPersonPropertiesForFlags(true)
-        } else {
-            posthog.setPersonPropertiesForFlags({ project_id: projectId }, true)
+        if (context !== flagContext) {
+            setFeatureFlags({})
         }
+        flagContext = context
+        const request = ++flagRequest
+        posthog.resetPersonPropertiesForFlags(false)
+        posthog.setPersonPropertiesForFlags({ project_id: projectId, email }, false)
+        if (status !== 'signed_in' || !user) {
+            return
+        }
+        void posthog
+            .reloadFeatureFlagsAsync()
+            .then((flags) => {
+                if (request === flagRequest) {
+                    setFeatureFlags(flags ?? {})
+                }
+            })
+            .catch(() => {
+                if (request === flagRequest) {
+                    setFeatureFlags({})
+                }
+            })
     }
-    posthog.onFeatureFlags((flags) => setFeatureFlags(flags ?? {}))
-    setFeatureFlags(posthog.getFeatureFlags() ?? {})
+    setFeatureFlags({})
     registerSuperProperties()
+    syncFlagContext()
     syncReplay()
-    syncFlagProject()
     useAuthStore.subscribe((state, previous) => {
         syncReplay()
         if (
             state.host !== previous.host ||
             state.status !== previous.status ||
-            state.projectId !== previous.projectId
+            state.projectId !== previous.projectId ||
+            state.user?.uuid !== previous.user?.uuid ||
+            state.user?.email !== previous.user?.email ||
+            state.user?.anonymizeData !== previous.user?.anonymizeData
         ) {
             registerSuperProperties()
-            syncFlagProject()
+            syncFlagContext()
         }
     })
     useDemoMode.subscribe((state, previous) => {
@@ -114,6 +144,11 @@ export function initAnalytics(): void {
         registerSuperProperties()
         syncReplay()
     })
+    AppState.addEventListener('change', (state) => {
+        if (state === 'active') {
+            syncFlagContext(true)
+        }
+    })
     setAnalyticsClient({
         capture: (event, properties) => posthog.capture(event, definedProperties(properties)),
         screen: (name, properties) => void posthog.screen(name, definedProperties(properties)),
@@ -122,9 +157,10 @@ export function initAnalytics(): void {
         reset: () => {
             posthog.reset()
             // reset() drops registered super properties and person properties for flags with the identity.
-            flagProjectId = null
+            flagContext = undefined
+            setFeatureFlags({})
             registerSuperProperties()
-            syncFlagProject()
+            syncFlagContext()
         },
     })
 }

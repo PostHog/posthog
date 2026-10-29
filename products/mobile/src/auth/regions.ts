@@ -1,4 +1,4 @@
-import { isInternalBuild, isLoopbackHost } from '@/lib/environment'
+import { buildVariant, isInternalBuild, isLoopbackHost } from '@/lib/environment'
 
 export type RegionId = 'us' | 'eu' | 'custom'
 
@@ -14,12 +14,19 @@ export interface CloudRegion extends Region {
     flag: string
 }
 
-export const US_CLIENT_ID = 'a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm'
-export const EU_CLIENT_ID = '1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU'
+// Internal callback schemes require separate apps with consent enabled. Never fall back to a first-party app.
+export const US_CLIENT_ID =
+    buildVariant === 'production'
+        ? 'a5TY7w9IjFYfes6dkPgZe6envclWw3bm2UD8ZTlm'
+        : (process.env.EXPO_PUBLIC_OAUTH_US_CLIENT_ID?.trim() ?? '')
+export const EU_CLIENT_ID =
+    buildVariant === 'production'
+        ? '1A7vO138Fh5sYmJislicN4F5HnttI6urmFttxPDU'
+        : (process.env.EXPO_PUBLIC_OAUTH_EU_CLIENT_ID?.trim() ?? '')
 // The OAuth app that `setup_tasks_oauth` creates for a local stack, so a dev build signs in there without typing an id.
 export const DEV_CLIENT_ID = 'DC5uRLVbGI02YQ82grxgnK6Qn12SXWpCqdPb60oZ'
 
-export const CLOUD_REGIONS: readonly CloudRegion[] = [
+export const CLOUD_REGIONS = [
     {
         id: 'us',
         label: 'United States',
@@ -34,13 +41,84 @@ export const CLOUD_REGIONS: readonly CloudRegion[] = [
         host: 'https://eu.posthog.com',
         clientId: EU_CLIENT_ID,
     },
-]
+] as const satisfies readonly CloudRegion[]
 
 // The id `custom` is persisted in AsyncStorage by the auth store, so it keeps its name while the label changes.
 export const REGIONS: readonly Region[] = [
     ...CLOUD_REGIONS,
     { id: 'custom', label: 'Self-hosted', host: '', clientId: '' },
 ]
+
+const EUROPEAN_REGION_CODES = new Set([
+    'AD',
+    'AL',
+    'AT',
+    'AX',
+    'BA',
+    'BE',
+    'BG',
+    'BY',
+    'CH',
+    'CY',
+    'CZ',
+    'DE',
+    'DK',
+    'EE',
+    'ES',
+    'FI',
+    'FO',
+    'FR',
+    'GB',
+    'GG',
+    'GI',
+    'GR',
+    'HR',
+    'HU',
+    'IE',
+    'IM',
+    'IS',
+    'IT',
+    'JE',
+    'LI',
+    'LT',
+    'LU',
+    'LV',
+    'MC',
+    'MD',
+    'ME',
+    'MK',
+    'MT',
+    'NL',
+    'NO',
+    'PL',
+    'PT',
+    'RO',
+    'RS',
+    'RU',
+    'SE',
+    'SI',
+    'SJ',
+    'SK',
+    'SM',
+    'TR',
+    'UA',
+    'VA',
+    'XK',
+])
+
+export function defaultCloudRegion(
+    regionCode: string | null,
+    timeZone: string | null,
+    previousRegion?: RegionId
+): CloudRegion['id'] {
+    if (previousRegion && previousRegion !== 'custom') {
+        return previousRegion
+    }
+    if (regionCode) {
+        return EUROPEAN_REGION_CODES.has(regionCode.toUpperCase()) ? 'eu' : 'us'
+    }
+    return timeZone?.startsWith('Europe/') ? 'eu' : 'us'
+}
 
 // Store review may not allow a link that leaves the app to create an account, so a build can hide it.
 export const SHOW_SIGNUP_LINK = process.env.EXPO_PUBLIC_SIGNUP_LINK !== '0'

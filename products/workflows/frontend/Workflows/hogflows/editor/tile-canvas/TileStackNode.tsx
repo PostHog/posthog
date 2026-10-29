@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { IconExpand } from '@posthog/icons'
+
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import type { HogFlow } from '../../types'
@@ -76,13 +78,23 @@ export function TileStackNode({
                 )}
             </div>
             <div className="flex w-57.5 flex-col gap-0.5 pt-1 text-left">
-                <div className="break-words text-[13px] font-semibold leading-tight" style={{ color }}>
+                <div
+                    className="line-clamp-2 break-words text-[13px] font-semibold leading-tight"
+                    style={{ color }}
+                    title={group.label}
+                >
                     {group.label}
                 </div>
                 <div className="ph-no-capture break-words text-xs leading-snug">
                     {pathSummary(workflow, group, templateNameOf)}
                 </div>
-                <div className="text-[11px] text-secondary">{members.length} steps</div>
+                <div className="flex items-center gap-1.5 text-[11px] text-secondary">
+                    {members.length} steps
+                    <span className="flex items-center gap-0.5 font-medium text-primary">
+                        <IconExpand className="size-3" />
+                        Open
+                    </span>
+                </div>
             </div>
         </div>
     )

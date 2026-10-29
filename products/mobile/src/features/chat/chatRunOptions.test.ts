@@ -44,10 +44,11 @@ describe('chat run options', () => {
         expect(codex.permissionMode).toBe('auto')
     })
 
-    test.each<[string, SessionRunConfig, ChatRunOptions]>([
+    test.each<[string, SessionRunConfig, boolean, ChatRunOptions]>([
         [
             'a run with a known model and mode',
             { runtimeAdapter: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'xhigh', permissionMode: 'plan' },
+            true,
             {
                 model: { runtimeAdapter: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'xhigh' },
                 permissionMode: 'plan',
@@ -56,6 +57,7 @@ describe('chat run options', () => {
         [
             'values the app does not know',
             { runtimeAdapter: 'claude', model: 'claude-opus-5-5', reasoningEffort: 'turbo', permissionMode: 'yolo' },
+            true,
             {
                 model: { runtimeAdapter: 'claude', model: 'claude-opus-5-5', reasoningEffort: null },
                 permissionMode: 'auto',
@@ -64,9 +66,16 @@ describe('chat run options', () => {
         [
             'a run with no known harness',
             { runtimeAdapter: null, model: 'claude-opus-5-5', reasoningEffort: 'high', permissionMode: null },
+            true,
             DEFAULT_CHAT_RUN_OPTIONS,
         ],
-    ])('seeds the options from %s', (_, config, expected) => {
-        expect(chatRunOptionsFromConfig(config)).toEqual(expected)
+        [
+            'a newly started run with a resolved model and mode',
+            { runtimeAdapter: 'codex', model: 'gpt-6.1-sol', reasoningEffort: 'xhigh', permissionMode: 'plan' },
+            false,
+            { model: 'default', permissionMode: 'plan' },
+        ],
+    ])('seeds the options from %s', (_, config, pinModel, expected) => {
+        expect(chatRunOptionsFromConfig(config, pinModel)).toEqual(expected)
     })
 })

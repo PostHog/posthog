@@ -7,6 +7,7 @@ export type OrgAiStatus = 'approved' | 'not_approved' | 'unknown'
 export interface ProjectOrganization {
     name: string | null
     status: OrgAiStatus
+    canApprove: boolean
 }
 
 // The chat runs in the selected project, so the approval that counts is the one of that project's organization,
@@ -24,6 +25,7 @@ export function projectOrganization(
     return {
         name: organization?.name ?? project?.organizationName ?? null,
         status: approved === undefined ? 'unknown' : approved ? 'approved' : 'not_approved',
+        canApprove: organization?.membershipLevel === 8 || organization?.membershipLevel === 15,
     }
 }
 

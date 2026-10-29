@@ -115,7 +115,13 @@ export function MetricChartRenderer({
                     />
                     <RangeShade selection={selection} xs={xs} plot={plot} />
                     {kind === 'bar' ? (
-                        <Bars series={current} geometry={geometry} accent={accent} selection={selection} />
+                        <Bars
+                            series={current}
+                            geometry={geometry}
+                            accent={accent}
+                            selection={selection}
+                            variant={variant}
+                        />
                     ) : (
                         <Lines series={series} plot={plot} />
                     )}
@@ -258,11 +264,13 @@ function Bars({
     geometry,
     accent,
     selection,
+    variant,
 }: {
     series: PlottedSeries[]
     geometry: ChartGeometry
     accent: string
     selection: ChartSelectionValues
+    variant: ChartVariant
 }): ReactElement {
     const colors = useColors()
     const { plot, bandWidth } = geometry
@@ -282,10 +290,13 @@ function Bars({
                     const left = point.x - groupWidth / 2 + seriesIndex * barWidth
                     builder.addRRect(Skia.RRectXY(Skia.XYWHRect(left, top, barWidth, height), 1, 1))
                 }
-                // A single series draws gray and highlights the selected bar; several keep their colors.
-                return { key: s.key, path: builder.detach(), color: single ? colors.barNeutral : s.color }
+                return {
+                    key: s.key,
+                    path: builder.detach(),
+                    color: single && variant !== 'compact' ? colors.barNeutral : s.color,
+                }
             }),
-        [series, zeroY, groupWidth, barWidth, single, colors]
+        [series, zeroY, groupWidth, barWidth, single, colors, variant]
     )
     const first = series[0]
     return (
@@ -301,7 +312,7 @@ function Bars({
                         xs={geometry.xs}
                         zeroY={zeroY}
                         width={barWidth}
-                        color={accent}
+                        color={variant === 'compact' ? colors.ink : accent}
                     />
                     <BarHighlight
                         sel={selection.selB}
@@ -309,7 +320,7 @@ function Bars({
                         xs={geometry.xs}
                         zeroY={zeroY}
                         width={barWidth}
-                        color={accent}
+                        color={variant === 'compact' ? colors.ink : accent}
                     />
                 </>
             ) : (

@@ -1,6 +1,6 @@
 import { Linking } from 'react-native'
-
 import { useAuthStore } from '@/auth/authStore'
+import { redirectSystemPath } from '../../app/+native-intent'
 
 import { setAnalyticsClient } from './analytics'
 import { HANDOFF_PARAM, handoffId, handoffMarker, takeHandoff } from './handoffProtocol'
@@ -71,7 +71,10 @@ describe('session handoff', () => {
     })
 
     it('receives a native link, strips only the marker, and leaves authentication alone', () => {
-        const url = receiveSessionHandoff(`posthog-dev://inbox#tab=all&${HANDOFF_PARAM}=${handoffMarker(ID, NOW)}`)
+        const url = redirectSystemPath({
+            path: `posthog-dev://inbox#tab=all&${HANDOFF_PARAM}=${handoffMarker(ID, NOW)}`,
+            initial: true,
+        })
         expect(url).toBe('posthog-dev://inbox#tab=all')
         expect(capture).toHaveBeenCalledWith('mobile_session_handoff_received', {
             handoff_id: ID,
@@ -79,6 +82,15 @@ describe('session handoff', () => {
         })
         expect(identify).not.toHaveBeenCalled()
         expect(reset).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        ['https://us.posthog.com/project/2/replay/example-session?t=12', '/replay/example-session?source=link&t=12'],
+        ['https://us.posthog.com/project/2/error_tracking/example-issue', '/errors/example-issue?from=link'],
+        ['posthog-dev://callback?code=example-code', null],
+    ])('preserves native routing for %s', (path, target) => {
+        expect(redirectSystemPath({ path, initial: false })).toBe(target)
+        expect(capture).not.toHaveBeenCalledWith('mobile_session_handoff_received', expect.anything())
     })
 
     it.each([-120_001, 1])('rejects expired or future markers (%s ms)', (offset) => {

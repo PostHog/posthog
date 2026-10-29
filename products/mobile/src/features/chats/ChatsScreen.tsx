@@ -120,7 +120,14 @@ export function ChatsScreen(): ReactElement {
         track('mobile_chats_refreshed', { trigger })
         void query.refetch()
     }
-    useTabHeader('chats', { hint: null, status: null, editing: null, editPins: null, filter: null })
+    useTabHeader('chats', {
+        refreshing: query.isRefetching,
+        hint: null,
+        status: null,
+        editing: null,
+        editPins: null,
+        filter: null,
+    })
 
     const hasItems = (query.data?.length ?? 0) > 0
     const sections = useMemo<ChatSection[]>(

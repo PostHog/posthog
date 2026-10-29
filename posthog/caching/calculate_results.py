@@ -172,6 +172,8 @@ def calculate_for_query_based_insight(
             hogql=getattr(process_response, "hogql", None),
             types=getattr(process_response, "types", None),
             resolved_date_range=_model_field_as_dict(process_response, "resolved_date_range"),
+            resolved_compare_date_range=_model_field_as_dict(process_response, "resolved_compare_date_range"),
+            action_names=getattr(process_response, "action_names", None),
             query_scan=_model_field_as_dict(process_response, "query_scan"),
             warnings=_model_list_field_as_dicts(process_response, "warnings"),
         )
@@ -196,6 +198,8 @@ def calculate_for_query_based_insight(
         hogql=response.get("hogql"),
         types=response.get("types"),
         resolved_date_range=response.get("resolved_date_range"),
+        resolved_compare_date_range=response.get("resolved_compare_date_range"),
+        action_names=response.get("action_names"),
         query_scan=response.get("query_scan"),
         warnings=response.get("warnings"),
     )

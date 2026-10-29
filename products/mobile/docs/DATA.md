@@ -9,22 +9,22 @@ All paths are project scoped (`/api/projects/{project_id}/...`) and go through `
 Fetchers live in `src/api/today.ts`, `src/api/reports.ts` and `src/api/query.ts`, typed by hand with only the fields the app reads.
 Each interface names the serializer it mirrors.
 
-| Use | Request | Serializer | Scope |
-| --- | --- | --- | --- |
-| Inbox list | `GET signals/reports/?view=for_you&sort=priority&limit=20&offset=<n>` | Paginated `SignalReportListSerializer` | `task:read` |
-| Read states of the list | `POST signals/reports/read_state/` `{report_ids}` (one call per page) | `ReportReadStateResponseSerializer` | `task:read` |
-| Report | `GET signals/reports/{id}/` | `SignalReportSerializer` | `task:read` |
-| Work log | `GET signals/reports/{id}/artefacts/?limit=100` (newest first) | `SignalReportArtefactSerializer` | `task:read` |
-| Signals | `GET signals/reports/{id}/signals/` | `ReportSignalsResponseSerializer` | `task:read` |
-| Today page | `GET today/reports/{id}/page/` | `ReportPageSerializer` | `today:read` + `task:read` |
-| Current task | `GET tasks/{task_id}/` (`getTask` in `src/api/tasks.ts`) | `TaskSerializer` | `task:read` |
-| Mark read | `POST signals/reports/read_state/` `{report_ids: [id], read: true}` | same | `task:read` |
-| Signal snooze | `POST signals/reports/{id}/state/` `{state: 'potential', snooze_for: 5}` | `SignalReportSerializer` | `task:write` |
-| Set reviewers | `PUT signals/reports/{id}/reviewers/` `{content: [{user_uuid} or {github_login}]}` | `SignalReportSuggestedReviewersArtefactSerializer` | `task:write` |
-| Set priority | `POST signals/reports/{id}/artefacts/` `{artefact_type: 'priority_judgment', content: {priority, explanation}}` | `SignalReportArtefactLogCreateSerializer`, content `PriorityAssessment` | `task:write` |
-| Reviewer search | `GET signals/reports/available_reviewers/?query=` | `{uuid: {name, email}}` | `task:read` |
-| Metric and chart data | `POST query/` `{query: <TrendsQuery>, client_query_id, refresh: 'blocking'}` | `TrendsQueryResponse` | `query:read` |
-| Running query | `GET query/{query_id}/` | `QueryStatusResponse` | `query:read` |
+| Use                     | Request                                                                                                         | Serializer                                                              | Scope                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------- |
+| Inbox list              | `GET signals/reports/?view=for_you&sort=priority&limit=20&offset=<n>`                                           | Paginated `SignalReportListSerializer`                                  | `task:read`                |
+| Read states of the list | `POST signals/reports/read_state/` `{report_ids}` (one call per page)                                           | `ReportReadStateResponseSerializer`                                     | `task:read`                |
+| Report                  | `GET signals/reports/{id}/`                                                                                     | `SignalReportSerializer`                                                | `task:read`                |
+| Work log                | `GET signals/reports/{id}/artefacts/?limit=100` (newest first)                                                  | `SignalReportArtefactSerializer`                                        | `task:read`                |
+| Signals                 | `GET signals/reports/{id}/signals/`                                                                             | `ReportSignalsResponseSerializer`                                       | `task:read`                |
+| Today page              | `GET today/reports/{id}/page/`                                                                                  | `ReportPageSerializer`                                                  | `today:read` + `task:read` |
+| Current task            | `GET tasks/{task_id}/` (`getTask` in `src/api/tasks.ts`)                                                        | `TaskSerializer`                                                        | `task:read`                |
+| Mark read               | `POST signals/reports/read_state/` `{report_ids: [id], read: true}`                                             | same                                                                    | `task:read`                |
+| Signal snooze           | `POST signals/reports/{id}/state/` `{state: 'potential', snooze_for: 5}`                                        | `SignalReportSerializer`                                                | `task:write`               |
+| Set reviewers           | `PUT signals/reports/{id}/reviewers/` `{content: [{user_uuid} or {github_login}]}`                              | `SignalReportSuggestedReviewersArtefactSerializer`                      | `task:write`               |
+| Set priority            | `POST signals/reports/{id}/artefacts/` `{artefact_type: 'priority_judgment', content: {priority, explanation}}` | `SignalReportArtefactLogCreateSerializer`, content `PriorityAssessment` | `task:write`               |
+| Reviewer search         | `GET signals/reports/available_reviewers/?query=`                                                               | `{uuid: {name, email}}`                                                 | `task:read`                |
+| Metric and chart data   | `POST query/` `{query: <TrendsQuery>, client_query_id, refresh: 'blocking'}`                                    | `TrendsQueryResponse`                                                   | `query:read`               |
+| Running query           | `GET query/{query_id}/`                                                                                         | `QueryStatusResponse`                                                   | `query:read`               |
 
 Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id, so a project switch never shows another project's cache.
 `useProjectScope()` reads both from the auth store and returns null until the session is signed in.
@@ -92,7 +92,7 @@ A failed background refetch keeps the cached copy.
 It also carries `from`, read from the route's `from` param: `inbox` (a row tap), `push` (a notification), `adjacent` (Prev/Next) or `deep_link` (no param or an unknown one).
 `mobile_report_load_failed` is sent when the screen shows "Couldn't load this report", with `report_id` and `kind` as for the inbox error, or with `kind: invalid_id` and no id for "Couldn't find this report".
 `mobile_report_read` is sent once when the report body unmounts (Back or Prev/Next), with `report_id`, `dwell_s` (whole seconds the screen had focus with the app in the foreground) and `scrolled_to_end` (the deepest scroll came within 160 px of the content end, or the content fit on screen).
-`mobile_report_replay_opened` carries `report_id` and `replay_count` when "Watch a session" opens the recording on the web.
+`mobile_report_replay_opened` carries `report_id` and `replay_count` when "See the moment" opens the session screen (the recording on the web in demo mode).
 
 **Full report.** "Read the full report" under the lede opens `/report/{id}/details` when the report has a summary or at least one signal.
 The screen reads `useReport(id)`, so it shares the report screen's cache and does not poll.

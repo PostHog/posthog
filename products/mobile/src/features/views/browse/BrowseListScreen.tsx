@@ -1,21 +1,20 @@
 import { useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
 import { ActivityIndicator, FlatList, Text, View } from 'react-native'
-
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useNow } from '@/lib/useNow'
 import type { BrowseRow } from '@/model/views'
-import { BackChip } from '@/ui/BackChip'
-import { BlurEdge } from '@/ui/BlurEdge'
-import { FadeEdge } from '@/ui/FadeEdge'
 import { SearchIcon } from '@/ui/icons/SearchIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
+import { ScreenChrome } from '@/ui/ScreenChrome'
 import { SearchField } from '@/ui/SearchField'
 import { LoadingView, StateView } from '@/ui/StateView'
+import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
+import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
 import { trackViewsErrorShown } from '../analytics'
 import { type BrowseListState, useBrowseDashboards, useBrowseInsights, useBrowseSearch } from '../browseHooks'
@@ -48,12 +47,6 @@ const COPY: Record<BrowseKind, { title: string; search: string; empty: string; e
     },
 }
 
-const CHROME_TOP = 58
-const CHROME_ROW_HEIGHT = 46
-const CHROME_BOTTOM = CHROME_TOP + CHROME_ROW_HEIGHT
-const CHROME_FADE = 16
-const CHROME_SOLID = CHROME_BOTTOM / (CHROME_BOTTOM + CHROME_FADE)
-
 function keyOf(row: BrowseRow): string {
     return `${row.kind}:${row.ref ?? row.name}`
 }
@@ -64,6 +57,7 @@ export function BrowseListScreen({ kind }: { kind: BrowseKind }): ReactElement {
     const router = useRouter()
     const insets = useScreenInsets()
     const access = useViewsAccess()
+    const scrollTitle = useScrollTitle(COPY[kind].title)
     const goBack = (): void => {
         if (router.canGoBack()) {
             router.back()
@@ -71,42 +65,45 @@ export function BrowseListScreen({ kind }: { kind: BrowseKind }): ReactElement {
             router.replace('/views')
         }
     }
-    const chromeTop = topOffset(insets, CHROME_TOP)
     return (
         <View style={styles.screen} testID={`views-browse-${kind}-screen`}>
             {access.state !== 'ok' ? (
                 <View
                     style={[
                         styles.fill,
-                        { paddingTop: topOffset(insets, CHROME_BOTTOM), paddingBottom: bottomOffset(insets, 60) },
+                        { paddingTop: topOffset(insets, SCREEN_CONTENT_TOP), paddingBottom: bottomOffset(insets, 60) },
                     ]}
                 >
                     <ViewsReauthState access={access} />
                 </View>
             ) : kind === 'dashboards' ? (
-                <DashboardsList />
+                <DashboardsList scrollTitle={scrollTitle} />
             ) : (
-                <InsightsList />
+                <InsightsList scrollTitle={scrollTitle} />
             )}
-            <View style={[styles.chrome, { paddingTop: chromeTop }]}>
-                <BlurEdge solid={CHROME_SOLID} />
-                <FadeEdge direction="down" solid={CHROME_SOLID} opacity={layout.chromeTint} />
-                <BackChip onPress={goBack} testID="views-browse-back" />
-            </View>
+            <ScreenChrome onBack={goBack} backTestID="views-browse-back" title={scrollTitle.title} />
         </View>
     )
 }
 
 // One component per kind, so each screen reads only its own list.
-function DashboardsList(): ReactElement {
-    return <BrowseList kind="dashboards" list={useBrowseDashboards()} />
+function DashboardsList({ scrollTitle }: { scrollTitle: ScrollTitleState }): ReactElement {
+    return <BrowseList kind="dashboards" list={useBrowseDashboards()} scrollTitle={scrollTitle} />
 }
 
-function InsightsList(): ReactElement {
-    return <BrowseList kind="insights" list={useBrowseInsights()} />
+function InsightsList({ scrollTitle }: { scrollTitle: ScrollTitleState }): ReactElement {
+    return <BrowseList kind="insights" list={useBrowseInsights()} scrollTitle={scrollTitle} />
 }
 
-function BrowseList({ kind, list }: { kind: BrowseKind; list: BrowseListState }): ReactElement {
+function BrowseList({
+    kind,
+    list,
+    scrollTitle,
+}: {
+    kind: BrowseKind
+    list: BrowseListState
+    scrollTitle: ScrollTitleState
+}): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const router = useRouter()
@@ -166,7 +163,7 @@ function BrowseList({ kind, list }: { kind: BrowseKind; list: BrowseListState })
             trackViewsErrorShown({ screen: 'browse', kind: 'failed' })
         }
     }, [listFailed])
-    const contentTop = topOffset(insets, CHROME_BOTTOM + 10)
+    const contentTop = topOffset(insets, SCREEN_CONTENT_TOP)
     let empty: ReactElement
     if (state.isLoading) {
         empty = <LoadingView label={`Loading ${copy.noun}`} />
@@ -199,12 +196,14 @@ function BrowseList({ kind, list }: { kind: BrowseKind; list: BrowseListState })
     return (
         <>
             <FlatList
+                onScroll={scrollTitle.onScroll}
+                scrollEventThrottle={16}
                 data={rows}
                 keyExtractor={keyOf}
                 renderItem={renderItem}
                 ListHeaderComponent={
                     <View style={styles.listHeader}>
-                        <Text style={styles.title} accessibilityRole="header">
+                        <Text style={styles.title} accessibilityRole="header" onLayout={scrollTitle.onTitleLayout}>
                             {copy.title}
                         </Text>
                         <SearchField
@@ -295,18 +294,6 @@ const useStyles = createStyles(({ colors }) => ({
     fill: {
         flex: 1,
     },
-    chrome: {
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: layout.inboxGutter,
-        paddingBottom: CHROME_FADE,
-        pointerEvents: 'box-none',
-    },
     content: {
         flexGrow: 1,
         paddingHorizontal: layout.inboxGutter,
@@ -318,7 +305,7 @@ const useStyles = createStyles(({ colors }) => ({
     title: {
         ...type.screenTitle,
         color: colors.ink,
-        marginHorizontal: 2,
+        marginHorizontal: 6,
     },
     footer: {
         alignItems: 'center',

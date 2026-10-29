@@ -96,20 +96,20 @@ the same sheet with a back control. The quick "Hand off" button uses the same op
 Code: `runOptions.ts` (ports of the web's `composerModels.ts` and `composerModes.ts`),
 `runOptionsStore.ts`, `useRunOptions.ts`, `ModelPage.tsx`, `ModePage.tsx`, `BranchPage.tsx`.
 
-| Request | When |
-| --- | --- |
-| `GET tasks/models/` (`task:read`) | Sheet open. `{models: [{runtime_adapter, model, display_name, supported_efforts, cost_multiplier}]}`. The app hides the catalogue's retired ids, except a retired stored default, which stays listed so it shows by name (the web's `pickerModels`). An empty list or an error shows "Couldn't load the model list" and the run uses the default model. |
-| `GET tasks/@me/config/` (`task:read`) | Sheet open and at hand-off (cached 60 s). The app reads `resolved_ai_run_defaults.{runtime, runtime_adapter, model, reasoning_effort}`. |
+| Request                               | When                                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET tasks/models/` (`task:read`)     | Sheet open. `{models: [{runtime_adapter, model, display_name, supported_efforts, cost_multiplier}]}`. The app hides the catalogue's retired ids, except a retired stored default, which stays listed so it shows by name (the web's `pickerModels`). An empty list or an error shows "Couldn't load the model list" and the run uses the default model. |
+| `GET tasks/@me/config/` (`task:read`) | Sheet open and at hand-off (cached 60 s). The app reads `resolved_ai_run_defaults.{runtime, runtime_adapter, model, reasoning_effort}`.                                                                                                                                                                                                                 |
 
 The run body (`buildHandoffRunRequest`):
 
-| Selection | Fields sent |
-| --- | --- |
-| Model untouched, usable stored default (`runtime: 'acp'` with a model and adapter) | `initial_permission_mode` only, mapped to the default's harness. The server resolves the user's, then the project's, default. |
-| Model untouched, no usable stored default (`model` is null, or `runtime` is `pi`) | `runtime_adapter: 'claude'`, `model: 'claude-opus-5-5'`, `reasoning_effort: 'high'`, and the mode mapped to Claude. A run that pins no runtime starts on ACP, and `resolve_ai_run_selection` discards a Pi default there; the web maps it to null too. Matches the web Inbox's Create PR. |
-| Model untouched, `@me/config/` failed | `initial_permission_mode` only, so a failed lookup never overrides a stored default. |
-| Model picked | `runtime_adapter`, `model`, `reasoning_effort` (left out for a model with no efforts) and the mode mapped to that harness. |
-| Branch typed | `branch` (trimmed). Left out when empty: the server then uses the project's Inbox base branch for that repository (`autostart_base_branch_for_repository`), else the repository's GitHub default branch. |
+| Selection                                                                          | Fields sent                                                                                                                                                                                                                                                                               |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Model untouched, usable stored default (`runtime: 'acp'` with a model and adapter) | `initial_permission_mode` only, mapped to the default's harness. The server resolves the user's, then the project's, default.                                                                                                                                                             |
+| Model untouched, no usable stored default (`model` is null, or `runtime` is `pi`)  | `runtime_adapter: 'claude'`, `model: 'claude-opus-5-5'`, `reasoning_effort: 'high'`, and the mode mapped to Claude. A run that pins no runtime starts on ACP, and `resolve_ai_run_selection` discards a Pi default there; the web maps it to null too. Matches the web Inbox's Create PR. |
+| Model untouched, `@me/config/` failed                                              | `initial_permission_mode` only, so a failed lookup never overrides a stored default.                                                                                                                                                                                                      |
+| Model picked                                                                       | `runtime_adapter`, `model`, `reasoning_effort` (left out for a model with no efforts) and the mode mapped to that harness.                                                                                                                                                                |
+| Branch typed                                                                       | `branch` (trimmed). Left out when empty: the server then uses the project's Inbox base branch for that repository (`autostart_base_branch_for_repository`), else the repository's GitHub default branch.                                                                                  |
 
 - **Mode** defaults to Auto. Claude offers Default, Accept edits, Plan and Auto; Codex offers Plan,
   Read only and Auto. Full auto (`bypassPermissions`) and Full access (`full-access`) are hidden, as
@@ -153,14 +153,14 @@ The streamed command beneath the status title stays on one line and truncates at
 Frames follow `products/tasks/backend/presentation/views/api.py` (stream view) and the web's
 `products/posthog_ai/frontend/logics/runStreamLogic.ts`. The SSE parser is `src/api/sse.ts`.
 
-| SSE event | Handling |
-| --- | --- |
-| `keepalive` | Resets the 60 s idle timer and publishes any buffered report history. |
-| `end` `{"type":"rotated"}` | Connection cap reached. Reconnect at once with `Last-Event-ID`. |
-| `end` `{"type":"resync"}` | Drop the cursor, reconnect, take the full replay. |
-| `stream-end` | Stream finished. Publish buffered history, drop the cursor, fetch the run once more, stop. The run snapshot determines whether the run is terminal. |
-| `error` | Server closes. Fetch the run; stop if terminal, else reconnect with backoff. |
-| content (no `event:`) | Saved as the cursor (`id`), deduped by envelope `event_id`, reduced below. |
+| SSE event                  | Handling                                                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `keepalive`                | Resets the 60 s idle timer and publishes any buffered report history.                                                                               |
+| `end` `{"type":"rotated"}` | Connection cap reached. Reconnect at once with `Last-Event-ID`.                                                                                     |
+| `end` `{"type":"resync"}`  | Drop the cursor, reconnect, take the full replay.                                                                                                   |
+| `stream-end`               | Stream finished. Publish buffered history, drop the cursor, fetch the run once more, stop. The run snapshot determines whether the run is terminal. |
+| `error`                    | Server closes. Fetch the run; stop if terminal, else reconnect with backoff.                                                                        |
+| content (no `event:`)      | Saved as the cursor (`id`), deduped by envelope `event_id`, reduced below.                                                                          |
 
 Reconnects back off 2 s doubling to 30 s, 10 attempts per drop and 30 per screen visit, and fetch
 the run first so a finished run stops. A 503 at admission waits `Retry-After`. 401, 403 and 404 stop.
@@ -188,18 +188,18 @@ after the quiet interval. An authoritative boundary requires backend work listed
 [GAPS.md](GAPS.md#agent-state-backend-backlog); the client does not use `start=latest` to skip
 history because doing so could lose an outstanding question.
 
-| Content frame | Effect on the live state |
-| --- | --- |
-| `task_run_state` | `status`, `stage`, `error_message`, `output.pr_url` / `pr_urls`. A terminal status clears the pending decision. |
-| `session/update` `tool_call` | Latest tool title becomes the stage, shortened: "Read /repo/src/ChartLegend.tsx" reads "Reading ChartLegend.tsx". |
-| `session/update` `tool_call_update` | Title updates of the latest call move the stage. A `completed` or `failed` update for the pending request's tool clears it (someone else answered). |
-| `session/update` `agent_message_chunk` / `agent_message` | Records activity for the current run. Message text belongs in task chat. |
-| `session/update` `current_mode_update`, `session/new` `_meta.permissionMode` | Permission mode for the tool policy. |
-| `_posthog/progress` | `label` (else `detail`) overrides the tool title while the step runs; a finished step clears it. |
-| `_posthog/turn_complete` | The turn is idle. Clears pending requests and transient progress; it does not create an input request. |
-| `_posthog/error` | Keeps `message` as the run error. |
-| `permission_request` (live) and `_posthog/permission_request` (replay) | Runs the tool policy: allow it for the user, or surface it as a decision. Ignored when already handled, from an earlier run in the log, or when the run is terminal. |
-| `_posthog/permission_resolved` (replay) | Clears the matching request and remembers its id so a replay cannot bring it back. |
+| Content frame                                                                | Effect on the live state                                                                                                                                             |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task_run_state`                                                             | `status`, `stage`, `error_message`, `output.pr_url` / `pr_urls`. A terminal status clears the pending decision.                                                      |
+| `session/update` `tool_call`                                                 | Latest tool title becomes the stage, shortened: "Read /repo/src/ChartLegend.tsx" reads "Reading ChartLegend.tsx".                                                    |
+| `session/update` `tool_call_update`                                          | Title updates of the latest call move the stage. A `completed` or `failed` update for the pending request's tool clears it (someone else answered).                  |
+| `session/update` `agent_message_chunk` / `agent_message`                     | Records activity for the current run. Message text belongs in task chat.                                                                                             |
+| `session/update` `current_mode_update`, `session/new` `_meta.permissionMode` | Permission mode for the tool policy.                                                                                                                                 |
+| `_posthog/progress`                                                          | `label` (else `detail`) overrides the tool title while the step runs; a finished step clears it.                                                                     |
+| `_posthog/turn_complete`                                                     | The turn is idle. Clears pending requests and transient progress; it does not create an input request.                                                               |
+| `_posthog/error`                                                             | Keeps `message` as the run error.                                                                                                                                    |
+| `permission_request` (live) and `_posthog/permission_request` (replay)       | Runs the tool policy: allow it for the user, or surface it as a decision. Ignored when already handled, from an earlier run in the log, or when the run is terminal. |
+| `_posthog/permission_resolved` (replay)                                      | Clears the matching request and remembers its id so a replay cannot bring it back.                                                                                   |
 
 While execution is working, the status card stage is the active step label, else the latest tool
 title, else the server's `stage`. Idle and terminal runs clear this transient text. There is no
@@ -223,11 +223,11 @@ and waits; when the phone is the only client, a request it does not answer stall
 
 ## Decisions and answers
 
-| Request | Card | Answer sent |
-| --- | --- | --- |
-| Question | `_meta.questions[0].question`; options `option_<idx>` with the label as title and the description as meta. Several questions show one at a time and go out together. | `permission_response` with `optionId` (the picked `option_<idx>` of the first question, else `option_0`), `answers` keyed by question text, and `customInput` for typed text. |
-| Plan approval | "Approve the plan?" with "Approve the plan" (`auto`) and "Approve in full auto" (`bypassPermissions`), or the offered options when neither exists. | The picked mode. Typed text rejects with feedback (`customInput`). |
-| Permission | "Allow {tool title}?" with the offered options. | The picked option. Typed text goes with the option that takes text, else a reject option, else the first. |
+| Request       | Card                                                                                                                                                                 | Answer sent                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Question      | `_meta.questions[0].question`; options `option_<idx>` with the label as title and the description as meta. Several questions show one at a time and go out together. | `permission_response` with `optionId` (the picked `option_<idx>` of the first question, else `option_0`), `answers` keyed by question text, and `customInput` for typed text. |
+| Plan approval | "Approve the plan?" with "Approve the plan" (`auto`) and "Approve in full auto" (`bypassPermissions`), or the offered options when neither exists.                   | The picked mode. Typed text rejects with feedback (`customInput`).                                                                                                            |
+| Permission    | "Allow {tool title}?" with the offered options.                                                                                                                      | The picked option. Typed text goes with the option that takes text, else a reject option, else the first.                                                                     |
 
 Success is `jsonrpc: '2.0'`, no `error`, and `result.resolved === true`. A 503 `sandbox_not_ready`
 or `agent_session_not_ready` retries at 250, 500 and 1000 ms for up to 10 s. A 409
@@ -249,18 +249,18 @@ and sends none of these sheet events.
 Hand-off and answer errors show as one orange line above the footer cards. The actions resolve
 instead of rejecting, because every caller fires them without waiting.
 
-| Case | Copy |
-| --- | --- |
-| 402 `self_driving_free_trial` | Server `detail`, else "During your free trial, Self-driving writes reports but doesn't open pull requests. Contact us to upgrade." |
-| Other 402 (PR limit) | Server `detail`, else "Your organization reached its self-driving pull request limit. Ask an org admin to raise it from the Inbox usage widget." |
-| 429 `signal_report_task_cap`, `throttled` | Server `error` or `detail`, else "Task limit reached for this report. Try again later." |
-| Other 429 | Server copy, else "PostHog is busy. Try again in a few minutes." |
-| 503 `warm_run_activation_unavailable` after 20 s | "PostHog couldn't start the agent in time. Try again." |
-| 403 | Server copy, else "You don't have access to hand off reports in this project." |
-| 404 | "This report is no longer available." |
-| No run returned | "PostHog created the task but couldn't start it. Try again." |
-| Network | "Couldn't reach PostHog. Check your connection and try again." |
-| Anything else | "Couldn't hand off to PostHog. Try again." |
+| Case                                             | Copy                                                                                                                                             |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 402 `self_driving_free_trial`                    | Server `detail`, else "During your free trial, Self-driving writes reports but doesn't open pull requests. Contact us to upgrade."               |
+| Other 402 (PR limit)                             | Server `detail`, else "Your organization reached its self-driving pull request limit. Ask an org admin to raise it from the Inbox usage widget." |
+| 429 `signal_report_task_cap`, `throttled`        | Server `error` or `detail`, else "Task limit reached for this report. Try again later."                                                          |
+| Other 429                                        | Server copy, else "PostHog is busy. Try again in a few minutes."                                                                                 |
+| 503 `warm_run_activation_unavailable` after 20 s | "PostHog couldn't start the agent in time. Try again."                                                                                           |
+| 403                                              | Server copy, else "You don't have access to hand off reports in this project."                                                                   |
+| 404                                              | "This report is no longer available."                                                                                                            |
+| No run returned                                  | "PostHog created the task but couldn't start it. Try again."                                                                                     |
+| Network                                          | "Couldn't reach PostHog. Check your connection and try again."                                                                                   |
+| Anything else                                    | "Couldn't hand off to PostHog. Try again."                                                                                                       |
 
 Tracking: `mobile_handoff_failed` with `agent: posthog` and `reason`, one value per row above
 (`free_trial`, `pr_limit`, `task_limit`, `busy`, `start_timeout`, `forbidden`, `not_found`,

@@ -112,6 +112,8 @@ orchestrates these activities:
 The activities live in
 `products/tasks/backend/temporal/process_task/activities/`.
 
+Repository clone activities allow six attempts in total. Failed git commands, including RPC errors and repository-not-found responses, retry after 1, 2, 16, 32, and 64 seconds. Explicit authentication failures stop immediately. Each attempt keeps the five-minute timeout and reuses the sandbox and credential. Activity timeouts and infrastructure exceptions use Temporal's default exponential backoff within the same six-attempt limit. The `repository_clone_failed` worker log records the run, repository, sandbox, clone mode, exit code, and whether a GitHub token was supplied. Its stdout, stderr, and execution error fields redact the supplied token and sandbox command credentials before truncation to 500 characters each; the same diagnostics are attached to the Temporal error.
+
 The agent's `finish` tool marks a TaskRun terminal and triggers sandbox cleanup.
 ReviewHog and scout suggestion tasks do not expose it because their callers own session completion.
 ReviewHog receives and validates each turn's JSON before ending the session, and validation can use multiple turns in the same sandbox.
@@ -380,7 +382,7 @@ SANDBOX_AGENT_OTEL_LOGS_TOKEN=<project API key of the telemetry project>
 SANDBOX_AGENT_OTEL_TRACES_URL=http://localhost:8000/i/v1/traces  # optional, enables APM spans
 ```
 
-In cloud, emission is additionally gated per run by the `tasks-agent-run-otel-telemetry` feature flag (org-targeted, stamped into run state at dispatch; it also gates the scout run-log mirror). `DEBUG` bypasses the flag, so locally these settings are the only switch. They're injected into the sandbox as `POSTHOG_AGENT_OTEL_LOGS_URL`/`_TOKEN`/`POSTHOG_AGENT_OTEL_TRACES_URL` (deliberately not standard `OTEL_*` names, so OTel SDKs in user code don't auto-export into the telemetry project).
+In cloud, dispatch stamps each run as telemetry-enabled in run state, and the scout run-log mirror only mirrors stamped runs. `DEBUG` skips the stamp, so locally these settings are the only switch. They're injected into the sandbox as `POSTHOG_AGENT_OTEL_LOGS_URL`/`_TOKEN`/`POSTHOG_AGENT_OTEL_TRACES_URL` (deliberately not standard `OTEL_*` names, so OTel SDKs in user code don't auto-export into the telemetry project).
 The agent-server exports run/turn/tool lifecycle metadata (never message content or tool arguments), tagged with `run_id`/`task_id`/`team_id`/`user_id`/`distinct_id` resource attributes and `service.name=posthog-code-agent`.
 Telemetry stays off when either of the first two vars is unset.
 For local Docker sandboxes the localhost URLs are rewritten to `host.docker.internal` automatically; local ingestion requires the `capture-logs` service to be running.
