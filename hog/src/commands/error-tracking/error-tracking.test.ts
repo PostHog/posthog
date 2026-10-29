@@ -278,16 +278,22 @@ describe('hog error-tracking upload', () => {
         }
     })
 
-    test('--include-source leaves out sources that match an ignore glob', async () => {
+    test('--include-source leaves out sources that match an ignore glob, also through a symlinked root', async () => {
         // The fixture's DWARF names its sources under this folder.
         const sources = '/tmp/hog-parity-native'
         rmSync(sources, { recursive: true, force: true })
         cpSync(join(NATIVE, '../src'), sources, { recursive: true })
         cpSync(join(NATIVE, 'linux/checkout'), join(sources, 'bin/checkout'))
-        const plan = async (ignore: string[]): Promise<string> => {
-            const folder = project({
-                'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: sources, ignore }] } }),
-            })
+        const plan = async (ignore: string[], linked = false): Promise<string> => {
+            const folder = project({})
+            if (linked) {
+                symlinkSync(sources, join(folder, 'linked'))
+            }
+            const path = linked ? 'linked' : sources
+            writeFileSync(
+                join(folder, 'posthog.json'),
+                JSON.stringify({ errorTracking: { sources: [{ path, ignore }] } })
+            )
             const result = await runHog(['et', 'upload', '--dry-run', '--include-source'], {
                 env: { CLAUDECODE: '1' },
                 cwd: folder,
@@ -304,6 +310,7 @@ describe('hog error-tracking upload', () => {
 
             expect(withoutCheckout).not.toBe(all)
             expect(await plan(['checkout.c'])).toBe(withoutCheckout)
+            expect(await plan(['checkout.c'], true)).toBe(withoutCheckout)
         } finally {
             rmSync(sources, { recursive: true, force: true })
         }
