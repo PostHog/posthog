@@ -23,6 +23,8 @@ from products.alerts_platform.backend.temporal.metrics import (
     increment_deliveries_previewed,
     increment_discovery_omitted,
     increment_holds_expired,
+    record_tick_end,
+    record_tick_start,
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
@@ -56,8 +58,9 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts_platform.backend.logic import delivery_holds
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.logic.inventory import count_inventory
-    from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
+    from products.alerts_platform.backend.temporal.inventory_metrics import TickScheduleRuns, push_inventory
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
+    from products.alerts_platform.backend.temporal.schedule import SCHEDULE_ID
     from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
 
 
@@ -119,6 +122,20 @@ async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs
     return demand
 
 
+async def _tick_schedule_runs() -> TickScheduleRuns | None:
+    """The tick schedule's own run counts. Temporal's namespace metrics do not say which schedule skipped."""
+    try:
+        info = (await activity.client().get_schedule_handle(SCHEDULE_ID).describe()).info
+    except Exception as error:
+        await LOGGER.awarning("alerts_platform_schedule_describe_failed", error=str(error))
+        return None
+    return TickScheduleRuns(
+        started=info.num_actions,
+        skipped_overlap=info.num_actions_skipped_overlap,
+        missed_catchup=info.num_actions_missed_catchup_window,
+    )
+
+
 @activity.defn
 async def alerts_platform_record_inventory_activity() -> None:
     """A failed count is logged rather than raised, so a slow count never reads as a failed workflow."""
@@ -128,8 +145,9 @@ async def alerts_platform_record_inventory_activity() -> None:
     except Exception as error:
         await LOGGER.awarning("alerts_platform_inventory_failed", error=str(error))
         return
+    schedule_runs = await _tick_schedule_runs()
     # A failed push is logged and captured inside `push_registry`, never raised.
-    await asyncio.to_thread(push_inventory, inventories)
+    await asyncio.to_thread(push_inventory, inventories, schedule_runs)
 
 
 @activity.defn
@@ -532,6 +550,29 @@ def _should_continue_as_new() -> bool:
     return workflow.info().is_continue_as_new_suggested()
 
 
+def _finished_tick(result: OrchestrateResult, cutoff_iso: str) -> OrchestrateResult:
+    """Records how long the tick took from its scheduled minute and how many keys it found due.
+
+    The tick logs no other line, so this one is how an investigation reads a single tick's numbers.
+    """
+    duration = workflow.now() - dt.datetime.fromisoformat(cutoff_iso)
+    keys = sum(page.dispatched for page in result.pages) + result.remaining
+    safe_record(record_tick_end, duration=duration, keys=keys, deadline_reached=result.deadline_reached)
+    workflow.logger.info(
+        "Alerts platform tick finished",
+        extra={
+            "scheduled_at": cutoff_iso,
+            "duration_ms": int(duration.total_seconds() * 1000),
+            "keys": keys,
+            "dispatched": sum(page.dispatched for page in result.pages),
+            "remaining": result.remaining,
+            "pages": len(result.pages),
+            "deadline_reached": result.deadline_reached,
+        },
+    )
+    return result
+
+
 @workflow.defn(name="alerts-platform-orchestrate")
 class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
     """One minute tick. Discovers demand once, then pages source dispatchers until the demand is
@@ -550,6 +591,7 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
                 SearchAttributeKey.for_datetime("TemporalScheduledStartTime"), info.workflow_start_time
             )
             now = workflow.now()
+            safe_record(record_tick_start, info.workflow_start_time - cutoff)
             hard_stop = info.execution_timeout or (TICK_DISPATCH_BUDGET + TICK_HARD_STOP_MARGIN)
             inputs = replace(
                 inputs,
@@ -589,7 +631,9 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
                     + inputs.omitted
                     + sum(recorded.undispatched for recorded in pages)
                 )
-                return OrchestrateResult(pages=pages, remaining=remaining, deadline_reached=True)
+                return _finished_tick(
+                    OrchestrateResult(pages=pages, remaining=remaining, deadline_reached=True), cutoff_iso
+                )
             # One list, so the settled results below can be read back against the source that
             # produced each one.
             paged = sorted(demand.items())
@@ -650,10 +694,13 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
             if demand and _should_continue_as_new():
                 workflow.continue_as_new(replace(inputs, page=page, demand=demand, pages=pages))
 
-        return OrchestrateResult(
-            pages=pages,
-            remaining=inputs.omitted + sum(recorded.undispatched for recorded in pages),
-            deadline_reached=False,
+        return _finished_tick(
+            OrchestrateResult(
+                pages=pages,
+                remaining=inputs.omitted + sum(recorded.undispatched for recorded in pages),
+                deadline_reached=False,
+            ),
+            cutoff_iso,
         )
 
 

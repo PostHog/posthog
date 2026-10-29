@@ -18,7 +18,7 @@ from products.alerts_platform.backend.logic.inventory import (
     count_inventory,
 )
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
-from products.alerts_platform.backend.temporal.inventory_metrics import push_inventory
+from products.alerts_platform.backend.temporal.inventory_metrics import TickScheduleRuns, push_inventory
 
 NOW = datetime(2026, 10, 23, 12, tzinfo=UTC)
 LATER = NOW + timedelta(hours=1)
@@ -121,7 +121,7 @@ def test_push_replaces_the_group_with_the_dashboard_labels() -> None:
     )
 
     with patch("posthog.metrics.push_registry") as push:
-        push_inventory([inventory])
+        push_inventory([inventory], TickScheduleRuns(started=120, skipped_overlap=1, missed_catchup=3))
 
     assert push.call_args.args[0] == "alerts_platform_inventory"
     assert push.call_args.kwargs == {"replace_group": True, "timeout": 5}
@@ -139,3 +139,7 @@ def test_push_replaces_the_group_with_the_dashboard_labels() -> None:
     assert (
         registry.get_sample_value("alerts_platform_alerts", {"source": "logs", "state": "firing", "muted": "true"}) == 2
     )
+    assert {
+        outcome: registry.get_sample_value("alerts_platform_tick_schedule_actions", {"outcome": outcome})
+        for outcome in ("started", "skipped_overlap", "missed_catchup")
+    } == {"started": 120, "skipped_overlap": 1, "missed_catchup": 3}

@@ -39,6 +39,50 @@ ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
 ]
 
 
+# A tick must end inside its minute, so these buckets resolve the seconds up to and past 60.
+ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS = (
+    "alerts_platform_tick_duration_ms",
+    "alerts_platform_tick_start_delay_ms",
+)
+
+ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS = [
+    100.0,
+    500.0,
+    1_000.0,
+    2_000.0,
+    5_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    40_000.0,
+    50_000.0,
+    60_000.0,
+    90_000.0,
+    120_000.0,
+]
+
+ALERTS_PLATFORM_TICK_KEYS_METRIC = "alerts_platform_tick_keys"
+
+ALERTS_PLATFORM_TICK_KEYS_BUCKETS = [
+    0.0,
+    50.0,
+    100.0,
+    200.0,
+    300.0,
+    400.0,
+    500.0,
+    600.0,
+    800.0,
+    1_000.0,
+    1_250.0,
+    1_500.0,
+    2_000.0,
+    3_000.0,
+    5_000.0,
+]
+
+
 def safe_record(fn: Callable[..., object], *args: object, **kwargs: object) -> None:
     """Best-effort metric recording. A batch that decided correctly must not fail on telemetry."""
     try:
@@ -271,6 +315,32 @@ def record_delivery_lag(source: str, provider: str, lag_ms: int) -> None:
     meter.create_histogram_timedelta(
         name="alerts_platform_delivery_lag_ms", description=_DELIVERY_LAG_DESCRIPTION, unit="ms"
     ).record(dt.timedelta(milliseconds=lag_ms))
+
+
+def record_tick_start(start_delay: dt.timedelta) -> None:
+    """How late a tick's workflow started after its scheduled minute. Called from workflow code;
+    the workflow meter emits nothing during replay."""
+    get_metric_meter().create_histogram_timedelta(
+        name="alerts_platform_tick_start_delay_ms",
+        description="Time from a tick's scheduled minute to the start of its workflow",
+        unit="ms",
+    ).record(start_delay)
+
+
+def record_tick_end(*, duration: dt.timedelta, keys: int, deadline_reached: bool) -> None:
+    """One finished tick, measured from its scheduled minute. A tick that runs past its minute
+    makes the schedule skip the next one, so the duration's distance from 60 seconds is the
+    headroom left. Called from workflow code; the workflow meter emits nothing during replay."""
+    meter = get_metric_meter({"deadline_reached": str(deadline_reached).lower()})
+    meter.create_histogram_timedelta(
+        name="alerts_platform_tick_duration_ms",
+        description="Time from a tick's scheduled minute to the end of its last dispatch page",
+        unit="ms",
+    ).record(duration)
+    meter.create_histogram(
+        name=ALERTS_PLATFORM_TICK_KEYS_METRIC,
+        description="Batch keys one tick found due, dispatched or left for a later tick",
+    ).record(keys)
 
 
 def record_scheduler_lag(source: str, lag_ms: int) -> None:
