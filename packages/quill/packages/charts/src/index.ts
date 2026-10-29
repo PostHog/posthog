@@ -231,6 +231,7 @@ export type {
     ReferenceLineStyle,
     ReferenceLineVariant,
 } from './overlays/ReferenceLine'
+export { ChartHoverSync } from './core/hover-sync'
 export { HighlightedRange } from './overlays/HighlightedRange'
 export type { HighlightedRangeProps } from './overlays/HighlightedRange'
 export { ValueLabels } from './overlays/ValueLabels'
