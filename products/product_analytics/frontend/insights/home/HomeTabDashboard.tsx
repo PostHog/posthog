@@ -38,11 +38,12 @@ export function HomeTabDashboard({
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const { continueHomeDashboardWithAI, restorePostHogHome } = useActions(homeDashboardChoiceLogic)
 
-    // The empty state replaces DashboardHeader, which otherwise reloads the dashboard when AI adds charts to it.
+    // A running AI response delivers only to the listener it claimed at send time. One listener for both the
+    // empty state and the dashboard keeps that claim when the first chart replaces the empty state.
     useMcpToolApplyBack({
         tools: ['insight-create', 'insight-update'],
         targetKey: `dashboard:${dashboardId}`,
-        active: dashboardEmpty && canEditDashboard,
+        active: !dashboardMissing && canEditDashboard,
         onApply: (_event, { innerInput }) => {
             if (insightIsAddedToDashboard(innerInput, dashboardId)) {
                 loadDashboard({ action: DashboardLoadAction.Update })
@@ -88,12 +89,13 @@ export function HomeTabDashboard({
                 readOnly={readOnly}
                 headerActions={page.dashboardHeaderActions}
                 compact
+                parentReloadsOnAIChanges
             />
         )
     }
     return (
         <div className="-mt-8">
-            <Dashboard id={String(id)} placement={placement} readOnly={readOnly} />
+            <Dashboard id={String(id)} placement={placement} readOnly={readOnly} parentReloadsOnAIChanges />
         </div>
     )
 }

@@ -70,6 +70,8 @@ interface DashboardProps {
     headerActions?: JSX.Element
     /** Uses less vertical space above the tiles, for a page where the dashboard is a product's home. */
     compact?: boolean
+    /** The parent page reloads the dashboard when PostHog AI adds charts to it, so the header does not. */
+    parentReloadsOnAIChanges?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -104,6 +106,7 @@ export function Dashboard({
     readOnly,
     headerActions,
     compact,
+    parentReloadsOnAIChanges,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
@@ -114,6 +117,7 @@ export function Dashboard({
                 showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                 headerActions={headerActions}
                 compact={compact}
+                parentReloadsOnAIChanges={parentReloadsOnAIChanges}
             />
         </BindLogic>
     )
@@ -124,11 +128,13 @@ function DashboardScene({
     showCreateAnomalyAlertButton,
     headerActions,
     compact,
+    parentReloadsOnAIChanges,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
     headerActions?: JSX.Element
     compact?: boolean
+    parentReloadsOnAIChanges?: boolean
 }): JSX.Element {
     const {
         placement,
@@ -199,7 +205,11 @@ function DashboardScene({
     return (
         <SceneContent className={cn('dashboard', compact && 'gap-y-2')}>
             {placement == DashboardPlacement.Dashboard && (
-                <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} extraActions={headerActions} />
+                <DashboardHeader
+                    loading={!dashboard && !dashboardFailedToLoad}
+                    extraActions={headerActions}
+                    reloadOnAIChanges={!parentReloadsOnAIChanges}
+                />
             )}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />

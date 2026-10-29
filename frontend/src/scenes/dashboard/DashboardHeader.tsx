@@ -30,9 +30,11 @@ export function insightIsAddedToDashboard(input: Record<string, unknown> | null,
 export function DashboardHeader({
     loading = false,
     extraActions,
+    reloadOnAIChanges = true,
 }: {
     loading?: boolean
     extraActions?: JSX.Element
+    reloadOnAIChanges?: boolean
 }): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, dashboardEditing, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
@@ -46,7 +48,7 @@ export function DashboardHeader({
     useMcpToolApplyBack({
         tools: ['insight-create', 'insight-update'],
         targetKey: `dashboard:${dashboard?.id ?? 'unloaded'}`,
-        active: !!dashboard && canEditDashboard,
+        active: reloadOnAIChanges && !!dashboard && canEditDashboard,
         onApply: (_event, { innerInput }) => {
             if (dashboard && insightIsAddedToDashboard(innerInput, dashboard.id)) {
                 loadDashboard({ action: DashboardLoadAction.Update })

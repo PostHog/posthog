@@ -10,6 +10,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { initKeaTests } from '~/test/init'
 import { DashboardType } from '~/types'
 
+import { toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { HomeTab } from './HomeTab'
 import { homeTabDashboardProps } from './homeTabDashboardLogic'
 
@@ -99,6 +101,33 @@ describe('HomeTab', () => {
         })
 
         expect(screen.getByText(expectedContent)).toBeInTheDocument()
+    })
+
+    it('keeps the same AI listener when the first chart replaces the empty state', () => {
+        initKeaTests()
+        toolStreamEventsLogic.mount()
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            home_tab_dashboard: 42,
+        })
+        render(<HomeTab page={PAGE} />)
+        const loadDashboard = (tiles: unknown[]): void =>
+            act(() => {
+                dashboardLogic(homeTabDashboardProps(42, 'page')).actions.loadDashboardSuccess({
+                    id: 42,
+                    tiles,
+                    user_access_level: 'editor',
+                } as unknown as DashboardType)
+            })
+
+        loadDashboard([])
+        const listenersOnEmptyDashboard = Object.keys(toolStreamEventsLogic.values.toolListeners)
+        loadDashboard([{ id: 1, deleted: false }])
+
+        expect(screen.getByText('Home dashboard 42')).toBeInTheDocument()
+        expect(listenersOnEmptyDashboard).toHaveLength(1)
+        expect(Object.keys(toolStreamEventsLogic.values.toolListeners)).toEqual(listenersOnEmptyDashboard)
     })
 
     it('falls back to PostHog Home and reloads the team when the selected dashboard is gone', () => {
