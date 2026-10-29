@@ -24,6 +24,7 @@ from posthog.models import Organization, PropertyDefinition, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 from posthog.temporal.ai_observability.run_session_evaluation import fetch_session_for_evaluation
+from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import _fetch_and_format_trace
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
@@ -34,7 +35,7 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.cdp.backend.validation import compile_hog
 
-from .eval_reports.report_agent.tools import _execute_hogql
+from .eval_reports.report_agent.tools import _execute_hogql, get_trace_detail
 from .evaluation_hog import execute_hog_eval_bytecode
 from .evaluation_llm_judge import BooleanEvalResult
 from .evaluation_types import EvaluationActivityResult
@@ -379,7 +380,7 @@ class TestBackgroundEvaluationPropertyAccess:
         properties = {
             "$ai_input": [{"role": "user", "content": "What is 2 plus 2?"}],
             "$ai_output": "The answer is four.",
-            "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            "$ai_output_choices": [{"role": "assistant", "content": "The answer is four."}],
             "evaluation_context": "arithmetic",
         }
         for name in properties:
@@ -423,6 +424,27 @@ class TestBackgroundEvaluationPropertyAccess:
             assert trace.events[0].properties[name] == value
 
         date_range = DateRange(date_from=(FROZEN_NOW - timedelta(hours=1)).isoformat(), date_to=FROZEN_NOW.isoformat())
+        report_detail = json.loads(
+            get_trace_detail.invoke(
+                {"state": {"team_id": team.id, "trace_id_allowlist": [unit_id]}, "trace_id": unit_id}
+            )
+        )
+        summary = _fetch_and_format_trace(
+            unit_id, team.id, (FROZEN_NOW - timedelta(hours=1)).isoformat(), FROZEN_NOW.isoformat()
+        )
+        assert report_detail["event_count"] == 1
+        assert summary is not None and summary.text_repr is not None
+        for text in ("What is 2 plus 2?", "The answer is four."):
+            assert text in report_detail["text"]
+            if (
+                property_type == PropertyDefinition.Type.EVENT
+                and access_level == PropertyAccessLevel.NONE
+                and not member_only
+            ):
+                assert text not in summary.text_repr
+            else:
+                assert text in summary.text_repr
+
         runner = (
             TraceQueryRunner(team=team, user=user, query=TraceQuery(traceId=unit_id, dateRange=date_range))
             if target == "trace"

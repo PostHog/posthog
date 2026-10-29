@@ -1304,6 +1304,7 @@ def _fetch_trace_detail(state: dict, trace_id: object, max_length: int) -> dict:
             max_length=max_length,
             max_trace_events=MAX_TRACE_EVENTS_LIMIT,
             max_raw_trace_size=MAX_TRACE_PROPERTIES_SIZE,
+            bypass_property_access_control=True,
         )
     except Exception as error:
         logger.exception(
