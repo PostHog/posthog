@@ -1218,19 +1218,6 @@ export const TaxonomicSearchIntentClassifyCreateBody = /* @__PURE__ */ zod.objec
 })
 
 /**
- * Guess which PostHog core events a search that matched no event name describes.
- * @summary Match an events search to core events
- */
-export const taxonomicSearchIntentMatchEventsCreateBodyQueryMax = 200
-
-export const TaxonomicSearchIntentMatchEventsCreateBody = /* @__PURE__ */ zod.object({
-    query: zod
-        .string()
-        .max(taxonomicSearchIntentMatchEventsCreateBodyQueryMax)
-        .describe('What the person typed into the events list search box, which matched no event name.'),
-})
-
-/**
  * Send a WebRTC session description to another terminal in a Doom room.
  */
 export const terminalNetplaySignalCreateBodyRoomRegExp = new RegExp('^[A-Z0-9]{4,12}$')

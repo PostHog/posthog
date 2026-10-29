@@ -16,8 +16,10 @@ import type {
     AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesRetrieveParams,
+    AiObservabilityTracesSummaryCreateParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
@@ -150,9 +152,12 @@ import type {
     TextReprResponseApi,
     TraceApi,
     TraceEvaluationResultsApi,
+    TraceFeedbackApi,
     TraceNodeDetailApi,
     TraceReviewApi,
     TraceReviewCreateApi,
+    TraceSummaryApi,
+    TraceSummaryRequestApi,
     TranslateRequestApi,
     UploadReceiptApi,
     UploadSubmissionApi,
@@ -701,6 +706,41 @@ export const aiObservabilityTracesEvaluationsRetrieve = async (
     })
 }
 
+export const getAiObservabilityTracesFeedbackRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesFeedbackRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/feedback/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/feedback/`
+}
+
+/**
+ * End-user feedback on a trace: the scores and the comments its feedback events carry, each with the step it targets.
+ */
+export const aiObservabilityTracesFeedbackRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesFeedbackRetrieveParams,
+    options?: RequestInit
+): Promise<TraceFeedbackApi> => {
+    return apiMutator<TraceFeedbackApi>(getAiObservabilityTracesFeedbackRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getAiObservabilityTracesNodesRetrieveUrl = (
     projectId: string,
     id: string,
@@ -735,6 +775,62 @@ export const aiObservabilityTracesNodesRetrieve = async (
     return apiMutator<TraceNodeDetailApi>(getAiObservabilityTracesNodesRetrieveUrl(projectId, id, nodeId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesSummaryRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/summary/`
+}
+
+/**
+ * The trace's AI summary: pending while it is written, then ready with links to its steps, or failed with the reason. A summary is kept for an hour and shown only to users whose property access matches the requester's.
+ */
+export const aiObservabilityTracesSummaryRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceSummaryApi> => {
+    return apiMutator<TraceSummaryApi>(getAiObservabilityTracesSummaryRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesSummaryCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesSummaryCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/summary/`
+}
+
+/**
+ * Request an AI summary of the trace. A ready summary is returned as is unless `regenerate` is set; otherwise a job starts writing one, or the request joins the job already writing it.
+ */
+export const aiObservabilityTracesSummaryCreate = async (
+    projectId: string,
+    id: string,
+    traceSummaryRequestApi?: TraceSummaryRequestApi,
+    params?: AiObservabilityTracesSummaryCreateParams,
+    options?: RequestInit
+): Promise<TraceSummaryApi> => {
+    return apiMutator<TraceSummaryApi>(getAiObservabilityTracesSummaryCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceSummaryRequestApi),
     })
 }
 

@@ -694,12 +694,6 @@ jobs:
                   test "$(git rev-parse HEAD^2)" = "$PR_HEAD_SHA"
                   git rev-parse --verify "$TURBO_SCM_BASE^{commit}"
 
-            - name: Fetch PR base for schema cache
-              if: github.event_name == 'pull_request'
-              env:
-                  BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
-              retry: 2
             - name: Compute schema cache key from PR base
               id: schema-key
               if: github.event_name == 'pull_request'
@@ -1617,6 +1611,11 @@ jobs:
                         else
                             pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
                         fi
+            # New files in `ee/` need a human decision, and a path comparison sees an empty
+            # file that a content scan cannot. Exemptions live in the script.
+            - name: Check for new files under ee/
+              if: github.event_name == 'pull_request'
+              run: python .github/scripts/check-no-new-ee-files.py --against HEAD^1 --committed
             # Deterministic = a static check above failed after setup completed.
             # A retry can't fix it, so this signals the cancellation gate to stop the run.
             - name: Flag deterministic failure
