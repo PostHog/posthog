@@ -527,35 +527,38 @@ class TestGoogleAdsClientStaleConnection:
 
     When an import streams rows for many minutes, the Django connection that the
     Temporal worker thread holds can be dropped server-side. The next call into
-    `Integration.objects.get(...)` from `get_rows` then raises
+    `IntegrationManager.google_ads.oauth.get(...)` from `get_rows` then raises
     `OperationalError: server closed the connection unexpectedly`. We close stale
-    connections before the ORM query so the next lookup grabs a fresh one.
+    connections before the integration read so the next lookup grabs a fresh one.
     """
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient"
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.Integration")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.IntegrationManager"
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
     )
     def test_oauth_client_closes_stale_connections_before_integration_lookup(
-        self, mock_close_old_connections, mock_integration_model, mock_client_cls
+        self, mock_close_old_connections, mock_integration_manager, mock_client_cls
     ):
+        integration_get = mock_integration_manager.google_ads.oauth.get
         manager = mock.MagicMock()
         manager.attach_mock(mock_close_old_connections, "close_old_connections")
-        manager.attach_mock(mock_integration_model.objects.get, "integration_get")
+        manager.attach_mock(integration_get, "integration_get")
 
         mock_integration = mock.MagicMock()
         mock_integration.refresh_token = "fake-refresh-token"
-        mock_integration_model.objects.get.return_value = mock_integration
+        integration_get.return_value = mock_integration
 
         config = GoogleAdsSourceConfig(customer_id="123-456-7890", google_ads_integration_id=42)
 
         google_ads_client(config, team_id=7)
 
         mock_close_old_connections.assert_called_once_with()
-        mock_integration_model.objects.get.assert_called_once_with(id=42, team_id=7)
+        integration_get.assert_called_once_with(7, 42)
         # Order matters: closing stale connections AFTER the failing query would
         # not prevent the OperationalError we are guarding against.
         call_order = [name for name, _, _ in manager.mock_calls]
