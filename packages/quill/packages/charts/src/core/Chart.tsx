@@ -123,6 +123,9 @@ export interface ChartProps<Meta = unknown> {
      *  -1 to make the position a dead zone (no tooltip, pointer cursor, highlight, or click). Chart-type
      *  adapters provide this; BarChart uses it for a capped track's blank volume gap. */
     resolveHoverIndex?: (index: number, cursor: { x: number; y: number }, scales: ChartScales) => number
+    /** Share the hovered label inside a `ChartHoverSync`. Defaults to true; chart types whose labels
+     *  are not x values (heatmap columns, scatter point indices) turn it off. */
+    syncHover?: boolean
 }
 
 export function Chart<Meta = unknown>({
@@ -149,6 +152,7 @@ export function Chart<Meta = unknown>({
     valueRangeSeries,
     wrapClickData,
     resolveHoverIndex,
+    syncHover = true,
 }: ChartProps<Meta>): React.ReactElement {
     const theme = useResolvedChartTheme(themeProp)
     const {
@@ -342,7 +346,7 @@ export function Chart<Meta = unknown>({
 
     // Inside a <ChartHoverSync>, another chart's hover draws a bare crosshair here while this chart
     // isn't hovered itself. Its tooltip and point highlights stay on the hovered chart.
-    const syncedIndex = useHoverSync(labels, hoverIndex >= 0 ? (labels[hoverIndex] ?? null) : null)
+    const syncedIndex = useHoverSync(labels, hoverIndex >= 0 ? (labels[hoverIndex] ?? null) : null, syncHover)
     const showSyncedCrosshair = hoverIndex < 0 && syncedIndex >= 0
     const syncedCrosshairColor = theme.crosshairColor ?? resolveAxisLineColor(theme) ?? DEFAULT_AXIS_COLOR
     const drawSyncedCrosshair = useMemo(
