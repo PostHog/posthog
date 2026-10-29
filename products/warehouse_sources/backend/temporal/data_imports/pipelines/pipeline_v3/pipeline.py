@@ -932,6 +932,11 @@ class PipelineV3(Generic[ResumableData]):
                     self._logger,
                     webhook_only=self._resource.webhook_only,
                 )
+                # A reset drops the earliest value of the table it deletes. No reloaded row is older than
+                # that value, so a run that kept it would never stage an earliest value of its own.
+                self._earliest_incremental_field_value = process_incremental_value(
+                    self._schema.incremental_field_earliest_value, self._schema.incremental_field_type
+                )
 
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
             if not is_fresh_sync and self._attempt > 1 and not should_resume:

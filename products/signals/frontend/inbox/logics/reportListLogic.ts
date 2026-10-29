@@ -38,6 +38,7 @@ import {
 } from '../types'
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
+import { requestReportClaim } from '../utils/reportClaim'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -176,6 +177,7 @@ export interface reportListLogicValues {
     sourceProductFilter: string[] // inboxFiltersLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    claimSavingReportIds: string[]
     count: number | null
     countLoading: boolean
     hasMore: boolean
@@ -349,6 +351,18 @@ export interface reportListLogicActions {
         assignee: SignalReportAssigneeApi | null | undefined
         reportId: string
     }
+    setReportClaimed: (
+        report: SignalReport,
+        claimed: boolean,
+        surface: InboxReportActionSurface
+    ) => {
+        claimed: boolean
+        report: SignalReport
+        surface: InboxReportActionSurface
+    }
+    setReportClaimedFinished: (reportId: string) => {
+        reportId: string
+    }
     setSuggestedToMe: (
         reportIds: string[],
         isSuggested: boolean
@@ -482,6 +496,12 @@ export const reportListLogic = kea<reportListLogicType>([
             reason,
         }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
+        setReportClaimed: (report: SignalReport, claimed: boolean, surface: InboxReportActionSurface) => ({
+            report,
+            claimed,
+            surface,
+        }),
+        setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
         setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
         removeReport: (reportId: string) => ({ reportId }),
@@ -573,6 +593,13 @@ export const reportListLogic = kea<reportListLogicType>([
             {
                 unassignMe: (state, { reportId }) => (state.includes(reportId) ? state : [...state, reportId]),
                 unassignMeFinished: (state, { reportId }) => state.filter((id) => id !== reportId),
+            },
+        ],
+        claimSavingReportIds: [
+            [] as string[],
+            {
+                setReportClaimed: (state, { report }) => (state.includes(report.id) ? state : [...state, report.id]),
+                setReportClaimedFinished: (state, { reportId }) => state.filter((id) => id !== reportId),
             },
         ],
         // Kept apart from `reportsResponse` so a refresh that replaces the rows does not blank the
@@ -1032,6 +1059,25 @@ export const reportListLogic = kea<reportListLogicType>([
             lemonToast.success('Unassigned you from the report')
             // The list that started the request can unmount while it runs, for example when triage closes.
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
+        },
+        setReportClaimed: async ({ report, claimed, surface }) => {
+            captureInboxReportAction({ report, actionType: claimed ? 'claim' : 'unclaim', surface })
+            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed)
+            actions.setReportClaimedFinished(report.id)
+            if (!outcome.ok) {
+                lemonToast.error(outcome.message)
+                // Reload so the row shows who holds the claim now. A request that failed without an answer
+                // may still have saved the claim.
+                actions.refresh()
+                return
+            }
+            // Every mounted list updates the row, and the Claimed by you list gains or drops it.
+            const bulkActions = inboxBulkActionsLogic.findMounted()
+            if (bulkActions) {
+                bulkActions.actions.reportClaimChanged(report.id, outcome.updated.assignee)
+            } else {
+                actions.setReportAssignee(report.id, outcome.updated.assignee)
+            }
         },
     })),
 

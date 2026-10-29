@@ -109,6 +109,7 @@ from products.feature_flags.backend.tasks import (
     feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
+    report_django_local_evaluation_usage_task,
     sync_cross_region_flags_task,
 )
 from products.legal_documents.backend.facade.tasks import reconcile_pending_legal_documents
@@ -654,6 +655,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="cross-region flags sync",
             expires=30,
         )
+
+    # Every minute, send the local evaluation requests that Django counted to usage ingestion.
+    # The interval sets only how fresh the records are, because unsent counts wait in Redis.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        report_django_local_evaluation_usage_task.s(),
+        name="report django local evaluation usage",
+        expires_seconds=60,
+    )
 
     add_periodic_task_with_expiry(
         sender,
