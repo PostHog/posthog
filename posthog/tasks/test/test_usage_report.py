@@ -76,6 +76,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_event_count_with_groups_in_period,
     get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
+    get_teams_with_mcp_event_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
@@ -790,6 +791,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "rows_synced_in_period": 0,
                     "exceptions_captured_in_period": 0,
                     "ai_event_count_in_period": 7,
+                    "mcp_event_count_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -894,6 +896,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 7,
+                            "mcp_event_count_in_period": 0,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -988,6 +991,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
+                            "mcp_event_count_in_period": 0,
                         },
                     },
                 },
@@ -1105,6 +1109,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "cdp_billable_invocations_in_period": 0,
                     "rows_exported_in_period": 0,
                     "ai_event_count_in_period": 0,
+                    "mcp_event_count_in_period": 0,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -1207,6 +1212,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "cdp_billable_invocations_in_period": 0,
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
+                            "mcp_event_count_in_period": 0,
                         }
                     },
                 },
@@ -2467,6 +2473,7 @@ class TestHasNonZeroUsage(SimpleTestCase):
         [
             ("empty", None),
             ("events", "event_count_in_period"),
+            ("mcp_events", "mcp_event_count_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
             ("logs_retention_mb_days", "logs_retention_mb_days_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
@@ -6411,6 +6418,10 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         event_metrics = get_all_event_metrics_in_period(self.begin, reporting_end)
 
         self.assertEqual(billable_result_after, [(self.team.id, baseline_count + 3)])
+        self.assertEqual(
+            get_teams_with_mcp_event_count_in_period(self.begin, reporting_end, count_distinct=True),
+            [(self.team.id, 3)],
+        )
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 3)
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertIsNone(dict(event_metrics[parent_metric]).get(self.team.id))

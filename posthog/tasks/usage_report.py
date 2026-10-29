@@ -30,7 +30,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import get_cached_instance_license
-from posthog.constants import AI_EVENT_NAME_PREFIX, FlagRequestType
+from posthog.constants import AI_EVENT_NAME_PREFIX, MCP_EVENT_NAME_PREFIX, FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.billing import AI_COST_MARKUP_PERCENT
@@ -300,6 +300,9 @@ class UsageReportCounters:
     ai_event_count_in_period: int
     ai_ingested_event_count_in_period: int = dataclasses.field(default=0, kw_only=True)
     ai_offline_eval_metric_count_in_period: int = dataclasses.field(default=0, kw_only=True)
+
+    # MCP analytics
+    mcp_event_count_in_period: int
 
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
@@ -857,6 +860,38 @@ def get_teams_with_event_count_with_groups_in_period(
             end,
             query_template,
             {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "ai_event_prefix": AI_EVENT_NAME_PREFIX},
+            num_splits=12,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_mcp_event_count_in_period(
+    begin: datetime, end: datetime, count_distinct: bool = False
+) -> list[tuple[int, int]]:
+    # Same table, exclusions, dedup and splits as `get_teams_with_billable_event_count_in_period`,
+    # so the MCP count and the product analytics count agree on which events exist.
+    if count_distinct:
+        distinct_expression = "distinct toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid)"
+    else:
+        distinct_expression = "1"
+
+    # nosemgrep: clickhouse-fstring-param-audit - events table/count expression are internal fragments
+    query_template = f"""
+        SELECT team_id, count({distinct_expression}) as count
+        FROM {events_read_table(use_new_events_schema(None))}
+        WHERE timestamp >= %(begin)s AND timestamp < %(end)s
+            AND event NOT IN %(excluded_events)s
+            AND startsWith(event, %(mcp_event_prefix)s)
+        GROUP BY team_id
+    """
+
+    with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.USAGE_REPORT):
+        return _execute_split_query(
+            begin,
+            end,
+            query_template,
+            {"excluded_events": BILLABLE_EVENT_EXCLUDED_EVENTS, "mcp_event_prefix": MCP_EVENT_NAME_PREFIX},
             num_splits=12,
         )
 
@@ -3015,6 +3050,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.rows_exported_in_period > 0
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
+        or report.mcp_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
@@ -3125,6 +3161,9 @@ def _get_all_usage_data(
     return {
         **counter_report.counts,
         "teams_with_event_count_with_groups_in_period": get_teams_with_event_count_with_groups_in_period(
+            period_start, period_end, count_distinct=True
+        ),
+        "teams_with_mcp_event_count_in_period": get_teams_with_mcp_event_count_in_period(
             period_start, period_end, count_distinct=True
         ),
         "teams_with_event_count_from_helicone_in_period": all_metrics["helicone_events"],
@@ -3583,6 +3622,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        mcp_event_count_in_period=all_data["teams_with_mcp_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
