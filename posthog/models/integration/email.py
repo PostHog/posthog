@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import models, transaction
+from django.db import IntegrityError, models, transaction
 from django.dispatch import receiver
 from django.utils import timezone
 
@@ -61,8 +61,8 @@ class EmailIntegration:
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
-        # update_or_create would rewrite the existing row and reset its verified flag, which stops
-        # every workflow sending from that address until the domain is verified again.
+        # Refused early as well as on the constraint below, so an address that already has a sender
+        # does not reach the provider and register a domain for a request that cannot succeed.
         if model.Integration.objects.filter(team_id=team_id, kind="email", integration_id=email_address).exists():
             raise ValidationError(
                 f"A sender for {email_address} already exists. Edit that sender instead of adding it again."
@@ -95,23 +95,30 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: must be 'ses'")
 
-        integration, created = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=email_address,
-            defaults={
-                "config": {
-                    "email": email_address,
-                    "domain": domain,
-                    "mail_from_subdomain": mail_from_subdomain,
-                    "reply_to": config.get("reply_to", ""),
-                    "name": name,
-                    "provider": provider,
-                    "verified": True if provider == "maildev" else False,
-                },
-                "created_by": created_by,
-            },
-        )
+        # The provider call above takes seconds, so two creates for one address can both pass the
+        # check. Insert rather than upsert and let the unique constraint settle it: an upsert would
+        # resolve the race as an update and reset the winner's verified flag.
+        try:
+            with transaction.atomic():
+                integration = model.Integration.objects.create(
+                    team_id=team_id,
+                    kind="email",
+                    integration_id=email_address,
+                    config={
+                        "email": email_address,
+                        "domain": domain,
+                        "mail_from_subdomain": mail_from_subdomain,
+                        "reply_to": config.get("reply_to", ""),
+                        "name": name,
+                        "provider": provider,
+                        "verified": True if provider == "maildev" else False,
+                    },
+                    created_by=created_by,
+                )
+        except IntegrityError:
+            raise ValidationError(
+                f"A sender for {email_address} already exists. Edit that sender instead of adding it again."
+            )
 
         if integration.errors:
             integration.errors = ""

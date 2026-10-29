@@ -53,6 +53,29 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert first.config["name"] == "Test User"
 
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_sender_created_during_the_provider_call_is_not_overwritten(self, mock_create_email_domain):
+        config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
+
+        def create_competing_sender(*args, **kwargs):
+            Integration.objects.create(
+                team_id=self.team.id,
+                kind="email",
+                integration_id="user@successdomain.com",
+                config={**config, "domain": "successdomain.com", "verified": True},
+            )
+            return {"status": "success", "domain": "successdomain.com"}
+
+        mock_create_email_domain.side_effect = create_competing_sender
+
+        with pytest.raises(ValidationError, match="already exists"):
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
+
+        winner = Integration.objects.get(team_id=self.team.id, kind="email", integration_id="user@successdomain.com")
+        assert winner.config["verified"] is True
+
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     def test_duplicate_domain_in_another_organization(self, mock_create_email_domain, mock_verify_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
