@@ -24160,6 +24160,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `outside_traffic` - Outside traffic
+     * * `usage` - Usage
+     * * `one_person` - One person
+     * * `tracking` - Tracking
+     * * `weekly_pattern` - Weekly pattern
+     */
+    export type ChartCauseEnum = typeof ChartCauseEnum[keyof typeof ChartCauseEnum];
+
+
+    export const ChartCauseEnum = {
+      OutsideTraffic: 'outside_traffic',
+      Usage: 'usage',
+      OnePerson: 'one_person',
+      Tracking: 'tracking',
+      WeeklyPattern: 'weekly_pattern',
+    } as const;
+
+    /**
      * * `author_scout` - author_scout
      * * `fleet_overview` - fleet_overview
      * * `recent_signals` - recent_signals
@@ -65381,6 +65399,73 @@ export namespace Schemas {
        * * `quick` - Read within a small budget, so the checks can run on every load
        * * `full` - Read with the same limits as the insight's own query */
       depth?: InsightDataChecksDepthEnum;
+    }
+
+    export interface InsightExplainChapter {
+      /** Identifier of the chapter, as it was sent. */
+      id: string;
+      /** What most likely caused the chapter: outside traffic, a real change in usage, one person or a test account, a tracking change, or the usual weekly pattern.
+       *
+       * * `outside_traffic` - Outside traffic
+       * * `usage` - Usage
+       * * `one_person` - One person
+       * * `tracking` - Tracking
+       * * `weekly_pattern` - Weekly pattern */
+      cause: ChartCauseEnum;
+      /** How sure the model is of the cause, from 0 to 1. */
+      confidence: number;
+    }
+
+    export interface InsightExplain {
+      /** The likely cause of each chapter the model answered, in the order they were sent. */
+      chapters: InsightExplainChapter[];
+    }
+
+    export interface InsightExplainChapterFacts {
+      /**
+         * Identifier of the chapter. The response returns the chapter under the same one.
+         * @maxLength 64
+         */
+      id: string;
+      /**
+         * What the chapter is about, for example 'A peak on October 2'.
+         * @maxLength 200
+         */
+      title: string;
+      /**
+         * The computed facts of the chapter in one or two sentences, with their numbers and dates.
+         * @maxLength 600
+         */
+      summary: string;
+      /**
+         * Findings about the cause of the chapter, one sentence each. Empty when nothing was found. At most 6.
+         * @maxItems 6
+         * @items.maxLength 600
+         */
+      evidence?: string[];
+    }
+
+    export interface InsightExplainRequest {
+      /**
+         * Name of the series that the explanation follows.
+         * @maxLength 200
+         */
+      series_label: string;
+      /**
+         * Name of the insight. Blank for an insight that has no name yet.
+         * @maxLength 400
+         */
+      insight_name?: string;
+      /**
+         * The computed facts of the whole chart, such as its typical level, its range and how it ends.
+         * @maxLength 600
+         */
+      overview?: string;
+      /**
+         * The chapters of the explanation in reading order. At most 8. Empty when nothing stands out on the chart.
+         * @maxItems 8
+         */
+      chapters: InsightExplainChapterFacts[];
     }
 
     /**
@@ -137379,6 +137464,18 @@ export namespace Schemas {
 
 
     export const InsightsDataChecksCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsExplainCreateParams = {
+    format?: InsightsExplainCreateFormat;
+    };
+
+    export type InsightsExplainCreateFormat = typeof InsightsExplainCreateFormat[keyof typeof InsightsExplainCreateFormat];
+
+
+    export const InsightsExplainCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;

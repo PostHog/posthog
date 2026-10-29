@@ -29,6 +29,8 @@ import type {
     InsightBulkSetTestAccountFilterResponseApi,
     InsightDataChecksApi,
     InsightDataChecksRequestApi,
+    InsightExplainApi,
+    InsightExplainRequestApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
@@ -41,6 +43,7 @@ import type {
     InsightsDataChecksCreateParams,
     InsightsDataChecksRetrieveParams,
     InsightsDestroyParams,
+    InsightsExplainCreateParams,
     InsightsGenerateMetadataCreateParams,
     InsightsListParams,
     InsightsMyLastViewedRetrieveParams,
@@ -862,6 +865,39 @@ export const insightsDataChecksCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(insightDataChecksRequestApi),
+    })
+}
+
+export const getInsightsExplainCreateUrl = (projectId: string, params?: InsightsExplainCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/explain/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/explain/`
+}
+
+/**
+ * Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it computed from the chart's data, and gets back one cause from a fixed list for each chapter, with a confidence. The numbers stay with the caller: this endpoint runs no query and reads no insight. Without a decision model on the instance, the list is empty.
+ */
+export const insightsExplainCreate = async (
+    projectId: string,
+    insightExplainRequestApi: InsightExplainRequestApi,
+    params?: InsightsExplainCreateParams,
+    options?: RequestInit
+): Promise<InsightExplainApi> => {
+    return apiMutator<InsightExplainApi>(getInsightsExplainCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightExplainRequestApi),
     })
 }
 
