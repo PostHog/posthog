@@ -26,6 +26,7 @@ import type {
     IntegrationAccessRequestResponseApi,
     IntegrationAssigneesResponseApi,
     IntegrationConfigApi,
+    IntegrationConfigCreateApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsDomainConnectCheckRetrieveParams,
     IntegrationsEmailStatusRetrieveParams,
@@ -229,14 +230,14 @@ export const getIntegrationsCreateUrl = (projectId: string) => {
 
 export const integrationsCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    integrationConfigCreateApi: NonReadonly<IntegrationConfigCreateApi>,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
     return apiMutator<IntegrationConfigApi>(getIntegrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(integrationConfigCreateApi),
     })
 }
 

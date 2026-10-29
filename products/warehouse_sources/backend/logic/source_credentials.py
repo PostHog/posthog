@@ -20,6 +20,7 @@ methods without a change to the callers.
 import json
 from collections.abc import Iterable, Mapping
 from typing import Any
+from urllib.parse import unquote
 from uuid import UUID, uuid4
 
 import structlog
@@ -240,9 +241,91 @@ def _identity(source_type: str, fields: Mapping[str, Any]) -> str:
     )
 
     source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
-    return json.dumps(
-        {key: _normalized(fields.get(key)) for key in sorted(source.credential_identity_fields)}, sort_keys=True
-    )
+    return json.dumps(_identity_parts(fields, source.credential_identity_fields), sort_keys=True)
+
+
+def _identity_parts(fields: Mapping[str, Any], names: frozenset[str], prefix: str = "") -> dict[str, Any]:
+    # A source can declare an identity field inside a select option (Snowflake keeps `user` under
+    # `auth_type`), so look at every depth. The path keeps two fields of one name apart.
+    parts: dict[str, Any] = {}
+    for key, value in fields.items():
+        path = f"{prefix}{key}"
+        if key in names:
+            part = _identity_value(str(key), value)
+            # An unset and a blank value match.
+            if part not in ("", {}):
+                parts[path] = part
+        elif isinstance(value, Mapping):
+            parts.update(_identity_parts(value, names, f"{path}."))
+    return parts
+
+
+def _identity_value(key: str, value: Any) -> Any:
+    # These two fields also hold secrets. A secret change is a rotation, not a new connection, so
+    # compare only the parts that say where the credentials connect and as which account.
+    if key == "ssh_tunnel" and isinstance(value, Mapping):
+        auth = value.get("auth_type")
+        return {
+            part: item
+            for part, item in {
+                "enabled": _normalized(value.get("enabled")).lower(),
+                "host": _normalized(value.get("host")),
+                "port": _normalized(value.get("port")),
+                "username": _normalized(auth.get("username") if isinstance(auth, Mapping) else None),
+            }.items()
+            if item
+        }
+    if key == "connection_string" and isinstance(value, str):
+        return _connection_string_identity(value)
+    return _normalized(value)
+
+
+# Keys of a `key=value;...` connection string (ADO.NET, libpq) that say where it connects and as whom.
+_CONNECTION_STRING_IDENTITY_KEYS = frozenset(
+    {
+        "server",
+        "host",
+        "hostaddr",
+        "address",
+        "addr",
+        "data source",
+        "port",
+        "user",
+        "user id",
+        "uid",
+        "username",
+        "database",
+        "dbname",
+        "initial catalog",
+        "account",
+    }
+)
+
+
+def _connection_string_identity(value: str) -> Any:
+    value = value.strip()
+    if not value:
+        return ""
+    if "://" in value:
+        scheme, _, rest = value.partition("://")
+        authority, _, path = rest.partition("/")
+        userinfo, _, hosts = authority.rpartition("@")
+        return {
+            "scheme": scheme.lower(),
+            "user": unquote(userinfo.partition(":")[0]),
+            "hosts": hosts.lower(),
+            # The query can hold options and secrets, so only the database name of the path counts.
+            "database": path.partition("?")[0].partition("#")[0],
+        }
+    # ADO.NET separates pairs with ";" and has keys with spaces ("User Id"). libpq separates with spaces.
+    pairs = [pair.partition("=") for pair in (value.split(";") if ";" in value else value.split()) if "=" in pair]
+    parts = {
+        key.strip().lower(): item.strip()
+        for key, _, item in pairs
+        if key.strip().lower() in _CONNECTION_STRING_IDENTITY_KEYS
+    }
+    # A format this does not know compares whole, so a change can only make a new row.
+    return parts or value
 
 
 def _normalized(value: Any) -> Any:

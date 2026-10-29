@@ -382,3 +382,5 @@ class SourceReferencingIntegration:
     id: UUID
     source_type: str
     prefix: str | None
+    # The inputs did not decode, so the source may point at the row. The search counts it as a user.
+    unreadable: bool = False

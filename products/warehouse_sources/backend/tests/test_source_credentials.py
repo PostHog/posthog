@@ -53,6 +53,32 @@ PG_FIELDS: dict[str, Any] = {
 
 STRIPE_FIELDS: dict[str, Any] = {"auth_method": {"selection": "api_key", "stripe_secret_key": "fake-key"}}
 
+SNOWFLAKE_FIELDS: dict[str, Any] = {
+    "account_id": "acct-1",
+    "database": "analytics",
+    "auth_type": {"selection": "password", "user": "reader", "password": "fake-password"},
+}
+PG_URL_FIELDS: dict[str, Any] = {
+    "connection_string": "postgresql://reader:fake-password@db.example.com:5432/app?sslmode=require"
+}
+MSSQL_ADO_FIELDS: dict[str, Any] = {
+    "connection_string": "Server=db.example.com,1433;User Id=reader;Password=fake-password;Database=app"
+}
+PG_TUNNEL_FIELDS: dict[str, Any] = {
+    **PG_FIELDS,
+    "ssh_tunnel": {
+        "enabled": "True",
+        "host": "bastion.example.com",
+        "port": "22",
+        "auth_type": {"selection": "keypair", "username": "tunnel", "private_key": "fake-key", "passphrase": "fake"},
+    },
+}
+
+
+def _with(fields: dict[str, Any], path: str, value: Any) -> dict[str, Any]:
+    head, _, rest = path.partition(".")
+    return {**fields, head: _with(fields[head], rest, value) if rest else value}
+
 
 def _row(pk: int) -> Integration:
     return Integration.objects._with_auth(AuthTypeSelector.ANY).get(id=pk)
@@ -337,6 +363,132 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
     @parameterized.expand(
         [
+            # (name, source type, fields, changed path, new value, outcome)
+            ("nested_user", ExternalDataSourceType.SNOWFLAKE, SNOWFLAKE_FIELDS, "auth_type.user", "writer", "new_row"),
+            (
+                "nested_secret",
+                ExternalDataSourceType.SNOWFLAKE,
+                SNOWFLAKE_FIELDS,
+                "auth_type.password",
+                "new",
+                "conflict",
+            ),
+            (
+                "url_password",
+                ExternalDataSourceType.POSTGRES,
+                PG_URL_FIELDS,
+                "connection_string",
+                "postgresql://reader:new@db.example.com:5432/app?sslmode=require",
+                "conflict",
+            ),
+            (
+                "url_query",
+                ExternalDataSourceType.POSTGRES,
+                PG_URL_FIELDS,
+                "connection_string",
+                "postgresql://reader:fake-password@db.example.com:5432/app?sslmode=disable",
+                "conflict",
+            ),
+            (
+                "url_host",
+                ExternalDataSourceType.POSTGRES,
+                PG_URL_FIELDS,
+                "connection_string",
+                "postgresql://reader:fake-password@other.example.com:5432/app",
+                "new_row",
+            ),
+            (
+                "url_database",
+                ExternalDataSourceType.POSTGRES,
+                PG_URL_FIELDS,
+                "connection_string",
+                "postgresql://reader:fake-password@db.example.com:5432/other",
+                "new_row",
+            ),
+            (
+                "pairs_password",
+                ExternalDataSourceType.MSSQL,
+                MSSQL_ADO_FIELDS,
+                "connection_string",
+                "Server=db.example.com,1433;User Id=reader;Password=new;Database=app",
+                "conflict",
+            ),
+            (
+                "pairs_user",
+                ExternalDataSourceType.MSSQL,
+                MSSQL_ADO_FIELDS,
+                "connection_string",
+                "Server=db.example.com,1433;User Id=writer;Password=fake-password;Database=app",
+                "new_row",
+            ),
+            (
+                "tunnel_key",
+                ExternalDataSourceType.POSTGRES,
+                PG_TUNNEL_FIELDS,
+                "ssh_tunnel.auth_type.private_key",
+                "new",
+                "conflict",
+            ),
+            (
+                "tunnel_passphrase",
+                ExternalDataSourceType.POSTGRES,
+                PG_TUNNEL_FIELDS,
+                "ssh_tunnel.auth_type.passphrase",
+                "new",
+                "conflict",
+            ),
+            (
+                "tunnel_username",
+                ExternalDataSourceType.POSTGRES,
+                PG_TUNNEL_FIELDS,
+                "ssh_tunnel.auth_type.username",
+                "other",
+                "new_row",
+            ),
+            (
+                "tunnel_host",
+                ExternalDataSourceType.POSTGRES,
+                PG_TUNNEL_FIELDS,
+                "ssh_tunnel.host",
+                "other.example.com",
+                "new_row",
+            ),
+            (
+                "tunnel_enabled_case",
+                ExternalDataSourceType.POSTGRES,
+                PG_TUNNEL_FIELDS,
+                "ssh_tunnel.enabled",
+                "true",
+                "conflict",
+            ),
+        ]
+    )
+    def test_shared_row_identity_reads_nested_fields_and_ignores_secrets(
+        self,
+        _name: str,
+        source_type: ExternalDataSourceType,
+        fields: dict[str, Any],
+        path: str,
+        value: Any,
+        outcome: str,
+    ) -> None:
+        source = self._source(source_type)
+        pk = WarehouseSourceCredentialsStore.create(source, fields)
+        self._referencing(pk, source_type)
+        new_fields = _with(fields, path, value)
+
+        if outcome == "conflict":
+            with self.assertRaises(SharedCredentialsError):
+                WarehouseSourceCredentialsStore.update(source, pk, new_fields)
+            assert WarehouseSourceCredentialsStore.get(source, pk) == fields
+            return
+        new_pk = WarehouseSourceCredentialsStore.update(source, pk, new_fields)
+        assert new_pk != pk
+        assert WarehouseSourceCredentialsStore.get(source, pk) == fields
+        assert WarehouseSourceCredentialsStore.get(source, new_pk) == new_fields
+
+    @parameterized.expand(
+        [
             ("missing_row", lambda other: 12345),
             ("row_of_another_kind", lambda other: other),
         ]
@@ -410,6 +562,31 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         found = list_sources_using_integration(self.team.id, 7)
 
         assert [ref.id for ref in found] == ([source.id] if expected else [])
+
+    @parameterized.expand(
+        [
+            ("same_kind", ExternalDataSourceType.POSTGRES, True),
+            ("other_kind", ExternalDataSourceType.STRIPE, False),
+        ]
+    )
+    def test_a_source_with_unreadable_inputs_counts_as_a_user_of_a_row_of_its_kind(
+        self, _name: str, broken_type: ExternalDataSourceType, counted: bool
+    ) -> None:
+        editor = self._source()
+        pk = WarehouseSourceCredentialsStore.create(editor, PG_FIELDS)
+        broken = self._source(broken_type)
+        broken.job_inputs = "not json"
+        broken.save()
+        new_fields = {**PG_FIELDS, "password": "new"}
+
+        if not counted:
+            assert WarehouseSourceCredentialsStore.update(editor, pk, new_fields) == pk
+            return
+        with self.assertRaises(SharedCredentialsError) as raised:
+            WarehouseSourceCredentialsStore.update(editor, pk, new_fields)
+        assert [(usage.id, usage.name) for usage in raised.exception.usages] == [
+            (str(broken.id), "unreadable source: Postgres")
+        ]
 
     def test_conflict_response_names_the_other_users(self) -> None:
         source = self._source()

@@ -21,7 +21,13 @@ from django_filters import rest_framework as filters
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_serializer,
+    extend_schema_view,
+)
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
@@ -72,7 +78,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.integrations import IntegrationInUse, IntegrationManager, IntegrationUsage
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationUsage
 from posthog.models import OrganizationMembership, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
@@ -1395,6 +1401,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
+@extend_schema_serializer(component_name="IntegrationConfigCreate")
+class IntegrationCreateRequestSerializer(IntegrationSerializer):
+    """The request schema of a create. A create accepts only the public kinds, so the schema lists them."""
+
+    kind = serializers.ChoiceField(
+        choices=PUBLIC_INTEGRATION_KIND_CHOICES,
+        help_text="The provider of the integration, for example 'slack' or 'github'.",
+    )
+
+
 class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
     next = serializers.CharField(
         required=False,
@@ -1560,6 +1576,10 @@ class IntegrationFilterSet(filters.FilterSet):
 
 
 @extend_schema(extensions={"x-product": "integrations"})
+@extend_schema_view(
+    # The response holds a string kind, because a list can hold kinds that a product registers.
+    create=extend_schema(request=IntegrationCreateRequestSerializer, responses={201: IntegrationSerializer}),
+)
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -1663,8 +1683,13 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
-        # Check before the teardown below, which revokes grants at the provider. `delete` checks again.
-        usages = IntegrationManager.any.with_source_rows().usages(instance.team_id, instance.id)
+        # Check before the teardown below, which revokes grants at the provider. The delete at the end
+        # does not check again, because a check decrypts the inputs of every warehouse source of the team.
+        try:
+            usages = IntegrationManager.any.with_source_rows().usages(instance.team_id, instance.id)
+        except IntegrationNotFound:
+            # A concurrent request (a second click, another tab) deleted the row after `get_object`.
+            return
         if usages:
             raise _integration_in_use_error(usages)
 
@@ -1737,12 +1762,12 @@ class IntegrationViewSet(
                     github_audit.record("personal_cleanup_failed", failure_type=type(e).__name__)
 
         try:
-            IntegrationManager.any.with_source_rows().delete(instance.team_id, instance.id)
+            IntegrationManager.any.with_source_rows().delete(instance.team_id, instance.id, ignore_usages=True)
+        except IntegrationNotFound:
+            pass  # A concurrent request deleted the row during the teardown.
         except Exception as exc:
             if github_audit:
                 github_audit.record("disconnect_failed", stage="project_deletion", failure_type=type(exc).__name__)
-            if isinstance(exc, IntegrationInUse):
-                raise _integration_in_use_error(exc.usages) from exc
             raise
         if github_audit:
             github_audit.record("deleted", after_commit=True, customer_visible=True, outcome="disconnected")

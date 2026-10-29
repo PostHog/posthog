@@ -54,7 +54,7 @@ from posthog.credentials_service.errors import (
 )
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
-from posthog.integrations import IntegrationInUse, IntegrationManager, IntegrationReader, IntegrationUsage
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
     ANY as ANY_AUTH_TYPE,
@@ -8255,6 +8255,16 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
             deleted=deleted,
         )
 
+    @patch("posthog.api.integration.AnthropicIntegration")
+    def test_detail_actions_do_not_reach_a_source_row_of_a_default_auth_type(self, anthropic: MagicMock) -> None:
+        # `token` is the default auth type of `anthropic`, so only the source marker keeps the row out.
+        row = self._credentials_row("anthropic", "token")
+
+        response = self.client.get(f"/api/environments/{self.team.pk}/integrations/{row.id}/anthropic_managed_agents/")
+
+        assert response.status_code == 404
+        anthropic.assert_not_called()
+
     def test_typed_in_rows_are_listed_with_their_kind_and_auth_type(self) -> None:
         postgres = self._credentials_row("postgresql")
         stripe = self._credentials_row("stripe", "token")
@@ -8309,18 +8319,31 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         if referenced:
             assert "data warehouse sources" in json.dumps(response.json())
 
-    def test_destroy_reports_an_in_use_race_after_the_teardown(self) -> None:
+    @parameterized.expand([("before_the_usage_check", "usages"), ("during_the_teardown", "delete")])
+    def test_destroy_of_a_row_that_a_concurrent_request_deleted(self, _name: str, gone_at: str) -> None:
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         row = self._credentials_row("postgresql")
-        usage = IntegrationUsage(type="warehouse_source", id="s1", name="Postgres (prod)")
 
-        with patch.object(IntegrationReader, "usages", return_value=[]):
-            with patch.object(IntegrationReader, "delete", side_effect=IntegrationInUse([usage])):
-                response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
+        with (
+            patch.object(IntegrationReader, "usages", return_value=[]),
+            patch.object(IntegrationReader, gone_at, side_effect=IntegrationNotFound()),
+        ):
+            response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
 
-        assert response.status_code == 400
-        assert "data warehouse sources: Postgres (prod)" in json.dumps(response.json())
+        assert response.status_code == 204
+
+    def test_destroy_checks_the_usages_once(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        row = self._credentials_row("postgresql")
+
+        with patch("posthog.integrations.accessors.integration_usages", return_value=[]) as usages:
+            response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
+
+        assert response.status_code == 204
+        assert usages.call_count == 1
+        assert not IntegrationManager.any.with_source_rows().exists(self.team.id, external_id=row.integration_id)
 
     @parameterized.expand(
         [
