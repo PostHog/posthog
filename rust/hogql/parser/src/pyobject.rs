@@ -1,6 +1,6 @@
 //! Convert a parser-built `serde_json::Value` AST into `posthog.hogql.ast` dataclass instances directly, skipping the JSON-string serialise step on the Rust side AND the orjson + `_deserialize_node` walk on the Python side. Mirrors [`posthog/hogql/json_ast.py`].
 //!
-//! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The `parse_*_json` entry points stay alongside for callers that need the string form (tests, future WASM build that can't link to CPython).
+//! Used by the `parse_*_py` PyO3 entry points in [`crate::lib`]. The `parse_*_json` entry points stay alongside for callers that need the string form (tests, and the WASM build in `rust/hogql/parser-wasm` that can't link to CPython).
 //!
 //! Strategy: walk the existing `Value` tree once and construct Python objects via PyO3. The intermediate `Value` is still built by the parser; a later iteration that emits Python objects directly during parsing would skip that too, but the value→PyObject converter proves out the integration first and lets us measure the JSON-elimination win on its own.
 

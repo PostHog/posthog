@@ -5765,6 +5765,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hogql_parser_wasm"
+version = "0.1.0"
+dependencies = [
+ "hogql_parser_rs",
+]
+
+[[package]]
 name = "hogvm"
 version = "0.1.0"
 dependencies = [

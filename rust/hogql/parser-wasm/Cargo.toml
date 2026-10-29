@@ -1,0 +1,14 @@
+[package]
+name = "hogql_parser_wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+hogql_parser_rs = { path = "../parser", default-features = false }
