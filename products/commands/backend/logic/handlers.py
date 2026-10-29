@@ -117,6 +117,8 @@ DOCS_REPLIES: dict[knowledge_writer_contracts.IntakeStatus, CommandOutcome] = {
 
 def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
     pull_request = context.pull_request
+    if pull_request.is_private:
+        return CommandOutcome(accepted=False, message="The knowledge writer only runs on public repositories.")
     outcome = knowledge_writer_facade.request_docs_for_pull_request(
         knowledge_writer_contracts.DocsCommandRequest(
             repository=pull_request.repository,

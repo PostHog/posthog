@@ -117,6 +117,7 @@ def _pull_request(**overrides: Any) -> PullRequestFacts:
         "head_sha": "abc123",
         "head_branch": "feature/thing",
         "is_fork": False,
+        "is_private": False,
     }
     values.update(overrides)
     return PullRequestFacts(**values)
@@ -376,6 +377,23 @@ class TestDispatchCommentCommand(BaseTest):
         )
         assert task is not None
         assert "@octo asked: Mention the new flag" in task.description
+
+    def test_docs_on_a_private_repository_starts_no_writer(self) -> None:
+        self._link_github_login()
+        github = FakeGitHub(pull_request=_pull_request(state="merged", is_private=True))
+
+        with (
+            patch.dict(os.environ, self._knowledge_writer_env()),
+            patch(KNOWLEDGE_WRITER_LAUNCH_FLAG, return_value=True),
+            patch(START_TASK_WORKFLOW) as start_workflow,
+        ):
+            dispatch_comment_command(self._request(verb="docs"), github=github)
+
+        assert github.replies[-1].endswith("The knowledge writer only runs on public repositories.")
+        start_workflow.assert_not_called()
+        assert not tasks_facade.get_task_by_origin_key(
+            self.team.id, f"knowledge_writer:command_tag:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
+        )
 
     @parameterized.expand([("writer_project", True), ("another_project", False)])
     def test_help_lists_docs_only_where_the_knowledge_writer_runs(self, _name: str, is_writer_project: bool) -> None:
