@@ -241,6 +241,15 @@ class TestInstantly:
                 {"limit": 100, "test_id": "c-1"},
                 [{"id": "r-1", "test_id": "c-1", "spam_assassin_score": 1.5}],
             ),
+            (
+                "lead_list_verification_stats",
+                "/api/v2/lead-lists",
+                # The parent id goes into the path, not the query string.
+                "/api/v2/lead-lists/c-1/verification-stats",
+                [{"stats": {"verified": 7, "invalid": 2}, "total_leads": 9}],
+                {},
+                [{"stats": {"verified": 7, "invalid": 2}, "total_leads": 9, "lead_list_id": "c-1"}],
+            ),
         ],
     )
     def test_fanout_scopes_each_request_to_one_parent(
@@ -378,6 +387,8 @@ class TestInstantly:
             ),
             # Warmup analytics needs account emails in a POST body; /accounts checks the same scope.
             ("account_warmup_analytics", "https://api.instantly.ai/api/v2/accounts", {"limit": 1}),
+            # Verification stats need a real lead list id in the path; /lead-lists checks the same scope.
+            ("lead_list_verification_stats", "https://api.instantly.ai/api/v2/lead-lists", {"limit": 1}),
         ],
     )
     def test_probe_sends_required_params(self, endpoint, expected_url, expected_params):

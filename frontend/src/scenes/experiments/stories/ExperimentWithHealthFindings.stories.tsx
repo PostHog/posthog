@@ -29,11 +29,16 @@ const EXPERIMENT_HEALTH = {
         },
     ],
     checks: [
-        { key: 'flag_state', name: 'Feature flag rollout', status: 'finding', reason: null },
-        { key: 'flag_history', name: 'Feature flag history', status: 'passed', reason: null },
+        { key: 'flag_state', name: "Flag state that doesn't match the experiment", status: 'finding', reason: null },
+        { key: 'flag_history', name: 'Unreadable flag history', status: 'passed', reason: null },
         { key: 'split_changed_mid_run', name: 'Variant split changes since launch', status: 'passed', reason: null },
-        { key: 'flag_variants_mismatch', name: 'Feature flag variants', status: 'passed', reason: null },
-        { key: 'no_metric', name: 'Metrics', status: 'passed', reason: null },
+        {
+            key: 'flag_variants_mismatch',
+            name: 'Flag variants not set up',
+            status: 'passed',
+            reason: null,
+        },
+        { key: 'no_metric', name: 'Metrics not set up', status: 'passed', reason: null },
     ],
 }
 
@@ -56,7 +61,7 @@ const EXPOSURES_WITH_BIAS_RISK = {
             code: 'bias_risk_multiple_excluded',
             subcode: null,
             severity: 'warning',
-            title: 'Setup likely introduced bias',
+            title: 'The uneven split may bias the results',
             detail: '4.2% of users were exposed to multiple variants. With an uneven variant split and the Exclude handling, these users were dropped more often from the smaller variant, so its metrics can be biased. Use an even split and control exposure with the overall rollout, or switch the handling to First seen.',
             evidence: { multiple_variant_percentage: 4.2 },
             actions: ['adjust_distribution', 'use_first_seen_variant'],
@@ -66,7 +71,7 @@ const EXPOSURES_WITH_BIAS_RISK = {
     health_checks: [
         { key: 'srm', name: 'Split of users across variants', status: 'finding', reason: null },
         { key: 'bias_risk_multiple_excluded', name: 'Bias from an uneven split', status: 'finding', reason: null },
-        { key: 'zero_exposures', name: 'Exposures', status: 'passed', reason: null },
+        { key: 'zero_exposures', name: 'Exposures not received since launch', status: 'passed', reason: null },
         { key: 'multiple_variants_share', name: 'Users exposed to multiple variants', status: 'passed', reason: null },
     ],
 }

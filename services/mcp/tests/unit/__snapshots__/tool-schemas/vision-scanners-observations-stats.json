@@ -61,7 +61,7 @@
             "type": "string"
         },
         "watch_group": {
-            "description": "Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.",
+            "description": "Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.",
             "type": "string"
         }
     },

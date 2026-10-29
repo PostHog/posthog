@@ -4328,7 +4328,7 @@ async def test_apply_scanner_workflow_emits_the_signal_finding() -> None:
 
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 1
-    # The distinct problem types ride the row so the watch feed can name the kind of issue.
+    # The distinct problem types ride the row so the highlight feed can name the kind of issue.
     assert succeeded.scanner_result.signal_problem_types == ["bug"]
     # And the headline rides it too, so the card names the finding rather than counting it.
     assert [(s.problem_type, s.headline) for s in succeeded.scanner_result.signal_summaries] == [
