@@ -13,6 +13,7 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.logger import get_logger
 
 from products.data_warehouse.backend.facade.api import delete_discover_schemas_schedule
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_schema import (
     auto_enable_new_schemas,
     sync_old_schemas_with_new_schemas,
@@ -80,13 +81,13 @@ def sync_new_schemas_activity(inputs: SyncNewSchemasActivityInputs) -> None:
         return
 
     if SourceRegistry.is_registered(source_type_enum):
-        if not source.job_inputs:
-            return
-
-        new_source = SourceRegistry.get_source(source_type_enum)
-
         try:
-            config = new_source.parse_config(source.job_inputs)
+            source_inputs = SourceInputsStore.load(source)
+            if not source_inputs:
+                return
+
+            new_source = SourceRegistry.get_source(source_type_enum)
+            config = new_source.parse_config(source_inputs)
         except Exception:
             # Config parsing is deterministic over the stored `job_inputs`, so a corrupt or
             # double-encoded config fails identically on every discovery run - there is nothing

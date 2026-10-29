@@ -1481,6 +1481,9 @@ class ExternalDataSourceType(LabeledStrEnum):
     FILEUPLOAD = "FileUpload", "FileUpload"
     DRIPIFY = "Dripify", "Dripify"
     AWSS3TABLES = "AwsS3Tables", "AwsS3Tables"
+    BEACONS = "Beacons", "Beacons"
+    WOOPAYMENTS = "WooPayments", "WooPayments"
+    SONIOX = "Soniox", "Soniox"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:

@@ -17,8 +17,9 @@ from django.test import override_settings
 import pyarrow as pa
 import deltalake
 from asgiref.sync import async_to_sync
+from temporalio.testing import ActivityEnvironment
 
-from posthog.temporal.common.shutdown import WorkerShuttingDownError
+from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 
 from products.warehouse_sources.backend.models import external_data_schema as schema_models
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -1390,13 +1391,21 @@ class TestSingleTableRunIsUntouched:
 
 class TestColumnNamesReachTheWrite:
     @pytest.mark.parametrize(
-        "preserve, expected",
+        "preserve, internal_columns, expected",
         [
-            (False, ["order_id", "total_amount", "_ph_debug"]),
-            (True, ["Order ID", "totalAmount", "_ph_debug"]),
+            (False, {}, ["order_id", "total_amount", "_ph_debug"]),
+            (True, {}, ["Order ID", "totalAmount", "_ph_debug"]),
+            # A Delta table PostHog wrote, read back from a bucket, already holds the columns the pipeline adds.
+            (
+                False,
+                {"_ph_debug": '{"load_id": 1}', "_ph_partition_key": "2024-05"},
+                ["order_id", "total_amount", "_ph_debug"],
+            ),
         ],
     )
-    async def test_preserving_names_skips_the_snake_case_rename(self, preserve: bool, expected: list[str]) -> None:
+    async def test_preserving_names_skips_the_snake_case_rename(
+        self, preserve: bool, internal_columns: dict[str, str], expected: list[str]
+    ) -> None:
         # A self-managed table moved into a source keeps the column names its queries use.
         pipeline = _make_pipeline()
         pipeline._resource = SourceResponse(
@@ -1405,7 +1414,13 @@ class TestColumnNamesReachTheWrite:
         cast(MagicMock, pipeline._schema).configure_mock(incremental_field=None, enabled_columns=None)
         pipeline._last_incremental_field_value = None
         pipeline._earliest_incremental_field_value = None
-        table = pa.table({"Order ID": pa.array([1], pa.int64()), "totalAmount": pa.array([2.5], pa.float64())})
+        table = pa.table(
+            {
+                "Order ID": pa.array([1], pa.int64()),
+                "totalAmount": pa.array([2.5], pa.float64()),
+                **{name: pa.array([value], pa.string()) for name, value in internal_columns.items()},
+            }
+        )
 
         with (
             patch.object(PipelineV3, "_stage_batch", AsyncMock(return_value=1)),
@@ -2018,6 +2033,67 @@ class TestResumeCursorCommit:
         assert (written, committed) == (expected_written, expected_committed)
         # A wrapped resource re-reads its last written page; the merge on the primary key absorbs it.
         assert sorted(set(written + resumed)) == list(range(1, page_count + 1))
+
+    @pytest.mark.parametrize(
+        "grace_seconds,expected_written",
+        [
+            # Today's behaviour: the first item after the signal hands off.
+            pytest.param(0.0, ["a", "b"], id="no_grace_hands_off_at_the_signal"),
+            # The run keeps writing and committing through the grace, and hands off at its end.
+            pytest.param(60.0, ["a", "b", "c", "d"], id="hands_off_after_the_grace"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_a_handoff_after_the_shutdown_grace_resumes_after_its_last_written_batch(
+        self, grace_seconds: float, expected_written: list[str]
+    ) -> None:
+        redis = MagicMock()
+        manager = _manager()
+        env = ActivityEnvironment()
+        loop = asyncio.get_running_loop()
+        grace_started, grace_ended = asyncio.Event(), asyncio.Event()
+        monitors: list[ShutdownMonitor] = []
+        ids = ["a", "b", "c", "d", "e"]
+
+        async def grace_sleep(seconds: float) -> None:
+            grace_started.set()
+            await grace_ended.wait()
+
+        async def send_the_signal() -> None:
+            env.worker_shutdown()
+            await (grace_started.wait() if grace_seconds else monitors[0].wait_for_worker_shutdown())
+
+        async def end_the_grace() -> None:
+            grace_ended.set()
+            await monitors[0].wait_for_worker_shutdown()
+
+        def on_the_event_loop(step: Any) -> None:
+            asyncio.run_coroutine_threadsafe(step(), loop).result(timeout=5)
+
+        def items():
+            for row_id in ids:
+                if row_id == "b":
+                    on_the_event_loop(send_the_signal)
+                if row_id == "d" and grace_seconds:
+                    on_the_event_loop(end_the_grace)
+                manager.save_state(_Cursor(row_id))
+                yield pa.table({"id": [row_id]})
+
+        pipeline = _runnable_pipeline(manager, items)
+
+        async def activity_body() -> None:
+            async with ShutdownMonitor(grace_seconds=grace_seconds, sleep=grace_sleep) as monitor:
+                monitors.append(monitor)
+                pipeline._shutdown_monitor = monitor
+                await _run_expecting(pipeline, redis, WorkerShuttingDownError)
+
+        await env.run(activity_body)
+
+        committed = [json.loads(call.args[1])["id"] for call in redis.set.call_args_list]
+        assert _staged_ids(pipeline) == expected_written
+        assert committed[-1] == expected_written[-1]
+        # The next attempt reads after the committed cursor, so every row lands exactly once.
+        assert expected_written + ids[ids.index(committed[-1]) + 1 :] == ids
 
     @pytest.mark.asyncio
     async def test_cursor_not_persisted_for_rows_the_batcher_still_holds(self) -> None:
@@ -3143,10 +3219,14 @@ class TestSourcePreemption:
             if checkpoint == "void":
                 pipeline._handoff_checkpoint.observe(None)
 
-        with patch(f"{_PIPELINE}.is_young_first_attempt", return_value=young):
+        pipeline._shutdown_grace_seconds = 60.0
+
+        with patch(f"{_PIPELINE}.is_young_first_attempt", return_value=young) as young_check:
             decision = pipeline._preemption_decision()
 
         assert (decision.eligible, decision.reason) == expected
+        # The age leaves out the shutdown grace, so the grace never makes a young run old.
+        assert all(call.args == (60.0,) for call in young_check.call_args_list)
 
     @pytest.mark.parametrize(
         "checkpoints,laned,expected_ids,expected_reason",

@@ -207,8 +207,11 @@ const dataCatalogCertificationPropose = (): ToolBase<
 })
 
 const DataCatalogMetricApproveSchema = () => {
+    const DataCatalogMetricsApproveCreateBody = orvalSchemas.DataCatalogMetricsApproveCreateBody()
     const DataCatalogMetricsApproveCreateParams = orvalSchemas.DataCatalogMetricsApproveCreateParams()
-    return DataCatalogMetricsApproveCreateParams.omit({ project_id: true })
+    return DataCatalogMetricsApproveCreateParams.omit({ project_id: true }).extend(
+        DataCatalogMetricsApproveCreateBody.shape
+    )
 }
 
 const DataCatalogMetricApproveSchemaExecute = z.strictObject({
@@ -265,9 +268,14 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
         }
         const params = __guard.verifiedArgs
         const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.expected_updated_at !== undefined) {
+            body['expected_updated_at'] = params.expected_updated_at
+        }
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/approve/`,
+            body,
         })
         return result
     },
@@ -302,6 +310,9 @@ const dataCatalogMetricCreate = (): ToolBase<
         }
         if (params.unit !== undefined) {
             body['unit'] = params.unit
+        }
+        if (params.owner !== undefined) {
+            body['owner'] = params.owner
         }
         if (params.definition !== undefined) {
             body['definition'] = params.definition
@@ -464,6 +475,9 @@ const dataCatalogMetricUpdate = (): ToolBase<
         }
         if (params.unit !== undefined) {
             body['unit'] = params.unit
+        }
+        if (params.owner !== undefined) {
+            body['owner'] = params.owner
         }
         if (params.definition !== undefined) {
             body['definition'] = params.definition

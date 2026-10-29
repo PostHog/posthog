@@ -235,6 +235,7 @@ export const StatusBlock: Story = {
                 task_id: null,
                 agent: 'Build agent',
                 claimed_at: '2026-06-11T10:00:00Z',
+                responsible_user: null,
             },
         })
         return (
@@ -264,6 +265,41 @@ export const ReportReadyToImplement: Story = {
     ),
 }
 
+export const ReportWithoutCodeAccess: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SELF_DRIVING_GITHUB_OPTIONAL]: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/integrations/': { results: [], next: null, count: 0 },
+                '/api/projects/:id/signals/onboarding/': {
+                    draft: null,
+                    completed_at: null,
+                    github_optional_available: true,
+                },
+                '/api/projects/:id/signals/reports/:reportId/artefacts': (req) => {
+                    const results = mockArtefacts(req.params.reportId as string).results.filter(
+                        (artefact) => !['commit', 'suggested_reviewers', 'task_run'].includes(artefact.type)
+                    )
+                    return [200, { results, count: results.length }]
+                },
+            },
+        }),
+    ],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...reportTabReports[0],
+                    research_context: { mode: 'data_only', repository_status: 'no_integration' },
+                }}
+            />
+        </Frame>
+    ),
+}
+
 export const ReportClaimedByTeammate: Story = {
     decorators: [readyToImplementMocks],
     render: () => (
@@ -278,6 +314,13 @@ export const ReportClaimedByTeammate: Story = {
                         task_id: null,
                         agent: null,
                         claimed_at: '2026-06-10T10:00:00Z',
+                        responsible_user: {
+                            id: 1,
+                            uuid: 'u-1',
+                            email: 'octo@example.com',
+                            first_name: 'Octo',
+                            last_name: 'Cat',
+                        },
                     },
                 }}
             />
@@ -394,6 +437,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: [],
             implementation_pr_url: 'https://github.com/example/app/pull/41',
             implementation_pr_state: 'merged',
+            suppression_source: null,
         },
         {
             id: '019e64b8-0000-7000-8000-000000000212',
@@ -402,6 +446,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: ['019e64b8-0000-7000-8000-000000000211'],
             implementation_pr_url: 'https://github.com/example/app/pull/42',
             implementation_pr_state: 'open',
+            suppression_source: null,
         },
         {
             id: '019e64b8-0000-7000-8000-000000000213',
@@ -410,6 +455,7 @@ const exportsPlan: ReportPlanApi = {
             depends_on: ['019e64b8-0000-7000-8000-000000000212'],
             implementation_pr_url: null,
             implementation_pr_state: null,
+            suppression_source: null,
         },
     ],
 }
@@ -455,6 +501,21 @@ export const ReportPlan: Story = {
 }
 
 export const PullRequest: Story = {
+    render: () => (
+        <Frame>
+            <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+export const PullRequestPlainTitle: Story = {
+    parameters: {
+        featureFlags: {
+            [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
+            [FEATURE_FLAGS.SIGNALS_EXPECTED_IMPACT_DISPLAY]: true,
+            [FEATURE_FLAGS.SIGNALS_PLAIN_REPORT_TITLES]: 'test',
+        },
+    },
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />

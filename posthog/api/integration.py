@@ -20,11 +20,11 @@ import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
-from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
-from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -45,10 +45,26 @@ from posthog.api.github_callback.types import (
     github_app_install_url,
     is_valid_github_installation_id,
 )
+from posthog.api.integration_email_status_serializers import (
+    EmailDomainConnectCheckQuerySerializer,
+    EmailDomainConnectCheckSerializer,
+    EmailDomainDnsHostSerializer,
+    EmailDomainStatusQuerySerializer,
+    EmailDomainStatusSerializer,
+    EmailDomainVerificationSerializer,
+)
+from posthog.api.integration_push_tokens import (
+    PushTokenImportRequestSerializer,
+    PushTokenImportResponseSerializer,
+    import_push_tokens,
+    push_channel_app_id,
+)
+from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
-from posthog.auth import SessionAuthentication
+from posthog.api.utils import ErrorResponseSerializer, action
+from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.dns_hosts import lookup_dns_host
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
@@ -120,7 +136,8 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
     TimeSensitiveActionPermission,
 )
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle
+from posthog.ph_client import feature_enabled_or_false
+from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
@@ -130,7 +147,9 @@ from products.cdp.backend.services.integration_usage import get_enabled_hog_func
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.facade.api import get_active_workflows_using_integration
+from products.workflows.backend.facade.api import get_active_workflows_using_integration, lookup_existing_email_tools
+from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
+from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
 logger = structlog.get_logger(__name__)
 
@@ -145,6 +164,13 @@ stripe_marketplace_install_counter = Counter(
 )
 
 GITHUB_REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9_.\-]+")
+
+
+class EmailProviderUnavailable(APIException):
+    # A stable code lets the setup page keep polling through an outage instead of treating it as a broken sender.
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "email_provider_unavailable"
+    default_detail = "Couldn't reach the email provider to check this domain. Try again in a moment."
 
 
 class SlackIntegrationInactiveError(APIException):
@@ -316,6 +342,12 @@ class NativeEmailIntegrationSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Reply-to address for emails from this sender when the email step sets none. Blank clears it.",
     )
+    setup_method = serializers.ChoiceField(
+        choices=EmailDomainSetupMethod.choices,
+        required=False,
+        help_text="How the DNS records are being published: `auto` through Domain Connect, `manual` by hand. "
+        "Reported on the verification event.",
+    )
 
     def validate_email(self, value: str) -> str:
         return value.lower()
@@ -341,6 +373,20 @@ class GitHubRepoSerializer(serializers.Serializer):
         required=False,
         help_text="Whether the PostHog GitHub App has write access — required to open pull requests.",
     )
+
+
+class GitHubRepositoryAccessQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        required=False,
+        help_text="Repository in owner/repo format. Omit to check access to any repository.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        return validate_github_repository_name(value)
+
+
+class GitHubRepositoryAccessResponseSerializer(serializers.Serializer):
+    available = serializers.BooleanField(help_text="Whether a live GitHub request confirmed repository access.")
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
@@ -1476,6 +1522,7 @@ class IntegrationViewSet(
         "channels",
         "users",
         "github_repos",
+        "github_repository_access",
         "github_branches",
         "github_teams",
         "github_available_installations",
@@ -1488,6 +1535,7 @@ class IntegrationViewSet(
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
+        "email_status",
     ]
     scope_object_write_actions = [
         "create",
@@ -1499,8 +1547,10 @@ class IntegrationViewSet(
         "github_prepare_callback",
         "github_link_existing",
         "github_oauth_authorize",
+        "email_verify",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
+        "push_tokens",
     ]
     permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
@@ -1546,6 +1596,8 @@ class IntegrationViewSet(
     def get_throttles(self):
         if self.action == "refresh_github_repos":
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
+        if self.action == "push_tokens":
+            return [PushTokenImportThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
@@ -2353,6 +2405,33 @@ class IntegrationViewSet(
             )
         )
 
+    @validated_request(
+        query_serializer=GitHubRepositoryAccessQuerySerializer,
+        responses={200: GitHubRepositoryAccessResponseSerializer, 503: ErrorResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_repository_access")
+    def github_repository_access(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_repository_access endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL)
+        repository = request.validated_query_data.get("repository")
+        try:
+            if repository:
+                available = github.installation_can_access_repository(repository, raise_on_transient=True)
+            else:
+                repositories, _ = github.list_repositories(per_page=1)
+                available = bool(repositories)
+        except GitHubIntegrationError as error:
+            if error.status_code in (401, 403, 404) or github.installation_unavailable():
+                available = False
+            else:
+                return Response(
+                    {"error": "Couldn't check GitHub access. Try again in a moment."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+        return Response({"available": available})
+
     @extend_schema(parameters=[GitHubAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="github_assignees")
     def github_assignees(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2650,11 +2729,101 @@ class IntegrationViewSet(
         search = query_serializer.validated_data["search"]
         return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
 
+    @validated_request(
+        PushTokenImportRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=PushTokenImportResponseSerializer, description="Import outcome."),
+            400: OpenApiResponse(description="The rows are invalid, or the integration is not a push channel."),
+            429: OpenApiResponse(description="Too many imports for this project. Retry after a minute."),
+        },
+        summary="Import push device tokens",
+        description="Register existing device tokens, for example exported from another provider, on this push "
+        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it.",
+    )
+    @action(methods=["POST"], detail=True, url_path="push_tokens")
+    def push_tokens(self, request: ValidatedRequest, **kwargs) -> Response:
+        integration = self.get_object()
+        if not push_channel_app_id(integration):
+            raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
+        result = import_push_tokens(integration, request.validated_data["subscriptions"])
+        return Response(
+            PushTokenImportResponseSerializer(
+                {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
+            ).data
+        )
+
+    @extend_schema(
+        request=None,
+        responses={200: EmailDomainVerificationSerializer},
+        summary="Verify an email sending domain",
+        description="Ask SES to check the domain's DNS records again. When SES has verified the domain, mark "
+        "the domain's senders as verified so they can send. Call it once email/status reports status verified.",
+    )
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
-        email = EmailIntegration(self.get_object())
-        verification_result = email.verify()
+        instance = self.get_object()
+        email = EmailIntegration(instance)
+        verification_result = email.verify(
+            on_domain_verified=lambda: self._report_email_domain_verified(request, instance)
+        )
         return Response(verification_result)
+
+    @validated_request(
+        query_serializer=EmailDomainStatusQuerySerializer,
+        responses={
+            200: EmailDomainStatusSerializer,
+            503: OpenApiResponse(
+                description="The email provider could not be reached. The error code is email_provider_unavailable. "
+                "Nothing changed, so poll again."
+            ),
+        },
+        summary="Get email sending domain status",
+        description="Read the setup progress of an email sender's domain from SES and public DNS without "
+        "changing either. Poll this until status is verified, then call email/verify once so the sender can send.",
+    )
+    @action(methods=["GET"], detail=True, url_path="email/status")
+    def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        if not any(
+            feature_enabled_or_false(
+                flag,
+                str(cast(User, request.user).distinct_id),
+                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+                group_properties={
+                    "organization": {"id": str(self.team.organization_id)},
+                    "project": {"id": str(self.team.uuid)},
+                },
+                send_feature_flag_events=False,
+            )
+            for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
+        ):
+            raise NotFound()
+        instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("email/status is only supported for email integrations")
+        try:
+            report = EmailIntegration(instance).status(
+                refresh=request.validated_query_data["refresh"],
+            )
+        except EmailProviderUnavailableError as error:
+            raise EmailProviderUnavailable() from error
+        return Response(EmailDomainStatusSerializer(report).data)
+
+    def _report_email_domain_verified(self, request: Request, instance: Integration) -> None:
+        report_user_action(
+            request.user,
+            "email domain verified",
+            {
+                "method": self._email_domain_setup_method(request, instance),
+                "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
+            },
+            team=self.team,
+        )
+
+    @staticmethod
+    def _email_domain_setup_method(request: Request, instance: Integration) -> str:
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
+            return "agent"
+        return instance.config.get("setup_method", "manual")
 
     @extend_schema(responses={200: IntegrationSerializer})
     @action(methods=["PATCH"], detail=True, url_path="email")
@@ -2670,21 +2839,27 @@ class IntegrationViewSet(
 
         return Response(IntegrationSerializer(email.integration).data)
 
+    @validated_request(
+        query_serializer=EmailDomainConnectCheckQuerySerializer,
+        responses={200: EmailDomainConnectCheckSerializer},
+    )
     # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
     @action(methods=["GET"], detail=False, url_path="domain-connect/check")
-    def domain_connect_check(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        domain = request.query_params.get("domain", "")
-        if not domain:
-            raise ValidationError("domain query parameter is required")
-
+    def domain_connect_check(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         # Extract root domain so subdomains (e.g. ph.example.com) resolve correctly
-        domain_parts = extract_root_domain_and_host(domain)
+        domain_parts = extract_root_domain_and_host(request.validated_query_data["domain"])
         result = discover_domain_connect(domain_parts.root_domain)
+        include_email_setup = request.validated_query_data["include_email_setup"]
+        dns_host = lookup_dns_host(domain_parts.root_domain) if include_email_setup else None
         return Response(
             {
                 "supported": result is not None,
                 "provider_name": result["provider_name"] if result else None,
                 "available_providers": get_available_providers() if result is None else [],
+                "dns_host": EmailDomainDnsHostSerializer(dns_host).data if dns_host else None,
+                "existing_email_tools": lookup_existing_email_tools(domain_parts.root_domain)
+                if include_email_setup
+                else [],
             }
         )
 
@@ -2717,7 +2892,11 @@ class IntegrationViewSet(
             if not integration_id:
                 raise ValidationError("integration_id is required for email context")
             try:
-                resolved = resolve_email_context(integration_id, self.team_id)
+                resolved = resolve_email_context(
+                    integration_id,
+                    self.team_id,
+                    on_domain_verified=lambda instance: self._report_email_domain_verified(request, instance),
+                )
             except ValueError as e:
                 capture_exception(e, {"integration_id": integration_id, "team_id": self.team_id, "context": context})
                 raise ValidationError(
@@ -2773,7 +2952,15 @@ class IntegrationViewSet(
             )
             raise ValidationError("Error generating apply URL. Please try again later or contact support.")
 
+        if context == "email" and integration_id:
+            self._record_email_setup_method(integration_id, "auto")
         return Response({"url": url})
+
+    def _record_email_setup_method(self, integration_id: int, setup_method: str) -> None:
+        with transaction.atomic():
+            instance = Integration.objects.select_for_update().get(id=integration_id, team_id=self.team_id)
+            instance.config["setup_method"] = setup_method
+            instance.save(update_fields=["config"])
 
     # Defined last: a method named `list` shadows the builtin for the annotations of every method
     # declared after it in this class body.

@@ -2,7 +2,6 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import posthog from 'lib/posthog-typed'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,9 +9,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import type { UserType } from '../../../../frontend/src/types'
 import { visionScannersWatchFeedRetrieve } from '../generated/api'
-import type { ReplayScannerApi, VisionQuotaApi, WatchFeedResponseApi } from '../generated/api.schemas'
+import type { ReplayScannerApi, VisionQuotaApi } from '../generated/api.schemas'
 import type { VisionScannersWatchFeedRetrieveParams, WatchFeedItemApi } from '../generated/api.schemas'
-import type { WatchFeedRankerEnumApi } from '../generated/api.schemas'
 import type { FeedDismissalReasonEnumApi } from '../generated/api.schemas'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../logics/visionScannersListLogic'
@@ -44,8 +42,7 @@ export interface watchFeedLogicValues {
     feedItemsLoading: boolean
     feedLoad: WatchFeedLoad | null
     feedMoreFailed: boolean
-    feedRanker: WatchFeedRanker
-    feedRankerVariant: string | null
+    feedReloading: boolean
     feedServed: number
     hasOwnScanners: boolean | null
     onlyMyScanners: boolean
@@ -131,13 +128,6 @@ export interface watchFeedLogicActions {
         hasMore: boolean
         served: number
     }
-    setFeedRanker: (
-        ranker: WatchFeedRanker,
-        variant: string | null
-    ) => {
-        ranker: WatchFeedRankerEnumApi
-        variant: string | null
-    }
     setOnlyMyScanners: (onlyMyScanners: boolean) => {
         onlyMyScanners: boolean
     }
@@ -195,10 +185,6 @@ export function feedWindowPhrase(dateFrom: string): string {
 
 export const FEED_PAGE_SIZE = 20
 
-/** Which ranker ordered the loaded feed. Server-decided per team (the flag evaluates against the
- * team, not the viewer), so the client reads it from the response instead of checking the flag. */
-export type WatchFeedRanker = WatchFeedResponseApi['ranker']
-
 function feedParams(values: watchFeedLogicValues): VisionScannersWatchFeedRetrieveParams {
     const params: VisionScannersWatchFeedRetrieveParams = { date_from: values.dateFrom, limit: FEED_PAGE_SIZE }
     if (values.scopedToMine && values.user) {
@@ -235,7 +221,6 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
         setDateFrom: (dateFrom: string) => ({ dateFrom }),
         setOnlyMyScanners: (onlyMyScanners: boolean) => ({ onlyMyScanners }),
         loadFeed: true,
-        setFeedRanker: (ranker: WatchFeedRanker, variant: string | null) => ({ ranker, variant }),
         setFeedLoad: (load: WatchFeedLoad) => ({ load }),
         extendFeedLoad: (load: WatchFeedLoad) => ({ load }),
         setFeedPaging: (hasMore: boolean, asOf: string | null, served: number) => ({ hasMore, asOf, served }),
@@ -264,8 +249,7 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                     const response = await visionScannersWatchFeedRetrieve(String(teamId), feedParams(values))
                     // Drop out-of-order responses — the most recent filter change owns the feed.
                     breakpoint()
-                    actions.setFeedRanker(response.ranker ?? 'weighted-score', response.ranker_variant ?? null)
-                    actions.setFeedLoad(newWatchFeedLoad(response.ranker, response.results))
+                    actions.setFeedLoad(newWatchFeedLoad(response.results))
                     actions.setFeedPaging(response.has_more ?? false, response.as_of ?? null, response.results.length)
                     return response.results
                 },
@@ -380,17 +364,13 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 loadFeedFailure: () => true,
             },
         ],
-        // Set from each response, so the card layout always matches the ranking it shows.
-        feedRanker: [
-            'weighted-score' as WatchFeedRanker,
+        // A filter change reloads page one, unlike loading the next page, which shares the loader.
+        feedReloading: [
+            false,
             {
-                setFeedRanker: (_, { ranker }) => ranker,
-            },
-        ],
-        feedRankerVariant: [
-            null as string | null,
-            {
-                setFeedRanker: (_, { variant }) => variant,
+                loadFeed: () => true,
+                loadFeedSuccess: () => false,
+                loadFeedFailure: () => false,
             },
         ],
     }),
@@ -440,12 +420,6 @@ export const watchFeedLogic = kea<watchFeedLogicType>([
                 clip_count: items.length,
                 scanner_count: new Set(items.map((item) => item.observation.scanner_id)).size,
                 reason_kind_counts: countByReasonKind,
-                ranker: values.feedRanker,
-                // The ranker experiment counts this event as its exposure, so it carries the project's variant.
-                ...(values.feedRankerVariant
-                    ? { [`$feature/${FEATURE_FLAGS.VISION_WATCH_FEED_RANKER}`]: values.feedRankerVariant }
-                    : {}),
-                signal_share: items.length > 0 ? (countByReasonKind.signal_emitted ?? 0) / items.length : 0,
                 // Which dead end the reader hit, so the empty screens can be counted and ranked
                 // against each other instead of only showing up as a clip count of zero.
                 ...(items.length === 0 ? { empty_reason: values.emptyReason ?? 'unresolved' } : {}),

@@ -31,16 +31,11 @@ const SURFACE_LABELS: Record<string, string> = {
     unknown: 'Other',
 }
 export const UNKNOWN_SOURCES_CAVEAT = 'Some sources have no sync schedule, so their age is unknown.'
-export const QUERY_LOG_CAVEAT = 'Counts come from the query log. Cached dashboard views are not counted.'
-export const COMBINED_SAVING_LABEL = 'saved a month'
 
-export interface SavingAmount {
+export interface SavingHighlight {
     amount: string
-    label: string
-}
-
-export interface SavingHighlight extends SavingAmount {
-    bytes?: SavingAmount
+    detail: string | null
+    narrowLabel: string
 }
 
 export interface SurfaceSegment {
@@ -124,6 +119,8 @@ export function suggestedScheduleHint(
             return `Suggested: every ${cadence}. Its sources don't sync more often than that.`
         case 'read_rate':
             return `Suggested: every ${cadence}. People don't read it more often than that.`
+        case 'consumer_refresh':
+            return `Suggested: every ${cadence}. The views that read it don't refresh more often than that.`
         case 'fastest_schedule':
             return `Suggested: every ${cadence}, the most often PostHog refreshes a view.`
         default:
@@ -140,6 +137,8 @@ export function shorterScheduleWarning(
             return `Its sources sync every ${cadence} at most, so refreshing more often reads the same data again.`
         case 'read_rate':
             return `People don't read it more often than every ${cadence}, so extra refreshes mostly go unread.`
+        case 'consumer_refresh':
+            return `The views that read it refresh every ${cadence} at most, so refreshing more often goes unread.`
         case 'fastest_schedule':
             return null
         default:
@@ -157,12 +156,13 @@ export function refreshModeLabel(incremental: boolean, incrementalKey: string | 
 export function savingHighlight(saving: MonthlySaving): SavingHighlight {
     const { time, bytes } = namedSaving(saving, 1)
     if (!time) {
-        return { amount: `~${bytes}`, label: 'less data scanned a month' }
+        return { amount: `~${bytes}`, detail: 'less scanned', narrowLabel: 'less scanned a month' }
     }
+    const scanned = bytes ? `~${bytes} less scanned` : null
     return {
         amount: `~${time}`,
-        label: 'query time saved a month',
-        ...(bytes ? { bytes: { amount: `~${bytes}`, label: 'less scanned' } } : {}),
+        detail: scanned,
+        narrowLabel: scanned ? `saved a month, ${scanned}` : 'saved a month',
     }
 }
 
@@ -208,7 +208,11 @@ export function certificationSummaryText(suggestions: WarehouseSuggestionApi[]):
 }
 
 export function readSummary(evidence: WarehouseSuggestionEvidenceApi): string {
-    return `${countOf(evidence.human_requests ?? 0, 'read', 'reads')} · ${countOf(evidence.human_users ?? 0, 'person', 'people')}`
+    return `${countOf(evidence.human_requests ?? 0, 'read', 'reads')} by ${countOf(evidence.human_users ?? 0, 'person', 'people')}`
+}
+
+export function rebuiltSummary(views: number): string {
+    return `Rebuilt on every refresh of ${countOf(views, 'view', 'views')}`
 }
 
 export function daysReadLabel(evidence: WarehouseSuggestionEvidenceApi, windowDays: number): string {

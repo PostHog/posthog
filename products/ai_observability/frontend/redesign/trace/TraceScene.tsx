@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
+import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
-import { NodeDetailTab, TraceMode } from './types'
+import { NodeDetailTab, SummaryItemKind, TraceMode } from './types'
 
 type ReadyValues = Pick<
     traceViewAdapterLogicValues,
@@ -14,9 +15,17 @@ type ReadyValues = Pick<
     | 'selectedNodeId'
     | 'detailData'
     | 'detailTab'
+    | 'datasetItemSource'
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'evalsChip'
+    | 'evalOutcomesByNode'
+    | 'gitBranch'
+    | 'summaryState'
+    | 'summaryRequesting'
+    | 'summaryRequestError'
+    | 'summaryConsentGiven'
 >
 
 interface ReadyActions {
@@ -26,6 +35,11 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    showFailingEvals: () => void
+    summarize: () => void
+    regenerateSummary: () => void
+    loadSummary: () => void
+    summaryStepClicked: (nodeId: string, kind: SummaryItemKind) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -34,7 +48,11 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
     return {
         header: values.header,
-        summary: values.summary,
+        summary: {
+            ...values.summary,
+            evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
+            git: values.gitBranch,
+        },
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
@@ -48,10 +66,22 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                   tab: values.detailTab,
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
+                  actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
               }
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        evalOutcomes: values.evalOutcomesByNode,
+        summaryMode: {
+            state: values.summaryState,
+            requesting: values.summaryRequesting,
+            requestError: values.summaryRequestError,
+            consentGiven: values.summaryConsentGiven,
+            onRequest: actions.summarize,
+            onRegenerate: actions.regenerateSummary,
+            onReload: actions.loadSummary,
+            onSelectStep: actions.summaryStepClicked,
+        },
     }
 }
 
@@ -70,9 +100,17 @@ export function TraceScene(): JSX.Element {
         selectedNodeId,
         detailData,
         detailTab,
+        datasetItemSource,
         canViewInThread,
         thread,
         timeline,
+        evalsChip,
+        evalOutcomesByNode,
+        gitBranch,
+        summaryState,
+        summaryRequesting,
+        summaryRequestError,
+        summaryConsentGiven,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -87,9 +125,17 @@ export function TraceScene(): JSX.Element {
                       selectedNodeId,
                       detailData,
                       detailTab,
+                      datasetItemSource,
                       canViewInThread,
                       thread,
                       timeline,
+                      evalsChip,
+                      evalOutcomesByNode,
+                      gitBranch,
+                      summaryState,
+                      summaryRequesting,
+                      summaryRequestError,
+                      summaryConsentGiven,
                   },
                   actions
               )

@@ -1,14 +1,12 @@
 import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
-import React, { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -19,7 +17,8 @@ import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { getContrastingTextClass } from '../colorUtils'
-import { TableDataCell, TableRow, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { conditionalFormattingColor } from '../conditionalFormatting'
+import { TableDataCell, TableRow, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColumnScalar } from '../types'
 
 interface TableProps {
@@ -97,6 +96,78 @@ export function compareTableCells(a: TableDataCell<any> | undefined, b: TableDat
 // Plain-text representation of a cell, used as the hover title so clipped content is
 // still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
 // selecting and copying a cell copies the whole value, not just the clipped portion.
+// Fixed-layout tables can't size columns from their content, so estimate the widths from character counts.
+// The estimates use the table font sizes and avoid DOM measurement, which would read every offscreen cell.
+const CELL_CHARACTER_WIDTH = 7.5
+const HEADER_CHARACTER_WIDTH = 8.5
+const HEADER_ICONS_WIDTH = 44
+const HEADER_LINE_MAX_WIDTH = 160
+const CELL_HORIZONTAL_PADDING = 16
+const EDGE_CELL_EXTRA_PADDING = 16
+export const MIN_COLUMN_WIDTH = 64
+export const MAX_COLUMN_WIDTH = 320
+const COLUMN_WIDTH_SAMPLE_CELLS = 5000
+const MIN_COLUMN_WIDTH_SAMPLE_ROWS = 10
+
+function getCellTextLength(cell: TableDataCell<any>): number {
+    if (cell.isTransposedHeader && cell.sourceColumnName) {
+        return cell.sourceColumnName.length
+    }
+    if (cell.formattedValue !== null && typeof cell.formattedValue === 'object') {
+        return Infinity
+    }
+    return String(cell.formattedValue ?? cell.value ?? '').length
+}
+
+/** Estimates pixel widths that fit each column's header and a sample of its cells. */
+export function estimateColumnWidths(
+    columnTitles: string[],
+    rowCount: number,
+    getCell: (sampleRowIndex: number, columnIndex: number) => TableDataCell<any>
+): number[] {
+    const columnCount = columnTitles.length
+    // Keep the total number of formatted cells within the budget. Very wide tables (e.g. a transposed
+    // result) sample a spread of columns, and the other columns reuse the typical sampled width.
+    const minSampleRows = Math.max(1, Math.min(MIN_COLUMN_WIDTH_SAMPLE_ROWS, rowCount))
+    const sampledColumnCount = Math.min(columnCount, Math.floor(COLUMN_WIDTH_SAMPLE_CELLS / minSampleRows))
+    const sampleRowCount = Math.min(rowCount, Math.floor(COLUMN_WIDTH_SAMPLE_CELLS / Math.max(1, sampledColumnCount)))
+    // Spread the sample over the whole result, so a long tail of wider values still counts
+    const sampleRowIndexes = Array.from({ length: sampleRowCount }, (_, index) =>
+        Math.floor((index * rowCount) / sampleRowCount)
+    )
+
+    const longestCellLengths = new Map<number, number>()
+    for (let index = 0; index < sampledColumnCount; index++) {
+        const columnIndex = Math.floor((index * columnCount) / sampledColumnCount)
+        let longestCellLength = 0
+        for (const rowIndex of sampleRowIndexes) {
+            longestCellLength = Math.max(longestCellLength, getCellTextLength(getCell(rowIndex, columnIndex)))
+            if (longestCellLength * CELL_CHARACTER_WIDTH >= MAX_COLUMN_WIDTH) {
+                break
+            }
+        }
+        longestCellLengths.set(columnIndex, longestCellLength)
+    }
+    const sampledLengths = [...longestCellLengths.values()].sort((a, b) => a - b)
+    const typicalCellLength = sampledLengths[Math.floor(sampledLengths.length / 2)] ?? 0
+
+    return columnTitles.map((title, columnIndex) => {
+        // Headers wrap at spaces, dashes, and underscores, so only the longest segment must fit on one line
+        const longestTitleSegment = Math.max(0, ...title.split(/[\s_-]+/).map((segment) => segment.length + 1))
+        const headerWidth =
+            Math.max(
+                longestTitleSegment * HEADER_CHARACTER_WIDTH,
+                Math.min(title.length * HEADER_CHARACTER_WIDTH, HEADER_LINE_MAX_WIDTH)
+            ) + HEADER_ICONS_WIDTH
+
+        const longestCellLength = longestCellLengths.get(columnIndex) ?? typicalCellLength
+        const isEdgeColumn = columnIndex === 0 || columnIndex === columnCount - 1
+        const padding = CELL_HORIZONTAL_PADDING + (isEdgeColumn ? EDGE_CELL_EXTRA_PADDING : 0)
+        const contentWidth = Math.max(headerWidth, longestCellLength * CELL_CHARACTER_WIDTH)
+        return Math.round(Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, contentWidth + padding)))
+    })
+}
+
 function getCellTitle(cell: TableDataCell<any>): string | undefined {
     if (typeof cell.formattedValue === 'string') {
         return cell.formattedValue
@@ -177,7 +248,21 @@ export const Table = (props: TableProps): JSX.Element => {
         !!props.embedded &&
         !!props.context?.dataVisualizationTableVirtualized &&
         tableRows.length * tabularColumns.length > virtualizationCellThreshold
+    const virtualizeColumns = (virtualized || isTransposed) && tabularColumns.length > 50
     const { toggleColumnPin, setTableSorted } = useActions(dataVisualizationLogic)
+
+    // Virtualized tables use a fixed layout, which can't fit columns to cells that aren't rendered
+    const columnWidths = useMemo(
+        () =>
+            virtualized || virtualizeColumns
+                ? estimateColumnWidths(
+                      tabularColumns.map(({ column, settings }) => settings?.display?.label || column.name),
+                      tableRows.length,
+                      (sampleRowIndex, columnIndex) => getTableCell(tableRows[sampleRowIndex].rowIndex, columnIndex)
+                  )
+                : undefined,
+        [virtualized, virtualizeColumns, tabularColumns, tableRows, getTableCell]
+    )
 
     const sourceTabularColumnsByName = new Map(sourceTabularColumns.map((column) => [column.column.name, column]))
 
@@ -198,50 +283,14 @@ export const Table = (props: TableProps): JSX.Element => {
 
             const sourceColumnName = cell.sourceColumnName ?? column.name
             const sourceColumnType = sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-            const conditionalFormattingMatches = conditionalFormattingRules
-                .filter((n) => n.columnName === sourceColumnName)
-                .filter((n) => {
-                    const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
-                    if (!isValidHog) {
-                        posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                            formatRule: n,
-                        })
-                    }
-
-                    return isValidHog
-                })
-                .map((n) => ({
-                    rule: n,
-                    result: hogVm.execHog(n.bytecode, {
-                        globals: {
-                            value: cell.value,
-                            input: convertTableValue(n.input, sourceColumnType),
-                        },
-                        functions: {},
-                        maxAsyncSteps: 0,
-                    }).result,
-                }))
-                .find((n) => Boolean(n.result))
-
-            if (!conditionalFormattingMatches) {
-                return undefined
-            }
-
-            const ruleColor = conditionalFormattingMatches.rule.color
-            const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
-
-            // If the color mode matches the current theme, use the color as it was saved
-            if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                return ruleColor
-            }
-
-            // If the color mode is dark, but we're in light mode - then lighten the color
-            if (colorMode === 'dark' && !isDarkModeOn) {
-                return lightenDarkenColor(ruleColor, 30)
-            }
-
-            // If the color mode is light, but we're in dark mode - then darken the color
-            return lightenDarkenColor(ruleColor, -30)
+            return conditionalFormattingColor(
+                conditionalFormattingRules,
+                hogVm.execHog,
+                sourceColumnName,
+                sourceColumnType,
+                cell.value,
+                isDarkModeOn
+            )
         }
 
         // The style and class callbacks run separately. Cache the last row to avoid a second HogVM call
@@ -260,6 +309,7 @@ export const Table = (props: TableProps): JSX.Element => {
 
         return {
             ...columnMeta,
+            width: columnWidths?.[index] ?? columnMeta.width,
             key: column.name,
             // Sorting reorders rows, which doesn't make sense once the table is transposed
             // (rows become the original columns), so only offer it in the normal orientation.
@@ -434,9 +484,11 @@ export const Table = (props: TableProps): JSX.Element => {
                 embedded={props.embedded}
                 allowContentScroll={!!props.embedded}
                 virtualized={virtualized}
-                virtualizedColumnWidth={(virtualized || isTransposed) && tabularColumns.length > 50 ? 192 : undefined}
+                virtualizedColumnWidth={virtualizeColumns ? 192 : undefined}
                 tableLayout={virtualized ? 'fixed' : 'auto'}
-                tableStyle={virtualized ? { minWidth: `${tabularColumns.length * 12}rem` } : undefined}
+                tableStyle={
+                    columnWidths ? { minWidth: columnWidths.reduce((total, width) => total + width, 0) } : undefined
+                }
             />
         </>
     )

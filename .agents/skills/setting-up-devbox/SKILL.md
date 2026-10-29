@@ -73,6 +73,7 @@ This creates the box on first use and resumes it after a stop.
 It returns once the box's startup scripts finish, so the box is ready to connect to. `devbox:restart`, `devbox:update` and `devbox:clone` wait the same way. If a script fails or the wait gives up, the box still runs and hogli prints a warning that points to `hogli devbox:logs`.
 It brings up the PostHog stack only when the workspace has `--start-app` set, which is covered in [Run the PostHog app](#run-the-posthog-app).
 `--disk` (`100` or `200` GiB) applies only when the box is created.
+When AWS has no capacity for the box's instance type in its zone (`InsufficientInstanceCapacity`), hogli starts the box on the template's other instance types by itself and keeps the disk. There is nothing to pass.
 `--region` (`us-east-1` or `eu-central-1`) starts that region's default box and creates it if it doesn't exist, so leave it off when resuming an existing box.
 A box's region can't change.
 
@@ -94,6 +95,7 @@ Match what the user asked for:
 ### 5. Stop when done
 
 `hogli devbox:stop` keeps the disk and stops billing.
+It also pauses the box's `devbox:sync` mirror, and `devbox:start` resumes it.
 Stops, starts, and `devbox:update` keep `/home`.
 `hogli devbox:destroy` deletes it, so don't keep anything irreplaceable only on a box.
 

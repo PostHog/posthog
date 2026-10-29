@@ -8,6 +8,7 @@ import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardC
 import {
     getCollapsedTileGroupKeys,
     getDashboardSections,
+    getDashboardTabs,
     getLayoutAfterSectionChange,
     getLayoutAfterTileMove,
     getSectionLayouts,
@@ -113,6 +114,27 @@ describe('dashboardTileSections', () => {
         },
     ])('getDashboardSections $name', ({ tiles, layout, groups, expected }) => {
         expect(sectionSummary(tiles, layout, groups)).toEqual(expected)
+    })
+
+    it.each<Omit<SectionsCase, 'groups'>>([
+        {
+            name: 'gathers ungrouped tiles from around the groups into one first tab',
+            tiles: [tile(1), tile(2, 'plans'), tile(3), tile(4, 'regions'), tile(5)],
+            layout: [box(1, 0, 0), box(2, 0, 2), box(3, 0, 4), box(4, 0, 6), box(5, 0, 8)],
+            expected: ['tiles-ungrouped: 1,3,5', 'group-plans: 2', 'group-regions: 4'],
+        },
+        {
+            name: 'shows only the groups when every tile is in one',
+            tiles: [tile(1, 'plans'), tile(2, 'regions')],
+            layout: [box(1, 0, 0), box(2, 0, 2)],
+            expected: ['group-plans: 1', 'group-regions: 2'],
+        },
+    ])('getDashboardTabs $name', ({ tiles, layout, expected }) => {
+        expect(
+            getDashboardTabs(getDashboardSections({ tiles, layout, groups: undefined })).map(
+                (section) => `${section.key}: ${section.tiles.map((t) => t.id).join(',')}`
+            )
+        ).toEqual(expected)
     })
 
     it('keeps section keys when tiles reorder inside their bands', () => {

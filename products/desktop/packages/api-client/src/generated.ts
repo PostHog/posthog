@@ -213,6 +213,7 @@ export namespace Schemas {
         inCohortVia: InCohortVia | null;
         inlineCohortCalculation: InlineCohortCalculation | null;
         materializationMode: MaterializationMode | null;
+        materializeRepeatedCTEs: boolean | null;
         materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | null;
         mergeFederatedAggregateJoins: boolean | null;
         negatedPersonFiltersNotIn: boolean | null;
@@ -234,7 +235,6 @@ export namespace Schemas {
         timings: boolean | null;
         typeAwareCastSimplification: boolean | null;
         useMaterializedViews: boolean | null;
-        useNewEventsCluster: boolean | null;
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
@@ -346,6 +346,7 @@ export namespace Schemas {
          * Warehouse table name that was referenced
          */
         table_name: string;
+        uses_history_table?: (boolean | null) | undefined;
     };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
@@ -1953,6 +1954,7 @@ export namespace Schemas {
         values: Array<PropertyGroupFilterValue>;
     };
     export type BoxPlotDatum = {
+        count?: (number | null) | undefined;
         day: string;
         label: string;
         max: number;
@@ -3742,6 +3744,19 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeExposureConfig = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        kind?: string | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per exposure with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the first exposure per entity and applies the experiment's date range and multiple-variant handling.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type MultipleVariantHandling = "exclude" | "first_seen";
     export type ExperimentMetricGoal = "increase" | "decrease";
     export type ExperimentDataWarehouseNode = {
@@ -3833,6 +3848,23 @@ export namespace Schemas {
         timestamp_field: string;
         version?: (number | null) | undefined;
     };
+    export type ExperimentWarehouseNativeMathType = "total" | "sum";
+    export type ExperimentWarehouseNativeNode = {
+        /**
+         * The direct-query source (an ExternalDataSource id) the SQL is written for.
+         */
+        connection_id: string;
+        custom_name?: (string | null) | undefined;
+        kind?: string | undefined;
+        math?: (ExperimentWarehouseNativeMathType | null) | undefined;
+        math_property?: (string | null) | undefined;
+        /**
+         * Read-only SQL in the warehouse's dialect, returning one row per outcome with `entity_id` and `timestamp` columns plus any numeric columns a metric can measure.
+         */
+        query: string;
+        response?: (Record<string, unknown> | null) | undefined;
+        version?: (number | null) | undefined;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3849,7 +3881,11 @@ export namespace Schemas {
         name?: (string | null) | undefined;
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
-        source: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        source:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
@@ -3889,7 +3925,11 @@ export namespace Schemas {
         conversion_window_unit?:
             | (FunnelConversionWindowTimeUnit | null)
             | undefined;
-        denominator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        denominator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         denominator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -3899,7 +3939,11 @@ export namespace Schemas {
         kind?: string | undefined;
         metric_type?: string | undefined;
         name?: (string | null) | undefined;
-        numerator: EventsNode | ActionsNode | ExperimentDataWarehouseNode;
+        numerator:
+            | EventsNode
+            | ActionsNode
+            | ExperimentDataWarehouseNode
+            | ExperimentWarehouseNativeNode;
         numerator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
@@ -4030,52 +4074,16 @@ export namespace Schemas {
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>;
     };
-    export type ExperimentSignificanceCode =
-        | "significant"
-        | "not_enough_exposure"
-        | "low_win_probability"
-        | "high_loss"
-        | "high_p_value";
-    export type ExperimentVariantTrendsBaseStats = {
-        absolute_exposure: number;
-        count: number;
-        exposure: number;
-        key: string;
-    };
-    export type ExperimentVariantFunnelsBaseStats = {
-        failure_count: number;
-        key: string;
-        success_count: number;
-    };
     export type ExperimentQueryResponse = Partial<{
         baseline: ExperimentStatsBaseValidated | null;
         breakdown_results: Array<ExperimentBreakdownResult> | null;
         clickhouse_sql: string | null;
-        credible_intervals: Record<string, Array<number>> | null;
         hogql: string | null;
-        insight: Array<Record<string, unknown>> | null;
         is_precomputed: boolean | null;
         kind: string;
-        metric:
-            | (
-                  | ExperimentMeanMetric
-                  | ExperimentFunnelMetric
-                  | ExperimentRatioMetric
-                  | ExperimentRetentionMetric
-              )
-            | null;
-        p_value: number | null;
-        probability: Record<string, number> | null;
-        significance_code: ExperimentSignificanceCode | null;
-        significant: boolean | null;
-        stats_version: number | null;
         variant_results:
             | Array<ExperimentVariantResultFrequentist>
             | Array<ExperimentVariantResultBayesian>
-            | null;
-        variants:
-            | Array<ExperimentVariantTrendsBaseStats>
-            | Array<ExperimentVariantFunnelsBaseStats>
             | null;
         warnings: Array<DataWarehouseSyncWarning> | null;
     }>;
@@ -4096,7 +4104,12 @@ export namespace Schemas {
     };
     export type ExperimentActorsQuery = {
         exposureConfig?:
-            | (ExperimentEventExposureConfig | ActionsNode | null)
+            | (
+                  | ExperimentEventExposureConfig
+                  | ActionsNode
+                  | ExperimentWarehouseNativeExposureConfig
+                  | null
+              )
             | undefined;
         featureFlagKey?: (string | null) | undefined;
         funnelStep?: (number | null) | undefined;
@@ -6180,6 +6193,11 @@ export namespace Schemas {
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
     /**
+     * * `sections` - sections
+     * * `tabs` - tabs
+     */
+    export type TileGroupDisplayEnum = "sections" | "tabs";
+    /**
      * * `blue` - Blue
      * * `purple` - Purple
      * * `green` - Green
@@ -6202,6 +6220,7 @@ export namespace Schemas {
     export type DashboardCustomization = Partial<{
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
         groups: Record<string, DashboardTileGroup>;
         group_titles: Record<string, string>;
     }>;
@@ -6285,6 +6304,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        group_display?: (TileGroupDisplayEnum & unknown) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -9448,23 +9471,23 @@ export namespace Schemas {
         value: string;
     };
     /**
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
      * * `semver_gt` - semver_gt
      * * `semver_gte` - semver_gte
      * * `semver_lt` - semver_lt
      * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
      * * `semver_tilde` - semver_tilde
      * * `semver_caret` - semver_caret
      * * `semver_wildcard` - semver_wildcard
      */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum =
+    export type SemverOperatorEnum =
+        | "semver_eq"
+        | "semver_neq"
         | "semver_gt"
         | "semver_gte"
         | "semver_lt"
         | "semver_lte"
-        | "semver_eq"
-        | "semver_neq"
         | "semver_tilde"
         | "semver_caret"
         | "semver_wildcard";
@@ -9479,17 +9502,17 @@ export namespace Schemas {
         /**
          * Semantic version comparison operator.
          *
+         * * `semver_eq` - semver_eq
+         * * `semver_neq` - semver_neq
          * * `semver_gt` - semver_gt
          * * `semver_gte` - semver_gte
          * * `semver_lt` - semver_lt
          * * `semver_lte` - semver_lte
-         * * `semver_eq` - semver_eq
-         * * `semver_neq` - semver_neq
          * * `semver_tilde` - semver_tilde
          * * `semver_caret` - semver_caret
          * * `semver_wildcard` - semver_wildcard
          */
-        operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+        operator: SemverOperatorEnum;
         /**
          * Semantic version string.
          */
@@ -9843,7 +9866,11 @@ export namespace Schemas {
      * * `multiple_variants_share` - Multiple Variants Share
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+     * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9863,7 +9890,11 @@ export namespace Schemas {
         | "multiple_variants_share"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_cannot_compile"
+        | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
+        | "exposure_filter_on_dynamic_cohort"
+        | "exposure_filter_excludes_events"
         | "srm"
         | "zero_exposures"
         | "forced_variant_release_condition"
@@ -9913,7 +9944,11 @@ export namespace Schemas {
          * * `multiple_variants_share` - Multiple Variants Share
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filter_on_dynamic_cohort` - Exposure Filter On Dynamic Cohort
+         * * `exposure_filter_excludes_events` - Exposure Filter Excludes Events
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
@@ -9969,7 +10004,10 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `no_metric` - No Metric
      * * `metric_event_not_ingested` - Metric Event Not Ingested
+     * * `metric_cannot_compile` - Metric Cannot Compile
+     * * `metric_calculation_failed` - Metric Calculation Failed
      * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+     * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `zero_exposures` - Zero Exposures
      * * `srm` - Srm
@@ -9987,7 +10025,10 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "no_metric"
         | "metric_event_not_ingested"
+        | "metric_cannot_compile"
+        | "metric_calculation_failed"
         | "exposure_criteria_cannot_match"
+        | "exposure_filters"
         | "early_significance"
         | "zero_exposures"
         | "srm"
@@ -10018,7 +10059,10 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `no_metric` - No Metric
          * * `metric_event_not_ingested` - Metric Event Not Ingested
+         * * `metric_cannot_compile` - Metric Cannot Compile
+         * * `metric_calculation_failed` - Metric Calculation Failed
          * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+         * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `zero_exposures` - Zero Exposures
          * * `srm` - Srm
@@ -10027,7 +10071,7 @@ export namespace Schemas {
          */
         key: ExperimentHealthCheckKeyEnum;
         /**
-         * What the check looks at, for example 'Feature flag variants'.
+         * The problem the check looks for, for example 'Metrics not set up'.
          */
         name: string;
         /**
@@ -10396,7 +10440,7 @@ export namespace Schemas {
          */
         key: ExperimentExposureHealthCheckKey;
         /**
-         * What the check looks at, as the health panel lists it.
+         * The problem the check looks for, as the health panel lists it.
          */
         name: string;
         /**
@@ -12376,6 +12420,9 @@ export namespace Schemas {
      * * `FileUpload` - FileUpload
      * * `Dripify` - Dripify
      * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -13786,7 +13833,10 @@ export namespace Schemas {
         | "Particle"
         | "FileUpload"
         | "Dripify"
-        | "AwsS3Tables";
+        | "AwsS3Tables"
+        | "Beacons"
+        | "WooPayments"
+        | "Soniox";
     /**
      * * `web` - web
      * * `api` - api
@@ -15206,6 +15256,9 @@ export namespace Schemas {
          * * `FileUpload` - FileUpload
          * * `Dripify` - Dripify
          * * `AwsS3Tables` - AwsS3Tables
+         * * `Beacons` - Beacons
+         * * `WooPayments` - WooPayments
+         * * `Soniox` - Soniox
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15824,6 +15877,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         origin_product?: (HogFlowOriginProductEnum | NullEnum) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        source_record?: (string | null) | undefined;
         created_at: string;
         created_by: UserBasic & unknown;
         updated_at: string;
@@ -19421,6 +19478,7 @@ export namespace Schemas {
         ensure_experience_continuity: boolean | null;
         evaluation_runtime: EvaluationRuntimeEnum | NullEnum;
         bucketing_identifier: BucketingIdentifierEnum | NullEnum;
+        version: number;
     }>;
     export type PatchedHogFlowSchedule = Partial<{
         id: string;
@@ -19532,6 +19590,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
+        group_display: TileGroupDisplayEnum;
         groups: Record<string, DashboardTileGroup> | null;
         group_titles: Record<string, string> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
@@ -20750,6 +20809,17 @@ export namespace Schemas {
         | "remove"
         | "replace"
         | "confirm";
+    /**
+     * * `wrong_area` - Not their area
+     * * `already_covered` - Someone else is on it
+     * * `unavailable` - No bandwidth
+     * * `other` - Other
+     */
+    export type ReviewerRemovalReasonEnum =
+        | "wrong_area"
+        | "already_covered"
+        | "unavailable"
+        | "other";
     export type ReviewerState = {
         /**
          * Current reviewer artefact ID, or null before the first list.
@@ -20837,6 +20907,8 @@ export namespace Schemas {
          */
         content: Array<SuggestedReviewerEntryWrite>;
         targets?: Array<SuggestedReviewerEntryWrite> | undefined;
+        removal_reason?: ReviewerRemovalReasonEnum | undefined;
+        removal_note?: string | undefined;
     };
     /**
      * Mixin for serializers to add user access control fields
@@ -22569,11 +22641,13 @@ export namespace Endpoints {
                 created_at: string;
                 created_by: string;
                 id: string;
+                latest_send_first: boolean;
                 limit: number;
                 offset: number;
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
+                source_record: string;
                 status: "active" | "archived" | "draft";
                 tags: string;
                 trigger: string;
