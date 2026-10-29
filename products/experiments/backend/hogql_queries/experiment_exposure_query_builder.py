@@ -1,8 +1,13 @@
-from posthog.schema import ExperimentEventExposureConfig, MultipleVariantHandling
+from dataclasses import replace
+from enum import StrEnum
+
+from posthog.schema import Breakdown, ExperimentEventExposureConfig, MultipleBreakdownType, MultipleVariantHandling
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
+
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
@@ -12,6 +17,19 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
     exposure_event_name_filter,
+)
+
+
+class ExposureSegmentDimension(StrEnum):
+    # pinned: the `srm` finding names its evidence keys and its reasons after these values.
+    LIBRARY = "library"
+    PAGE = "page"
+
+
+# `segments_query` reads them as the columns breakdown_value_1 and breakdown_value_2, in this order.
+_SEGMENT_BREAKDOWNS = (
+    Breakdown(property="$lib", type=MultipleBreakdownType.EVENT),
+    Breakdown(property="$pathname", type=MultipleBreakdownType.EVENT),
 )
 
 
@@ -98,6 +116,92 @@ class ExposureQueryBuilder:
             },
         )
 
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def segments_query(self, top_values: int) -> ast.SelectQuery:
+        """
+        Persons or groups by variant and by the SDK library of their first exposure, and those whose first exposure
+        has a path also by that path. Columns: dimension, segment, variant, exposed_count. In each
+        dimension, the `top_values` segments with the most persons or groups keep their own rows, and the others share
+        the BREAKDOWN_OTHER_STRING_LABEL segment, so that one path per URL can't grow the result.
+        """
+        entities = ExposureQueryBuilder(
+            context=replace(self.context, breakdowns=_SEGMENT_BREAKDOWNS),
+            breakdown_injector=BreakdownInjector(list(_SEGMENT_BREAKDOWNS)),
+        ).select_query()
+        # The window functions rank the segments on the grouped rows, so the events are scanned once.
+        query = parse_select(
+            """
+            SELECT dimension, segment, variant, sum(exposed_count) AS exposed_count
+            FROM (
+                SELECT
+                    dimension,
+                    if(segment_rank <= {top_values}, segment_value, {other_segments}) AS segment,
+                    variant,
+                    exposed_count
+                FROM (
+                    SELECT
+                        dimension,
+                        segment_value,
+                        variant,
+                        exposed_count,
+                        dense_rank() OVER (
+                            PARTITION BY dimension ORDER BY segment_total DESC, segment_value ASC
+                        ) AS segment_rank
+                    FROM (
+                        SELECT
+                            dimension,
+                            segment_value,
+                            variant,
+                            exposed_count,
+                            sum(exposed_count) OVER (PARTITION BY dimension, segment_value) AS segment_total
+                        FROM (
+                            SELECT
+                                segment_pair.1 AS dimension,
+                                segment_pair.2 AS segment_value,
+                                variant,
+                                count() AS exposed_count
+                            FROM ({entities}) AS entities
+                            ARRAY JOIN if(
+                                notEmpty(breakdown_value_2) AND breakdown_value_2 != {no_path},
+                                [({library}, breakdown_value_1), ({page}, breakdown_value_2)],
+                                [({library}, breakdown_value_1)]
+                            ) AS segment_pair
+                            WHERE notEmpty(variant)
+                            GROUP BY dimension, segment_value, variant
+                        )
+                    )
+                )
+            )
+            GROUP BY dimension, segment, variant
+            """,
+            placeholders={
+                "entities": entities,
+                "top_values": ast.Constant(value=top_values),
+                "other_segments": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                "no_path": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                "library": ast.Constant(value=ExposureSegmentDimension.LIBRARY.value),
+                "page": ast.Constant(value=ExposureSegmentDimension.PAGE.value),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        # HogQL adds LIMIT 100 otherwise. The variants and the `$multiple` variant times the segments of each dimension.
+        query.limit = ast.Constant(
+            value=(len(self.context.variants) + 1) * (top_values + 1) * len(ExposureSegmentDimension)
+        )
+        return query
+
+    def exposed_count_query(self) -> ast.SelectQuery:
+        """The persons or groups exposed, in one row. Each counts once, as in timeseries_query."""
+        query = parse_select(
+            """
+            SELECT count() AS exposed_count
+            FROM ({first_exposures_select}) AS first_exposures
+            WHERE notEmpty(first_exposures.variant)
+            """,
+            placeholders={"first_exposures_select": self._build_first_exposures_day_select()},
+        )
         assert isinstance(query, ast.SelectQuery)
         return query
 
