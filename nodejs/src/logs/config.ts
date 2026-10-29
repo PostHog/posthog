@@ -75,8 +75,12 @@ export type LogsIngestionConsumerConfig = {
     LOGS_INTERNAL_PRODUCER_URL: string
     /** Comma-separated team IDs, or `*` for all teams, whose internal logs a producer sends to the logs product. */
     LOGS_INTERNAL_PRODUCER_TEAMS: string
-    /** Requests a producer keeps open at once. A batch over this cap is dropped, so a slow capture-logs cannot stall the caller. */
+    /** Requests a producer keeps open at once. A batch over this cap waits in the buffer. */
     LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: number
+    /** Bytes of batches a producer holds while capture-logs is slow or down. A batch that does not fit is dropped. */
+    LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: number
+    /** How long a producer retries one batch before it gives up on it. */
+    LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: number
     /** Comma-separated team IDs, or `*` for all teams, or empty (default) to disable measure-only pattern masking. */
     LOGS_PATTERN_MASKING_ENABLED_TEAMS: string
     LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: string
@@ -138,6 +142,8 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_INTERNAL_PRODUCER_URL: '',
         LOGS_INTERNAL_PRODUCER_TEAMS: '',
         LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
+        LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 64 * 1024 * 1024,
+        LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 60_000,
         // Off by default: enabling forces decode+re-encode for allowlisted teams.
         LOGS_PATTERN_MASKING_ENABLED_TEAMS: '',
         LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS: '',

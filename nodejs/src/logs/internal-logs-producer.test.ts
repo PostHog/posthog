@@ -20,6 +20,8 @@ function config(overrides: Partial<InternalLogsProducerConfig> = {}): InternalLo
         LOGS_INTERNAL_PRODUCER_URL: URL,
         LOGS_INTERNAL_PRODUCER_TEAMS: '2',
         LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
+        LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 64 * 1024 * 1024,
+        LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 60_000,
         ...overrides,
     }
 }
@@ -43,6 +45,16 @@ function entry(overrides: Partial<InternalLogEntry> = {}): InternalLogEntry {
 function send(producer: InternalLogsProducer, entries: InternalLogEntry[], source = 'hog_flow'): Promise<void> {
     producer.enqueue(source, entries)
     return producer.flush()
+}
+
+const ok = { status: 200, dump: () => Promise.resolve() } as any
+
+function heldResponse(): { response: Promise<any>; release: () => void } {
+    let release: () => void = () => {}
+    const response = new Promise((resolve) => {
+        release = () => resolve(ok)
+    })
+    return { response, release }
 }
 
 describe('InternalLogsProducer', () => {
@@ -123,23 +135,124 @@ describe('InternalLogsProducer', () => {
         expect(fetchMock).not.toHaveBeenCalled()
     })
 
-    it('drops a batch over the in-flight cap instead of waiting', async () => {
-        let release: () => void = () => {}
-        fetchMock.mockReturnValueOnce(
-            new Promise((resolve) => {
-                release = () => resolve({ status: 200, dump: () => Promise.resolve() } as any)
-            })
+    it.each([
+        { name: 'waits for a free request, then sends it', maxBufferedBytes: 64 * 1024 * 1024, expectedCalls: 2 },
+        { name: 'is dropped when the buffer is full', maxBufferedBytes: 15_000, expectedCalls: 1 },
+    ])('a batch over the in-flight cap $name', async ({ maxBufferedBytes, expectedCalls }) => {
+        const held = heldResponse()
+        fetchMock.mockReturnValueOnce(held.response)
+        const producer = new InternalLogsProducer(
+            config({
+                LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 1,
+                LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: maxBufferedBytes,
+            }),
+            teamManager
         )
-        const producer = new InternalLogsProducer(config({ LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 1 }), teamManager)
+        const message = 'x'.repeat(10_000)
 
-        const first = send(producer, [entry()])
-        await send(producer, [entry()])
+        const first = send(producer, [entry({ message })])
+        const second = send(producer, [entry({ message })])
+        await jest.advanceTimersByTimeAsync(0)
         expect(fetchMock).toHaveBeenCalledTimes(1)
 
-        release()
-        await first
-        await send(producer, [entry()])
+        held.release()
+        await Promise.all([first, second])
+        expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
+    })
+
+    it.each([
+        {
+            name: 'a 503',
+            first: () => fetchMock.mockResolvedValueOnce({ status: 503, dump: () => Promise.resolve() } as any),
+            expectedCalls: 2,
+        },
+        {
+            name: 'a 429',
+            first: () => fetchMock.mockResolvedValueOnce({ status: 429, dump: () => Promise.resolve() } as any),
+            expectedCalls: 2,
+        },
+        {
+            name: 'a network error',
+            first: () => fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED')),
+            expectedCalls: 2,
+        },
+        {
+            name: 'a 400',
+            first: () => fetchMock.mockResolvedValueOnce({ status: 400, dump: () => Promise.resolve() } as any),
+            expectedCalls: 1,
+        },
+    ])('after $name, sends $expectedCalls request(s)', async ({ first, expectedCalls }) => {
+        first()
+
+        const sent = send(new InternalLogsProducer(config(), teamManager), [entry()])
+        await jest.advanceTimersByTimeAsync(10_000)
+        await sent
+
+        expect(fetchMock).toHaveBeenCalledTimes(expectedCalls)
+    })
+
+    it('signs each retry again, so a request that hung past the signature window does not make the retry billed', async () => {
+        const retriedAt = new Date(SIGNED_AT.getTime() + 10 * 60 * 1000)
+        fetchMock.mockImplementationOnce(() => {
+            jest.setSystemTime(retriedAt)
+            return Promise.reject(new Error('socket hang up'))
+        })
+
+        const sent = send(
+            new InternalLogsProducer(config({ LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 30 * 60 * 1000 }), teamManager),
+            [entry()]
+        )
+        await jest.advanceTimersByTimeAsync(10_000)
+        await sent
+
         expect(fetchMock).toHaveBeenCalledTimes(2)
+        const retrySignature = (fetchMock.mock.calls[1][1]!.headers as Record<string, string>)['x-posthog-internal']
+        expect(new InternalLogsVerifier(KEY, '2').verify(retrySignature, 2, retriedAt.toISOString())).toBeDefined()
+    })
+
+    it('gives up on a batch at the retry timeout', async () => {
+        fetchMock.mockRejectedValue(new Error('connect ECONNREFUSED'))
+
+        const sent = send(
+            new InternalLogsProducer(config({ LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 2_000 }), teamManager),
+            [entry()]
+        )
+        await jest.advanceTimersByTimeAsync(5_000)
+
+        await expect(sent).resolves.toBeUndefined()
+        const attempts = fetchMock.mock.calls.length
+        await jest.advanceTimersByTimeAsync(60_000)
+        expect(fetchMock).toHaveBeenCalledTimes(attempts)
+    })
+
+    it('drain sends entries that were never flushed and waits for them', async () => {
+        const held = heldResponse()
+        fetchMock.mockReturnValueOnce(held.response)
+        const producer = new InternalLogsProducer(config(), teamManager)
+        producer.enqueue('hog_flow', [entry()])
+
+        let drained = false
+        const drain = producer.drain(10_000).then(() => {
+            drained = true
+        })
+        await jest.advanceTimersByTimeAsync(0)
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(drained).toBe(false)
+
+        held.release()
+        await drain
+        expect(drained).toBe(true)
+    })
+
+    it('drain returns at its timeout while capture-logs still holds a request', async () => {
+        fetchMock.mockReturnValueOnce(heldResponse().response)
+        const producer = new InternalLogsProducer(config(), teamManager)
+        producer.enqueue('hog_flow', [entry()])
+
+        const drain = producer.drain(1_000)
+        await jest.advanceTimersByTimeAsync(1_000)
+
+        await expect(drain).resolves.toBeUndefined()
     })
 
     it('splits a large team batch into requests under the capture-logs body limit', async () => {
@@ -180,11 +293,5 @@ describe('InternalLogsProducer', () => {
             (r: any) => r.body.stringValue
         )
         expect(messages).toEqual(['\uFFFD', 'valid'])
-    })
-
-    it('resolves when capture-logs is unreachable', async () => {
-        fetchMock.mockRejectedValueOnce(new Error('connect ECONNREFUSED'))
-
-        await expect(send(new InternalLogsProducer(config(), teamManager), [entry()])).resolves.toBeUndefined()
     })
 })
