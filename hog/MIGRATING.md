@@ -37,14 +37,14 @@ In CI, you can set both sets of names while some jobs still run posthog-cli.
 | posthog-cli                                        | hog                                                                          |
 | -------------------------------------------------- | ---------------------------------------------------------------------------- |
 | `login`                                            | `auth login`, plus `auth status` and `auth logout`                           |
-| `sourcemap inject --directory dist`                | `error-tracking inject dist`                                                 |
-| `sourcemap upload --directory dist`                | `error-tracking upload dist`                                                 |
-| `sourcemap process --directory dist`               | `error-tracking process dist`                                                |
+| `sourcemap inject --directory <dir>`               | `error-tracking inject <dir>`                                                |
+| `sourcemap upload --directory <dir>`               | `error-tracking upload <dir>`                                                |
+| `sourcemap process --directory <dir>`              | `error-tracking process <dir>`                                               |
 | `hermes inject --directory <dir>`                  | `error-tracking inject <dir>`                                                |
-| `hermes clone -m <packager map> -c <composed map>` | `error-tracking clone <packager map> <composed map>`                         |
+| `hermes clone -m <file1> -c <file2>`               | `error-tracking clone <file1> <file2>`                                       |
 | `hermes upload --directory <dir>`                  | `error-tracking upload <dir>`                                                |
 | `dsym upload --directory <dir>`                    | `error-tracking upload <dir>`                                                |
-| `proguard upload --path mapping.txt --map-id <id>` | `error-tracking upload mapping.txt --map-id <id>`                            |
+| `proguard upload --path <file> --map-id <id>`      | `error-tracking upload <file> --map-id <id>`                                 |
 | `symbol-sets upload --directory <dir>`             | `error-tracking upload <dir>`                                                |
 | `symbol-sets download --id <id> -o <dir>`          | `error-tracking download <id> --output-dir <dir>`                            |
 | `symbol-sets download --ref <ref>`                 | `error-tracking download <ref>`, with `--ref` when the ref looks like an ID  |
@@ -54,9 +54,9 @@ In CI, you can set both sets of names while some jobs still run posthog-cli.
 | `exp query run <query>`                            | `query run <query>`                                                          |
 | `exp query check <query>`                          | `query check <query>`                                                        |
 | `exp endpoints list`, `get`, `open`, `run`, `diff` | `endpoints list`, `get`, `open`, `run`, `diff`                               |
-| `exp endpoints pull -o <path>`                     | `endpoints pull --to <path>`                                                 |
+| `exp endpoints pull -o <dir>`                      | `endpoints pull --to <dir>`                                                  |
 | `exp endpoints push`                               | `endpoints push`                                                             |
-| `exp schema pull -o <path>`                        | `schema pull --file <path>`                                                  |
+| `exp schema pull -o <file>`                        | `schema pull --file <file>`                                                  |
 | `exp schema status`                                | `schema status`                                                              |
 | `api tools`, `search`, `info`, `schema`, `call`    | `api tools`, `search`, `info`, `schema`, `call`, with `-o json` for `--json` |
 
