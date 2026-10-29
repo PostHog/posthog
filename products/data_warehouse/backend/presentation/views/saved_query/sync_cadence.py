@@ -87,6 +87,16 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
         help_text="The source or consumer named in `blocked_by`. Null when allowed, and also when the "
         "blocker sits outside the caller's access grants, where `blocked_by` still gives the direction.",
     )
+    speeds_up = SyncFrequencyBlockerSerializer(
+        many=True,
+        help_text="Upstream views set to refresh less often than this cadence. Choosing it makes them "
+        "refresh this often too, because a view cannot be fresher than its inputs. Only views the "
+        "caller may read are listed. Empty when the cadence is blocked.",
+    )
+    speeds_up_withheld = serializers.BooleanField(
+        help_text="True when at least one view this cadence speeds up sits outside the caller's access "
+        "grants, so `speeds_up` is incomplete."
+    )
 
 
 class SyncFrequencyBoundsSerializer(serializers.Serializer):
@@ -148,7 +158,7 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
 
 def _blocker_node_ids(resolved: Any) -> set[str]:
     """Every node the bounds would name, across the two bounds, the options and the best-effort list."""
-    node_ids: set[str] = set(resolved.best_effort_source_ids)
+    node_ids: set[str] = set(resolved.best_effort_source_ids) | set(resolved.upstream_targets)
     for bound in (resolved.bounds.floor, resolved.bounds.ceiling):
         if bound is not None and bound.blocker is not None:
             node_ids.add(bound.blocker)
@@ -226,18 +236,28 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
             return None
         return {"label": humanize_cadence(value.value), "blocker": blocker(value.blocker)}
 
+    def sped_up(option: Any) -> list[str]:
+        if not option.allowed:
+            return []
+        return sorted(node_id for node_id, target in resolved.upstream_targets.items() if target > option.value)
+
     best_effort = sorted(resolved.best_effort_source_ids)
-    return {
-        "frequency_mode": "tiered",
-        "options": [
+    options = []
+    for option in resolved.bounds.options:
+        sped_up_ids = sped_up(option)
+        options.append(
             {
                 "cadence": sync_frequency_interval_to_sync_frequency(option.value),
                 "allowed": option.allowed,
                 "blocked_by": option.blocked_by,
                 "blocker": blocker(option.blocker),
+                "speeds_up": [blocker(node_id) for node_id in sped_up_ids if node_id in visible_names],
+                "speeds_up_withheld": any(node_id not in visible_names for node_id in sped_up_ids),
             }
-            for option in resolved.bounds.options
-        ],
+        )
+    return {
+        "frequency_mode": "tiered",
+        "options": options,
         "floor": bound(resolved.bounds.floor),
         "ceiling": bound(resolved.bounds.ceiling),
         "best_effort_sources": [blocker(node_id) for node_id in best_effort if node_id in visible_names],

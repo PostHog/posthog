@@ -61,6 +61,7 @@ from products.data_modeling.backend.logic.freshness import (
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
+    get_declared_target,
     persist_seed_targets,
     seed_targets,
     set_declared_anchor,
@@ -92,6 +93,8 @@ def maybe_reconcile_dag(dag: DAG) -> None:
 def _reconcile_dag_best_effort(dag: DAG) -> None:
     try:
         graph = build_frequency_graph(dag)
+        if _lower_targets_to_consumer_ceilings(dag, graph):
+            graph = build_frequency_graph(dag)
         _warn_on_invalid_targets(dag, graph)
         reconcile_dag_schedules(dag, graph=graph)
     except Exception as error:
@@ -126,6 +129,44 @@ def _bootstrap_dag_best_effort(dag: DAG, requested_by: "DataWarehouseSavedQuery 
             # caller's transaction committed, so there is no longer a caller to catch it.
             requested_by.is_materialized = False
             requested_by.save(update_fields=["is_materialized"])
+
+
+def _lower_targets_to_consumer_ceilings(dag: DAG, graph: FrequencyGraph) -> bool:
+    """Lower each stored target that is coarser than what its consumers already force it to run at.
+
+    Only when the source can deliver the consumer ceiling; any other drift is left for
+    `_warn_on_invalid_targets`. Returns whether any target was written.
+    """
+    repairs = {
+        invalid.node_id: invalid
+        for invalid in find_invalid_targets(
+            edges=graph.edges, declared_targets=graph.declared_targets, source_intervals=graph.source_intervals
+        )
+        if invalid.consumer_ceiling is not None
+        and invalid.declared > invalid.consumer_ceiling
+        and invalid.source_floor <= invalid.consumer_ceiling
+    }
+    if not repairs:
+        return False
+
+    lowered = False
+    with transaction.atomic():
+        for node in Node.objects.select_for_update().filter(team_id=dag.team_id, dag=dag, id__in=list(repairs)):
+            invalid = repairs[str(node.id)]
+            ceiling = invalid.consumer_ceiling
+            if ceiling is None or get_declared_target(node) != invalid.declared:
+                continue
+            set_declared_target(node, ceiling)
+            lowered = True
+            logger.info(
+                "Lowered declared freshness target to its consumer ceiling",
+                dag_id=str(dag.id),
+                node_id=invalid.node_id,
+                declared=str(invalid.declared),
+                lowered_to=str(ceiling),
+                source_floor=str(invalid.source_floor),
+            )
+    return lowered
 
 
 def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> None:

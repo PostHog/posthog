@@ -1,6 +1,8 @@
 import { IconRabbit, IconTortoise } from '@posthog/icons'
 import { LemonLabel, LemonSegmentedButton, LemonSegmentedButtonOption, Spinner } from '@posthog/lemon-ui'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
 import { DataModelingSyncInterval } from '~/types'
 
 import { SyncFrequencyBoundsApi } from 'products/data_warehouse/frontend/generated/api.schemas'
@@ -120,7 +122,7 @@ export function SyncFrequencySelect({
                 <LemonSegmentedButton<DataModelingSyncInterval>
                     size="small"
                     value={value && value !== 'never' ? value : undefined}
-                    onChange={(next) => onChange(next)}
+                    onChange={(next) => confirmCadence(bounds, next, onChange)}
                     options={options}
                     disabledReason={reason}
                 />
@@ -128,6 +130,52 @@ export function SyncFrequencySelect({
             </div>
             {explanation && <span className="text-xs text-secondary max-w-prose">{explanation}</span>}
         </div>
+    )
+}
+
+/** Asks before a cadence that would also change how often upstream views refresh. */
+function confirmCadence(
+    bounds: SyncFrequencyBoundsApi | null | undefined,
+    next: DataModelingSyncInterval,
+    onChange: (value: DataModelingSyncInterval) => void
+): void {
+    const warning = speedUpWarning(bounds, next)
+    if (!warning) {
+        onChange(next)
+        return
+    }
+    LemonDialog.open({
+        title: `Refresh every ${CADENCE_LABELS[next]}?`,
+        description: warning,
+        primaryButton: { children: 'Change cadence', onClick: () => onChange(next) },
+        secondaryButton: { children: 'Cancel' },
+    })
+}
+
+/**
+ * What else a cadence changes, or null when it only changes this view.
+ *
+ * A view can't be fresher than its inputs, so the scheduler lowers every slower upstream view to
+ * the picked cadence. Saying so before the write keeps those views from changing unannounced.
+ */
+export function speedUpWarning(
+    bounds: SyncFrequencyBoundsApi | null | undefined,
+    cadence: DataModelingSyncInterval
+): string | null {
+    const option = bounds?.options.find((candidate) => candidate.cadence === cadence)
+    if (!option || (!option.speeds_up?.length && !option.speeds_up_withheld)) {
+        return null
+    }
+
+    const named = option.speeds_up.map((view) => view.name).filter(Boolean)
+    const subject = named.length
+        ? `${named.join(', ')}${option.speeds_up_withheld ? ' and other upstream views' : ''}`
+        : 'Some upstream views'
+    const plural = named.length > 1 || option.speeds_up_withheld || !named.length
+    return (
+        `${subject} ${plural ? 'refresh' : 'refreshes'} less often than this. ` +
+        `${plural ? 'They' : 'It'} will also refresh every ${CADENCE_LABELS[cadence]}, ` +
+        `because this view can't be fresher than what it reads.`
     )
 }
 

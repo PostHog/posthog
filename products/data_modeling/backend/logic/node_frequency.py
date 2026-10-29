@@ -300,6 +300,7 @@ class SavedQueryFrequencyBounds:
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
     best_effort_source_ids: set[str]  # upstream sources with no schedule, so the floor is a guess
     max_data_age: timedelta
+    upstream_targets: dict[str, timedelta]  # ancestor node id -> its declared target, to warn what a cadence speeds up
 
 
 def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> SavedQueryFrequencyBounds | None:
@@ -319,6 +320,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
     names: dict[str, str] = {}
     identities: dict[str, NodeIdentity] = {}
     best_effort: set[str] = set()
+    upstream_targets: dict[str, timedelta] = {}
     data_ages: list[timedelta] = []
     graphs: dict[str, FrequencyGraph] = {}
     for node in nodes:
@@ -338,7 +340,11 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         names.update(graph.names)
         identities.update(graph.identities)
         # a best-effort source elsewhere in the DAG says nothing about this node's freshness
-        best_effort |= graph.best_effort_source_ids & ancestors_of(str(node.id), graph.edges)
+        ancestors = ancestors_of(str(node.id), graph.edges)
+        best_effort |= graph.best_effort_source_ids & ancestors
+        upstream_targets.update(
+            {node_id: target for node_id, target in graph.declared_targets.items() if node_id in ancestors}
+        )
         data_ages.append(max_data_age(str(node.id), graph.edges, graph.source_intervals, graph.declared_targets))
 
     return SavedQueryFrequencyBounds(
@@ -347,6 +353,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
         identities=identities,
         best_effort_source_ids=best_effort,
         max_data_age=max(data_ages),
+        upstream_targets=upstream_targets,
     )
 
 

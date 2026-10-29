@@ -1310,6 +1310,21 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 400, response.json())
         self.assertIn("consumer_view", str(response.json()))
 
+    def test_an_option_names_the_upstream_views_it_speeds_up(self):
+        # A finer cadence downstream drags every slower upstream view along with it. The picker
+        # has to say so before the write, or the upstream cadences change behind the user's back.
+        from products.data_modeling.backend.facade.api import set_declared_target
+
+        upstream = self._create_view_with_a_consumer(consumer_target=timedelta(hours=6))
+        set_declared_target(Node.objects.get(saved_query_id=upstream["id"]), timedelta(days=1))
+        consumer_id = DataWarehouseSavedQuery.objects.get(team=self.team, name="consumer_view").id
+
+        options = {option["cadence"]: option for option in self._read_frequency_bounds(str(consumer_id))["options"]}
+
+        self.assertEqual([view["name"] for view in options["6hour"]["speeds_up"]], ["upstream_view"])
+        self.assertFalse(options["6hour"]["speeds_up_withheld"])
+        self.assertEqual(options["24hour"]["speeds_up"], [])
+
     def test_bounds_stay_off_the_list_page(self):
         # Bounds cost a graph walk per view, so serving them on a page of views is an N+1. The
         # picker only ever renders on one view's panel, so retrieve is the only place they belong.
