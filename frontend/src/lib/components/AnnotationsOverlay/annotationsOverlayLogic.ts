@@ -475,22 +475,26 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 if (dates.length === 0) {
                     return []
                 }
-                // Don't startOf(intervalUnit) here — dayjs uses Sunday-start weeks, which would
-                // drift Monday-aligned dates backward and bias every fractional index by 1/7.
-                const firstDate = parseDateInTimezone(dates[0], timezone)
+                // Interpolate between the actual data points instead of assuming one point per interval:
+                // SQL charts can skip dates or bucket coarser than the insight interval.
+                const pointTimes = dates.map((date) => parseDateInTimezone(date, timezone).valueOf())
                 const lastIndex = dates.length - 1
                 return Object.entries(groupedAnnotations)
                     .map(([dateKey, annotations]) => {
                         const date = annotations[0].date_marker.startOf(getGroupingUnit(intervalUnit))
-                        const wholeIndex = date.diff(firstDate, intervalUnit)
-                        const intervalStart = firstDate.add(wholeIndex, intervalUnit)
-                        const intervalEnd = intervalStart.add(1, intervalUnit)
-                        const intervalSpanMs = intervalEnd.valueOf() - intervalStart.valueOf()
-                        const fraction =
-                            intervalSpanMs > 0 ? (date.valueOf() - intervalStart.valueOf()) / intervalSpanMs : 0
-                        // Clamp to lastIndex so annotations past the final data point snap onto
-                        // it rather than extrapolating off the canvas.
-                        const dataIndex = Math.min(wholeIndex + fraction, lastIndex)
+                        const time = date.valueOf()
+                        const nextIndex = pointTimes.findIndex((pointTime) => pointTime > time)
+                        // Before the first point → negative, filtered out below. Past the final point → snap
+                        // onto it rather than extrapolating off the canvas.
+                        const dataIndex =
+                            nextIndex === -1
+                                ? lastIndex
+                                : nextIndex === 0
+                                  ? -1
+                                  : nextIndex -
+                                    1 +
+                                    (time - pointTimes[nextIndex - 1]) /
+                                        (pointTimes[nextIndex] - pointTimes[nextIndex - 1])
                         return { dateKey, date, dataIndex }
                     })
                     .filter(({ dataIndex }) => dataIndex >= 0)
