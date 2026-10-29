@@ -257,6 +257,7 @@ export function linearTeamIdsFromConfig(config: Record<string, any> | null | und
 export type InboxTabKey =
     | 'reports'
     | 'scouts'
+    | 'sources'
     | 'settings'
     | 'pulls'
     | 'not-actionable'
@@ -265,11 +266,12 @@ export type InboxTabKey =
     | 'config'
 
 /** The page tabs the inbox renders. */
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'settings']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'sources', 'settings']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
     scouts: 'Scouts',
+    sources: 'Sources',
     settings: 'Settings',
     pulls: 'Pull requests',
     'not-actionable': 'Not actionable',
@@ -281,8 +283,9 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     reports: 'Issues and opportunities found in your product, ready to review.',
-    scouts: 'Scheduled agents that sweep this project and file what they find.',
-    settings: 'Signal sources, PR generation, code access, and notifications.',
+    scouts: 'Scouts run on a schedule and investigate the areas you choose.',
+    sources: 'Sources send signals for self-driving to investigate.',
+    settings: 'Configure autonomy, agent instructions, code access, and notifications.',
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
