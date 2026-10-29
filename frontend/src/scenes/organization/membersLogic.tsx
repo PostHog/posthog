@@ -173,21 +173,6 @@ export interface membersLogicActions {
     postRemoveMember: (userUuid: string) => {
         userUuid: string
     }
-    removeMember: (member: OrganizationMemberType) => OrganizationMemberType
-    removeMemberFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    removeMemberSuccess: (
-        members: OrganizationMemberType[] | null,
-        payload?: OrganizationMemberType
-    ) => {
-        members: OrganizationMemberType[] | null
-        payload?: OrganizationMemberType
-    }
     setSearch: (search: any) => {
         search: any
     }
@@ -242,7 +227,7 @@ export const membersLogic = kea<membersLogicType>([
         }),
         postRemoveMember: (userUuid: string) => ({ userUuid }),
     }),
-    loaders(({ values, actions }) => ({
+    loaders(({ values }) => ({
         members: {
             __default: null as OrganizationMemberType[] | null,
             loadAllMembers: async () => {
@@ -274,16 +259,6 @@ export const membersLogic = kea<membersLogicType>([
                 })
 
                 return members
-            },
-            removeMember: async (member: OrganizationMemberType) => {
-                await api.organizationMembers.delete(member.user.uuid)
-                lemonToast.success(
-                    <>
-                        Removed <b>{member.user.first_name}</b> from organization
-                    </>
-                )
-                actions.postRemoveMember(member.user.uuid)
-                return values.members?.filter((thisMember) => thisMember.user.id !== member.user.id) ?? null
             },
             changeMemberAccessLevel: async ({ member, level }) => {
                 const updatedMember = await api.organizationMembers.update(member.user.uuid, { level })

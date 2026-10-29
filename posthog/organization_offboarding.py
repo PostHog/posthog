@@ -17,6 +17,7 @@ from products.subscriptions.backend.facade import api as subscriptions
 if TYPE_CHECKING:
     from posthog.models.user import User
 
+    from products.dashboards.backend.models.dashboard import Dashboard
     from products.notebooks.backend.models import Notebook
     from products.product_analytics.backend.models.insight import Insight
 
@@ -163,10 +164,9 @@ class OrganizationOffboarding:
                             ),
                         )
                     if resource.kind == "dashboard":
-                        configuration = configurations.select_related("dashboard").first()
-                        if configuration and configuration.dashboard:
-                            configuration.dashboard.is_shared = False
-                            configuration.dashboard.save(update_fields=["is_shared"])
+                        dashboard = cast("Dashboard", locked_resource)
+                        dashboard.is_shared = False
+                        dashboard.save(update_fields=["is_shared"])
             alerts.disable_member_offboarding_resources(self.organization_id, self.user_id, keep)
             subscriptions.disable_member_offboarding_resources(self.organization_id, self.user_id, keep)
             self.membership.user.leave(organization=self.membership.organization)
