@@ -143,14 +143,19 @@ describe('tracingSceneLogic', () => {
         expect(filtersLogic.values.comparison).toMatchObject({ preset: 'yesterday' })
     })
 
-    it('opens the operations view from a ?view=operations deep link', () => {
-        enableOperationsView()
-        mountAt({ view: 'operations' })
-        expect(logic.values.activeTracingTab).toBe('operations')
+    it.each([
+        ['operations', FEATURE_FLAGS.TRACING_OPERATIONS_VIEW, undefined],
+        ['endpoints', FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW, true],
+    ] as const)('opens the %s view from a deep link and fetches its aggregate', (view, flag, groupByEndpoint) => {
+        const aggregate = jest.spyOn(api.tracing, 'aggregate')
+        featureFlagLogic.actions.setFeatureFlags([], { [flag]: true })
+        mountAt({ view })
+        expect(logic.values.activeTracingTab).toBe(view)
+        expect(aggregate).toHaveBeenLastCalledWith(expect.objectContaining({ groupByEndpoint }), expect.anything())
     })
 
-    it('ignores ?view=operations when the operations view flag is off', () => {
-        const filtersLogic = mountAt({ view: 'operations' })
+    it.each(['operations', 'endpoints'])('ignores ?view=%s when its flag is off', (view) => {
+        const filtersLogic = mountAt({ view })
         expect(logic.values.activeTracingTab).toBe('traces')
         expect(filtersLogic.values.viewMode).toBe('spans')
     })
@@ -285,6 +290,37 @@ describe('tracingSceneLogic', () => {
 
         expect(aggregateSpy).toHaveBeenLastCalledWith(
             expect.objectContaining({ compareFilter: expect.objectContaining({ compare: false }) }),
+            expect.anything()
+        )
+        resumeKeaLoadersErrors()
+    })
+
+    it.each([
+        ['a comparison window drag', 'drag'],
+        ['a refresh', 'refresh'],
+    ])('keeps endpoint grouping on the full range after %s while comparing', async (_label, trigger) => {
+        silenceKeaLoadersErrors()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW]: true })
+        const filtersLogic = mountAt({ comparison: JSON.stringify({ mode: 'time', preset: 'custom' }) })
+        expect(filtersLogic.values.compareActive).toBe(true)
+
+        const aggregateSpy = jest.spyOn(api.tracing, 'aggregate')
+        logic.actions.setActiveTracingTab('endpoints')
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        aggregateSpy.mockClear()
+
+        if (trigger === 'drag') {
+            filtersLogic.actions.updateComparisonWindows({ startMs: 0, endMs: 1000 }, { startMs: 2000, endMs: 3000 })
+        } else {
+            logic.actions.refreshQuery()
+        }
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(aggregateSpy).toHaveBeenLastCalledWith(
+            expect.objectContaining({
+                groupByEndpoint: true,
+                compareFilter: expect.objectContaining({ compare: false }),
+            }),
             expect.anything()
         )
         resumeKeaLoadersErrors()
