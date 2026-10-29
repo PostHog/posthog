@@ -1,7 +1,7 @@
 import { IconSearch } from '@posthog/icons'
 
 import { CommandOpenSource } from 'lib/components/Command/commandLogic'
-import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { RenderKeybind } from 'lib/components/Shortcuts/RenderKeybind'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
