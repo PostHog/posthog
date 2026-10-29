@@ -1157,12 +1157,18 @@ function queueInlineSave<T>(cache: Record<string, any>, send: () => Promise<T>):
 export type RollbackReasonSource = 'save' | 'toggle'
 
 /**
- * The answer from the rollback reason question rides on every save until one succeeds, so a retry after a failed
- * save does not ask again. The success listeners clear it.
+ * The answer from the rollback reason question rides on every save from the same source until one succeeds, so a
+ * retry after a failed save does not ask again. The success listeners clear it, and so do the listeners that discard
+ * the refused edit, so it never rides on an unrelated edit.
  */
-function rollbackReasonFields(cache: Record<string, any>, ask: boolean): RollbackReasonRequestFields {
-    const answer: RollbackReasonAnswer | undefined = cache.rollbackReasonAnswer
-    return rollbackReasonRequestFields(answer, ask)
+function rollbackReasonFields(
+    cache: Record<string, any>,
+    source: RollbackReasonSource,
+    ask: boolean
+): RollbackReasonRequestFields {
+    const pending: { source: RollbackReasonSource; answer: RollbackReasonAnswer } | undefined =
+        cache.rollbackReasonAnswer
+    return rollbackReasonRequestFields(pending?.source === source ? pending.answer : undefined, ask)
 }
 
 function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
@@ -3696,7 +3702,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             {
                                 ...preparedFlag,
                                 original_flag: values.originalFeatureFlag,
-                                ...rollbackReasonFields(cache, values.asksRollbackReason),
+                                ...rollbackReasonFields(cache, 'save', values.asksRollbackReason),
                             }
                         )
                     }
@@ -3769,7 +3775,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             active,
                             ...values.rowVersionToken,
                             // Turning a flag on never lowers its exposure, so only turning it off asks.
-                            ...rollbackReasonFields(cache, values.asksRollbackReason && !active),
+                            ...rollbackReasonFields(cache, 'toggle', values.asksRollbackReason && !active),
                         }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
@@ -4914,6 +4920,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             cache.lastSaveAttempt = updatedFlag
         },
         loadFeatureFlagSuccess: async ({ featureFlag }) => {
+            // The page now shows the stored flag, so a refused edit and its answer are gone.
+            delete cache.rollbackReasonAnswer
             dismissAgentNotices(props.id, cache)
             // A ?tab=schedule deep link selects the tab before this load finishes, so the
             // schedule form's default was computed against the NEW_FLAG placeholder. Correct
@@ -5335,6 +5343,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         editFeatureFlag: async ({ editing }) => {
             if (editing) {
                 actions.loadFeatureFlag()
+            } else {
+                // Leaving the editor discards a refused save, and its answer with it.
+                delete cache.rollbackReasonAnswer
             }
         },
         submitFeatureFlagWithValidation: async (_payload, breakpoint, action, previousState) => {
@@ -5376,7 +5387,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (answer === 'skipped') {
                         posthog.capture('feature flag rollback reason skipped', { source })
                     }
-                    cache.rollbackReasonAnswer = answer
+                    cache.rollbackReasonAnswer = { source, answer }
                     if (source === 'toggle') {
                         actions.updateFeatureFlagActive(false)
                     } else {

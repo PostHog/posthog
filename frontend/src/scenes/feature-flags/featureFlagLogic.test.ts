@@ -3916,6 +3916,34 @@ describe('featureFlagLogic', () => {
             }
         )
 
+        it.each([
+            ['the edit is canceled', 'save', (l: typeof logic) => l.actions.editFeatureFlag(false), 'save'],
+            ['the flag is reloaded', 'save', (l: typeof logic) => l.actions.loadFeatureFlag(), 'save'],
+            ['the next edit comes from the other source', 'toggle', () => {}, 'save'],
+        ] as const)(
+            'an answer whose resend failed does not ride on the next edit when %s',
+            async (_label, answeredFrom, discard, nextFrom) => {
+                withRollbackReasonFlag(true)
+                const update = jest
+                    .spyOn(api, 'update')
+                    .mockRejectedValueOnce(rollbackReasonRequired())
+                    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+                    .mockResolvedValue({ ...MOCK_FEATURE_FLAG, active: true })
+
+                await expectLogic(logic, () => saveFrom[answeredFrom](logic)).toFinishAllListeners()
+                const dialog = openForm.mock.calls[0][0]
+                dialog.onSubmit({ reason: 'errors', note: '' })
+                dialog.onAfterClose()
+                await expectLogic(logic).toFinishAllListeners()
+                await expectLogic(logic, () => discard(logic)).toFinishAllListeners()
+
+                await expectLogic(logic, () => saveFrom[nextFrom](logic)).toFinishAllListeners()
+
+                expect(update.mock.calls[2][1]).toEqual(expect.objectContaining({ ask_rollback_reason: true }))
+                expect(update.mock.calls[2][1]).not.toHaveProperty('rollback_reason')
+            }
+        )
+
         it('saves nothing when the question is closed without an answer', async () => {
             withRollbackReasonFlag(true)
             const update = jest.spyOn(api, 'update').mockRejectedValueOnce(rollbackReasonRequired())
