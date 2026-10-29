@@ -145,9 +145,10 @@ async fn async_main(mut config: Config, rayon_dispatcher: RayonDispatcher) {
         }
     };
 
-    // Drain on the preStop file until SIGTERM, or for at most 20 s if SIGTERM does not
-    // arrive. The pod's termination grace period must cover the drain limit plus the
-    // global shutdown timeout.
+    // Drain for 20 s after the preStop file appears, then shut down. Kubelet sends SIGTERM
+    // only after the preStop sleep, so keep that sleep at 20 s: a shorter sleep can end the
+    // drain early, and a longer one can outlive the process and fail the preStop hook.
+    // The termination grace period must cover the 20 s drain plus the 45 s shutdown timeout.
     let mut manager = lifecycle::Manager::builder("feature-flags")
         .with_global_shutdown_timeout(Duration::from_secs(45))
         .with_prestop_action(lifecycle::PrestopAction::Drain {

@@ -105,7 +105,7 @@ All options except `name` have sensible defaults.
 | `.with_global_shutdown_timeout(duration)` | Hard ceiling on total shutdown. Monitor returns `ShutdownTimeout` if exceeded. Prevents indefinite hangs if a component doesn't check for cancellation. (see test `global_timeout_fires_when_component_hangs`) | `60s`           |
 | `.with_trap_signals(bool)`                | Install SIGINT/SIGTERM handlers. Set `false` in tests.                                                                                                                                                         | `true`          |
 | `.with_prestop_check(bool)`               | Poll for pre-stop shutdown file (K8s pre-stop hook pattern).                                                                                                                                                   | `true`          |
-| `.with_prestop_action(action)`            | What the pre-stop file does. `PrestopAction::Shutdown` starts graceful shutdown. `PrestopAction::Drain { max }` fails readiness and keeps serving until SIGTERM, for at most `max`. Needs `with_prestop_check(true)`. See [Draining before shutdown](#draining-before-shutdown). (see test `prestop_drain_serves_until_max`) | `Shutdown`      |
+| `.with_prestop_action(action)`            | What the pre-stop file does. `PrestopAction::Shutdown` starts graceful shutdown. `PrestopAction::Drain { max }` fails readiness and keeps serving until SIGTERM, for at most `max`. Turns the pre-stop check on. See [Draining before shutdown](#draining-before-shutdown). (see test `prestop_drain_serves_until_max`) | `Shutdown`      |
 | `.with_prestop_path(path)`                | Override the pre-stop file path.                                                                                                                                                                               | `/tmp/shutdown` |
 | `.with_health_poll_interval(duration)`    | Override health monitor poll frequency. The health monitor is automatically active when any component has `with_liveness_deadline`. (see test `stall_triggers_shutdown`)                                       | `5s`            |
 | `.with_shutdown_token(token)`             | Caller supplies an external `CancellationToken`. Use in tests to trigger deterministic, app-global shutdown (simulate `SIGTERM` from k8s etc.)                                                                                   | `None`          |
@@ -173,6 +173,7 @@ A client behind a proxy that reaches the pod through one ClusterIP never sees th
 
 - The pre-stop file fails readiness, and components keep serving. The manager logs `Lifecycle: drain started, prestop file detected`.
 - SIGTERM, SIGINT, a component failure or a liveness stall starts shutdown as usual. If none of them comes within `max` of the drain start, the manager starts shutdown itself and logs `Lifecycle: shutdown initiated, drain limit reached`.
+- Set the pod's preStop sleep to `max`, because kubelet sends SIGTERM only after the sleep ends.
 - Set the pod's `terminationGracePeriodSeconds` above `max` plus `with_global_shutdown_timeout`.
 
 ```rust

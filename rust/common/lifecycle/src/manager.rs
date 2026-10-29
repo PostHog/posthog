@@ -42,8 +42,7 @@ pub struct ManagerBuilder {
     name: String,
     global_shutdown_timeout: Duration,
     trap_signals: bool,
-    enable_prestop_check: bool,
-    prestop_action: PrestopAction,
+    prestop: Option<PrestopAction>,
     prestop_path: PathBuf,
     health_poll_interval: Duration,
     external_shutdown_token: Option<CancellationToken>,
@@ -66,15 +65,16 @@ impl ManagerBuilder {
 
     /// Poll for pre-stop shutdown file (K8s pre-stop hook pattern). Default: true.
     pub fn with_prestop_check(mut self, enabled: bool) -> Self {
-        self.enable_prestop_check = enabled;
+        self.prestop = enabled.then_some(self.prestop.unwrap_or_default());
         self
     }
 
     /// What to do when the pre-stop file appears. Default: [`PrestopAction::Shutdown`].
+    /// Also turns the pre-stop check on.
     /// Use [`PrestopAction::Drain`] for a server whose clients keep connections to
     /// the pod after K8s removes it from the Service endpoints.
     pub fn with_prestop_action(mut self, action: PrestopAction) -> Self {
-        self.prestop_action = action;
+        self.prestop = Some(action);
         self
     }
 
@@ -102,17 +102,12 @@ impl ManagerBuilder {
 
     /// Consume the builder and produce a [`Manager`].
     pub fn build(self) -> Manager {
-        assert!(
-            self.enable_prestop_check || self.prestop_action == PrestopAction::Shutdown,
-            "with_prestop_action has no effect while with_prestop_check is false"
-        );
         let shutdown_token = self.external_shutdown_token.unwrap_or_default();
         Manager {
             name: self.name,
             global_shutdown_timeout: self.global_shutdown_timeout,
             trap_signals: self.trap_signals,
-            enable_prestop_check: self.enable_prestop_check,
-            prestop_action: self.prestop_action,
+            prestop: self.prestop,
             prestop_path: self.prestop_path,
             health_poll_interval: self.health_poll_interval,
             drain_token: shutdown_token.child_token(),
@@ -268,8 +263,7 @@ pub struct Manager {
     name: String,
     global_shutdown_timeout: Duration,
     trap_signals: bool,
-    enable_prestop_check: bool,
-    prestop_action: PrestopAction,
+    prestop: Option<PrestopAction>,
     prestop_path: PathBuf,
     health_poll_interval: Duration,
     /// Child of `shutdown_token`, so readiness, which reads only this token, fails
@@ -299,8 +293,7 @@ impl Manager {
             name: name.into(),
             global_shutdown_timeout: Duration::from_secs(60),
             trap_signals: true,
-            enable_prestop_check: true,
-            prestop_action: PrestopAction::default(),
+            prestop: Some(PrestopAction::default()),
             prestop_path: PathBuf::from(DEFAULT_PRESTOP_PATH),
             health_poll_interval: Duration::from_secs(5),
             external_shutdown_token: None,
@@ -518,7 +511,6 @@ impl Manager {
         let _span = tracing::info_span!("lifecycle", app = %self.name).entered();
         let name = self.name.clone();
         let trap_signals = self.trap_signals;
-        let enable_prestop = self.enable_prestop_check;
         let health_poll_interval = self.health_poll_interval;
         let global_timeout = self.global_shutdown_timeout;
         let shutdown_token = self.shutdown_token.clone();
@@ -537,10 +529,9 @@ impl Manager {
             });
         }
 
-        if enable_prestop {
+        if let Some(prestop_action) = self.prestop {
             let token = shutdown_token.clone();
             let drain_token = self.drain_token.clone();
-            let prestop_action = self.prestop_action;
             let prestop_path = self.prestop_path.clone();
             tokio::spawn(async move {
                 let mut interval = tokio::time::interval(Duration::from_secs(1));

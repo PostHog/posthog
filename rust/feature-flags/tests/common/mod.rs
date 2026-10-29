@@ -71,7 +71,6 @@ impl ServerHandle {
         prestop_path: &Path,
     ) -> ServerHandle {
         let manager_builder = test_manager_builder()
-            .with_prestop_check(true)
             .with_prestop_path(prestop_path)
             .with_prestop_action(PrestopAction::Drain {
                 // Longer than any test, so the drain limit never starts shutdown mid-test.
