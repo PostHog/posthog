@@ -614,9 +614,11 @@ class TestSystemTableAccessScope(SimpleTestCase):
     Resource-level gating resolves an umbrella via RESOURCE_INHERITANCE_MAP, but object-level
     deny lookups key directly off `access_scope` (`blocked_resource_ids_by_scope[access_scope]`).
     If a table were scoped to an umbrella, those lookups would silently miss every grant stored
-    on the umbrella's children, leaking access-controlled objects through HogQL."""
+    on the umbrella's children, leaking access-controlled objects through HogQL. A
+    `resource_level_access_only` table never does an object-level lookup (its `access_control_id`
+    is None), so an umbrella scope cannot leak grants there and it is exempt."""
 
-    @parameterized.expand(sorted(_SCOPED_SYSTEM_TABLES))
+    @parameterized.expand(sorted(set(_SCOPED_SYSTEM_TABLES) - _SCOPE_GATED_METADATA_TABLES))
     def test_access_scope_is_not_a_pure_umbrella(self, table_name: str) -> None:
         access_scope = _SCOPED_SYSTEM_TABLES[table_name].access_scope
 

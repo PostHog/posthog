@@ -4598,6 +4598,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             else:
                 assert database.get_table(table_name) is not None
 
+    def test_member_without_web_analytics_rules_can_read_aeo_tables(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+
+        database = Database.create_for(team=self.team, user=self.user)
+
+        assert database.get_table("system.aeo_prompts") is not None
+        assert database.get_table("system.aeo_citation_checks") is not None
+
     def test_create_for_with_real_user_uses_user_rbac(self):
         captured: dict = {}
 
