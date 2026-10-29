@@ -74,6 +74,14 @@ import {
 } from './analytics'
 import type { InstructionsBuilder } from './instructions'
 import { getEffectiveMCPClientContext, getEffectiveMCPClientIdentity, resolveSessionKey } from './mcp-context'
+import {
+    contextForProject,
+    type StoredTask,
+    TASK_TOOLS,
+    TaskNotFoundError,
+    type TaskStore,
+    taskView,
+} from './mcp-tasks'
 import { toolCallDurationSeconds, toolCallsTotal, toolErrorsTotal } from './metrics'
 import type { ResolvedState } from './request-state-resolver'
 import type { SkillCatalogService } from './skill-catalog-service'
@@ -130,6 +138,12 @@ function shouldSuppressStructuredContent(args: {
     return args.isCliModeEnabled && !isRenderUiHostInSingleExec
 }
 
+const TRANSIENT_STATUS_ERRORS: ReadonlySet<ToolErrorType> = new Set(['timeout', 'rate_limited', 'api_5xx'])
+
+function isTaskResult(result: unknown): boolean {
+    return typeof result === 'object' && result !== null && (result as { resultType?: unknown }).resultType === 'task'
+}
+
 // A private response must not suppress another call sharing this JSON-RPC batch or token.
 function stateForToolCall(state: ResolvedState, intent: string | undefined): ResolvedState {
     const scoped = { ...state, context: { ...state.context } }
@@ -149,6 +163,7 @@ function stateForToolCall(state: ResolvedState, intent: string | undefined): Res
 // Hooks run after SDK preparation to share its conversation handle and preserve per-call privacy suppression.
 export interface ToolCallHooks {
     carriedContextHandle?: boolean
+    tasksRequested?: boolean
     resolveConversation?(conversationId: string): Promise<ResolvedState>
     beforeExecute(state: ResolvedState): Promise<Record<string, unknown> | undefined>
     afterExecute(state: ResolvedState, result: unknown): Promise<void>
@@ -158,15 +173,18 @@ export class ToolExecutor {
     private readonly catalog: ToolCatalog
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly skillCatalogService: SkillCatalogService | undefined
+    private readonly taskStore: TaskStore | undefined
 
     constructor(
         catalog: ToolCatalog,
         instructionsBuilder: InstructionsBuilder,
-        skillCatalogService?: SkillCatalogService
+        skillCatalogService?: SkillCatalogService,
+        taskStore?: TaskStore
     ) {
         this.catalog = catalog
         this.instructionsBuilder = instructionsBuilder
         this.skillCatalogService = skillCatalogService
+        this.taskStore = taskStore
     }
 
     async handleToolsList(state: ResolvedState): Promise<ListToolsResult> {
@@ -292,8 +310,15 @@ export class ToolExecutor {
         if (invitation) {
             return invitation
         }
-        const result = await this.dispatchToolCall(toolName, callParams, callState, analyticsMeta)
-        const delivered = this.deliverConversationHandle(result, preparedCall)
+        const result = await this.dispatchToolCall(
+            toolName,
+            callParams,
+            callState,
+            analyticsMeta,
+            hooks?.tasksRequested === true
+        )
+        // The handle rides in a tool result's content, which a task handle does not have.
+        const delivered = isTaskResult(result) ? result : this.deliverConversationHandle(result, preparedCall)
         await hooks?.afterExecute(callState, delivered)
         return delivered
     }
@@ -315,7 +340,8 @@ export class ToolExecutor {
         toolName: string,
         callParams: Record<string, unknown>,
         state: ResolvedState,
-        analyticsMeta: ToolCallAnalyticsMeta
+        analyticsMeta: ToolCallAnalyticsMeta,
+        tasksRequested: boolean
     ): Promise<unknown> {
         if (toolName === 'exec') {
             if (state.viaMcpStore) {
@@ -380,9 +406,10 @@ export class ToolExecutor {
             },
             callParams,
             noDataNotice ? { ...state, noDataAction: 'warned' } : state,
-            analyticsMeta
+            analyticsMeta,
+            { tasksRequested }
         )
-        return noDataNotice ? prependNoDataNotice(result, noDataNotice.text) : result
+        return noDataNotice && !isTaskResult(result) ? prependNoDataNotice(result, noDataNotice.text) : result
     }
 
     // execute-sql is the one tool whose advertised description is formatted per
@@ -442,7 +469,8 @@ export class ToolExecutor {
         tool: ResolvedTool,
         params: Record<string, unknown> | undefined,
         state: ResolvedState,
-        analyticsMeta?: ToolCallAnalyticsMeta
+        analyticsMeta?: ToolCallAnalyticsMeta,
+        options?: { tasksRequested?: boolean }
     ): Promise<unknown> {
         const rawToolArgs = (params?.arguments ?? {}) as Record<string, unknown>
         // Computed on the raw input, before any alias is folded away by preprocess.
@@ -515,30 +543,7 @@ export class ToolExecutor {
 
             const duration = Date.now() - startMs
 
-            let response: ToolResultPayload
-            if (isToolCallPayload(handlerResult)) {
-                response = handlerResult
-            } else {
-                const hasUiResource = !!tool._meta?.ui?.resourceUri
-                const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
-                const distinctId = needsDistinctId ? state.distinctId : undefined
-
-                response = buildToolResultPayload({
-                    handlerResult,
-                    toolMeta: tool._meta,
-                    toolName: tool.name,
-                    params: validation.data,
-                    includeAppData: state.clientProfile.consumer === 'posthog_ai',
-                    suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
-                        isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
-                        useSingleExec: state.useSingleExec,
-                        renderUiEnabled: state.renderUiEnabled,
-                    }),
-                    distinctId,
-                    mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext)
-                        .mcpClientName,
-                })
-            }
+            const response = this.formatToolResult(tool, handlerResult, validation.data, state)
 
             void trackToolCall(
                 tool.name,
@@ -573,7 +578,16 @@ export class ToolExecutor {
                 output: response,
             })
 
-            return response
+            const task = options?.tasksRequested
+                ? await this.createTaskIfPending(tool.name, validation.data, handlerResult, state).catch(
+                      (error: unknown) => {
+                          // The job runs already, so a failed task write must not hide the run this call started.
+                          console.error('[ToolExecutor] Task creation failed:', error)
+                          return undefined
+                      }
+                  )
+                : undefined
+            return task ?? response
         } catch (error: unknown) {
             toolCallsTotal.inc({ tool: tool.name, status: 'error' })
             stop({ status: 'error' })
@@ -642,6 +656,125 @@ export class ToolExecutor {
                 state.suppressAnalytics || isPrivateScoutTrialTool(tool.name)
             )
         }
+    }
+
+    private formatToolResult(
+        tool: ResolvedTool,
+        handlerResult: unknown,
+        params: unknown,
+        state: ResolvedState
+    ): ToolResultPayload {
+        if (isToolCallPayload(handlerResult)) {
+            return handlerResult
+        }
+        const hasUiResource = !!tool._meta?.ui?.resourceUri
+        const needsDistinctId = hasUiResource && typeof handlerResult !== 'string'
+        const distinctId = needsDistinctId ? state.distinctId : undefined
+
+        return buildToolResultPayload({
+            handlerResult,
+            toolMeta: tool._meta,
+            toolName: tool.name,
+            params,
+            includeAppData: state.clientProfile.consumer === 'posthog_ai',
+            suppressStructuredContentForFormattedResults: shouldSuppressStructuredContent({
+                isCliModeEnabled: state.clientProfile.isCliModeEnabled(),
+                useSingleExec: state.useSingleExec,
+                renderUiEnabled: state.renderUiEnabled,
+            }),
+            distinctId,
+            mcpClientName: getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
+        })
+    }
+
+    private async createTaskIfPending(
+        toolName: string,
+        args: Record<string, unknown>,
+        handlerResult: unknown,
+        state: ResolvedState
+    ): Promise<Record<string, unknown> | undefined> {
+        const spec = TASK_TOOLS[toolName]
+        if (!spec || !this.taskStore || !state.allTools.some((t) => t.name === spec.statusTool)) {
+            return undefined
+        }
+        const statusArgs = spec.pendingStatusArgs(args, handlerResult)
+        // Every later poll parses these arguments, so a task whose arguments the status tool
+        // rejects could never finish. Answer synchronously instead.
+        if (!statusArgs || !this.catalog.getToolByName(spec.statusTool)?.build().schema.safeParse(statusArgs).success) {
+            return undefined
+        }
+        const task: StoredTask = {
+            toolName,
+            statusArgs,
+            distinctId: state.distinctId,
+            projectId: await state.context.stateManager.getProjectId(),
+            createdAt: new Date().toISOString(),
+        }
+        const taskId = await this.taskStore.create(task)
+        return { resultType: 'task', ...taskView(taskId, task, 'working', spec.statusMessage(handlerResult)) }
+    }
+
+    // Status checks call the status tool's handler directly instead of `callTool`, so a poll
+    // does not record a `$mcp_tool_call`. The finished result is formatted exactly as a direct
+    // call of the status tool would format it.
+    async handleTaskGet(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
+        const taskId = typeof params?.taskId === 'string' ? params.taskId : ''
+        const task = await this.requireTaskStore().get(taskId, state.distinctId)
+        const spec = TASK_TOOLS[task.toolName]
+        const preBuilt = spec ? this.catalog.getToolByName(spec.statusTool) : undefined
+        // The grant of the polling connection decides access, not the grant that created the task.
+        // The API exempts reads from its tool allowlist, so this check is the only one.
+        if (!spec || !preBuilt || !state.allTools.some((t) => t.name === spec.statusTool)) {
+            throw new TaskNotFoundError()
+        }
+        if (task.cancelled) {
+            return taskView(taskId, task, 'cancelled', undefined)
+        }
+
+        const statusTool = preBuilt.build()
+        const statusArgs = statusTool.schema.parse(task.statusArgs)
+        let statusResult: unknown
+        try {
+            statusResult = await statusTool.handler(contextForProject(state.context, task.projectId), statusArgs)
+        } catch (error: unknown) {
+            // A failed status read says nothing about the job, so the client keeps polling.
+            if (TRANSIENT_STATUS_ERRORS.has(resolveToolErrorClassification(error).errorType)) {
+                return taskView(taskId, task, 'working', 'The last status check failed. The next poll retries it.')
+            }
+            // The spec reports a tool error as a completed task whose result has `isError: true`.
+            // The `failed` status is only for JSON-RPC errors.
+            const result = handleToolError(
+                error,
+                statusTool.name,
+                state.distinctId,
+                await sessionUuidForError(state),
+                state.suppressAnalytics
+            )
+            return { ...taskView(taskId, task, 'completed', undefined), result }
+        }
+
+        if (!spec.isTerminal(statusResult)) {
+            return taskView(taskId, task, 'working', spec.statusMessage(statusResult))
+        }
+        return {
+            ...taskView(taskId, task, 'completed', spec.statusMessage(statusResult)),
+            result: this.formatToolResult(statusTool, statusResult, statusArgs, state),
+        }
+    }
+
+    // No registered job has a cancel endpoint, so cancelling only stops the task's own reporting.
+    // The spec allows this, because task cancellation is cooperative.
+    async handleTaskCancel(params: Record<string, unknown> | undefined, state: ResolvedState): Promise<unknown> {
+        const taskId = typeof params?.taskId === 'string' ? params.taskId : ''
+        await this.requireTaskStore().cancel(taskId, state.distinctId)
+        return {}
+    }
+
+    private requireTaskStore(): TaskStore {
+        if (!this.taskStore) {
+            throw new TaskNotFoundError()
+        }
+        return this.taskStore
     }
 
     private async callExecTool(

@@ -44,6 +44,15 @@ import type { RedisLike } from './cache/RedisCache'
 import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
+import {
+    isTasksExtensionEnabled,
+    requestDeclaresTasks,
+    TaskNotFoundError,
+    TASKS_EXTENSION_ID,
+    TASKS_EXTENSION_REQUIRED_ERROR_CODE,
+    TasksExtensionRequiredError,
+    TaskStore,
+} from './mcp-tasks'
 import { initDurationSeconds, initTotal } from './metrics'
 import { RequestStateResolver, type ResolvedState } from './request-state-resolver'
 import { ResourceCatalog } from './resource-catalog'
@@ -67,9 +76,13 @@ const Method = {
     PromptsList: 'prompts/list' as ListPromptsRequest['method'],
     PromptsGet: 'prompts/get' as GetPromptRequest['method'],
     Ping: 'ping' as PingRequest['method'],
+    TasksGet: 'tasks/get',
+    TasksCancel: 'tasks/cancel',
 } as const
 
 const TRACKED_METHODS: Set<string> = new Set([Method.Initialize, Method.Discover, Method.ToolsList, Method.ToolsCall])
+// Task methods call the PostHog API as the requesting user, so they need resolved state too.
+const STATEFUL_METHODS: Set<string> = new Set([...TRACKED_METHODS, Method.TasksGet, Method.TasksCancel])
 
 // Results the 2026-07-28 spec types as CacheableResult (required ttlMs +
 // cacheScope). Everything here varies per token (scopes, flags, staff gating)
@@ -156,11 +169,13 @@ class McpDispatcher {
     private readonly instructionsBuilder: InstructionsBuilder
     private readonly skillCatalogService: SkillCatalogService
     private readonly interviewRecruitment: InterviewRecruitment
+    private readonly tasksEnabled: boolean
 
     private warmupPromise: Promise<void> | undefined
 
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
+        this.tasksEnabled = isTasksExtensionEnabled()
         this.catalog = catalog
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
@@ -169,7 +184,12 @@ class McpDispatcher {
             archiveUrl: env.POSTHOG_MCP_SKILLS_URL,
             expectedArchiveSha: env.POSTHOG_MCP_SKILLS_SHA256,
         })
-        this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder, this.skillCatalogService)
+        this.toolExecutor = new ToolExecutor(
+            catalog,
+            this.instructionsBuilder,
+            this.skillCatalogService,
+            this.tasksEnabled ? new TaskStore(redis) : undefined
+        )
         this.interviewRecruitment = new InterviewRecruitment(redis)
     }
 
@@ -281,7 +301,7 @@ class McpDispatcher {
         const carriedContextHandle = Boolean(props.mcpSessionId || props.mcpConversationId)
         const sessionlessBatch = wasArray && !props.mcpSessionId
         const lookups = sessionlessBatch ? new StateLookupCache() : undefined
-        const needsState = !sessionlessBatch && requests.some((r) => TRACKED_METHODS.has(r.method))
+        const needsState = !sessionlessBatch && requests.some((r) => STATEFUL_METHODS.has(r.method))
         let state: ResolvedState | undefined
         try {
             state = needsState ? await this.stateResolver.resolve(props) : undefined
@@ -361,7 +381,7 @@ class McpDispatcher {
                 }
                 let itemState: ResolvedState | undefined
                 try {
-                    itemState = TRACKED_METHODS.has(request.method)
+                    itemState = STATEFUL_METHODS.has(request.method)
                         ? await this.stateResolver.resolve(itemProps, lookups)
                         : undefined
                 } catch (error) {
@@ -415,8 +435,11 @@ class McpDispatcher {
             }
             return jsonRpcResult(id, stateless ? this.decorateStatelessResult(method, result) : result)
         } catch (error) {
-            if (error instanceof InterviewRequestError) {
+            if (error instanceof InterviewRequestError || error instanceof TaskNotFoundError) {
                 return jsonRpcMethodError(id, ErrorCode.InvalidParams, error.message)
+            }
+            if (error instanceof TasksExtensionRequiredError) {
+                return jsonRpcMethodError(id, TASKS_EXTENSION_REQUIRED_ERROR_CODE, error.message)
             }
             console.error('[McpDispatcher] Internal error:', error)
             return jsonRpcMethodError(id, ErrorCode.InternalError, 'Internal error')
@@ -453,6 +476,7 @@ class McpDispatcher {
                     params
                         ? {
                               carriedContextHandle,
+                              tasksRequested: stateless && this.tasksEnabled && requestDeclaresTasks(params),
                               resolveConversation: (conversationId) => {
                                   props.mcpConversationId = conversationId
                                   return this.stateResolver.resolve(props, state!.reqCtx.lookups)
@@ -501,6 +525,17 @@ class McpDispatcher {
                 return this.resourceCatalog.getPrompt(params)
             case Method.Ping:
                 return {}
+            case Method.TasksGet:
+            case Method.TasksCancel:
+                if (!stateless || !this.tasksEnabled) {
+                    return METHOD_NOT_FOUND
+                }
+                if (!requestDeclaresTasks(params)) {
+                    throw new TasksExtensionRequiredError()
+                }
+                return method === Method.TasksGet
+                    ? await this.toolExecutor.handleTaskGet(params, state!)
+                    : await this.toolExecutor.handleTaskCancel(params, state!)
             default:
                 return METHOD_NOT_FOUND
         }
@@ -515,7 +550,8 @@ class McpDispatcher {
             base._meta && typeof base._meta === 'object' ? (base._meta as Record<string, unknown>) : undefined
         return {
             ...base,
-            resultType: base.resultType === 'input_required' ? 'input_required' : 'complete',
+            resultType:
+                base.resultType === 'input_required' || base.resultType === 'task' ? base.resultType : 'complete',
             ...(CACHEABLE_METHODS.has(method)
                 ? { ttlMs: CACHEABLE_RESULT_TTL_MS, cacheScope: 'private' as const }
                 : {}),
@@ -562,7 +598,13 @@ class McpDispatcher {
             // Advertising legacy versions here would invite modern clients to
             // select one via `_meta`, which we reject.
             supportedVersions: [...MODERN_PROTOCOL_VERSIONS],
-            capabilities: SERVER_CAPABILITIES,
+            // Only the modern dialect gets Tasks, because the 2025-11-25 task protocol differs.
+            capabilities: this.tasksEnabled
+                ? {
+                      ...SERVER_CAPABILITIES,
+                      extensions: { ...SERVER_CAPABILITIES.extensions, [TASKS_EXTENSION_ID]: {} },
+                  }
+                : SERVER_CAPABILITIES,
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }
