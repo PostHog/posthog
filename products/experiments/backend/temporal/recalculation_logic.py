@@ -736,7 +736,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
                 as_of=query_to_dt,
-                workload=Workload.ONLINE,
+                workload=Workload.OFFLINE,
                 # Userless background recompute. Warehouse access is enforced when the metric is authored,
                 # so resolve warehouse tables here instead of failing closed.
                 bypass_warehouse_access_control=True,

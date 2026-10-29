@@ -4,12 +4,15 @@ import type {
     TraceFeedbackScoreApi,
     TraceNodeApi,
     TraceNodeStatsApi,
+    TraceSummaryContentApi,
     TraceTimelineRowApi,
 } from '../../generated/api.schemas'
 import { SampleNodeDetail, SampleTraceFixture } from './sampleFixtures/sampleTraceFixture'
 import {
     ConversationTurn,
     EvalResult,
+    EvalRollupOutcome,
+    EvalsChipData,
     FeedbackModeState,
     MessagePart,
     NodeProperties,
@@ -354,6 +357,11 @@ export const FIXTURE_EVALS: EvalResult[] = [
     },
 ]
 
+/** The roll-up of `FIXTURE_EVALS`: three passes, one fail, and the unrated and skipped runs. */
+export const FIXTURE_EVALS_CHIP: EvalsChipData = { passed: 3, graded: 4, unrated: 2 }
+
+export const FIXTURE_EVAL_OUTCOMES: Record<string, EvalRollupOutcome> = { 'gen-answer': 'fail' }
+
 export const FIXTURE_TRACE_EVALS: EvalResult[] = FIXTURE_EVALS.map((result) => ({
     ...result,
     target: { label: 'draft-answer', nodeId: 'gen-answer' },
@@ -426,15 +434,15 @@ export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready'
     scores: [
         { ...feedbackScore('score-helpful', 'helpfulness', '0', 16), step: answerStep, focused: true },
         { ...feedbackScore('score-resolved', 'resolved', 'false', 17), step: answerStep, focused: true },
-        { ...feedbackScore('score-csat', 'csat', '4', 21), nodeId: null, step: null, focused: false },
-        { ...feedbackScore('score-unnamed', null, '{"stars":3}', 22), nodeId: null, step: null, focused: false },
+        { ...feedbackScore('score-csat', 'csat', '4', 21), nodeId: 'trace-1', step: null, focused: false },
+        { ...feedbackScore('score-unnamed', null, '{"stars":3}', 22), nodeId: 'trace-1', step: null, focused: false },
     ],
     responses: [
         {
             kind: 'text',
             id: 'text-long',
             text: 'Too long, but correct.',
-            nodeId: null,
+            nodeId: 'trace-1',
             timestamp: '2026-09-01T10:23:00Z',
             step: null,
             focused: false,
@@ -525,6 +533,25 @@ export const FIXTURE_FEEDBACK_MODE_WITH_SURVEYS: Extract<FeedbackModeState, { st
         { survey: { id: '0192f2a4-5c1e-7000-8000-00000000a005', name: null }, timestamp: '2026-09-01T10:30:00Z' },
     ],
     surveysFailed: false,
+}
+
+export const FIXTURE_SUMMARY: TraceSummaryContentApi = {
+    title: 'Billing question answered from invoice history',
+    bullets: [
+        { text: 'The user asks why their latest invoice is higher than the one before.', nodeId: 'gen-answer' },
+        { text: 'The agent searches the billing records for seat changes in the period.', nodeId: 'span-search' },
+        {
+            text: 'Two seats were added mid-cycle, and the prorated charge for them explains the whole difference between the two invoices.',
+            nodeId: 'gen-answer',
+        },
+        { text: 'The answer cites the seat change dates.', nodeId: null },
+    ],
+    notes: [
+        { text: 'The retrieval step returned three documents but the answer uses only one.', nodeId: 'span-retrieve' },
+    ],
+    flow: 'question → retrieve-context → search-billing → answer\n                      └─→ 3 documents found ✓',
+    model: 'gpt-4.1-mini',
+    generatedAt: '2026-09-01T10:20:00Z',
 }
 
 export function withWidth(px: number): Decorator {

@@ -1,4 +1,5 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { EvalRollupOutcome } from '../types'
 import { TraceTreeRow } from './TraceTreeRow'
 
 export interface TraceTreeProps {
@@ -6,6 +7,7 @@ export interface TraceTreeProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
+    evalOutcomes: Record<string, EvalRollupOutcome>
     feedbackCountByNodeId?: Record<string, number>
 }
 
@@ -14,6 +16,7 @@ export function TraceTree({
     selectedNodeId,
     onSelectNode,
     onPrefetchNode,
+    evalOutcomes,
     feedbackCountByNodeId,
 }: TraceTreeProps): JSX.Element {
     return (
@@ -26,6 +29,7 @@ export function TraceTree({
                     selectedNodeId={selectedNodeId}
                     onSelectNode={onSelectNode}
                     onPrefetchNode={onPrefetchNode}
+                    evalOutcomes={evalOutcomes}
                     feedbackCountByNodeId={feedbackCountByNodeId}
                 />
             ))}

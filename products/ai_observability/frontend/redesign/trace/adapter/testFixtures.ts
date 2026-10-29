@@ -3,6 +3,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import type {
     TraceApi,
     TraceEvaluationResultApi,
+    TraceEvaluationResultsApi,
     TraceFeedbackApi,
     TraceFeedbackScoreApi,
     TraceFeedbackTextApi,
@@ -125,6 +126,7 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         threadNodeIds: ['gen-2'],
         defaultNodeId: 'trace-1',
         nodeIdsByAlias: {},
+        git: null,
         ...overrides,
     }
 }
@@ -137,6 +139,7 @@ export function makeEvaluationResult(overrides: Partial<TraceEvaluationResultApi
         targetNodeId: 'trace-1',
         outcome: 'pass',
         label: 'True',
+        score: null,
         reasoning: 'Direct answer.',
         timestamp: '2026-09-01T10:16:00Z',
         isBackfill: false,
@@ -160,7 +163,7 @@ export function makeFeedbackText(overrides: Partial<TraceFeedbackTextApi> = {}):
         kind: 'text',
         id: 'text-1',
         text: 'Too long, but correct.',
-        nodeId: null,
+        nodeId: 'trace-1',
         timestamp: '2026-09-01T10:17:00Z',
         ...overrides,
     }
@@ -190,4 +193,8 @@ export function makeFeedback(overrides: Partial<TraceFeedbackApi> = {}): TraceFe
         summary: { total: scores.length + responses.length, thumbsUp: 0, thumbsDown: 0 },
         ...overrides,
     }
+}
+
+export function makeEvaluationResults(overrides: Partial<TraceEvaluationResultsApi> = {}): TraceEvaluationResultsApi {
+    return { results: [], summary: { passed: 0, failed: 0, unrated: 0, nodes: [] }, ...overrides }
 }

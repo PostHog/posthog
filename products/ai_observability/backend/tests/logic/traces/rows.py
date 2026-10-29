@@ -34,6 +34,8 @@ def make_row(**overrides: Any) -> TraceEventRow:
         "is_error": False,
         "error_is_truthy": False,
         "ingestion_source": None,
+        "git_branch": None,
+        "git_repo": None,
     }
     return TraceEventRow(**{**fields, **overrides})
 
@@ -70,6 +72,7 @@ def make_evaluation_result_row(**overrides: Any) -> EvaluationResultRow:
         "score": None,
         "categories": None,
         "backfill_id": None,
+        "start_time": None,
     }
     return EvaluationResultRow(**{**fields, **overrides})
 

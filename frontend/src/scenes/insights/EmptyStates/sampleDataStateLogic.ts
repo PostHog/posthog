@@ -16,6 +16,7 @@ export interface sampleDataStateLogicValues {
     warehouseSetupStatus: ProductSetupStatus // productSetupStatusLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     needsWarehouseDetection: boolean
+    sampleDataPending: boolean
     shouldShowSampleData: boolean
 }
 
@@ -30,6 +31,7 @@ export interface sampleDataStateLogicActions {
 export interface sampleDataStateLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         needsWarehouseDetection: (currentTeam: TeamPublicType | TeamType | null) => boolean
+        sampleDataPending: (needsWarehouseDetection: boolean, warehouseSetupStatus: ProductSetupStatus) => boolean
         shouldShowSampleData: (needsWarehouseDetection: boolean, warehouseSetupStatus: ProductSetupStatus) => boolean
     }
 }
@@ -61,6 +63,11 @@ export const sampleDataStateLogic = kea<sampleDataStateLogicType>([
             (s) => [s.currentTeam],
             (currentTeam: TeamPublicType | TeamType | null): boolean =>
                 !isSharedView() && !!currentTeam && !currentTeam.ingested_event && !currentTeam.is_demo,
+        ],
+        sampleDataPending: [
+            (s) => [s.needsWarehouseDetection, s.warehouseSetupStatus],
+            (needsWarehouseDetection: boolean, warehouseSetupStatus: ProductSetupStatus): boolean =>
+                needsWarehouseDetection && warehouseSetupStatus === 'loading',
         ],
         shouldShowSampleData: [
             (s) => [s.needsWarehouseDetection, s.warehouseSetupStatus],

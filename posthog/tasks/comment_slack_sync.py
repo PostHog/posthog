@@ -10,7 +10,7 @@ from slack_sdk.errors import SlackApiError
 from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_to_content_and_rich_content
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models.comment import Comment, CommentSlackThread
-from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
+from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API, OBSERVATION_COMMENT_SCOPES
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
@@ -122,7 +122,7 @@ def _mark_reply_synced(reply: Comment, ts: object) -> None:
 
 
 def _reply_skip_reason(reply: Comment) -> str | None:
-    if reply.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+    if reply.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API or reply.scope in OBSERVATION_COMMENT_SCOPES:
         return "protected_scope"
     item_context = reply.item_context if isinstance(reply.item_context, dict) else {}
     if item_context.get("from_slack"):
@@ -208,7 +208,7 @@ def ingest_slack_discussion_reply(
         .select_related("integration__team")
         .first()
     )
-    if mirror is None:
+    if mirror is None or mirror.scope in OBSERVATION_COMMENT_SCOPES:
         return
     # message_ts is the idempotency key; without it a redelivered event would duplicate the
     # comment (the enqueuing side already refuses these — this is the fail-closed backstop).

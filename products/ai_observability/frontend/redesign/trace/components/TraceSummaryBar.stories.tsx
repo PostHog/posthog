@@ -33,3 +33,14 @@ export const WithThumbsFeedback: Story = {
     args: { feedback: { chip: { total: 6, thumbsUp: 3, thumbsDown: 1 }, onClick: () => {} } },
     decorators: [withWidth(420)],
 }
+
+export const WithGitBranch: Story = {
+    ...wide,
+    args: { git: { branch: 'feat/billing-answers', repo: 'acme/support-bot' } },
+}
+export const NarrowWithLongGitBranch: Story = {
+    decorators: [withWidth(420)],
+    args: {
+        git: { branch: 'carol/feat-answer-billing-questions-with-invoice-history-and-seat-changes', repo: null },
+    },
+}

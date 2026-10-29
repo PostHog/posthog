@@ -4,13 +4,15 @@ import type {
     TraceFeedbackTextApi,
     TraceNodeApi,
     TraceNodeDetailApi,
+    TraceNodeEvaluationRollupOutcomeEnumApi,
+    TraceSummaryContentApi,
     TraceSurveyResponseApi,
     TraceUnansweredSurveyApi,
 } from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
-export type TraceMode = 'spans' | 'thread' | 'timeline' | 'feedback'
+export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
 
 export type TraceViewChoice = 'new' | 'legacy'
 
@@ -87,6 +89,16 @@ export interface NodeProperties {
  */
 export type EvalOutcome = TraceEvaluationResultOutcomeEnumApi
 
+/** A step's evaluations rolled up: `fail` if any fails, else `pass` if any passes, else `unrated`. */
+export type EvalRollupOutcome = TraceNodeEvaluationRollupOutcomeEnumApi
+
+export interface EvalsChipData {
+    passed: number
+    /** Results with a pass or a fail. */
+    graded: number
+    unrated: number
+}
+
 export interface EvalTarget {
     label: string
     nodeId: string
@@ -115,6 +127,21 @@ export interface LabeledLink {
     label: string
     href: string
 }
+
+export type SummaryItemKind = 'bullet' | 'note'
+
+/** Why a summary request failed. `throttled` means the user reached their summary limit. */
+export type SummaryRequestError = 'throttled' | 'failed'
+
+/** `none` means no summary this user may see exists yet, and `error` that reading it failed. A `failed` summary that
+ * is not `retryable` fails the same way on every new request. */
+export type SummaryModeState =
+    | { status: 'loading' }
+    | { status: 'none' }
+    | { status: 'pending' }
+    | { status: 'ready'; summary: TraceSummaryContentApi }
+    | { status: 'failed'; message: string; retryable: boolean }
+    | { status: 'error' }
 
 /** Where a person opened the Feedback mode from, other than its tab. */
 export type FeedbackEntry = 'chip' | 'step'

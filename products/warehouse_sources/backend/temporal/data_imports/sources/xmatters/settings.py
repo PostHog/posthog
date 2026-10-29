@@ -22,6 +22,8 @@ class XmattersEndpointConfig:
     # required for safe incremental sync: the filter bounds the window and the ascending
     # sort guarantees a stable watermark. Reference/config endpoints stay full-refresh.
     supports_from: bool = False
+    # The `sortBy` value that orders rows by the same timestamp `from` filters on.
+    sort_by: Optional[str] = None
     # Set for per-parent endpoints; the parent is another endpoint in this catalog.
     fanout: Optional[DependentEndpointConfig] = None
     default_incremental_field: Optional[str] = None
@@ -33,6 +35,16 @@ _CREATED_INCREMENTAL: list[IncrementalField] = [
         "label": "created",
         "type": IncrementalFieldType.DateTime,
         "field": "created",
+        "field_type": IncrementalFieldType.DateTime,
+    },
+]
+
+
+_RECEIVED_INCREMENTAL: list[IncrementalField] = [
+    {
+        "label": "received",
+        "type": IncrementalFieldType.DateTime,
+        "field": "received",
         "field_type": IncrementalFieldType.DateTime,
     },
 ]
@@ -62,6 +74,7 @@ XMATTERS_ENDPOINTS: dict[str, XmattersEndpointConfig] = {
         # Note this picks up newly *created* events only — status changes to events created before
         # the cursor are not re-fetched (xMatters filters on created time, not an updated cursor).
         supports_from=True,
+        sort_by="START_TIME",
     ),
     "people": XmattersEndpointConfig(
         name="people",
@@ -94,6 +107,19 @@ XMATTERS_ENDPOINTS: dict[str, XmattersEndpointConfig] = {
     "subscriptions": XmattersEndpointConfig(
         name="subscriptions",
         path="/subscriptions",
+    ),
+    "services": XmattersEndpointConfig(
+        name="services",
+        path="/services",
+    ),
+    "signals": XmattersEndpointConfig(
+        name="signals",
+        path="/signals",
+        partition_key="received",
+        incremental_fields=_RECEIVED_INCREMENTAL,
+        # `from` keeps signals received at or after the cursor, and RECEIVED is a documented sort.
+        supports_from=True,
+        sort_by="RECEIVED",
     ),
     "incidents": XmattersEndpointConfig(
         name="incidents",
@@ -146,6 +172,39 @@ XMATTERS_ENDPOINTS: dict[str, XmattersEndpointConfig] = {
             # Only On-Call groups have shifts.
             parent_params={"groupType": "ON_CALL"},
             child_params={"embed": "rotation"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "user_deliveries": XmattersEndpointConfig(
+        name="user_deliveries",
+        # One row per notified person per event. The endpoint reads historical data only, so the
+        # transport adds the required `at` timestamp per sync.
+        path="/events/{event_id}/user-deliveries",
+        primary_keys=["event_id", "person_id"],
+        fanout=DependentEndpointConfig(
+            parent_name="events",
+            resolve_param="event_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "event_id"},
+            parent_params={"sortBy": "START_TIME", "sortOrder": "ASCENDING"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "on_call": XmattersEndpointConfig(
+        name="on_call",
+        # With no timeframe, /on-call returns the shift occurrences that are on call right now.
+        path="/on-call?groups={group_id}",
+        primary_keys=["group_id", "shift_id", "start"],
+        fanout=DependentEndpointConfig(
+            parent_name="groups",
+            resolve_param="group_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "group_id"},
+            parent_params={"groupType": "ON_CALL"},
+            # The default is 3 members per shift; 100 is the documented maximum.
+            child_params={"membersPerShift": 100},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

@@ -28,7 +28,7 @@ class Score:
     id: str
     name: str | None
     value: str
-    node_id: str | None
+    node_id: str
     timestamp: datetime
 
 
@@ -36,7 +36,7 @@ class Score:
 class FeedbackText:
     id: str
     text: str
-    node_id: str | None
+    node_id: str
     timestamp: datetime
 
 
@@ -49,10 +49,10 @@ class TraceFeedback:
             if row.event in NODE_EVENT_NAMES
         )
 
-        def target(row: FeedbackEventRow) -> str | None:
+        def target(row: FeedbackEventRow) -> str:
             if row.parent_id is None or row.parent_id == trace_id:
-                return None
-            return steps.resolve(row.parent_id)
+                return trace_id
+            return steps.resolve(row.parent_id) or trace_id
 
         scores: list[Score] = []
         texts: list[FeedbackText] = []

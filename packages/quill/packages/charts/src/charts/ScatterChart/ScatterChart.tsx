@@ -186,7 +186,7 @@ function ScatterChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(({ ctx, scales, hoverIndex, hoverProgress, theme: drawTheme }: ChartDrawArgs) => {
-        const position = readScatterLayout(scales)?.positions.find((p) => p.index === hoverIndex)
+        const position = readScatterLayout(scales)?.positionByIndex[hoverIndex]
         if (!position) {
             return false
         }

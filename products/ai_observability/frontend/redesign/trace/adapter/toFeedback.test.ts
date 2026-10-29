@@ -16,23 +16,22 @@ describe('toFeedback', () => {
     })
 
     test.each(['trace-1', 'constructor', '__proto__'])(
-        'toStepFeedback puts trace-level entries, entries on a step the tree lacks and survey responses on the root %s',
+        'toStepFeedback puts each entry on its step and trace-level entries and survey responses on the root %s',
         (traceId) => {
             const score = makeFeedbackScore({ nodeId: 'gen-1' })
-            const traceScore = makeFeedbackScore({ id: 'score-2', nodeId: null })
-            const orphanScore = makeFeedbackScore({ id: 'score-3', nodeId: 'gone' })
+            const traceScore = makeFeedbackScore({ id: 'score-2', nodeId: traceId })
             const feedback = makeFeedback({
-                scores: [score, traceScore, orphanScore],
+                scores: [score, traceScore],
                 responses: [
                     makeFeedbackText({ nodeId: 'gen-1' }),
-                    makeFeedbackText({ id: 'text-2', nodeId: null }),
+                    makeFeedbackText({ id: 'text-2', nodeId: traceId }),
                     makeSurveyResponse(),
                 ],
             })
 
-            expect({ ...toStepFeedback(feedback, makeTraceResource().tree, traceId) }).toEqual({
+            expect({ ...toStepFeedback(feedback, traceId) }).toEqual({
                 'gen-1': { scores: [score], responseCount: 1 },
-                [traceId]: { scores: [traceScore, orphanScore], responseCount: 2 },
+                [traceId]: { scores: [traceScore], responseCount: 2 },
             })
         }
     )
@@ -40,24 +39,20 @@ describe('toFeedback', () => {
     test.each(['trace-1', 'constructor', '__proto__'])(
         'stepFeedbackOf finds the root %s only when it has feedback',
         (traceId) => {
-            const traceScore = makeFeedbackScore({ nodeId: null })
-            const withFeedback = toStepFeedback(
-                makeFeedback({ scores: [traceScore], responses: [] }),
-                makeTraceResource().tree,
-                traceId
-            )
+            const traceScore = makeFeedbackScore({ nodeId: traceId })
+            const withFeedback = toStepFeedback(makeFeedback({ scores: [traceScore], responses: [] }), traceId)
 
             expect(stepFeedbackOf({}, traceId)).toBeNull()
             expect(stepFeedbackOf(withFeedback, traceId)).toEqual({ scores: [traceScore], responseCount: 0 })
         }
     )
 
-    test('toFeedbackMode names each step, keeps an unknown step as trace-level and survey responses as they come', () => {
+    test('toFeedbackMode names each step, keeps the root and an unknown step as trace-level and survey responses as they come', () => {
         const survey = makeSurveyResponse()
         const unanswered = [{ survey: { id: 'survey-2', name: 'Follow-up' }, timestamp: '2026-09-01T10:19:00Z' }]
         const feedback = makeFeedback({
             scores: [makeFeedbackScore({ nodeId: 'gen-1' }), makeFeedbackScore({ id: 'score-2', nodeId: 'gone' })],
-            responses: [makeFeedbackText({ nodeId: 'gen-1' }), survey],
+            responses: [makeFeedbackText({ nodeId: 'trace-1' }), survey],
             unanswered,
             surveyResponsesStatus: 'failed',
         })
@@ -65,7 +60,7 @@ describe('toFeedback', () => {
         const mode = toFeedbackMode({ feedback, tree: makeTraceResource().tree, traceId: 'trace-1', focusNodeId: null })
 
         expect(mode.scores.map((row) => row.step)).toEqual([{ id: 'gen-1', name: 'gen-1' }, null])
-        expect(mode.responses.map((item) => item.step)).toEqual([{ id: 'gen-1', name: 'gen-1' }, null])
+        expect(mode.responses.map((item) => item.step)).toEqual([null, null])
         expect(mode.responses[1]).toEqual({ ...survey, step: null, focused: false })
         expect(mode.unanswered).toEqual(unanswered)
         expect(mode.surveysFailed).toBe(true)
@@ -77,8 +72,8 @@ describe('toFeedback', () => {
         ['nothing', null, [false, false], [false]],
     ])('toFeedbackMode focuses the entries of %s', (_name, focusNodeId, scoresFocused, responsesFocused) => {
         const feedback = makeFeedback({
-            scores: [makeFeedbackScore({ nodeId: 'gen-1' }), makeFeedbackScore({ id: 'score-2', nodeId: null })],
-            responses: [makeFeedbackText({ nodeId: null })],
+            scores: [makeFeedbackScore({ nodeId: 'gen-1' }), makeFeedbackScore({ id: 'score-2', nodeId: 'trace-1' })],
+            responses: [makeFeedbackText({ nodeId: 'trace-1' })],
         })
 
         const mode = toFeedbackMode({ feedback, tree: makeTraceResource().tree, traceId: 'trace-1', focusNodeId })

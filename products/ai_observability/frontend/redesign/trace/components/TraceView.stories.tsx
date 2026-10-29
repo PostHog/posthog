@@ -7,8 +7,15 @@ import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSessi
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
 import { SampleTraceFixture } from '../sampleFixtures/sampleTraceFixture'
-import { FIXTURE_FEEDBACK_MODE_WITH_SURVEYS, FIXTURE_TRACE, withWidth } from '../storyFixtures'
-import { NodeDetailTab, TraceMode } from '../types'
+import {
+    FIXTURE_EVAL_OUTCOMES,
+    FIXTURE_EVALS_CHIP,
+    FIXTURE_FEEDBACK_MODE_WITH_SURVEYS,
+    FIXTURE_SUMMARY,
+    FIXTURE_TRACE,
+    withWidth,
+} from '../storyFixtures'
+import { EvalRollupOutcome, EvalsChipData, NodeDetailTab, TraceMode } from '../types'
 import { TraceView } from './TraceView'
 
 function findNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | null {
@@ -48,9 +55,11 @@ interface PlaygroundProps {
     fixture: SampleTraceFixture
     initialMode: TraceMode
     initialNodeId?: string
+    evals?: EvalsChipData
+    evalOutcomes?: Record<string, EvalRollupOutcome>
 }
 
-function Playground({ fixture, initialMode, initialNodeId }: PlaygroundProps): JSX.Element {
+function Playground({ fixture, initialMode, initialNodeId, evals, evalOutcomes = {} }: PlaygroundProps): JSX.Element {
     const [mode, setMode] = useState<TraceMode>(initialMode)
     const [selectedNodeId, setSelectedNodeId] = useState(initialNodeId ?? fixture.initialNodeId)
     const [tab, setTab] = useState<NodeDetailTab>('messages')
@@ -59,11 +68,15 @@ function Playground({ fixture, initialMode, initialNodeId }: PlaygroundProps): J
         setSelectedNodeId(id)
         setMode('spans')
     }
+    const showFailingEvals = (): void => {
+        selectAndShowSpans(Object.keys(evalOutcomes).find((id) => evalOutcomes[id] === 'fail') ?? fixture.tree[0].id)
+        setTab('evals')
+    }
     return (
         <TraceView
             status="ready"
             header={fixture.header}
-            summary={fixture.summary}
+            summary={{ ...fixture.summary, evals: evals ? { chip: evals, onClick: showFailingEvals } : null }}
             mode={mode}
             onModeChange={setMode}
             tree={fixture.tree}
@@ -80,6 +93,17 @@ function Playground({ fixture, initialMode, initialNodeId }: PlaygroundProps): J
             }}
             thread={fixture.thread}
             timeline={fixture.timeline}
+            evalOutcomes={evalOutcomes}
+            summaryMode={{
+                state: { status: 'ready', summary: FIXTURE_SUMMARY },
+                requesting: false,
+                requestError: null,
+                consentGiven: true,
+                onRequest: () => {},
+                onRegenerate: () => {},
+                onReload: () => {},
+                onSelectStep: selectAndShowSpans,
+            }}
             feedbackMode={FIXTURE_FEEDBACK_MODE_WITH_SURVEYS}
             feedbackCount={
                 FIXTURE_FEEDBACK_MODE_WITH_SURVEYS.scores.length + FIXTURE_FEEDBACK_MODE_WITH_SURVEYS.responses.length
@@ -108,6 +132,15 @@ export const TimelineMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode
 export const FeedbackMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'feedback' } }
 export const Narrow: Story = {
     args: { fixture: FIXTURE_TRACE, initialMode: 'spans' },
+    decorators: [withWidth(520)],
+}
+export const NarrowWithEvals: Story = {
+    args: {
+        fixture: FIXTURE_TRACE,
+        initialMode: 'spans',
+        evals: FIXTURE_EVALS_CHIP,
+        evalOutcomes: FIXTURE_EVAL_OUTCOMES,
+    },
     decorators: [withWidth(520)],
 }
 export const SampleAnthropicThinkingToolUse: Story = {

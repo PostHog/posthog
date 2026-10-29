@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -18,7 +17,12 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import {
+    MAX_FETCH_RESPONSE_BYTES,
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    isFetchResponseRetriable,
+} from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -26,7 +30,7 @@ import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-header
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
-import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
+import { EMAIL_QUEUE_PRIORITY, cdpEmailQueuedTotal, getEmailQueuePriorityClass } from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
 import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
@@ -38,12 +42,6 @@ import {
     isSelfReferentialIngestFetch,
     selfLoopGuardCounter,
 } from './self-loop-guard'
-
-const cdpEmailQueuedTotal = new Counter({
-    name: 'cdp_email_queued_total',
-    help: 'Total emails routed to the dedicated email queue',
-    labelNames: ['priority_class'] as const,
-})
 
 export interface HogExecutorAsyncConfig {
     googleAdwordsDeveloperToken: string
@@ -579,7 +577,12 @@ export class HogExecutorAsyncService {
                 }
             }
         } catch (e) {
-            addLog('error', `Failed to parse response body: ${e.message}`)
+            addLog(
+                'error',
+                e.name === 'ResponseTooLargeError'
+                    ? `The response body is larger than ${MAX_FETCH_RESPONSE_BYTES / 1024 / 1024} MB, so it was not read.`
+                    : `Failed to parse response body: ${e.message}`
+            )
             body = undefined
         }
 

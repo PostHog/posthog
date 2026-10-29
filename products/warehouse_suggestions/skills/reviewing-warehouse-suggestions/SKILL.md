@@ -29,11 +29,12 @@ Its `evidence` has the read counts behind it.
 Tell the user what accepting does and what it costs, using the payload fields.
 Do not invent a score or a confidence level.
 
-- **materialize**: the view is read often enough that storing its result saves compute.
-  - `saves_seconds_per_month` and `saves_bytes_per_month` are what the reads stop costing.
+- **materialize**: the view is computed often enough that storing its result saves compute.
+  - A view that is not stored is computed on every read, and again on every refresh of each materialized view that reads it. `recomputed_by_views` counts those materialized views. When it is above 0, the saving comes mostly from their refreshes, not from people's reads.
+  - `saves_seconds_per_month` and `saves_bytes_per_month` are what those computations stop costing.
   - Materializing adds a recurring refresh cost, which these numbers already subtract.
   - `freshness_today_seconds` and `freshness_after_seconds` say how old the data can be now and after.
-  - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often) or `savings` (a shorter interval costs more than it saves).
+  - `refresh_interval_seconds` is the proposed interval. `refresh_interval_basis` says what kept it from being shorter: `source_sync` (the sources sync no faster), `fastest_schedule` (PostHog refreshes views no more often), `read_rate` (people read the view no more often), `consumer_refresh` (the materialized views that read it refresh no more often) or `savings` (a shorter interval costs more than it saves).
   - `refresh_mode` is `incremental` when each refresh can read only new rows, by `incremental_key`, and update rows by `unique_key`. Otherwise it is `full`, and each refresh rebuilds the whole table.
 - **unmaterialize**: this materialized view is read so rarely that refreshing it costs more than computing it on each read.
   - `refresh_seconds_per_month` and `refresh_bytes_per_month` are what its refreshes cost now.

@@ -11,8 +11,9 @@ import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
-import type { TraceApi } from '../../../generated/api.schemas'
-import { decodeIdSegment, makeFeedback, makeNodeDetail, makeTraceResource } from './testFixtures'
+import type { TraceApi, TraceEvaluationResultsApi } from '../../../generated/api.schemas'
+import { traceSummaryLogic } from '../traceSummaryLogic'
+import { decodeIdSegment, makeEvaluationResults, makeFeedback, makeNodeDetail, makeTraceResource } from './testFixtures'
 import { traceViewAdapterLogic } from './traceViewAdapterLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
@@ -21,6 +22,7 @@ const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
+const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
@@ -38,6 +40,8 @@ describe('traceViewAdapterLogic', () => {
     let nodeRequests: string[]
     let failingNodeId: string | null
     let feedbackStatus: number
+    let summaryRequests: number
+    let evaluations: TraceEvaluationResultsApi
 
     function mountAt(params: Record<string, string> = {}): void {
         router.actions.push(urls.aiObservabilityTrace('trace-1', params))
@@ -51,13 +55,22 @@ describe('traceViewAdapterLogic', () => {
         nodeRequests = []
         failingNodeId = null
         feedbackStatus = 200
+        summaryRequests = 0
+        evaluations = makeEvaluationResults()
         useMocks({
+            post: {
+                [SUMMARY_URL]: () => {
+                    summaryRequests += 1
+                    return [202, { status: 'pending', content: null, failure: null }]
+                },
+            },
             get: {
+                [SUMMARY_URL]: () => [404, { detail: 'No summary yet.' }],
                 [TRACE_URL]: async () => {
                     await traceGate
                     return [200, traceResource]
                 },
-                [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [EVALUATIONS_URL]: () => [200, evaluations],
                 [FEEDBACK_URL]: () =>
                     feedbackStatus === 200 ? [200, makeFeedback()] : [feedbackStatus, { detail: 'Server error.' }],
                 [NODE_URL]: ({ params }) => {
@@ -216,6 +229,36 @@ describe('traceViewAdapterLogic', () => {
         })
     })
 
+    it('has no evals chip and no step markers when the evaluations read fails', async () => {
+        useMocks({ get: { [EVALUATIONS_URL]: () => [500, { detail: 'Server error.' }] } })
+        mountAt()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ evalsChip: null, evalOutcomesByNode: {} })
+    })
+
+    it.each([
+        ['the first failing step in the tree', [{ nodeId: 'gen-1', outcome: 'fail' }], 'gen-1'],
+        [
+            'the root when no step in the tree fails',
+            [
+                { nodeId: 'gen-1', outcome: 'pass' },
+                { nodeId: 'ghost', outcome: 'fail' },
+            ],
+            'trace-1',
+        ],
+    ] as const)('showFailingEvals opens the Evals tab of %s, in spans', async (_name, nodes, expected) => {
+        evaluations = makeEvaluationResults({ summary: { passed: 1, failed: 1, unrated: 0, nodes: [...nodes] } })
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setMode('thread')
+
+        await expectLogic(logic, () => logic.actions.showFailingEvals()).toMatchValues({
+            selectedNodeId: expected,
+            mode: 'spans',
+            detailTab: 'evals',
+        })
+    })
+
     it.each([
         ['gen-2', 'the thread node', true],
         ['trace-1', 'the root', true],
@@ -227,7 +270,7 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic, () => logic.actions.selectNode(nodeId)).toMatchValues({ canViewInThread: expected })
     })
 
-    it('showFeedback opens the Feedback mode focused on the step and reports where it came from', async () => {
+    it('showFeedback opens the Feedback mode focused on the step, reports where it came from and keeps both on a click of its tab', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         mountAt()
         await expectLogic(logic).toFinishAllListeners()
@@ -245,6 +288,12 @@ describe('traceViewAdapterLogic', () => {
             responses: 1,
             unanswered: 0,
         })
+
+        await expectLogic(logic, () => logic.actions.setMode('feedback')).toMatchValues({
+            mode: 'feedback',
+            feedbackFocusNodeId: 'gen-1',
+        })
+        expect(capture.mock.calls.filter(([event]) => event === 'llma trace view feedback viewed')).toHaveLength(1)
     })
 
     it('has no chip, no counts and an error mode after the feedback read fails', async () => {
@@ -260,5 +309,52 @@ describe('traceViewAdapterLogic', () => {
                 feedbackCountByNodeId: {},
                 feedbackMode: { status: 'error' },
             })
+    })
+
+    it('the Summary mode reads the summary on open, and a step link leaves it for that step in spans', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        const summary = traceSummaryLogic({ traceId: 'trace-1' })
+
+        logic.actions.setMode('summary')
+        await expectLogic(summary).toDispatchActions([summary.actionCreators.openSummary('tab'), 'loadSummarySuccess'])
+        await expectLogic(logic, () => logic.actions.summaryStepClicked('gen-1', 'bullet')).toMatchValues({
+            mode: 'spans',
+            selectedNodeId: 'gen-1',
+        })
+
+        await expectLogic(summary).toDispatchActions(['closeSummary']).toMatchValues({ isOpen: false })
+        expect(capture).toHaveBeenCalledWith('llma trace view summary step clicked', { kind: 'bullet' })
+    })
+
+    it('leaving the Summary mode for the Feedback mode closes the summary', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        const summary = traceSummaryLogic({ traceId: 'trace-1' })
+
+        logic.actions.setMode('summary')
+        await expectLogic(summary).toDispatchActions([summary.actionCreators.openSummary('tab'), 'loadSummarySuccess'])
+        logic.actions.showFeedback(null, 'chip')
+
+        expect(logic.values.mode).toBe('feedback')
+        await expectLogic(summary).toDispatchActions(['closeSummary']).toMatchValues({ isOpen: false })
+    })
+
+    it('a trace-level summary link opens the Summary mode without requesting a summary', async () => {
+        mountAt({ tab: 'summary' })
+        const summary = traceSummaryLogic({ traceId: 'trace-1' })
+
+        await expectLogic(summary).toDispatchActions([summary.actionCreators.openSummary('link'), 'loadSummarySuccess'])
+
+        expect(logic.values).toMatchObject({ mode: 'summary', summaryState: { status: 'none' } })
+        expect(summaryRequests).toBe(0)
+    })
+
+    it('a summary link that names a step opens that step instead of the Summary mode', async () => {
+        mountAt({ tab: 'summary', event: 'gen-1' })
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ mode: 'spans', selectedNodeId: 'gen-1' })
+        expect(traceSummaryLogic({ traceId: 'trace-1' }).values.isOpen).toBe(false)
     })
 })
