@@ -58,6 +58,7 @@ class AwsCostAnomalyDetectionSource(
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Cost_Explorer_Service.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-cost-anomaly-detection"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

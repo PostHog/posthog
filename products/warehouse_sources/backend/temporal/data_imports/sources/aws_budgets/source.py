@@ -58,6 +58,7 @@ class AwsBudgetsSource(ResumableSource[AwsBudgetsSourceConfig, AwsBudgetsResumeC
     api_docs_url = "https://docs.aws.amazon.com/aws-cost-management/latest/APIReference/API_Operations_AWS_Budgets.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-budgets"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

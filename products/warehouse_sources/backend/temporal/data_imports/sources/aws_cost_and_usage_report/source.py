@@ -66,6 +66,7 @@ class AwsCostAndUsageReportSource(ResumableSource[AwsCostAndUsageReportSourceCon
     api_docs_url = "https://docs.aws.amazon.com/cur/latest/userguide/dataexports-export-delivery.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-cost-and-usage-report"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
