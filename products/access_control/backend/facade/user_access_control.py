@@ -1042,18 +1042,12 @@ class UserAccessControl:
         return project_admin_check
 
     def check_can_modify_access_levels_for_ref(self, ref: ObjectAccessRef) -> bool:
-        """`check_can_modify_access_levels_for_object` for an object the caller holds only as a reference."""
-        target = self._target_for_ref(ref)
-        if self._is_creator_id(target.created_by_id):
-            return True
-        project_admin_check = self.check_access_level_for_object(
-            cast(Team, self._team), required_level="admin", explicit=True
-        )
-        if ref.resource == "project":
-            return project_admin_check
-        access_level = self._access_level_for_target(target, explicit=True)
-        return project_admin_check or (
-            access_level is not None and access_level_satisfied_for_resource(ref.resource, access_level, "manager")
+        """`check_can_modify_access_levels_for_object` for an object held only as a reference. Not for projects."""
+        self._target_for_ref(ref)  # validates the team and parent before the creator shortcut
+        return (
+            self._is_creator_id(ref.created_by_id)
+            or self.check_access_level_for_object(cast(Team, self._team), required_level="admin", explicit=True)
+            or self.check_access_level_for_ref(ref, required_level="manager", explicit=True)
         )
 
     def get_access_source_for_object(
@@ -1900,9 +1894,11 @@ class UserAccessControl:
         """`get_user_access_level` for an object the caller holds only as a reference."""
         return self._access_level_for_target(self._target_for_ref(ref), explicit=explicit)
 
-    def check_access_level_for_ref(self, ref: ObjectAccessRef, required_level: AccessControlLevel) -> bool:
+    def check_access_level_for_ref(
+        self, ref: ObjectAccessRef, required_level: AccessControlLevel, explicit: bool = False
+    ) -> bool:
         """`check_access_level_for_object` for an object the caller holds only as a reference."""
-        access_level = self.access_level_for_ref(ref)
+        access_level = self.access_level_for_ref(ref, explicit=explicit)
         if not access_level:
             return False
         return access_level_satisfied_for_resource(ref.resource, access_level, required_level)
