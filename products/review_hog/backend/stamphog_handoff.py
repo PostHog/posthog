@@ -18,7 +18,7 @@ from typing import Literal
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_reviews import connector_user_id
@@ -82,9 +82,7 @@ class StamphogHandoff:
             _observe("repository_not_added")
             return
         team_id = owner.team_id
-        if not Integration.objects.filter(
-            team_id=team_id, kind="github", integration_id=owner.installation_id
-        ).exists():
+        if not IntegrationManager.github.oauth.exists(team_id, external_id=owner.installation_id):
             _observe("integration_missing")
             return
         # A lookup that fails raises, so the task retries instead of reading an outage as "no review".
