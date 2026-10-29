@@ -117,6 +117,17 @@ class ReplayObservation(UUIDModel):
         blank=True,
         help_text="Highlight feed ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
     )
+    # Plain ids rather than foreign keys: pruning a cluster leaves its old members untouched.
+    feed_group_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="The group of near-duplicate observations this one belongs to; see `ReplayScannerFeedGroup`.",
+    )
+    search_theme_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="The broad theme of issues this observation belongs to, if any; see `ReplayScannerSearchTheme`.",
+    )
     created_task_id = models.UUIDField(
         null=True,
         blank=True,
@@ -205,6 +216,17 @@ class ReplayObservation(UUIDModel):
                 watch_group_root(),
                 name="rlo_ranked_feed_group_idx",
                 condition=models.Q(status="succeeded", watch_rank__isnull=False),
+            ),
+            # Finds a group's or a theme's members in a window, for the feed's reach and the cluster summaries.
+            models.Index(
+                fields=["feed_group_id", "created_at"],
+                name="rlo_feed_group_idx",
+                condition=models.Q(status="succeeded", feed_group_id__isnull=False),
+            ),
+            models.Index(
+                fields=["search_theme_id", "created_at"],
+                name="rlo_search_theme_idx",
+                condition=models.Q(status="succeeded", search_theme_id__isnull=False),
             ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.
             models.Index(

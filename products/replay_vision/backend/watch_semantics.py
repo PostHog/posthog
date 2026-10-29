@@ -22,6 +22,12 @@ import numpy as np
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.cluster_membership import (
+    Membership,
+    experiment_id_of,
+    record_memberships,
+    variant_of,
+)
 from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ScannerType
@@ -104,12 +110,13 @@ def assign_semantics_batch(
                 row["id"]: row
                 for row in ReplayObservation.objects.filter(
                     team_id=team_id, id__in=[key for key in keys if key]
-                ).values("id", "watch_rank", "scanner_result", "scanner_snapshot")
+                ).values("id", "created_at", "watch_rank", "scanner_result", "scanner_snapshot")
             }
             center_sum = unpack(center.vector_sum).copy()
             member_count = center.member_count
             group_writes = ClusterWrites(ReplayScannerFeedGroup, team_id, scanner_id)
             themes: ThemeBatch | None = None
+            memberships: list[Membership] = []
             for item, key in zip(items, keys):
                 row = rows.get(key) if key else None
                 rank = current_rank({"watch_rank": row["watch_rank"]}) if row else None
@@ -149,6 +156,17 @@ def assign_semantics_batch(
                 center_sum += v
                 member_count += 1
                 assigned[item.observation_id] = SemanticAssignment(group_id=group_id, theme=theme)
+                memberships.append(
+                    Membership(
+                        observation_id=row["id"],
+                        created_at=row["created_at"],
+                        group_id=group_id,
+                        theme_id=theme.theme_id if theme else None,
+                        category=rank["category"],
+                        variant=variant_of(row["scanner_result"]),
+                        experiment_id=experiment_id_of(row["scanner_snapshot"]),
+                    )
+                )
 
             if not assigned:
                 return {}
@@ -161,6 +179,8 @@ def assign_semantics_batch(
             center.save(update_fields=["vector_sum", "member_count"])
             if pruning_due:
                 _prune(team_id, scanner_id, items[-1].now)
+            record_memberships(team_id, memberships)
+            # Older readers still find the ids in the rank until every reader has moved to the columns.
             merge_watch_ranks(
                 team_id,
                 {

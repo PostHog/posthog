@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -11,6 +12,7 @@ import numpy as np
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
+from products.replay_vision.backend.cluster_membership import backfill_team_memberships
 from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
@@ -23,7 +25,9 @@ from products.replay_vision.backend.models.replay_scanner import (
 )
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
+    ReplayScannerFeedGroupDay,
     ReplayScannerSearchTheme,
+    ReplayScannerSearchThemeDay,
     ReplayScannerSemanticCenter,
 )
 from products.replay_vision.backend.semantic_space import (
@@ -206,6 +210,14 @@ class TestAssignSemantics(BaseTest):
         assert first.watch_rank["group"] == str(joined[0].group_id)
         assert first.watch_rank["theme"] == str(joined[0].theme.theme_id)
         assert "duplicate_of" not in first.watch_rank
+        assert (first.feed_group_id, first.search_theme_id) == (joined[0].group_id, joined[0].theme.theme_id)
+        # The redelivered row is not counted twice, and the routine row counts towards the group but not its issues.
+        group_day = ReplayScannerFeedGroupDay.objects.for_team(self.team.id).get(group_id=joined[0].group_id)
+        assert (group_day.observation_count, group_day.issue_count) == (3, 2)
+        theme_days = ReplayScannerSearchThemeDay.objects.for_team(self.team.id).filter(
+            theme_id=joined[0].theme.theme_id
+        )
+        assert [day.observation_count for day in theme_days] == [2]
 
     @parameterized.expand(
         [
@@ -301,6 +313,26 @@ class TestAssignSemantics(BaseTest):
             .exists()
         )
         assert self._counts(ReplayScannerFeedGroup) == []
+
+    def test_membership_backfill_copies_rank_ids_once_and_skips_pruned_clusters(self) -> None:
+        live = ReplayScannerFeedGroup.objects.for_team(self.team.id).create(
+            team=self.team, scanner=self.scanner, vector_sum=b"", last_member_at=timezone.now()
+        )
+        pruned = uuid.uuid4()
+        rows = [self._observation(), self._observation("routine"), self._observation()]
+        for row, group in zip(rows, [live.id, live.id, pruned]):
+            ReplayObservation.objects.filter(id=row.id).update(watch_rank={**row.watch_rank, "group": str(group)})
+
+        first = backfill_team_memberships(self.team.id, timezone.now() - timedelta(days=1))
+        again = backfill_team_memberships(self.team.id, timezone.now() - timedelta(days=1))
+
+        assert (first.recorded, again.observations) == (3, 0)
+        assert {row.feed_group_id for row in ReplayObservation.objects.filter(id__in=[r.id for r in rows])} == {
+            live.id,
+            pruned,
+        }
+        days = ReplayScannerFeedGroupDay.objects.for_team(self.team.id)
+        assert [(day.group_id, day.observation_count, day.issue_count) for day in days] == [(live.id, 2, 1)]
 
     def test_clusters_without_a_member_for_the_retention_window_are_pruned(self) -> None:
         stale = timezone.now() - timedelta(days=91)

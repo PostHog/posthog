@@ -11,7 +11,9 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
+    ReplayScannerFeedGroupDay,
     ReplayScannerSearchTheme,
+    ReplayScannerSearchThemeDay,
     ReplayScannerSemanticCenter,
 )
 from products.replay_vision.backend.models.replay_vision_learned_ruleset import ReplayVisionLearnedRuleset
@@ -36,7 +38,9 @@ __all__ = [
     "ReplayScanner",
     "ReplayScannerBackfill",
     "ReplayScannerFeedGroup",
+    "ReplayScannerFeedGroupDay",
     "ReplayScannerSearchTheme",
+    "ReplayScannerSearchThemeDay",
     "ReplayScannerSemanticCenter",
     "ReplayVisionLearnedRuleset",
     "ReplayVisionOrgAdmissionBudget",
