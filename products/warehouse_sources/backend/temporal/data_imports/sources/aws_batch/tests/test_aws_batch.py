@@ -88,6 +88,7 @@ def test_source_adapter_delegates_validation_and_manager_creation(config: AwsBat
         assert source.validate_credentials(config, team_id=1, schema_name="jobs") == (True, None)
         assert source.get_resumable_source_manager(inputs) is manager
     validate.assert_called_once_with(config, ANY, "jobs", BATCH_API_VERSION)
+    assert validate.call_args.args[1].access_key == "AKIAEXAMPLE"
     manager_factory.assert_called_once_with(inputs, AwsBatchResumeConfig)
 
 

@@ -27,6 +27,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws
     AWS_AUTH_NON_RETRYABLE_ERRORS,
     AWS_FLAT_STORED_SELECTS,
     AwsAuthError,
+    aws_auth_endpoint_reasons,
     aws_auth_field,
     resolve_aws_credentials,
 )
@@ -115,7 +116,7 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
         try:
             credentials = resolve_aws_credentials(config.aws_auth, team_id)
         except AwsAuthError as error:
-            return {endpoint: str(error) for endpoint in endpoints}
+            return aws_auth_endpoint_reasons(error, endpoints)
         return {
             endpoint: validate_credentials(config, credentials, endpoint, self.resolve_api_version(api_version))[1]
             for endpoint in endpoints
