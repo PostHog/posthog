@@ -39,7 +39,7 @@ from products.experiments.backend.health.skips import (
 )
 
 # pinned: the subcode of a flag history that was not checked against the exposures. The page sends it as
-# `finding_variant` on the health finding events.
+# `finding_subcode` on the health finding events.
 NOT_CHECKED = "not_checked"
 
 EvidenceValue = str | int | float | bool | None

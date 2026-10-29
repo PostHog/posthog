@@ -39,7 +39,7 @@ from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, f
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange
 
-# pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 # Every condition that includes users pins a variant, so no user is randomly assigned. One variant gets
 # everyone, or each variant gets a different group of users, so the results compare nothing valid.
 ALL_CONDITIONS_PINNED = "all_conditions_pinned"

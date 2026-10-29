@@ -33,7 +33,7 @@ SEGMENT_LABEL_MAX_LENGTH = 60
 # The detail names the located segments furthest from the split, up to this many.
 NAMED_SEGMENTS = 2
 
-# pinned: the subcode is sent as `finding_variant` on the health finding events, so insights group on it.
+# pinned: the subcode is sent as `finding_subcode` on the health finding events, so insights group on it.
 SPLIT_CHANGED = "split_changed"
 
 
