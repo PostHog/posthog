@@ -20,9 +20,9 @@ export type FlagCallCriterionProblem = 'type' | 'window' | 'filters'
  * Why the batch calculation can't count every matching call for this "Feature flag called" criterion once flag calls
  * are only in flag_evaluations, or null.
  *
- * Mirrors the type and window checks in `posthog/api/cohort.py`, which explain the 88-day limit. The API checks the
- * filters by compiling the query. This function accepts only event property filters, because they are the only
- * filter type that it knows resolves on flag_evaluations.
+ * Mirrors the type, window and filter checks in `posthog/api/cohort.py`, which explain the 88-day limit and why the
+ * API refuses a SQL expression filter on this event. A behavioral criterion holds only event property and SQL
+ * expression filters.
  */
 export function flagCallCriterionProblem(criteria: AnyCohortCriteriaType): FlagCallCriterionProblem | null {
     if (!CRITERIA_ACCEPTING_HIDDEN_EVENTS.includes(String(criteria.value))) {

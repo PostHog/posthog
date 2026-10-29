@@ -974,8 +974,8 @@ def _hidden_event_references(properties: Iterable[Property]) -> Iterator[tuple[s
                 yield str(event), prop
 
 
-# products/cohorts/frontend/criteria/flagCallCriterionProblem.ts copies the type and window rules for the cohort move
-# notice. A change to these rules needs the same change there.
+# products/cohorts/frontend/criteria/flagCallCriterionProblem.ts copies the type, window and filter rules for the
+# cohort move notice. A change to these rules needs the same change there.
 
 # The criterion types whose flag calls the batch calculation reads from flag_evaluations.
 _FLAG_CALL_CRITERION_TYPES = frozenset(
@@ -1004,6 +1004,7 @@ _FLAG_CALL_REALTIME_REASON = (
     "To see who called a flag, open the flag and check its Usage tab."
 )
 _FLAG_CALL_COMPILE_REASON = "PostHog can't calculate this criterion. Check its count and its event property filters."
+_FLAG_CALL_FILTER_REASON = "Use event property filters on this event instead of a SQL expression."
 
 
 def _flag_call_window_fits_retention(prop: Property) -> bool:
@@ -1018,12 +1019,23 @@ def _flag_call_window_fits_retention(prop: Property) -> bool:
     return int(count) * _RELATIVE_DATE_UNIT_MAX_HOURS[unit] <= _MAX_FLAG_CALL_LOOKBACK_HOURS
 
 
+def _has_hogql_filter(prop: Property) -> bool:
+    return bool(prop.event_filters) and any(
+        event_filter.type == "hogql" for event_filter in parse_property_group_data(prop.event_filters).flat
+    )
+
+
 def flag_call_criterion_shape_problem(prop: Property) -> str | None:
-    """Why a criterion on $feature_flag_called has a type or window that flag_evaluations can't serve, or None."""
+    """Why a criterion on $feature_flag_called has a type, window or filter that flag_evaluations can't serve, or
+    None."""
     if prop.value not in _FLAG_CALL_CRITERION_TYPES:
         return _FLAG_CALL_CRITERION_TYPE_REASON
     if not _flag_call_window_fits_retention(prop):
         return _FLAG_CALL_WINDOW_REASON
+    # A SQL expression can read flag calls through a saved view, a function predicate or a subquery older than the
+    # window. The compile check counts none of these, so the guard refuses the expression.
+    if _has_hogql_filter(prop):
+        return _FLAG_CALL_FILTER_REASON
     return None
 
 
@@ -1058,13 +1070,31 @@ def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCa
         return batch_flag_call_reads(Cohort(team=team, filters={"properties": {"type": "OR", "values": values}}), team)
     except (BaseHogQLError, ValidationError, ValueError):
         return None
+    except Exception as error:
+        # A malformed filter value can fail an assert in the HogQL printer. The guard refuses the save, so the API
+        # returns 400 instead of 500.
+        capture_exception(error)
+        return None
+
+
+def _criteria_that_may_read_flag_calls(properties: Iterable[Property]) -> list[Property]:
+    """The criteria whose scans decide the batch query's flag_evaluations swap: criteria on $feature_flag_called, and
+    criteria with a SQL expression filter, which can query flag calls in a subquery."""
+    return [
+        prop
+        for prop in properties
+        if any(event == FLAG_EVALUATIONS_SOURCE_EVENT for event, _ in _hidden_event_references([prop]))
+        or (prop.type == "behavioral" and _has_hogql_filter(prop))
+    ]
+
+
+def _criteria_counts(properties: Iterable[Property]) -> collections.Counter[str]:
+    return collections.Counter(_criteria_key(prop.to_dict()) for prop in properties)
 
 
 def _flag_call_criterion_counts(properties: Iterable[Property]) -> collections.Counter[str]:
-    return collections.Counter(
-        _criteria_key(prop.to_dict())
-        for event, prop in _hidden_event_references(properties)
-        if event == FLAG_EVALUATIONS_SOURCE_EVENT
+    return _criteria_counts(
+        prop for event, prop in _hidden_event_references(properties) if event == FLAG_EVALUATIONS_SOURCE_EVENT
     )
 
 
@@ -1083,16 +1113,16 @@ def _added_unsupported_hidden_event_reference(
     if added:
         return next(iter(added))
 
-    if _flag_call_criterion_counts(new_properties) == _flag_call_criterion_counts(existing_properties):
+    new_candidates = _criteria_that_may_read_flag_calls(new_properties)
+    existing_candidates = _criteria_that_may_read_flag_calls(existing_properties)
+    if _criteria_counts(new_candidates) == _criteria_counts(existing_candidates):
         return None
-    new_flag_calls = [prop for event, prop in new_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
-    existing_flag_calls = [prop for event, prop in existing_references if event == FLAG_EVALUATIONS_SOURCE_EVENT]
-    new_reads = _flag_call_reads_or_none(new_flag_calls, team)
+    new_reads = _flag_call_reads_or_none(new_candidates, team)
     if new_reads is None:
         return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_COMPILE_REASON)
     if new_reads.reads_from_events == 0:
         return None
-    existing_reads = _flag_call_reads_or_none(existing_flag_calls, team) if existing_flag_calls else None
+    existing_reads = _flag_call_reads_or_none(existing_candidates, team) if existing_candidates else None
     if existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
         return None
     return HiddenEventRefusal(

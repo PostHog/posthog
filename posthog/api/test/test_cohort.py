@@ -115,11 +115,26 @@ _FLAG_CALLED_UNRESOLVABLE_CRITERION = {
     **_FLAG_CALLED_CRITERION,
     "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
 }
+# The rewrite swaps the flag-call subquery and then can't resolve it, because flag_evaluations stores no group properties.
+_PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION = {
+    **_PAGEVIEW_CRITERION,
+    "event_filters": [
+        {
+            "key": (
+                "distinct_id IN (SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
+                "AND properties.$feature_flag = 'beta-feature' AND timestamp > now() - INTERVAL 7 DAY "
+                "AND goe_0.properties.plan = 'pro')"
+            ),
+            "type": "hogql",
+        }
+    ],
+}
 _HIDDEN_EVENT_REFUSAL = "its data is moving"
 _FLAG_CALL_TYPE_REFUSAL = "can use this event"
 _FLAG_CALL_WINDOW_REFUSAL = "88 days or less"
 _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate"
+_FLAG_CALL_FILTER_REFUSAL = "SQL expression"
 _FLAG_CALL_REALTIME_REFUSAL = "Real-time cohorts can't use this event"
 
 
@@ -4943,21 +4958,41 @@ email@example.org,
                 _FLAG_CALL_COMPILE_REFUSAL,
             ),
             (
-                "malformed_hogql_filter",
+                "hogql_filter",
+                [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                _FLAG_CALL_FILTER_REFUSAL,
+            ),
+            (
+                "malformed_hogql_filter_on_another_criterion",
                 [
-                    {
-                        **_FLAG_CALLED_CRITERION,
-                        "event_filters": [_FLAG_KEY_FILTER, {"key": "properties.x = (", "type": "hogql"}],
-                    }
+                    _FLAG_CALLED_CRITERION,
+                    {**_PAGEVIEW_CRITERION, "event_filters": [{"key": "properties.x = (", "type": "hogql"}]},
                 ],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 True,
                 _FLAG_CALL_COMPILE_REFUSAL,
             ),
             (
-                "unresolvable_field_in_flag_evaluations_only_mode",
-                [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
+                "unresolvable_flag_calls_in_another_criterion_in_flag_evaluations_only_mode",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                _FLAG_CALL_COMPILE_REFUSAL,
+            ),
+            (
+                "date_filter_with_a_number",
+                [
+                    {
+                        **_FLAG_CALLED_CRITERION,
+                        "event_filters": [
+                            _FLAG_KEY_FILTER,
+                            {"key": "$sent_at", "type": "event", "operator": "is_date_after", "value": 123},
+                        ],
+                    }
+                ],
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                 True,
                 _FLAG_CALL_COMPILE_REFUSAL,
             ),
@@ -5036,6 +5071,12 @@ email@example.org,
                 "adds_beside_unresolvable",
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION, _FLAG_CALLED_CRITERION],
+                _FLAG_CALL_KEY_REFUSAL,
+            ),
+            (
+                "adds_unresolvable_flag_calls_in_another_criterion",
+                [_FLAG_CALLED_CRITERION],
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
                 _FLAG_CALL_KEY_REFUSAL,
             ),
             (
@@ -8644,6 +8685,19 @@ class TestFlagCallCriterionShapeProblem(SimpleTestCase):
                 False,
             ),
             ("first_time", {"value": "performed_event_first_time", "explicit_datetime": "-30d"}, True),
+            (
+                "event_property_filter",
+                {
+                    "explicit_datetime": "-30d",
+                    "event_filters": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}],
+                },
+                False,
+            ),
+            (
+                "hogql_filter",
+                {"explicit_datetime": "-30d", "event_filters": [{"key": "properties.plan = 'pro'", "type": "hogql"}]},
+                True,
+            ),
         ]
     )
     def test_flags_shapes_flag_evaluations_cannot_serve(self, _name: str, overrides: dict, unsupported: bool) -> None:
