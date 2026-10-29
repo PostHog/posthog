@@ -495,6 +495,8 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(scheduledAt.getTime() - Date.now()).toBeGreaterThan(10_000)
             expect(scheduledAt.getTime() - Date.now()).toBeLessThanOrEqual(15_000)
             expect(deserializeResolverState(state).audienceSnapshot?.ready).toBeUndefined()
+            // Later polls carry the marker, so only the first dequeue counts as the run starting.
+            expect(deserializeResolverState(state).audienceSnapshot?.requested).toBe(true)
         })
 
         it('starts paging once the stored audience is ready', async () => {

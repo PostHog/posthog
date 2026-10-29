@@ -57,6 +57,8 @@ export const BatchResolverStateSchema = z.object({
     audienceSnapshot: z
         .object({
             waitUntil: z.string().datetime(),
+            // Set once Django has accepted the request, so a poll is not counted as a fresh start.
+            requested: z.boolean().optional(),
             ready: z.boolean().optional(),
         })
         .optional(),

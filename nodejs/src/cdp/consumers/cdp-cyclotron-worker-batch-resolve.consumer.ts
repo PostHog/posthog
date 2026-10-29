@@ -171,7 +171,13 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         // guard because a first-page fetch failure reschedules with the same
         // cursor/pagesProcessed/pendingTerminal but bumps attempts — without
         // it, `started` would fire again on every retry of the first page.
-        if (!state.pendingTerminal && state.cursor === null && state.pagesProcessed === 0 && state.attempts === 0) {
+        if (
+            !state.pendingTerminal &&
+            state.cursor === null &&
+            state.pagesProcessed === 0 &&
+            state.attempts === 0 &&
+            !state.audienceSnapshot?.requested
+        ) {
             counterBatchHogFlowResolverJobs.labels({ outcome: 'started' }).inc()
         }
 
@@ -320,7 +326,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                 scheduledAt: new Date(),
                 state: serializeResolverState({
                     ...state,
-                    audienceSnapshot: { ...snapshot, ready: true },
+                    audienceSnapshot: { ...snapshot, requested: true, ready: true },
                     attempts: 0,
                 }),
             })
@@ -347,7 +353,11 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const nextPoll = Math.min(Date.now() + AUDIENCE_SNAPSHOT_POLL_INTERVAL_MS, waitUntil.getTime())
         await job.reschedule({
             scheduledAt: new Date(nextPoll),
-            state: serializeResolverState({ ...state, attempts: 0 }),
+            state: serializeResolverState({
+                ...state,
+                audienceSnapshot: { ...snapshot, requested: true },
+                attempts: 0,
+            }),
         })
     }
 
