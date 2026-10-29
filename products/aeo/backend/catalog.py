@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import datetime as dt
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.utils import timezone
 
 import tldextract
 
@@ -42,8 +40,6 @@ PUBLISHER_DOMAINS = frozenset(
         "news.ycombinator.com",
     }
 )
-# A run finishes within a day; the bound lets the lookup use the (team_id, created_at) index.
-_RUN_LOOKBACK = dt.timedelta(days=2)
 # Offline: the bundled public suffix list, so a sync never fetches anything.
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
 
@@ -85,7 +81,7 @@ def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
     team_id = resolve_effective_team_id(team_id)
     cited = (
         AEOCitationCheck.objects.for_team(team_id, canonical=True)
-        .filter(created_at__gte=timezone.now() - _RUN_LOOKBACK, run_id=run_id, check_failed=False)
+        .filter(run_id=run_id, check_failed=False)
         .values_list("cited_urls", flat=True)
     )
     domains = {
