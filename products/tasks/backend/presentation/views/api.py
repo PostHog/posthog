@@ -2096,7 +2096,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list",
         "retrieve",
         "logs",
-        "history",
+        "log_entries",
         "session_logs",
         "task_session",
         "stream",
@@ -3460,14 +3460,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             200: OpenApiResponse(description="Log content in JSONL format"),
             404: OpenApiResponse(description="Task run not found"),
         },
-        summary="Get task run history",
+        summary="Get task run log entries",
         description=(
             "Same response as the task run logs endpoint, with the same query parameters. Browser clients use "
             "this path because content blockers block URLs that contain logs?."
         ),
     )
-    @action(detail=True, methods=["get"], url_path="history", required_scopes=["task:read"])
-    def history(self, request, pk=None, **kwargs):
+    @action(detail=True, methods=["get"], url_path="log_entries", required_scopes=["task:read"])
+    def log_entries(self, request, pk=None, **kwargs):
         return self._logs_response(request, pk)
 
     def _logs_response(self, request, pk) -> HttpResponse:

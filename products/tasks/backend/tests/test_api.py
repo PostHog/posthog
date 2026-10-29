@@ -11315,8 +11315,8 @@ class TestTaskRunAPI(BaseTaskAPITest):
             ("thread_drops_the_copy", "logs/?view=thread", status.HTTP_200_OK, False),
             ("thread_drops_the_copy_from_a_page", "logs/?tail_bytes=1&view=thread", status.HTTP_200_OK, False),
             ("unknown_view_rejected", "logs/?view=compact", status.HTTP_400_BAD_REQUEST, None),
-            ("history_alias_drops_the_copy", "history?view=thread", status.HTTP_200_OK, False),
-            ("history_alias_rejects_unknown_view", "history?view=compact", status.HTTP_400_BAD_REQUEST, None),
+            ("log_entries_drops_the_copy", "log_entries?view=thread", status.HTTP_200_OK, False),
+            ("log_entries_rejects_unknown_view", "log_entries?view=compact", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
     @patch("posthog.storage.object_storage.read")

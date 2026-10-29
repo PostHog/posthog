@@ -5055,7 +5055,7 @@ const api = {
             ): Promise<Record<string, any>[]> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('history')
+                    .withAction('log_entries')
                     .getResponse({ signal: options.signal })
                 return parseLogEntries(await response.text())
             },
@@ -5089,7 +5089,7 @@ const api = {
             }> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('history')
+                    .withAction('log_entries')
                     .withQueryString({
                         ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
                         ...(options.before !== undefined ? { before: options.before } : {}),

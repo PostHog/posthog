@@ -5732,7 +5732,7 @@ export type TasksRunsArtifactsPreviewRetrieveParams = {
     version?: number
 }
 
-export type TasksRunsHistoryRetrieveParams = {
+export type TasksRunsLogEntriesRetrieveParams = {
     /**
      * With tail_bytes, end the window before this entry index, so a client can page back through older turns: pass the X-Log-Offset of the oldest page it holds.
      * @minimum 0
@@ -5755,13 +5755,13 @@ export type TasksRunsHistoryRetrieveParams = {
      * * `thread` - thread
      * @minLength 1
      */
-    view?: TasksRunsHistoryRetrieveView
+    view?: TasksRunsLogEntriesRetrieveView
 }
 
-export type TasksRunsHistoryRetrieveView =
-    (typeof TasksRunsHistoryRetrieveView)[keyof typeof TasksRunsHistoryRetrieveView]
+export type TasksRunsLogEntriesRetrieveView =
+    (typeof TasksRunsLogEntriesRetrieveView)[keyof typeof TasksRunsLogEntriesRetrieveView]
 
-export const TasksRunsHistoryRetrieveView = {
+export const TasksRunsLogEntriesRetrieveView = {
     Full: 'full',
     Thread: 'thread',
 } as const
