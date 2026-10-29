@@ -8422,6 +8422,22 @@
             "readOnlyHint": true
         }
     },
+    "integrations-email-create": {
+        "description": "Add an email sender for a domain the project owns, the first step before any workflow can send email. Pass config with email (the from address), name (the from name shown in the inbox), provider 'ses', and optionally mail_from_subdomain (defaults to a bounce-handling subdomain nobody sees) and reply_to. The domain is not verified yet: follow with integrations-email-status-retrieve for the DNS records to publish, then integrations-email-verify-create once they resolve. Use the domain people signed up at rather than a new one, so the mail comes from somewhere they recognise. Ask the user before adding a sender; it is a sending identity for a domain they control, and an address that cannot receive replies breaks any email that asks for one.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "Add an email sender",
+        "title": "Add an email sender",
+        "required_scopes": ["integration:write"],
+        "api_operations": ["POST /api/projects/{project_id}/integrations/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-email-domain-agent-setup"
+    },
     "integrations-email-status-retrieve": {
         "description": "Get the setup progress of an email sender's domain by integration ID. Returns the overall status, the three setup steps, and every DNS record to publish with its current status (pending, found, verified). Poll it after adding DNS records until status is verified, waiting at least 10 seconds between calls. Pass refresh=true right after changing DNS to skip the 10 second cache. It does not change DNS or SES, and it does not mark the sender verified: once status is verified, call integrations-email-verify-create.",
         "category": "Integrations",
