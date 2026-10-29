@@ -40,8 +40,8 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
      *  lowest. Unsorted rows follow the series' vertical order on the plot. */
     sortedByValue?: boolean | 'asc' | 'desc'
     /** `single` lists only the series closest to the cursor (the hovered segment on a stacked bar).
-     *  It lists every row when no series is under the cursor, such as on a pinned tooltip. Defaults
-     *  to `all`. */
+     *  It lists every row when the tooltip is pinned or no series is under the cursor. Defaults to
+     *  `all`. */
     mode?: 'all' | 'single'
     /** Hide rows whose value is exactly 0 — useful when a zero means the series is absent rather than measured. */
     hideZeroRows?: boolean
@@ -58,6 +58,7 @@ export function DefaultTooltip<Meta = unknown>({
     seriesData,
     hoverPosition,
     hoveredSeriesKey,
+    isPinned,
     valueFormatter,
     labelFormatter,
     labelRenderer,
@@ -81,7 +82,8 @@ export function DefaultTooltip<Meta = unknown>({
     const closestKey =
         hoveredSeriesKey ??
         (hoverPosition != null && sortedRows.length > 1 ? findClosestSeriesKey(sortedRows, hoverPosition.y) : null)
-    const closestRows = mode === 'single' ? sortedRows.filter((s) => s.series.key === closestKey) : []
+    // A pinned tooltip lists every row, so the other series stay inspectable and clickable.
+    const closestRows = mode === 'single' && !isPinned ? sortedRows.filter((s) => s.series.key === closestKey) : []
     const rows = closestRows.length > 0 ? closestRows : sortedRows
     const summable = rows.filter((s) => !s.series.overlay && s.series.visibility?.total !== false)
     const renderTotal = showTotal && summable.length > 1
