@@ -776,7 +776,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
     watch_group = django_filters.UUIDFilter(
         method="_filter_watch_group",
         help_text=(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. "
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. "
             "Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
     )
