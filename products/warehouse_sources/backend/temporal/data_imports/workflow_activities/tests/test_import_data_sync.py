@@ -2346,8 +2346,6 @@ async def test_a_spent_progressless_cap_stops_retrying_but_keeps_the_real_error(
 
 @pytest.mark.asyncio
 async def test_discarded_resume_state_is_retried_past_the_progressless_cap():
-    # The source cleared the cursor itself so the next attempt reads from the first row, so an
-    # empty checkpoint here is not a run without progress.
     error = ResumeStateDiscarded("The listing reached a cursor the API no longer has.")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}

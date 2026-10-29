@@ -28,7 +28,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 RESUMABLE_STATE_TTL_SECONDS = 60 * 60 * 24
 
-# A key in a namespace of the job, so `continue_from_job` sees that the job has state of its own.
 _RESTARTED_NAMESPACE = "__restarted_from_first_row__"
 
 
