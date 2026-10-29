@@ -544,8 +544,8 @@ export interface replayScannerLogicValues {
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
     goalDraftLoading: boolean
-    goalExperiment: ExperimentBasicApi | null
     goalDraftQuery: RecordingsQuery | null
+    goalExperiment: ExperimentBasicApi | null
     goalSpendMode: GoalSpendMode
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
@@ -809,11 +809,11 @@ export interface replayScannerLogicActions {
     setGoalDraftInput: (goal: string) => {
         goal: string
     }
-    setGoalExperiment: (experiment: ExperimentBasicApi | null) => {
-        experiment: ExperimentBasicApi | null
-    }
     setGoalDraftQuery: (query: RecordingsQuery | null) => {
         query: RecordingsQuery | null
+    }
+    setGoalExperiment: (experiment: ExperimentBasicApi | null) => {
+        experiment: ExperimentBasicApi | null
     }
     setGoalSpendMode: (mode: GoalSpendMode) => {
         mode: GoalSpendMode
