@@ -107,26 +107,27 @@ class FakeMetadata(typing.NamedTuple):
 class FakeSnowflakeCursor:
     """A fake Snowflake cursor that can fail on PUT and COPY queries."""
 
-    def __init__(self, *args, failure_mode: str | None = None, **kwargs):
+    def __init__(self, *args, queries: dict[str, str], failure_mode: str | None = None, **kwargs):
         self._execute_calls: list[dict[str, t.Any]] = []
         self._execute_async_calls: list[dict[str, t.Any]] = []
-        self._sfqid = 1
+        self._sfqid = str(uuid4())
+        self._queries = queries
+        self._query = ""
         self._fail = failure_mode
 
     @property
     def sfqid(self):
-        current = self._sfqid
-        self._sfqid += 1
-        return current
+        return self._sfqid
 
     def execute(self, query, params=None, file_stream=None):
         self._execute_calls.append({"query": query, "params": params, "file_stream": file_stream})
 
     def execute_async(self, query, params=None, file_stream=None):
         self._execute_async_calls.append({"query": query, "params": params, "file_stream": file_stream})
+        self._queries[self.sfqid] = query
 
     def get_results_from_sfqid(self, query_id):
-        pass
+        self._query = self._queries[query_id]
 
     def __enter__(self):
         return self
@@ -159,6 +160,8 @@ class FakeSnowflakeCursor:
             )
 
     def fetchall(self):
+        if self._query.strip().startswith("DESCRIBE TABLE"):
+            return [("uuid", "VARCHAR(16777216)", "COLUMN", "N")]
         if self._fail == "copy":
             return [("test", "LOAD FAILED", 100, 99, 1, 1, "Some error on copy", 3)]
         else:
@@ -177,11 +180,12 @@ class FakeSnowflakeConnection:
         **kwargs,
     ):
         self._cursors: list[FakeSnowflakeCursor] = []
+        self._queries: dict[str, str] = {}
         self._is_running = True
         self.failure_mode = failure_mode
 
     def cursor(self) -> FakeSnowflakeCursor:
-        cursor = FakeSnowflakeCursor(failure_mode=self.failure_mode)
+        cursor = FakeSnowflakeCursor(queries=self._queries, failure_mode=self.failure_mode)
         self._cursors.append(cursor)
         return cursor
 

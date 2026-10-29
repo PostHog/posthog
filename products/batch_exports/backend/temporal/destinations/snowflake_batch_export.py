@@ -17,7 +17,7 @@ import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from snowflake.connector.connection import SnowflakeConnection
-from snowflake.connector.constants import FIELD_ID_TO_NAME, QueryStatus
+from snowflake.connector.constants import QueryStatus
 from snowflake.connector.cursor import ResultMetadata
 from snowflake.connector.errorcode import ER_FAILED_TO_CONNECT_TO_DB, ER_RETRYABLE_CODE
 from snowflake.connector.errors import HttpError, InterfaceError, OperationalError
@@ -295,6 +295,7 @@ SnowflakeTypeName = typing.Literal[
     "TIMESTAMP",
     "TIMESTAMP_NTZ",
     "TIMESTAMP_LTZ",
+    "TIMESTAMP_TZ",
     "ARRAY",
 ]
 
@@ -315,6 +316,28 @@ class SnowflakeDestinationField(typing.NamedTuple):
     is_nullable: bool
     precision: int | None = None
     scale: int | None = None
+
+    @classmethod
+    def from_description(cls, name: str, data_type: str, is_nullable: bool) -> typing.Self:
+        """Construct this field from the result of a Snowflake DESCRIBE query."""
+        type_name, _, parameters = data_type.partition("(")
+        type_name = type_name.split(" COLLATE ", 1)[0].strip()
+
+        precision: int | None = None
+        scale: int | None = None
+
+        if type_name == "VARCHAR":
+            type_name = "TEXT"
+
+        elif type_name == "NUMBER":
+            precision, scale = (int(value) for value in parameters.split(")", 1)[0].split(","))
+            # Preserve the connector's FIXED representation so scale-zero columns remain integers.
+            type_name = "FIXED"
+
+        if type_name not in typing.get_args(SnowflakeTypeName):
+            raise ValueError(f"Unsupported type: '{data_type}'")
+
+        return cls(name, typing.cast(SnowflakeTypeName, type_name), is_nullable, precision, scale)
 
 
 def data_type_to_snowflake_type(data_type: pa.DataType) -> SnowflakeType:
@@ -928,11 +951,9 @@ class SnowflakeClient:
                 from the table, or the fields we require have types we do not support.
         """
         try:
-            result = await self.execute_async_query(f"""
-                SELECT * FROM "{table.name}" LIMIT 0
-            """)
+            result = await self.execute_async_query(f"DESCRIBE TABLE {_quote_snowflake_identifier(table.name)}")
             assert result is not None
-            _, metadata = result
+            rows, _ = result
         except snowflake.connector.errors.ProgrammingError as e:
             if "does not exist" in str(e):
                 raise SnowflakeTableNotFoundError(table.name)
@@ -940,7 +961,7 @@ class SnowflakeClient:
                 raise
 
         if table.is_mutable():
-            existing = {field_metadata.name.lower() for field_metadata in metadata}
+            existing = {row[0].lower() for row in rows}
             missing_primary_key_fields = set(table.primary_key) - existing
             if missing_primary_key_fields:
                 raise SnowflakeIncompatibleSchemaError(
@@ -963,15 +984,9 @@ class SnowflakeClient:
 
         record_batch_field_names = {field.name.lower() for field in table.fields}
         fields = (
-            SnowflakeDestinationField(
-                field_metadata.name,
-                FIELD_ID_TO_NAME[field_metadata.type_code],  # type: ignore[arg-type]
-                field_metadata.is_nullable,
-                field_metadata.precision,
-                field_metadata.scale,
-            )
-            for field_metadata in metadata
-            if field_metadata.name.lower() in record_batch_field_names
+            SnowflakeDestinationField.from_description(row[0], row[1], row[3] == "Y")
+            for row in rows
+            if row[0].lower() in record_batch_field_names
         )
 
         try:
