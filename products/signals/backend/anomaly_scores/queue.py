@@ -149,6 +149,16 @@ class InsightPick:
 
 
 @frozen
+class TeamCensus:
+    """The active insights of one eligible team, for the daily per-team census event."""
+
+    team_id: int
+    active: int
+    active_reasons: dict[str, int]
+    active_intervals: dict[str, int]
+
+
+@frozen
 class Selection:
     picks: list[InsightPick]
     # Due insights, picked or not. More than the picks means the tick cap or a budget cut the queue.
@@ -166,6 +176,8 @@ class Selection:
     # Active insights of the eligible teams, and how many of them have each reason. One insight can have several.
     active: int = 0
     active_reasons: dict[str, int] = dataclasses.field(default_factory=dict)
+    # One entry for each eligible team, also a team with no active insight.
+    census: list[TeamCensus] = dataclasses.field(default_factory=list)
 
 
 @frozen
@@ -238,6 +250,21 @@ def reason_counts(insights: Collection[ActiveInsight]) -> dict[str, int]:
     """How many of the insights have each reason, with a zero for a reason none of them has."""
     counts = Counter(reason for insight in insights for reason in insight.reasons)
     return {reason.value: counts[reason] for reason in ActivityReason}
+
+
+def team_census(team_ids: Collection[int], insights: Collection[ActiveInsight]) -> list[TeamCensus]:
+    by_team: dict[int, list[ActiveInsight]] = {team_id: [] for team_id in team_ids}
+    for insight in insights:
+        by_team.setdefault(insight.team_id, []).append(insight)
+    return [
+        TeamCensus(
+            team_id=team_id,
+            active=len(team_insights),
+            active_reasons=reason_counts(team_insights),
+            active_intervals=dict(Counter(insight.interval.value for insight in team_insights)),
+        )
+        for team_id, team_insights in sorted(by_team.items())
+    ]
 
 
 def scored_state_since(
@@ -463,6 +490,7 @@ def select_insights(
     insights = active_insights(list(teams), config.intervals, now, config.active_window_days)
     active = len(insights)
     active_reasons = reason_counts(insights)
+    census = team_census(teams, insights)
     state: dict[int, dict[str, datetime.datetime]] = {}
     failed_teams: set[int] = set()
     # One query per team and interval, so a day or week insight does not read the months a month insight needs.
@@ -623,6 +651,7 @@ def select_insights(
         train_backlog_hard=sum(insight_id not in stale_ready for insight_id in backlog),
         active=active,
         active_reasons=active_reasons,
+        census=census,
     )
 
 
