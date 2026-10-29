@@ -17,7 +17,7 @@ class UsageSnapshot(TeamScopedRootMixin, UUIDModel):
 
     status = models.CharField(
         max_length=16,
-        choices=[(s.value, s.value) for s in UsageSnapshotStatus],
+        choices=UsageSnapshotStatus.choices,
         default=UsageSnapshotStatus.COMPUTING.value,
         help_text="computing while the scan runs, then done or error.",
     )

@@ -36,6 +36,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.apm.backend.presentation.views.ServiceMapViewSet",
     # Returns the team's 20 most recent import runs, not a page of rows.
     "products.messaging.backend.presentation.views.provider_imports.ProviderImportViewSet",
+    # Returns the team's 52 most recent usage scans, a year of weekly scans, not a page of rows.
+    "products.data_catalog.backend.presentation.views.UsageSnapshotViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
