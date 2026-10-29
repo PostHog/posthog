@@ -1334,6 +1334,7 @@ describe('inboxReportDetailLogic', () => {
                     [REPORT.id]: [
                         taskRunArtefact('active-task', '2026-01-01T00:00:00Z'),
                         taskRunArtefact('completed-task', '2026-01-02T00:00:00Z'),
+                        taskRunArtefact('starting-task', '2026-01-03T00:00:00Z'),
                     ],
                     [reportB.id]: [],
                 },
@@ -1346,6 +1347,7 @@ describe('inboxReportDetailLogic', () => {
                         id: 'completed-task',
                         latest_run: { id: 'completed-run', status: TaskRunStatus.COMPLETED },
                     },
+                    'starting-task': { id: 'starting-task', latest_run: null },
                 }
             )
             initKeaTests()
