@@ -738,7 +738,7 @@ const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
 }
 
 // A path the DWARF names can reach the source folder through a symlink, or the folder can be one,
-// so both are canonical before the ignore globs match.
+// so the globs match the path as written and its canonical form, and either one ignores it.
 function sourceIgnored(root: Root, folder: string): (path: string) => boolean {
     const canonical = (path: string): string => {
         try {
@@ -748,7 +748,7 @@ function sourceIgnored(root: Root, folder: string): (path: string) => boolean {
         }
     }
     const realFolder = canonical(folder)
-    return (path) => isIgnored(root, realFolder, canonical(path))
+    return (path) => isIgnored(root, folder, path) || isIgnored(root, realFolder, canonical(path))
 }
 
 // `symbol-sets upload`: native files are parsed and deduplicated by debug ID, dSYM bundles are
