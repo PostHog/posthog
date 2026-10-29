@@ -51,7 +51,13 @@ const internalLogsProducerBatchesCounter = new Counter({
     labelNames: ['source', 'outcome'],
 })
 
-/** Sends a copy of PostHog's own logs to the logs product, signed so the logs consumer does not bill them. */
+/**
+ * Sends a copy of PostHog's own logs to the logs product, signed so the logs consumer does not bill them.
+ *
+ * Delivery is best-effort: a failed or dropped batch is not retried. This is safe only while `log_entries` still has
+ * every row and the product UI reads from it. Before the UI reads from the logs product, add retries with backoff,
+ * a bounded queue in place of the drop, a drain on shutdown, and a parity check against `log_entries`.
+ */
 export class InternalLogsProducer {
     private readonly enabled: boolean
     private readonly isTeamEnabled: ValueMatcher<number>

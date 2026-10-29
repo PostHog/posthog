@@ -69,8 +69,13 @@ export type LogsIngestionConsumerConfig = {
     LOGS_RETENTION_KILLSWITCH: boolean
     /** Comma-separated team IDs, or `*` for all teams. A `posthog-internal` batch from any other team is billed as normal. */
     LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: string
+    /** Secret. Comma-separated HMAC keys, newest first. Producers sign with the first key, and the consumer accepts any. */
     LOGS_INTERNAL_INGESTION_SIGNING_KEYS: string
-    /** capture-logs OTLP logs endpoint that internal producers send signed batches to; empty disables sending. */
+    /**
+     * MUST BE AN INTERNAL CONNECTION, such as the in-cluster capture-logs service. Never a public capture endpoint.
+     * Every request carries a signature that makes its logs unbilled, so it must not leave the internal network.
+     * capture-logs OTLP logs endpoint that internal producers send signed batches to; empty disables sending.
+     */
     LOGS_INTERNAL_PRODUCER_URL: string
     /** Comma-separated team IDs, or `*` for all teams, whose internal logs a producer sends to the logs product. */
     LOGS_INTERNAL_PRODUCER_TEAMS: string
