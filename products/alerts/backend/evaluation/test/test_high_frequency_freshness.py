@@ -270,7 +270,10 @@ def test_cache_age_never_exceeds_the_shared_threshold(interval, hours_into_bucke
     [
         (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, True),
         (NodeKind.TRENDS_QUERY, "day", IF_STALE, True),
-        (NodeKind.METRICS_QUERY, "hour", IF_STALE, True),
+        # A metrics query has no query_date_range, so its runner already ages a result on the minute
+        # threshold. A bucket limit would replace that rule with a looser one.
+        (NodeKind.METRICS_QUERY, "hour", IF_STALE, False),
+        (NodeKind.METRICS_QUERY, "day", IF_STALE, False),
         # A metrics insight types its interval as a plain string and buckets on its own scale, so
         # these reach the resolver as values no IntervalType member matches. Mapping them eagerly
         # raised ValueError and failed the whole check for alerts that run today.

@@ -96,6 +96,11 @@ def _resolve_cache_age_seconds(alert: AlertConfiguration, query: object, executi
     # earlier bucket. A mode that skips the cache has nothing to age, so it needs no limit.
     if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
         return None
+    if get_from_dict_or_attr(query, "kind") == NodeKind.METRICS_QUERY:
+        # MetricsQueryRunner has no query_date_range, so the shared rule falls back to its minute
+        # threshold — already tighter than any bucket. The override replaces that rule rather than
+        # joining it, so passing a bucket limit here would loosen the alert to hours.
+        return None
     return cache_age_seconds_for_alert(_query_interval(query), now=datetime.now(UTC), team=alert.team)
 
 
