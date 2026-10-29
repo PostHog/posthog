@@ -2,7 +2,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("signals", "0215_useractivitysummary_empty_profile_status")]
+    dependencies = [("signals", "0216_signalteamconfig_anomaly_scoring_enabled")]
 
     operations = [
         migrations.AddField(

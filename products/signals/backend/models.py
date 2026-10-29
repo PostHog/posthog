@@ -272,6 +272,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
     pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
     pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
+    # Opt-out of anomaly scoring (see anomaly_scores/queue.py). The `anomaly-scoring` flag payload
+    # still decides which projects are enrolled, so turning this on cannot enroll a project.
+    anomaly_scoring_enabled = models.BooleanField(default=True, db_default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

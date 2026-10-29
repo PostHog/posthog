@@ -1,7 +1,7 @@
 import { fireEvent } from '@testing-library/react'
 
 import { useChartLayout } from '../../core/chart-context'
-import type { ChartTheme, Series } from '../../core/types'
+import type { ChartTheme, Series, TooltipConfig } from '../../core/types'
 import { getChart, renderChart, waitForChartTooltip } from '../../testing'
 import { TimeSeriesComboChart } from './TimeSeriesComboChart'
 
@@ -290,32 +290,43 @@ describe('TimeSeriesComboChart', () => {
             expect(tooltip.seriesData.map((s) => s.series.key).sort()).toEqual(['bar', 'line'])
         })
 
-        it('formats the built-in tooltip rows with config.tooltip.valueFormatter', async () => {
+        it.each<{ name: string; tooltip: TooltipConfig; series: Series[]; contains: string[]; omits: string[] }>([
+            {
+                name: 'valueFormatter',
+                tooltip: { valueFormatter: (v) => `$${v}` },
+                series: BAR_AND_LINE,
+                contains: ['$60'],
+                omits: [],
+            },
+            {
+                name: 'showTotal',
+                tooltip: { showTotal: true, totalLabel: 'Sum' },
+                series: BAR_AND_LINE,
+                contains: ['Sum'],
+                omits: [],
+            },
+            {
+                name: 'hideZeroRows',
+                tooltip: { hideZeroRows: true },
+                series: [BAR_AND_LINE[0], { key: 'empty', label: 'Empty', data: [1, 0, 1], type: 'line' }],
+                contains: ['Bar'],
+                omits: ['Empty'],
+            },
+            {
+                name: 'showHeader',
+                tooltip: { showHeader: false },
+                series: BAR_AND_LINE,
+                contains: ['Bar'],
+                omits: ['Tue'],
+            },
+        ])('applies config.tooltip.$name to the built-in tooltip', async ({ tooltip, series, contains, omits }) => {
             const { chart } = renderChart(
-                <TimeSeriesComboChart
-                    series={BAR_AND_LINE}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={{ tooltip: { valueFormatter: (v) => `$${v}` } }}
-                />
+                <TimeSeriesComboChart series={series} labels={LABELS} theme={THEME} config={{ tooltip }} />
             )
             chart.hoverAtIndex(1)
-            const tooltip = await waitForChartTooltip()
-            expect(tooltip.textContent).toContain('$60')
-        })
-
-        it('appends a total row when config.tooltip.showTotal is set', async () => {
-            const { chart } = renderChart(
-                <TimeSeriesComboChart
-                    series={BAR_AND_LINE}
-                    labels={LABELS}
-                    theme={THEME}
-                    config={{ tooltip: { showTotal: true, totalLabel: 'Sum' } }}
-                />
-            )
-            chart.hoverAtIndex(1)
-            const tooltip = await waitForChartTooltip()
-            expect(tooltip.textContent).toContain('Sum')
+            const { textContent } = await waitForChartTooltip()
+            contains.forEach((text) => expect(textContent).toContain(text))
+            omits.forEach((text) => expect(textContent).not.toContain(text))
         })
     })
 
