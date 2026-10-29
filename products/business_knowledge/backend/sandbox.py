@@ -269,11 +269,14 @@ def start_sandbox_run(
             description=build_sandbox_prompt(question, always_on, repo_tools=repository_tools_enabled(team)),
             profile=task_profiles.BUSINESS_KNOWLEDGE,
             user_id=user_id,
-            repository=None,
             create_pr=False,
             sandbox_environment_id=str(env_id),
-            options=TaskRunOptions(model=SANDBOX_MODEL, adapter=SANDBOX_RUNTIME_ADAPTER, mcp_scopes=BK_MCP_SCOPES),
-            output_schema=SandboxAnswer,
+            options=TaskRunOptions(
+                model=SANDBOX_MODEL,
+                adapter=SANDBOX_RUNTIME_ADAPTER,
+                mcp_scopes=BK_MCP_SCOPES,
+                output_schema=SandboxAnswer.model_json_schema(),
+            ),
             extra_run_state={
                 "mcp_exclude_tools": BK_HIDDEN_TOOLS,
                 "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
