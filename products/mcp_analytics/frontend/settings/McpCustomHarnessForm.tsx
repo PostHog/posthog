@@ -8,7 +8,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
 
 export function McpCustomHarnessForm(): JSX.Element {
-    const { isCustomHarnessFormSubmitting } = useValues(mcpCustomHarnessesLogic)
+    const { isCustomHarnessFormSubmitting, saveInProgressReason } = useValues(mcpCustomHarnessesLogic)
     const { cancelEditingHarness } = useActions(mcpCustomHarnessesLogic)
 
     return (
@@ -32,7 +32,7 @@ export function McpCustomHarnessForm(): JSX.Element {
                 </LemonField>
             </div>
             <div className="flex justify-end gap-2">
-                <LemonButton type="secondary" onClick={cancelEditingHarness}>
+                <LemonButton type="secondary" onClick={cancelEditingHarness} disabledReason={saveInProgressReason}>
                     Cancel
                 </LemonButton>
                 <LemonButton

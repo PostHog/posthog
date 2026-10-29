@@ -70,4 +70,34 @@ describe('McpCustomHarnessesSettings', () => {
         expect(await screen.findByText('Beta assistant')).toBeInTheDocument()
         await waitFor(() => expect(screen.queryByText('Beta bot')).not.toBeInTheDocument())
     })
+
+    it('blocks opening another form while a save is pending', async () => {
+        stored = [
+            { id: 'a', name: 'Alpha', match_pattern: 'alpha', created_at: '', updated_at: '' },
+            { id: 'b', name: 'Beta', match_pattern: 'beta', created_at: '', updated_at: '' },
+        ] as MCPCustomHarnessApi[]
+        let finishSave: () => void = () => {}
+        useMocks({
+            patch: {
+                [`${HARNESSES_URL}:id/`]: () =>
+                    new Promise((resolve) => {
+                        finishSave = () => resolve([200, stored[0]])
+                    }),
+            },
+        })
+        render(
+            <Provider>
+                <McpCustomHarnessesSettings />
+            </Provider>
+        )
+        await userEvent.click(await screen.findByLabelText('Edit Alpha'))
+        await userEvent.click(screen.getByText('Save'))
+
+        await waitFor(() => expect(screen.getByLabelText('Edit Beta')).toHaveAttribute('aria-disabled', 'true'))
+        expect(screen.getByText('Add custom harness').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByText('Cancel').closest('button')).toHaveAttribute('aria-disabled', 'true')
+
+        finishSave()
+        await waitFor(() => expect(screen.getByLabelText('Edit Beta')).toHaveAttribute('aria-disabled', 'false'))
+    })
 })

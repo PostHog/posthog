@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
@@ -45,6 +45,7 @@ export interface mcpCustomHarnessesLogicValues {
     editingHarnessId: EditingHarnessId
     isCustomHarnessFormSubmitting: boolean
     isCustomHarnessFormValid: boolean
+    saveInProgressReason: string | null
     showCustomHarnessFormErrors: boolean
 }
 
@@ -182,6 +183,12 @@ export const mcpCustomHarnessesLogic = kea<mcpCustomHarnessesLogicType>([
             },
         },
     })),
+    selectors({
+        saveInProgressReason: [
+            (s) => [s.isCustomHarnessFormSubmitting],
+            (isSubmitting: boolean): string | null => (isSubmitting ? 'Wait for the save to finish' : null),
+        ],
+    }),
     listeners(({ actions }) => ({
         startAddingHarness: () => {
             actions.resetCustomHarnessForm(EMPTY_FORM)
