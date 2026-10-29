@@ -285,6 +285,15 @@ def send_transactional_email(
     )
 
 
+def send_accepted_transactional_email(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send",
+        json=payload,
+        headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
+        timeout=10,
+    )
+
+
 def resume_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str) -> requests.Response:
     """Wake a batch run's resolver, parked until its realtime cohort finished calculating. The JSON
     `outcome` is `resumed` or `already_resumed` on success; a 409 means the resolver isn't parked."""

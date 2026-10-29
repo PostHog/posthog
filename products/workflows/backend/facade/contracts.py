@@ -705,6 +705,13 @@ class TransactionalEmailContent:
     reply_to: str = ""
 
 
+@frozen
+class TransactionalEmailSender:
+    integration_id: int
+    email: str | None
+    name: str | None
+
+
 class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 

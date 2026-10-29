@@ -3659,6 +3659,11 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "last_run",
         ]
 
+    def validate_origin_product(self, value: str | None) -> str | None:
+        if value == HogFlowOriginProduct.TRANSACTIONAL_EMAIL_KEYS:
+            raise serializers.ValidationError("A code send key's workflow is made by its first send.")
+        return value
+
     def validate(self, data):
         instance = cast(Optional[WorkflowEditState], self.instance)
         is_draft = self.context.get("is_draft")

@@ -1,1 +1,1 @@
-0010_supabase_auth_email_config
+0013_transactional_email_key

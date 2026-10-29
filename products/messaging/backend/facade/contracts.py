@@ -98,6 +98,21 @@ class RecipientUnreachable(TransactionalEmailError):
     code = "recipient_unreachable"
 
 
+class SenderNotVerified(TransactionalEmailError):
+    code = "sender_not_verified"
+
+
+@frozen
+class CodeEmail:
+    key: str
+    subject: str
+    html: str
+    text: str
+    sender: str | None
+    reply_to: tuple[str, ...]
+    capture_engagement: bool
+
+
 class DeliveryUnavailable(Exception):
     """The email pipeline did not accept the send. Safe to retry."""
 

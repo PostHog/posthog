@@ -1,6 +1,7 @@
 """Transactional email: a template made sendable over the API, backed by a workflow that runs once per send."""
 
 from products.messaging.backend.facade.contracts import (
+    CodeEmail,
     DeliveryUnavailable,
     EmailDeliveryStatus,
     EmailStatus,
@@ -9,9 +10,12 @@ from products.messaging.backend.facade.contracts import (
 )
 from products.messaging.backend.services.transactional_email import (
     SENDER_ADDRESS_MAX_LENGTH,
+    SENDER_ADDRESS_PATTERN,
     check_transactional_update,
     lock_transactional_workflow_id,
     make_transactional,
+    require_code_email_access,
+    send_code_email,
     send_transactional_email,
     sender_address_error,
     sync_transactional_workflow,
@@ -20,6 +24,8 @@ from products.messaging.backend.services.transactional_email_status import get_e
 
 __all__ = [
     "SENDER_ADDRESS_MAX_LENGTH",
+    "SENDER_ADDRESS_PATTERN",
+    "CodeEmail",
     "DeliveryUnavailable",
     "EmailDeliveryStatus",
     "EmailStatus",
@@ -29,6 +35,8 @@ __all__ = [
     "get_email_status",
     "lock_transactional_workflow_id",
     "make_transactional",
+    "require_code_email_access",
+    "send_code_email",
     "send_transactional_email",
     "sender_address_error",
     "sync_transactional_workflow",

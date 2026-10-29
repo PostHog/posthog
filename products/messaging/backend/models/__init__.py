@@ -5,6 +5,7 @@ from .message_template import MessageTemplate
 from .optout_sync_config import OptOutSyncConfig
 from .provider_import_run import ProviderImportRun
 from .supabase_auth_email_config import SupabaseAuthEmailConfig
+from .transactional_email_key import TransactionalEmailKey
 
 __all__ = [
     "ALL_MESSAGE_PREFERENCE_CATEGORY_ID",
@@ -18,4 +19,5 @@ __all__ = [
     "ProviderImportRun",
     "SupabaseAuthEmailConfig",
     "SuppressionSource",
+    "TransactionalEmailKey",
 ]

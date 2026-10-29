@@ -1,5 +1,5 @@
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -19,8 +19,15 @@ from posthog.models.utils import generate_random_token_secret
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
+from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.presentation.views.message_templates import (
+    EMAIL_FROM_CODE_FLAG,
+    TRANSACTIONAL_EMAIL_API_FLAG,
+)
+from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
+from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
@@ -136,6 +143,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("send_with_read_scope", "post", "send/", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
             ("send_email_with_write_scope", "post", "send_email", ["hog_flow:write"], status.HTTP_202_ACCEPTED),
             ("send_email_with_read_scope", "post", "send_email", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            ("code_send_with_read_scope", "post", "code_send", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
             ("retrieve_is_not_a_psak_action", "get", "", ["hog_flow:write"], status.HTTP_403_FORBIDDEN),
             (
                 "make_transactional_is_not_a_psak_action",
@@ -152,6 +160,8 @@ class TestTransactionalEmail(APIBaseTest):
         self._cdp_accepts(mock_post)
         if suffix == "send_email":
             url, body = self.send_email_url, {**self.body, "template": {"id": str(self.template.id)}}
+        elif suffix == "code_send":
+            url, body = self.send_email_url, self._code_send()
         else:
             url, body = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/{suffix}", self.body
 
@@ -329,6 +339,202 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
         mock_post.assert_not_called()
+
+    def _code_send(self, **fields: Any) -> dict[str, Any]:
+        return {
+            "to": "user@example.com",
+            "identifiers": {"distinct_id": "user-1"},
+            "template_key": "welcome",
+            "subject": "Welcome, Jane",
+            "html": "<p>Hi Jane</p>",
+            **fields,
+        }
+
+    @parameterized.expand([("new_key", "welcome"), ("key_that_names_a_template", "password-reset")])
+    def test_a_code_send_goes_out_as_is_under_the_keys_workflow(self, mock_post, _flag, capture, _name, key):
+        MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset")
+        self._cdp_accepts(mock_post)
+        templates_before = MessageTemplate.objects.filter(team=self.team).count()
+        psak = self._psak_client(["hog_flow:write"])
+
+        first = psak.post(self.send_email_url, self._code_send(template_key=key), format="json")
+        second = psak.post(self.send_email_url, self._code_send(template_key=key, subject="Again"), format="json")
+
+        assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert first.json() == {"message_id": "invocation-1", "replayed": False}
+        assert second.status_code == status.HTTP_202_ACCEPTED, second.json()
+        first_url, second_url = (call.args[0] for call in mock_post.call_args_list)
+        assert first_url == second_url
+        assert first_url.endswith("/transactional_email/send")
+        hog_flow_id = first_url.split("/hog_flows/")[1].split("/")[0]
+        if key == "password-reset":
+            assert hog_flow_id == str(self.hog_flow_id)
+        else:
+            assert TransactionalEmailKey.objects.for_team(self.team.id).get(key=key).hog_flow_id == UUID(hog_flow_id)
+            listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/").json()["results"]
+            assert hog_flow_id not in {workflow["id"] for workflow in listed}
+        assert mock_post.call_args_list[0].kwargs["json"] == {
+            "to": "user@example.com",
+            "distinct_id": "user-1",
+            "variables": {},
+            "send": {
+                "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                "from": {"integrationId": self.sender.id},
+                "tracking": {"captureEngagement": True},
+            },
+        }
+        assert MessageTemplate.objects.filter(team=self.team).count() == templates_before
+        reported = capture.call_args.kwargs["properties"]
+        assert (reported["route"], reported["addressed_by"], reported["outcome"]) == (
+            "send_email",
+            "template_key",
+            "queued",
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "sender_and_reply_to",
+                {"text": "Hi", "from": "Example <security@example.com>", "reply_to": ["help@example.com"]},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi"},
+                    "from": {"email": "security@example.com", "name": "Example"},
+                    "replyTo": ["help@example.com"],
+                    "tracking": {"captureEngagement": True},
+                },
+            ),
+            (
+                "without_engagement_capture",
+                {"capture_engagement": False},
+                {
+                    "content": {"subject": "Welcome, Jane", "html": "<p>Hi Jane</p>", "text": "Hi Jane"},
+                    "tracking": {"captureEngagement": False},
+                },
+            ),
+            (
+                "text_only",
+                {"html": "", "text": "Hi"},
+                {"content": {"subject": "Welcome, Jane", "text": "Hi"}, "tracking": {"captureEngagement": True}},
+            ),
+        ]
+    )
+    def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, sent):
+        self._cdp_accepts(mock_post)
+        newer_default = Integration.objects.create(
+            team=self.team, kind="email", integration_id="news@example.com", config={"verified": True}
+        )
+        TeamWorkflowsConfig.objects.filter(team_id=self.team.id).update(default_email_integration_id=newer_default.id)
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        sent = {**sent, "from": {**sent.get("from", {}), "integrationId": newer_default.id}}
+        assert mock_post.call_args.kwargs["json"]["send"] == sent
+
+    @parameterized.expand(
+        [
+            ("no_subject", {"subject": ""}, "subject"),
+            ("no_body", {"html": None}, "html"),
+            ("data_for_rendered_content", {"message_data": {"name": "Jane"}}, "message_data"),
+            ("both_a_template_and_a_key", {"template": {"id": str(uuid4())}}, "template"),
+            ("neither_a_template_nor_a_key", {"template_key": None}, "template"),
+            ("invalid_key", {"template_key": "welcome email"}, "template_key"),
+            ("sender_that_is_not_an_address", {"from": "Example"}, "from"),
+            ("sender_with_a_quoted_local_part", {"from": '"security"@example.com'}, "from"),
+            ("empty_reply_to", {"reply_to": []}, "reply_to"),
+            ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
+        ]
+    )
+    def test_refuses_a_code_send_with_an_invalid_field(self, mock_post, _flag, _capture, _name, fields, attr):
+        body = {key: value for key, value in self._code_send(**fields).items() if value is not None}
+
+        response = self._psak_client(["hog_flow:write"]).post(self.send_email_url, body, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == attr
+        mock_post.assert_not_called()
+
+    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture):
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, "subject": "Hi"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "subject"
+        mock_post.assert_not_called()
+
+    def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**{"from": "security@example.org"}), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "sender_not_verified"
+        assert not TransactionalEmailKey.objects.for_team(self.team.id).exists()
+        assert capture.call_args.kwargs["properties"]["error_code"] == "sender_not_verified"
+        mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("replay", 202, {"invocation_id": "first-send", "replayed": True}, 202, None),
+            ("key_used_by_a_template_send", 422, {"error": "idempotency_key_reused"}, 422, "idempotency_key_reused"),
+            ("recipient_suppressed", 422, {"error": "recipient_suppressed"}, 422, "recipient_suppressed"),
+        ]
+    )
+    def test_a_code_send_passes_its_idempotency_key_and_reports_the_pipelines_answer(
+        self, mock_post, _flag, _capture, _name, pipeline_status, pipeline_body, expected_status, expected_code
+    ):
+        mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: pipeline_body)
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(), format="json", headers={"Idempotency-Key": "welcome:user-1"}
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_post.call_args.kwargs["json"]["idempotency_key"] == "welcome:user-1"
+        if expected_code:
+            assert response.json()["code"] == expected_code
+        else:
+            assert response.json() == {"message_id": "first-send", "replayed": True}
+
+    def test_two_racing_first_sends_of_a_key_make_one_workflow(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        psak = self._psak_client(["hog_flow:write"])
+        winner = psak.post(self.send_email_url, self._code_send(), format="json")
+        lookup = transactional_email.known_key
+        lookups: list[str] = []
+
+        def misses_the_winner_once(team_id: int, key: str) -> TransactionalEmailKey | None:
+            lookups.append(key)
+            return None if len(lookups) == 1 else lookup(team_id, key)
+
+        with patch.object(transactional_email, "known_key", side_effect=misses_the_winner_once):
+            loser = psak.post(self.send_email_url, self._code_send(), format="json")
+
+        assert (winner.status_code, loser.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
+        first_url, second_url = (call.args[0] for call in mock_post.call_args_list)
+        assert first_url == second_url
+        assert TransactionalEmailKey.objects.for_team(self.team.id).filter(key="welcome").count() == 1
+        assert HogFlow.objects.filter(team=self.team, name="welcome").count() == 1
+
+    @parameterized.expand(
+        [
+            ("code_send_with_only_its_flag", "code", {EMAIL_FROM_CODE_FLAG}, status.HTTP_202_ACCEPTED),
+            ("code_send_without_its_flag", "code", {TRANSACTIONAL_EMAIL_API_FLAG}, status.HTTP_404_NOT_FOUND),
+            ("template_send_without_its_flag", "template", {EMAIL_FROM_CODE_FLAG}, status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_each_form_of_a_send_answers_only_while_its_flag_is_on(
+        self, mock_post, flag, _capture, _name, form, enabled_flags, expected_status
+    ):
+        self._cdp_accepts(mock_post)
+        flag.side_effect = lambda key, *_args, **_kwargs: key in enabled_flags
+        body = self._code_send() if form == "code" else {**self.body, "template": {"id": str(self.template.id)}}
+
+        response = self.client.post(self.send_email_url, body, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_post.called == (expected_status == status.HTTP_202_ACCEPTED)
 
     def _other_team_template(self) -> MessageTemplate:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
@@ -615,6 +821,33 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         response = getattr(self.client, method)(url, body, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_post.assert_not_called()
+
+    def test_a_member_denied_the_workflow_cannot_send_code_under_its_template_key(self, mock_post, _flag):
+        MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {"to": "user@example.com", "template_key": "password-reset", "subject": "Hi", "html": "<p>Hi</p>"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        mock_post.assert_not_called()
+
+    def test_a_member_who_cannot_create_workflows_cannot_send_code_under_a_new_key(self, mock_post, _flag):
+        self._login_member("viewer@example.com", {None: "viewer", str(self.hog_flow_id): "editor"})
+        workflows_before = HogFlow.objects.filter(team=self.team).count()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {"to": "user@example.com", "template_key": "welcome", "subject": "Welcome", "html": "<p>Hi</p>"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert HogFlow.objects.filter(team=self.team).count() == workflows_before
+        assert not TransactionalEmailKey.objects.for_team(self.team.id).exists()
         mock_post.assert_not_called()
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
