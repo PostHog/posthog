@@ -9304,10 +9304,10 @@ Today (3): `campaigns`, `leads`, `users`
 
 Diffed against: <https://web.archive.org/web/20251120081157/https://apidocs.persistiq.com/>
 
-- [ ] `GET /v1/events` — the sales activity stream (sends, opens, clicks, replies) - the only behavioral data in the API and absent today (high)
-- [ ] `GET /v1/lead_statuses` — lookup resolving the status ID carried on every lead already synced (high)
-- [ ] `GET /v1/lead_fields` — custom field definitions needed to interpret lead custom attributes (medium)
-- [ ] `GET /v1/dnc_domains` — do-not-contact domain list for suppression analysis (low)
+- [x] `GET /v1/events` — the sales activity stream (sends, opens, clicks, replies) - the only behavioral data in the API and absent today (high)
+- [x] `GET /v1/lead_statuses` — lookup resolving the status ID carried on every lead already synced (high)
+- [x] `GET /v1/lead_fields` — custom field definitions needed to interpret lead custom attributes (medium)
+- [x] `GET /v1/dnc_domains` — do-not-contact domain list for suppression analysis (low)
 
 Note: apidocs.persistiq.com is behind a Cloudflare interstitial (403 to curl with any UA), so I read the archived copy of the same Slate single-page doc; it enumerates the full v1 API (base https://api.persistiq.com/v1). Only 4 GET-listable resources are missing, but one of them is the entire activity stream. Note /campaigns/{id}/leads is POST/DELETE only, so campaign membership is not separately syncable.
 
@@ -9317,9 +9317,9 @@ Today (8): `accounts`, `cases`, `events`, `inquiries`, `inquiry_template_version
 
 Diffed against: <https://docs.withpersona.com/2025-12-08/llms.txt>
 
-- [ ] `GET /reports (List all Reports)` — watchlist, adverse-media and business reports - a headline Persona output missing entirely next to inquiries (high)
-- [ ] `GET /inquiry-sessions` — per-attempt sessions under the inquiries already synced, needed for drop-off analysis (medium)
-- [ ] `GET /workflow-runs (List all Workflow Runs)` — automation run history over inquiries and cases already synced (medium)
+- [x] `GET /reports (List all Reports)` — watchlist, adverse-media and business reports - a headline Persona output missing entirely next to inquiries (high)
+- [x] `GET /inquiry-sessions` — per-attempt sessions under the inquiries already synced, needed for drop-off analysis (medium)
+- [x] `GET /workflow-runs (List all Workflow Runs)` — automation run history over inquiries and cases already synced (medium)
 - [ ] `GET /devices` — device records used for fraud and repeat-signup analysis (medium)
 - [ ] `GET /accounts/{account-id}/relations` — account-to-account relationship edges for the accounts already synced (medium)
 - [ ] `GET /reports/{report-id}/history (List Report history)` — continuous-monitoring state history per report (low)
@@ -9401,13 +9401,13 @@ Diffed against: <https://picqer.com/en/api>
 - [x] `/shipments (also /picklists/{idpicklist}/shipments)` — actual outbound shipments with carrier and tracking; picklists alone can't answer ship-rate or carrier-mix questions (high)
 - [x] `/warehouses/{idwarehouse}/stock and /products/{idproduct}/stock` — current stock level per product per warehouse; the products table has no per-warehouse quantities (high)
 - [x] `/return_reasons` — lookup resolving the reason ID carried on the returns we already sync (high)
-- [ ] `/return_statuses` — lookup resolving the status ID on synced returns (high)
-- [ ] `/backorders` — unfulfillable order lines - the standard stockout/backorder analysis (medium)
-- [ ] `/picklists/batches` — batch-picking grouping over picklists; needed for picker throughput and batch efficiency (medium)
+- [x] `/return_statuses` — lookup resolving the status ID on synced returns (high)
+- [x] `/backorders` — unfulfillable order lines - the standard stockout/backorder analysis (medium)
+- [x] `/picklists/batches` — batch-picking grouping over picklists; needed for picker throughput and batch efficiency (medium)
 - [ ] `/webshoporders` — import status per external webshop order, including failures that never became a Picqer order (medium)
 - [ ] `/comments` — cross-entity comment log (orders, picklists, returns, purchase orders) usable as an operational activity feed (medium)
 - [ ] `/shippingproviders` — lookup resolving shipping provider IDs on shipments and orders (medium)
-- [ ] `/pricelists` — price list definitions behind customer-specific pricing on orders (medium)
+- [x] `/pricelists` — price list definitions behind customer-specific pricing on orders (medium)
 - [ ] `/productfields, /orderfields, /customerfields` — custom field definitions that name the free-field values embedded in synced products, orders and customers (medium)
 
 Note: Full vendor resource list read from the docs navigation plus each resource page. Also present but lower value and not listed above: /tasks, /packagings, /location_types, /templates, /picking-containers, /stats, /products/{id}/pricehistory, /locations/{id}/products.
@@ -9431,10 +9431,10 @@ Today (4): `alerts`, `checks`, `maintenance`, `probes`
 
 Diffed against: <https://docs.pingdom.com/api/API_3.1.yaml>
 
-- [ ] `GET /results/{checkid}` — raw per-probe check results (status, response time, probe) - the underlying monitoring data, none of which is synced today (high)
-- [ ] `GET /summary.outage/{checkid}` — up/down state-transition history per check; the only way to compute uptime or incident duration (high)
-- [ ] `GET /summary.performance/{checkid}` — bucketed response-time series - Pingdom's headline metric (high)
-- [ ] `GET /tms/check` — transaction (synthetic scripted) checks are a separate check type entirely and are invisible in the synced checks table (high)
+- [x] `GET /results/{checkid}` — raw per-probe check results (status, response time, probe) - the underlying monitoring data, none of which is synced today (high)
+- [x] `GET /summary.outage/{checkid}` — up/down state-transition history per check; the only way to compute uptime or incident duration (high)
+- [x] `GET /summary.performance/{checkid}` — bucketed response-time series - Pingdom's headline metric (high)
+- [x] `GET /tms/check` — transaction (synthetic scripted) checks are a separate check type entirely and are invisible in the synced checks table (high)
 - [ ] `GET /summary.average/{checkid}` — average response time over a period, optionally broken down by country/probe (medium)
 - [ ] `GET /tms/check/{check_id}/report/status` — status/uptime history for transaction checks (medium)
 - [ ] `GET /tms/check/{check_id}/report/performance` — response-time history for transaction checks (medium)

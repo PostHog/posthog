@@ -65897,11 +65897,31 @@ export namespace Schemas {
     }
 
     /**
+     * * `oauth` - OAuth
+     * * `token` - Token
+     * * `credentials` - Credentials
+     */
+    export type IntegrationAuthTypeEnum = typeof IntegrationAuthTypeEnum[keyof typeof IntegrationAuthTypeEnum];
+
+
+    export const IntegrationAuthTypeEnum = {
+      Oauth: 'oauth',
+      Token: 'token',
+      Credentials: 'credentials',
+    } as const;
+
+    /**
      * Standard Integration serializer.
      */
     export interface IntegrationConfig {
       readonly id: number;
       kind: IntegrationKindEnum;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -88937,6 +88957,12 @@ export namespace Schemas {
     export interface PatchedIntegrationConfig {
       readonly id?: number;
       kind?: IntegrationKindEnum;
+      /** How this integration authenticates with the provider: `oauth` for a connection the provider manages (an OAuth grant or an app installation), `token` for one static secret, or `credentials` for several typed-in fields. A kind can have several auth types.
+       *
+       * * `oauth` - OAuth
+       * * `token` - Token
+       * * `credentials` - Credentials */
+      readonly auth_type?: IntegrationAuthTypeEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -121609,6 +121635,20 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    export interface TraceSearchMatch {
+      /** A step whose stored data contains the query. The root's id is the trace id. */
+      nodeId: string;
+      /** How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too. */
+      count: number;
+    }
+
+    export interface TraceSearchResults {
+      /** Occurrences of the query across every matching step. */
+      total: number;
+      /** Matching steps in tree order, the root first. Steps without a match are left out. */
+      matches: TraceSearchMatch[];
+    }
+
     export type TraceSummaryStatusEnum = typeof TraceSummaryStatusEnum[keyof typeof TraceSummaryStatusEnum];
 
 
@@ -130071,6 +130111,19 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesSearchRetrieveParams = {
+    /**
+     * The text to find in the trace's steps, ignoring case.
+     * @minLength 1
+     * @maxLength 200
+     */
+    q: string;
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
