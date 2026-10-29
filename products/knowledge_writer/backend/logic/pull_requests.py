@@ -33,6 +33,7 @@ logger = structlog.get_logger(__name__)
 LINK_BACK_START = "<!-- knowledge-writer-sources -->"
 LINK_BACK_END = "<!-- /knowledge-writer-sources -->"
 SECTION_MARKER_PATTERN = re.compile(r"<!-- knowledge-writer-section: ([a-z0-9-]+) -->")
+SECTION_LABEL_PREFIX = "knowledge-writer/"
 PULL_REQUESTS_PER_PAGE = 100
 MAX_PULL_REQUEST_PAGES = 20
 
@@ -51,6 +52,18 @@ def link_back_block(source_urls: list[str]) -> str:
 
 def section_marker(section: str) -> str:
     return f"<!-- knowledge-writer-section: {section} -->"
+
+
+def section_label(section: str) -> str:
+    return f"{SECTION_LABEL_PREFIX}{section}"
+
+
+def labelled_section(listed: dict) -> str | None:
+    for label in listed.get("labels") or []:
+        name = str((label or {}).get("name", ""))
+        if name.startswith(SECTION_LABEL_PREFIX) and len(name) > len(SECTION_LABEL_PREFIX):
+            return name.removeprefix(SECTION_LABEL_PREFIX)
+    return None
 
 
 def pull_request_body(request: DocsRequest, *, section: str | None) -> str:
@@ -87,14 +100,17 @@ def writer_pull_request(listed: dict, docs_repository: str, app_login: str | Non
     author_login = str((listed.get("user") or {}).get("login", "")).lower()
     if app_login is None or author_login != app_login:
         return None
-    if LINK_BACK_START not in body or head_repository != docs_repository.lower():
+    if head_repository != docs_repository.lower():
         return None
-    section = SECTION_MARKER_PATTERN.search(body)
+    label_section = labelled_section(listed)
+    if label_section is None and LINK_BACK_START not in body:
+        return None
+    marker_section = SECTION_MARKER_PATTERN.search(body)
     return WriterPullRequest(
         number=listed["number"],
         url=listed["html_url"],
         head_branch=head["ref"],
-        section=section.group(1) if section else None,
+        section=label_section or (marker_section.group(1) if marker_section else None),
     )
 
 
@@ -254,9 +270,24 @@ def open_pull_request(
     )
     if not created.get("success"):
         return github_step_failed("create_pull_request", created)
+    if section:
+        label_pull_request_section(github, docs_name, created["pr_number"], section)
     return WriterPullRequest(
         number=created["pr_number"], url=created["pr_url"], head_branch=head_branch, section=section
     )
+
+
+def label_pull_request_section(github: GitHubIntegration, docs_name: str, pr_number: int, section: str) -> None:
+    try:
+        labelled = github.add_pull_request_labels(docs_name, pr_number, [section_label(section)])
+    except Exception as error:
+        capture_exception(error, {"pr_number": pr_number, "section": section})
+        return
+    if not labelled.get("success"):
+        capture_exception(
+            WriterPullRequestFailed("knowledge writer could not label its docs pull request"),
+            {"pr_number": pr_number, "section": section, "status_code": labelled.get("status_code")},
+        )
 
 
 def add_source_to_pull_request(

@@ -13,7 +13,7 @@ from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import caps, intake
-from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_marker
+from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_label, section_marker
 from products.knowledge_writer.backend.logic.records import PULL_REQUEST_STATE_KEY, REQUEST_STATE_KEY
 from products.knowledge_writer.backend.logic.routing import docs_section
 from products.tasks.backend.facade import api as tasks_facade
@@ -64,6 +64,7 @@ def _open_on_github(
     author_login: str = WRITER_APP_LOGIN,
     published_page_paths: tuple[str, ...] = (),
     lookup_error: Exception | None = None,
+    labels: tuple[str, ...] = (),
 ) -> Callable[..., MagicMock]:
     listed = [
         {
@@ -71,6 +72,7 @@ def _open_on_github(
             "html_url": f"https://github.com/PostHog/posthog.com/pull/{number}",
             "body": body,
             "user": {"login": author_login},
+            "labels": [{"name": label} for label in labels],
             "head": {"ref": DOCS_HEAD["branch"], "repo": {"full_name": "PostHog/posthog.com"}},
         }
         for number, body in bodies_by_number
@@ -201,7 +203,10 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     start_workflow.assert_not_called()
     with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")):
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
-    with patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request:
+    with (
+        patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request,
+        patch(f"{GITHUB}.add_pull_request_labels", return_value={"success": True}) as add_labels,
+    ):
         for _ in range(2):
             with django_capture_on_commit_callbacks(execute=True):
                 TaskRun.objects.get(task_id=started.task_id).save(update_fields=["output"])
@@ -214,9 +219,11 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
 
     first_body = create_pull_request.call_args.kwargs["body"]
+    label = section_label(docs_section(SECTION_PAGE))
+    add_labels.assert_called_once_with("posthog.com", 9, [label])
     with (
         patch(FLAG_CHECK, return_value=True),
-        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, first_body))),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, "Rewritten by a reviewer."), labels=(label,))),
         patch(START_WORKFLOW),
     ):
         joined = intake.submit(second_verdict, team_id=team.id)
