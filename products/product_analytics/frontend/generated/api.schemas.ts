@@ -7,6 +7,29 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface OrganizationEventsRetentionApi {
+    /**
+     * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+     * @nullable
+     */
+    readonly organization_retention_months: number | null
+    /** The longest window the organization's plan allows, in months. */
+    readonly plan_retention_months: number
+    /** The shortest window an admin can set, in months. */
+    readonly min_retention_months: number
+    /** The longest window an admin can set, in months. Never longer than the plan's window. */
+    readonly max_retention_months: number
+}
+
+export interface EventsRetentionUpdateApi {
+    /**
+     * The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window.
+     * @minimum 1
+     * @nullable
+     */
+    retention_months: number | null
+}
+
 /**
  * * `private` - Private (only visible to creator)
  * * `shared` - Shared with team
@@ -213,6 +236,17 @@ export interface ElementValueApi {
 
 export interface EventsRetentionApi {
     /**
+     * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+     * @nullable
+     */
+    readonly organization_retention_months: number | null
+    /** The longest window the organization's plan allows, in months. */
+    readonly plan_retention_months: number
+    /** The shortest window an admin can set, in months. */
+    readonly min_retention_months: number
+    /** The longest window an admin can set, in months. Never longer than the plan's window. */
+    readonly max_retention_months: number
+    /**
      * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
      * @nullable
      */
@@ -224,6 +258,11 @@ export interface EventsRetentionApi {
     readonly retained_from: string | null
     /** Where the events retention policy is documented. */
     readonly docs_url: string
+    /**
+     * The window, in months, set for this project. Null while the project uses the organization's window.
+     * @nullable
+     */
+    readonly project_retention_months: number | null
 }
 
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
@@ -1251,6 +1290,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -1491,9 +1532,16 @@ export interface AccessControlFilterWarningApi {
     type?: 'access_control'
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type TrendsQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: TrendsQueryResponseApiActionNames
     boxplot_data?: BoxPlotDatumApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3165,9 +3213,16 @@ export interface PathsV2QueryApi {
     version?: number | null
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type StickinessQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type StickinessQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface StickinessQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: StickinessQueryResponseApiActionNames
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -3319,9 +3374,16 @@ export interface LifecycleFilterApi {
     toggledLifecycles?: LifecycleToggleApi[] | null
 }
 
+/**
+ * The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id.
+ */
+export type LifecycleQueryResponseApiActionNames = { [key: string]: string } | null
+
 export type LifecycleQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface LifecycleQueryResponseApi {
+    /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
+    action_names?: LifecycleQueryResponseApiActionNames
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -8162,6 +8224,22 @@ export interface DataVisualizationNodeApi {
     version?: number | null
 }
 
+export type BICatalogMetricStatusApi = (typeof BICatalogMetricStatusApi)[keyof typeof BICatalogMetricStatusApi]
+
+export const BICatalogMetricStatusApi = {
+    Approved: 'approved',
+    Proposed: 'proposed',
+} as const
+
+export interface CatalogMetricContextApi {
+    id: string
+    isDrifted: boolean
+    owner?: string | null
+    status: BICatalogMetricStatusApi
+    unit: string
+    updatedAt?: string | null
+}
+
 export type BIDateBucketApi = (typeof BIDateBucketApi)[keyof typeof BIDateBucketApi]
 
 export const BIDateBucketApi = {
@@ -8458,6 +8536,8 @@ export interface BIValueApi {
 export interface BIConfigApi {
     /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
     catalogMetric?: string | null
+    /** Catalog metadata at copy time, not a live approval of the worksheet. */
+    catalogMetricContext?: CatalogMetricContextApi | null
     chartType: ChartDisplayTypeApi
     colorBy?: string | null
     columns: BIFieldApi[]
@@ -8786,6 +8866,12 @@ export type InsightApiResolvedDateRange = {
 } | null
 
 /**
+ * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+ * @nullable
+ */
+export type InsightApiActionNames = { [key: string]: string } | null
+
+/**
  * Simplified serializer to speed response times when loading large amounts of objects.
  */
 export interface InsightApi {
@@ -8884,6 +8970,11 @@ export interface InsightApi {
     readonly types: readonly unknown[] | null
     /** @nullable */
     readonly resolved_date_range: InsightApiResolvedDateRange
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    readonly action_names: InsightApiActionNames
     /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
     readonly query_scan: unknown
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */
@@ -8914,6 +9005,12 @@ export type PatchedInsightApiResolvedDateRange = {
     readonly date_from?: string
     readonly date_to?: string
 } | null
+
+/**
+ * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+ * @nullable
+ */
+export type PatchedInsightApiActionNames = { [key: string]: string } | null
 
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
@@ -9014,6 +9111,11 @@ export interface PatchedInsightApi {
     readonly types?: readonly unknown[] | null
     /** @nullable */
     readonly resolved_date_range?: PatchedInsightApiResolvedDateRange
+    /**
+     * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
+     * @nullable
+     */
+    readonly action_names?: PatchedInsightApiActionNames
     /** What ClickHouse read for this insight's last slow run, with the findings of its query scan. */
     readonly query_scan?: unknown
     /** Warnings from the run that produced these results. A `warehouse_sync` warning means the query read a data warehouse table whose sync failed, is paused, or is overdue, so the results can be out of date. Reflects the sync state when the results were computed. Null for shared insights. */

@@ -21,10 +21,10 @@ from posthog.stable_chunks import StableChunks
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import (
     DEFERRED_APP_CONTEXT_FLAG,
+    deferred_app_context_variant,
     flags_for_app_evaluation_context,
     get_context_for_template,
     get_persisted_feature_flags_for_app_context,
-    should_defer_app_context,
 )
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
@@ -132,14 +132,14 @@ class TestFlagsForAppEvaluationContext(SimpleTestCase):
 class TestShouldDeferAppContext(SimpleTestCase):
     @parameterized.expand(
         [
-            ("test variant defers and reports", "", "test", True, True),
-            ("control variant renders inline and reports", "", "control", False, True),
-            ("outside the experiment renders inline silently", "", None, False, False),
-            ("param on beats control", "?deferred_app_context=1", "control", True, False),
-            ("param off beats test", "?deferred_app_context=0", "test", False, False),
+            ("test variant reports", "", "test", "test", True),
+            ("control variant reports", "", "control", "control", True),
+            ("outside the experiment is silent", "", None, None, False),
+            ("param on beats control", "?deferred_app_context=1", "control", "test", False),
+            ("param off beats test", "?deferred_app_context=0", "test", "control", False),
         ]
     )
-    def test_only_the_test_variant_defers(self, _name, query, variant, expect_deferred, expect_exposure):
+    def test_picks_the_variant(self, _name, query, variant, expected_variant, expect_exposure):
         request = RequestFactory().get(f"/{query}")
         user = User(distinct_id="user-1", email="someone@example.com")
 
@@ -147,7 +147,7 @@ class TestShouldDeferAppContext(SimpleTestCase):
             mock.patch("posthog.utils.posthoganalytics.get_feature_flag", return_value=variant),
             mock.patch("posthog.utils.posthoganalytics.capture") as capture,
         ):
-            assert should_defer_app_context(request, user) is expect_deferred
+            assert deferred_app_context_variant(request, user) == expected_variant
 
         if expect_exposure:
             capture.assert_called_once_with(
@@ -264,6 +264,7 @@ class TestGetContextForTemplate(APIBaseTest):
         self.user.anonymize_data = anonymize_data
         self.user.save()
         self.organization.customer_id = "cus_123"
+        self.organization.available_product_features = None
         self.organization.save()
         request = RequestFactory().get("/")
         SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
@@ -297,7 +298,7 @@ class TestGetContextForTemplate(APIBaseTest):
             "name": self.organization.name,
             "slug": self.organization.slug,
             "created_at": mock.ANY,
-            "available_product_features": self.organization.available_product_features or [],
+            "available_product_features": None,
             "member_count": 1,
             "project_count": 1,
             "instance_tag": settings.INSTANCE_TAG,
@@ -410,6 +411,8 @@ class TestGetContextForTemplate(APIBaseTest):
         assert deferred["posthog_app_context"]["deferred"] is True
         assert deferred["posthog_app_context"]["current_user"] is None
         assert "featureFlags" not in deferred["posthog_bootstrap"]
+        assert deferred["posthog_app_context"].pop("deferred_app_context_variant") == "test"
+        assert inline["posthog_app_context"].pop("deferred_app_context_variant") == "control"
         page_with_fetched = {**deferred["posthog_app_context"], **fetched["app_context"]}
         page_with_fetched.pop("deferred")
         assert page_with_fetched == json.loads(json.dumps(inline["posthog_app_context"], cls=TolerantJSONEncoder))

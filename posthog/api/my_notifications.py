@@ -1,7 +1,7 @@
 import operator
 from datetime import datetime, timedelta
 from functools import reduce
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from django.db.models import Q
 from django.utils import timezone
@@ -251,5 +251,7 @@ class MyNotificationsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if bookmark_date is None:
             raise ValidationError("must provide a bookmark date")
 
-        NotificationViewed.objects.update_or_create(user=user, defaults={"last_viewed_activity_date": bookmark_date})
+        NotificationViewed.objects.update_or_create(
+            user=cast(User, user), defaults={"last_viewed_activity_date": bookmark_date}
+        )
         return Response(status=status.HTTP_204_NO_CONTENT)

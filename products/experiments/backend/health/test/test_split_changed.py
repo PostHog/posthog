@@ -18,7 +18,7 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.checks.srm import reads_flag_history, srm
+from products.experiments.backend.health.checks.srm import reads_flag_history, reads_segments, srm
 from products.experiments.backend.health.context import (
     ExposureEvents,
     ExposureTotals,
@@ -588,14 +588,20 @@ class TestSrmAfterSplitChange(TestCase):
         self.assertEqual((outcome.subcode, outcome.severity), (subcode, ExperimentHealthFindingSeverity.WARNING))
         self.assertIn(text, f"{outcome.title} {outcome.detail}")
 
-    @parameterized.expand([("failing_test", 0.00001, True), ("passing_test", 0.01, False)])
-    def test_reads_the_flag_history_only_for_a_mismatch(self, _name: str, p_value: float, expected: bool) -> None:
-        ctx = replace(
-            RUNNING_CONTEXT,
-            exposures=replace(_totals(MATCHES_THE_NEW_SPLIT), sample_ratio_mismatch_p_value=p_value),
-        )
+    @parameterized.expand(
+        [
+            ("failing_test", RUNNING_CONTEXT, 0.00001, (True, True)),
+            ("passing_test", RUNNING_CONTEXT, 0.01, (False, False)),
+            ("split_change_explains_it", _context(EVEN, UNEVEN, exposed_units=5), 0.00001, (True, False)),
+            ("activation", replace(RUNNING_CONTEXT, exposure_events=ACTIVATION_EVENTS), 0.00001, (True, False)),
+        ]
+    )
+    def test_reads_the_flag_history_and_the_segments_only_for_a_mismatch(
+        self, _name: str, ctx: HealthContext, p_value: float, expected: tuple[bool, bool]
+    ) -> None:
+        ctx = replace(ctx, exposures=replace(_totals(MATCHES_THE_NEW_SPLIT), sample_ratio_mismatch_p_value=p_value))
 
-        self.assertEqual(reads_flag_history(ctx), expected)
+        self.assertEqual((reads_flag_history(ctx), reads_segments(ctx)), expected)
 
     def test_names_the_cause_the_evidence_and_the_next_step(self) -> None:
         outcome = srm(replace(_context(EVEN, UNEVEN, exposed_units=5), exposures=_totals(MATCHES_THE_NEW_SPLIT)))

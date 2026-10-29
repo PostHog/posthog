@@ -8,6 +8,7 @@ between the experiments product and the rest of the system.
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 from posthog.dataclasses import frozen
@@ -128,7 +129,10 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTER_ON_DYNAMIC_COHORT = "exposure_filter_on_dynamic_cohort"
+    EXPOSURE_FILTER_EXCLUDES_EVENTS = "exposure_filter_excludes_events"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
@@ -231,7 +235,9 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"
@@ -274,6 +280,12 @@ class ExperimentHealthReaderAccess:
 class ExperimentValidationError(Exception):
     """Raised when the facade refuses an experiment write for its input. The message is written for the person who
     sent the input, so a caller at an HTTP boundary can return it as a 400."""
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        # The input field that the message is about, so that an HTTP boundary can report the error on that field.
+        # None when the message is about the input as a whole.
+        self.field = field
 
 
 class LegacyMigrationError(Exception):
@@ -506,3 +518,81 @@ class RunningExperiment:
     name: str
     started_at: datetime
     flag_key: str
+
+
+@frozen
+class ExperimentChanged:
+    """One save or delete of an experiment, as `connect_experiment_changed` receivers get it."""
+
+    team_id: int
+    experiment_id: int
+    # True only on the save that inserted the row.
+    created: bool
+    # True on every save that leaves the experiment soft-deleted, and on every hard delete of the row.
+    deleted: bool
+    # The values the write left on the experiment, so a receiver that mirrors the experiment elsewhere, such as the
+    # Vercel sync, does not read the row back.
+    name: str
+    description: str | None
+    archived: bool
+    created_at: datetime
+    updated_at: datetime
+
+
+@frozen
+class DigestLaunchedExperiment:
+    team_id: int
+    id: int
+    name: str
+    start_date: datetime
+
+
+@frozen
+class DigestCompletedExperiment:
+    team_id: int
+    id: int
+    name: str
+    start_date: datetime | None
+    end_date: datetime
+
+
+@frozen
+class TeamExperimentsSettings:
+    """A team's experiment settings, as the project settings show them."""
+
+    # Times of day (UTC) as 'HH:00:00' strings. None means the default time.
+    experiment_recalculation_times: tuple[str, ...] | None
+    default_experiment_confidence_level: Decimal | None
+    default_experiment_stats_method: str | None
+    experiment_precomputation_enabled: bool
+    default_only_count_matured_users: bool
+    default_cuped_enabled: bool
+    default_cuped_lookback_days: int | None
+    default_minimum_detectable_effect: int | None
+    default_sequential_testing_enabled: bool
+    default_sequential_tuning_parameter: int | None
+    flag_cleanup_repository: str | None
+
+
+class Unset:
+    """Marks a setting that an update leaves as it is, because None is a valid value."""
+
+
+UNSET = Unset()
+
+
+@frozen
+class TeamExperimentsSettingsUpdate:
+    """The settings that an update changes. UNSET leaves a setting as it is. Precomputation is not here, because
+    PostHog manages it."""
+
+    experiment_recalculation_times: tuple[str, ...] | None | Unset = UNSET
+    default_experiment_confidence_level: Decimal | None | Unset = UNSET
+    default_experiment_stats_method: str | None | Unset = UNSET
+    default_only_count_matured_users: bool | Unset = UNSET
+    default_cuped_enabled: bool | Unset = UNSET
+    default_cuped_lookback_days: int | None | Unset = UNSET
+    default_minimum_detectable_effect: int | None | Unset = UNSET
+    default_sequential_testing_enabled: bool | Unset = UNSET
+    default_sequential_tuning_parameter: int | None | Unset = UNSET
+    flag_cleanup_repository: str | None | Unset = UNSET

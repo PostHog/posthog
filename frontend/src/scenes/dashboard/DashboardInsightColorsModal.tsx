@@ -13,7 +13,6 @@ import {
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { BreakdownTag } from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { dataColorThemesLogic } from 'scenes/settings/environment/dataColorThemesLogic'
 
@@ -21,6 +20,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { DataColorThemeModel } from '~/types'
+
+import { BreakdownTag } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/BreakdownTag'
 
 import {
     BreakdownColorConfig,

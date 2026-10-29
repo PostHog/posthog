@@ -61,6 +61,7 @@ from posthog.schema_enums import (
     BaseMathType as BaseMathType,
     BehavioralEventSource as BehavioralEventSource,
     BIAggregation as BIAggregation,
+    BICatalogMetricStatus as BICatalogMetricStatus,
     BIDateBucket as BIDateBucket,
     BIFilterOperator as BIFilterOperator,
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
@@ -989,6 +990,18 @@ class BIConditionGroup(BaseModel):
     operator: Operator1
 
 
+class CatalogMetricContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    isDrifted: bool
+    owner: str | None = None
+    status: BICatalogMetricStatus
+    unit: str
+    updatedAt: str | None = None
+
+
 class Alias(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1078,6 +1091,10 @@ class BiasRisk(BaseModel):
         ...,
         description=("Observed share of users assigned to `$multiple`, as a percentage (0-100)."),
     )
+
+
+class BinCountValue(RootModel[float | str]):
+    root: float | str
 
 
 class BoxPlotSettings(BaseModel):
@@ -1830,21 +1847,6 @@ class FormDismissPayload(BaseModel):
     action: Literal["dismiss_form"] = "dismiss_form"
 
 
-class FunnelExclusionLegacy(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    custom_name: str | None = None
-    funnel_from_step: float
-    funnel_to_step: float
-    id: str | float | None = None
-    index: float | None = None
-    name: str | None = None
-    optionalInFunnel: bool | None = None
-    order: float | None = None
-    type: EntityType | None = None
-
-
 class FunnelStepsBreakdownResults(RootModel[list[list[dict[str, Any]]]]):
     root: list[list[dict[str, Any]]]
 
@@ -2226,10 +2228,20 @@ class MarketingAnalyticsSearchSource(BaseModel):
         extra="forbid",
     )
     keywordTable: str | None = None
+    performanceMaxSearchTermTable: str | None = Field(
+        default=None,
+        description="Google Ads search terms from Performance Max campaigns.",
+    )
     placementTable: str | None = None
     queryPageTable: bool | None = None
+    searchTermTable: str | None = Field(default=None, description="Google Ads search terms from Search campaigns.")
     sourceType: SourceType
-    statsTable: str
+    statsTable: str = Field(
+        ...,
+        description=(
+            "For the Google Ads search term breakdown, the campaign table, which carries the account currency."
+        ),
+    )
 
 
 class MarketingIntegrationConfig1(BaseModel):
@@ -2892,27 +2904,6 @@ class PathCleaningFilter(BaseModel):
     regex: str | None = None
 
 
-class PathsFilterLegacy(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    edge_limit: int | None = None
-    end_point: str | None = None
-    exclude_events: list[str] | None = None
-    funnel_filter: dict[str, Any] | None = None
-    funnel_paths: FunnelPathType | None = None
-    include_event_types: list[PathType] | None = None
-    local_path_cleaning_filters: list[PathCleaningFilter] | None = None
-    max_edge_weight: int | None = None
-    min_edge_weight: int | None = None
-    path_groupings: list[str] | None = None
-    path_replacements: bool | None = None
-    path_type: PathType | None = None
-    paths_hogql_expression: str | None = None
-    start_point: str | None = None
-    step_limit: int | None = None
-
-
 class PathsLink(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3387,19 +3378,6 @@ class SourceMap(BaseModel):
     source: str | None = None
 
 
-class StickinessFilterLegacy(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compare: bool | None = None
-    compare_to: str | None = None
-    display: ChartDisplayType | None = None
-    hidden_legend_keys: dict[str, bool | Any] | None = None
-    show_legend: bool | None = None
-    show_multiple_y_axes: bool | None = None
-    show_values_on_series: bool | None = None
-
-
 class SubagentUpdateEvent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3499,33 +3477,6 @@ class TraceNeighborsQueryResponse(BaseModel):
         default=None,
         description=("Data warehouse sync warnings — see AnalyticsQueryResponseBase.warnings for semantics."),
     )
-
-
-class TrendsFilterLegacy(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_axis_format: AggregationAxisFormat | None = None
-    aggregation_axis_postfix: str | None = None
-    aggregation_axis_prefix: str | None = None
-    breakdown_histogram_bin_count: float | None = None
-    compare: bool | None = None
-    compare_to: str | None = None
-    decimal_places: float | None = None
-    display: ChartDisplayType | None = None
-    formula: str | None = None
-    hidden_legend_keys: dict[str, bool | Any] | None = None
-    min_decimal_places: float | None = None
-    show_alert_threshold_lines: bool | None = None
-    show_labels_on_series: bool | None = None
-    show_legend: bool | None = None
-    show_multiple_y_axes: bool | None = None
-    show_percent_stack_view: bool | None = None
-    show_values_on_series: bool | None = None
-    smoothing_intervals: float | None = None
-    x_axis_label: str | None = None
-    y_axis_label: str | None = None
-    y_axis_scale_type: YAxisScaleType | None = YAxisScaleType.LINEAR
 
 
 class TrendsFormulaNode(BaseModel):
@@ -4557,7 +4508,8 @@ class AssistantPathsFilter(BaseModel):
             " values are event names. `hogql` - custom HogQL expression defined in"
             " `pathsHogQLExpression`. Path values come from evaluating the expression."
             " You can combine multiple types. If not specified, all events are included"
-            " without type filtering."
+            " without type filtering. Paths never include `$feature_flag_called`"
+            " events, whichever types are set."
         ),
     )
     localPathCleaningFilters: list[AssistantPathCleaningFilter] | None = Field(
@@ -5868,7 +5820,10 @@ class ExperimentExposureHealthCheck(BaseModel):
         extra="forbid",
     )
     key: ExperimentExposureHealthCheckKey = Field(..., description="Stable identifier of the check.")
-    name: str = Field(..., description="What the check looks at, as the health panel lists it.")
+    name: str = Field(
+        ...,
+        description="The problem the check looks for, as the health panel lists it.",
+    )
     reason: str | None = Field(
         ...,
         description=(
@@ -6187,26 +6142,6 @@ class FunnelsAlertConfig(BaseModel):
     type: Literal["FunnelsAlertConfig"] = "FunnelsAlertConfig"
 
 
-class FunnelsFilterLegacy(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    bin_count: float | str | None = None
-    breakdown_attribution_type: BreakdownAttributionType | None = None
-    breakdown_attribution_value: float | None = None
-    exclusions: list[FunnelExclusionLegacy] | None = None
-    funnel_aggregate_by_hogql: str | None = None
-    funnel_from_step: float | None = None
-    funnel_order_type: StepOrderValue | None = None
-    funnel_step_reference: FunnelStepReference | None = None
-    funnel_to_step: float | None = None
-    funnel_viz_type: FunnelVizType | None = None
-    funnel_window_interval: float | None = None
-    funnel_window_interval_unit: FunnelConversionWindowTimeUnit | None = None
-    hidden_legend_keys: dict[str, bool | Any] | None = None
-    layout: FunnelLayout | None = None
-
-
 class GroupPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6331,6 +6266,13 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: InCohortVia | None = None
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
+    materializeRepeatedCTEs: bool | None = Field(
+        default=None,
+        description=(
+            "Reuse eligible bounded event aggregates within one query execution. When"
+            " unset, the server may enable it via the cloud feature flag."
+        ),
+    )
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     mergeFederatedAggregateJoins: bool | None = Field(
         default=None,
@@ -6524,15 +6466,6 @@ class LifecycleFilter(BaseModel):
     )
     showValuesOnSeries: bool | None = None
     stacked: bool | None = True
-    toggledLifecycles: list[LifecycleToggle] | None = None
-
-
-class LifecycleFilterLegacy(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    show_legend: bool | None = None
-    show_values_on_series: bool | None = None
     toggledLifecycles: list[LifecycleToggle] | None = None
 
 
@@ -8431,6 +8364,14 @@ class StickinessQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -9389,6 +9330,14 @@ class TrendsFilter(BaseModel):
 class TrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
     )
     boxplot_data: list[BoxPlotDatum] | None = None
     error: str | None = Field(
@@ -13012,6 +12961,14 @@ class CachedLifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -15533,6 +15490,14 @@ class CachedStickinessQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -16194,6 +16159,14 @@ class CachedTracesQueryResponse(BaseModel):
 class CachedTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
     )
     boxplot_data: list[BoxPlotDatum] | None = None
     cache_key: str
@@ -19429,6 +19402,14 @@ class LOFDetectorConfig(BaseModel):
 class LifecycleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -23984,6 +23965,14 @@ class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
+    )
     boxplot_data: list[BoxPlotDatum] | None = None
     error: str | None = Field(
         default=None,
@@ -24227,6 +24216,14 @@ class QueryResponseAlternative64(BaseModel):
 class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    action_names: dict[str, str] | None = Field(
+        default=None,
+        description=(
+            "The name of each action the query's series reference, keyed by action id."
+            " A series saved without a `name` displays this name, because the query"
+            " holds only the action's id."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -26994,6 +26991,7 @@ class WebVitalsItem(BaseModel):
     action: WebVitalsItemAction
     data: list[float]
     days: list[str]
+    order: int = Field(..., description="The index of the row's series in the query.")
 
 
 class WebVitalsPathBreakdownQueryResponse(BaseModel):
@@ -30599,24 +30597,6 @@ class RetentionFilter(BaseModel):
     totalIntervals: int | None = 8
 
 
-class RetentionFilterLegacy(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cumulative: bool | None = None
-    mean_retention_calculation: MeanRetentionCalculation | None = None
-    period: RetentionPeriod | None = None
-    retention_reference: RetentionReference | None = Field(
-        default=None,
-        description=("Whether retention is with regard to initial cohort size, or that of the previous period."),
-    )
-    retention_type: RetentionType | None = None
-    returning_entity: RetentionEntity | None = None
-    show_mean: bool | None = None
-    target_entity: RetentionEntity | None = None
-    total_intervals: int | None = None
-
-
 class TeamTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -31760,6 +31740,10 @@ class BIConfig(BaseModel):
     catalogMetric: str | None = Field(
         default=None,
         description=("Catalog provenance only: the snapshot does not track subsequent definition edits."),
+    )
+    catalogMetricContext: CatalogMetricContext | None = Field(
+        default=None,
+        description=("Catalog metadata at copy time, not a live approval of the worksheet."),
     )
     chartType: ChartDisplayType
     colorBy: str | None = None

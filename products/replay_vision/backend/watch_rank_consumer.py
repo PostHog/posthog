@@ -1,4 +1,4 @@
-"""Ranks observations for What to watch from the embedding worker's results topic.
+"""Ranks observations for the highlight feed from the embedding worker's results topic.
 
 The scan emits each observation's text to the embedding worker over Kafka. The worker publishes every
 embedded document to the results topic, and this consumer ranks the Replay Vision ones from their
@@ -34,7 +34,7 @@ from products.replay_vision.backend.embeddings import (
     EMBEDDING_PRODUCT,
     OBSERVATION_EMBEDDING_MODEL,
 )
-from products.replay_vision.backend.watch_feed_groups import feed_group_cache
+from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
 from products.replay_vision.backend.watch_semantics import SemanticAssignment, assign_semantics
 from products.replay_vision.backend.watch_themes import name_theme
@@ -65,22 +65,22 @@ Outcome = Literal["skipped", "ranked", "already_ranked", "missing", "failed", "d
 
 MESSAGES_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_messages_total",
-    "Embedding results the What to watch rank consumer handled, by outcome. A deferred result counts once per batch it is deferred in.",
+    "Embedding results the highlight feed rank consumer handled, by outcome. A deferred result counts once per batch it is deferred in.",
     labelnames=["outcome"],
 )
 BATCH_DURATION = Histogram(
     "replay_vision_watch_rank_consumer_batch_duration_seconds",
-    "Time the What to watch rank consumer spent on one non-empty batch.",
+    "Time the highlight feed rank consumer spent on one non-empty batch.",
     buckets=(0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 240, 300),
 )
 THEME_NAMING_TOTAL = Counter(
     "replay_vision_watch_rank_consumer_theme_naming_total",
-    "Theme naming outcomes of the What to watch rank consumer, including names dropped while every slot was busy.",
+    "Theme naming outcomes of the highlight feed rank consumer, including names dropped while every slot was busy.",
     labelnames=["outcome"],
 )
 NAMING_IN_FLIGHT = Gauge(
     "replay_vision_watch_rank_consumer_naming_in_flight",
-    "Theme naming calls the What to watch rank consumer has in flight.",
+    "Theme naming calls the highlight feed rank consumer has in flight.",
 )
 
 # The worker writes compact JSON, and a quote inside a string value is escaped, so this marks our results.

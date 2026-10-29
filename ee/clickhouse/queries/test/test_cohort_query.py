@@ -74,12 +74,8 @@ def execute(filter: PropertyGroup, team: Team):
     return cohort_query.hogql_result.results
 
 
-def _properties(data: dict, team: Optional[Team] = None) -> PropertyGroup:
-    """Parse a legacy insight-filter dict down to the property group CohortQuery takes.
-
-    A team expands cohort properties, as a team-bound filter used to.
-    """
-    parsed = parse_property_group_data(data.get("properties"))
+def _properties(properties: dict[str, Any], team: Optional[Team] = None) -> PropertyGroup:
+    parsed = parse_property_group_data(properties)
     return expand_cohort_properties(parsed, team) if team else parsed
 
 
@@ -161,54 +157,52 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        data = {
-            "properties": {
-                "type": "AND",
-                "values": [
-                    {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 2,
-                                "time_interval": "week",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                        ],
-                    },
-                    {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": action1.pk,
-                                "event_type": "actions",
-                                "time_value": 2,
-                                "time_interval": "week",
-                                "value": "performed_event_first_time",
-                                "type": "behavioral",
-                            },
-                            {
-                                "key": "email",
-                                "value": "test@posthog.com",
-                                "type": "person",
-                            },
-                        ],
-                    },
-                ],
-            }
+        properties = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 1,
+                            "time_interval": "day",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        },
+                    ],
+                },
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": action1.pk,
+                            "event_type": "actions",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                        {
+                            "key": "email",
+                            "value": "test@posthog.com",
+                            "type": "person",
+                        },
+                    ],
+                },
+            ],
         }
 
-        filter = _properties(data=data)
+        filter = _properties(properties)
 
         res = execute(filter, self.team)
 
@@ -217,7 +211,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # This addition to the test returns the wrong result with current cohort queries
         # Uncomment after porting
         """
-        data["properties"]["values"][0]["values"].append(
+        properties["values"][0]["values"].append(
             {
                 "key": "email",
                 "value": "test@posthog.com",
@@ -225,7 +219,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             }
         )
 
-        filter = _properties(data=data)
+        filter = _properties(properties)
 
         res = execute(filter, self.team)
 
@@ -261,19 +255,17 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "explicit_datetime": "-1w",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "explicit_datetime": "-1w",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -310,19 +302,17 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "explicit_datetime": "-1w",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "explicit_datetime": "-1w",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -370,26 +360,24 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
             filter = _properties(
-                data={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "explicit_datetime": str(
-                                    datetime.now() - timedelta(days=3)
-                                ),  # overrides time_value and time_interval
-                                "time_value": 1,
-                                "time_interval": "week",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                                "event_filters": [
-                                    {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
-                                ],
-                            }
-                        ],
-                    }
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "explicit_datetime": str(
+                                datetime.now() - timedelta(days=3)
+                            ),  # overrides time_value and time_interval
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                            "event_filters": [
+                                {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"}
+                            ],
+                        }
+                    ],
                 }
             )
 
@@ -445,20 +433,18 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
             filter = _properties(
-                data={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "explicit_datetime": "-14d",
-                                "explicit_datetime_to": "-7d",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            }
-                        ],
-                    }
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "explicit_datetime": "-14d",
+                            "explicit_datetime_to": "-7d",
+                            "value": "performed_event",
+                            "type": "behavioral",
+                        }
+                    ],
                 }
             )
 
@@ -503,22 +489,20 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "gte",
+                        "operator_value": 1,
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event_multiple",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -570,26 +554,24 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                            "event_filters": [
-                                {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"},
-                                {"key": "$filter_prop", "value": "some", "operator": "icontains", "type": "event"},
-                            ],
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "gte",
+                        "operator_value": 1,
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event_multiple",
+                        "type": "behavioral",
+                        "event_filters": [
+                            {"key": "$filter_prop", "value": "something", "operator": "exact", "type": "event"},
+                            {"key": "$filter_prop", "value": "some", "operator": "icontains", "type": "event"},
+                        ],
+                    }
+                ],
             }
         )
 
@@ -639,22 +621,20 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "lte",
-                            "operator_value": 1,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "lte",
+                        "operator_value": 1,
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event_multiple",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -711,32 +691,30 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "eq",
-                            "operator_value": 1,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "eq",
-                            "operator_value": 2,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "eq",
+                        "operator_value": 1,
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event_multiple",
+                        "type": "behavioral",
+                    },
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "eq",
+                        "operator_value": 2,
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event_multiple",
+                        "type": "behavioral",
+                    },
+                ],
             }
         )
 
@@ -746,22 +724,20 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
     def test_performed_event_zero_times_(self):
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "eq",
-                            "operator_value": 0,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "eq",
+                        "operator_value": 0,
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event_multiple",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
         with pytest.raises(ValueError):
@@ -796,22 +772,20 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 2,
-                            "time_interval": "week",
-                            "seq_time_value": 1,
-                            "seq_time_interval": "week",
-                            "value": "stopped_performing_event",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 2,
+                        "time_interval": "week",
+                        "seq_time_value": 1,
+                        "seq_time_interval": "week",
+                        "value": "stopped_performing_event",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -886,22 +860,20 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "seq_time_value": 2,
-                            "seq_time_interval": "day",
-                            "value": "restarted_performing_event",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "seq_time_value": 2,
+                        "seq_time_interval": "day",
+                        "value": "restarted_performing_event",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -942,20 +914,18 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             timestamp=datetime.now() - timedelta(days=4),
         )
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_first_time",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event_first_time",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -999,19 +969,17 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "explicit_datetime": "-1w",  # first event must fall within the last week
-                            "value": "performed_event_first_time",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "explicit_datetime": "-1w",  # first event must fall within the last week
+                        "value": "performed_event_first_time",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -1075,20 +1043,18 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
             filter = _properties(
-                data={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "explicit_datetime": "-14d",
-                                "explicit_datetime_to": "-7d",
-                                "value": "performed_event_first_time",
-                                "type": "behavioral",
-                            }
-                        ],
-                    }
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "explicit_datetime": "-14d",
+                            "explicit_datetime_to": "-7d",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        }
+                    ],
                 }
             )
 
@@ -1109,24 +1075,22 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # Regularly completed [$pageview] [at least] [1] times per
         # [3][day] period for at least [3] of the last [3] periods
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_interval": "day",
-                            "time_value": 3,
-                            "total_periods": 3,
-                            "min_periods": 3,
-                            "value": "performed_event_regularly",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "gte",
+                        "operator_value": 1,
+                        "time_interval": "day",
+                        "time_value": 3,
+                        "total_periods": 3,
+                        "min_periods": 3,
+                        "value": "performed_event_regularly",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -1147,24 +1111,22 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # Regularly completed [$pageview] [at least] [1] times per
         # [3][day] period for at least [3] of the last [3] periods
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 2,
-                            "time_interval": "month",
-                            "time_value": 2,
-                            "total_periods": 3,
-                            "min_periods": 2,
-                            "value": "performed_event_regularly",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "gte",
+                        "operator_value": 2,
+                        "time_interval": "month",
+                        "time_value": 2,
+                        "total_periods": 3,
+                        "min_periods": 2,
+                        "value": "performed_event_regularly",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -1201,31 +1163,29 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             # Filter for:
             # Regularly completed [$pageview] [at least] [1] times per
             # [3][day] period for at least [3] of the last [3] periods
-            data: dict[str, Any] = {
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_interval": "day",
-                            "time_value": 1,
-                            "total_periods": 7,
-                            "min_periods": 3,
-                            "value": "performed_event_regularly",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            properties: dict[str, Any] = {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "gte",
+                        "operator_value": 1,
+                        "time_interval": "day",
+                        "time_value": 1,
+                        "total_periods": 7,
+                        "min_periods": 3,
+                        "value": "performed_event_regularly",
+                        "type": "behavioral",
+                    }
+                ],
             }
-            filter = _properties(data=data)
+            filter = _properties(properties)
 
             res = execute(filter, self.team)
             assert sorted([p1.uuid, p2.uuid, p3.uuid]) == sorted([r[0] for r in res])
 
-            data["properties"]["values"][0] |= {"time_value": 2, "total_periods": 3, "min_periods": 3}
+            properties["values"][0] |= {"time_value": 2, "total_periods": 3, "min_periods": 3}
             res = execute(filter, self.team)
             assert sorted([p1.uuid, p2.uuid]) == sorted([r[0] for r in res])
 
@@ -1255,24 +1215,22 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # Regularly completed [$pageview] [at least] [2] times per
         # [3][day] period for at least [2] of the last [3] periods
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 2,
-                            "time_interval": "day",
-                            "time_value": 3,
-                            "total_periods": 3,
-                            "min_periods": 2,
-                            "value": "performed_event_regularly",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "gte",
+                        "operator_value": 2,
+                        "time_interval": "day",
+                        "time_value": 3,
+                        "total_periods": 3,
+                        "min_periods": 2,
+                        "value": "performed_event_regularly",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -1284,24 +1242,22 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         # Regularly completed [$pageview] [at least] [1] times per
         # [3][day] period for at least [2] of the last [3] periods
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_interval": "day",
-                            "time_value": 3,
-                            "total_periods": 3,
-                            "min_periods": 2,
-                            "value": "performed_event_regularly",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "gte",
+                        "operator_value": 1,
+                        "time_interval": "day",
+                        "time_value": 3,
+                        "total_periods": 3,
+                        "min_periods": 2,
+                        "value": "performed_event_regularly",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -1332,38 +1288,36 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "email",
-                                    "value": "test1@posthog.com",
-                                    "type": "person",
-                                },
-                                {
-                                    "key": "email",
-                                    "value": "test2@posthog.com",
-                                    "type": "person",
-                                },
-                            ],
-                        },
-                        {
-                            "type": "AND",
-                            "values": [
-                                {"key": "name", "value": "test3", "type": "person"},
-                                {
-                                    "key": "email",
-                                    "value": "test3@posthog.com",
-                                    "type": "person",
-                                },
-                            ],
-                        },
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "email",
+                                "value": "test1@posthog.com",
+                                "type": "person",
+                            },
+                            {
+                                "key": "email",
+                                "value": "test2@posthog.com",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "name", "value": "test3", "type": "person"},
+                            {
+                                "key": "email",
+                                "value": "test3@posthog.com",
+                                "type": "person",
+                            },
+                        ],
+                    },
+                ],
             }
         )
 
@@ -1442,56 +1396,54 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "time_interval": "day",
-                                    "value": "performed_event",
-                                    "type": "behavioral",
-                                },
-                                {
-                                    "key": "$pageview",
-                                    "event_type": "events",
-                                    "time_value": 2,
-                                    "time_interval": "week",
-                                    "value": "performed_event",
-                                    "type": "behavioral",
-                                },
-                                {
-                                    "key": "name",
-                                    "value": "special",
-                                    "type": "person",
-                                },  # this is NOT pushed down
-                            ],
-                        },
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": action1.pk,
-                                    "event_type": "actions",
-                                    "time_value": 2,
-                                    "time_interval": "week",
-                                    "value": "performed_event_first_time",
-                                    "type": "behavioral",
-                                },
-                                {
-                                    "key": "email",
-                                    "value": "test@posthog.com",
-                                    "type": "person",
-                                },  # this is pushed down
-                            ],
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "time_interval": "day",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            },
+                            {
+                                "key": "$pageview",
+                                "event_type": "events",
+                                "time_value": 2,
+                                "time_interval": "week",
+                                "value": "performed_event",
+                                "type": "behavioral",
+                            },
+                            {
+                                "key": "name",
+                                "value": "special",
+                                "type": "person",
+                            },  # this is NOT pushed down
+                        ],
+                    },
+                    {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": action1.pk,
+                                "event_type": "actions",
+                                "time_value": 2,
+                                "time_interval": "week",
+                                "value": "performed_event_first_time",
+                                "type": "behavioral",
+                            },
+                            {
+                                "key": "email",
+                                "value": "test@posthog.com",
+                                "type": "person",
+                            },  # this is pushed down
+                        ],
+                    },
+                ],
             }
         )
 
@@ -1508,25 +1460,23 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             properties={"name": "test", "$sample_field": "test@posthog.com"},
         )
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$sample_field",
-                            "value": "test@posthog.com",
-                            "type": "person",
-                        },
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    },
+                    {
+                        "key": "$sample_field",
+                        "value": "test@posthog.com",
+                        "type": "person",
+                    },
+                ],
             }
         )
         flush_persons_and_events()
@@ -1564,21 +1514,19 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                            "negation": True,
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                        "negation": True,
+                    }
+                ],
             }
         )
 
@@ -1627,30 +1575,28 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "negation": True,
-                            "event_type": "events",
-                            "time_value": "30",
-                            "time_interval": "day",
-                        },
-                        {
-                            "key": "$feature_flag_called",
-                            "type": "behavioral",
-                            "value": "performed_event",
-                            "negation": False,
-                            "event_type": "events",
-                            "time_value": "30",
-                            "time_interval": "day",
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "type": "behavioral",
+                        "value": "performed_event",
+                        "negation": True,
+                        "event_type": "events",
+                        "time_value": "30",
+                        "time_interval": "day",
+                    },
+                    {
+                        "key": "$feature_flag_called",
+                        "type": "behavioral",
+                        "value": "performed_event",
+                        "negation": False,
+                        "event_type": "events",
+                        "time_value": "30",
+                        "time_interval": "day",
+                    },
+                ],
             },
             team=self.team,
         )
@@ -1733,29 +1679,27 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$new_view",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 2,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                            "negation": True,
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$new_view",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    },
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 2,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                        "negation": True,
+                    },
+                ],
             }
         )
 
@@ -1869,33 +1813,31 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$new_view",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 8,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 3,
-                            "seq_event": "$pageview",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                            "negation": True,
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$new_view",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    },
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_interval": "day",
+                        "time_value": 8,
+                        "seq_time_interval": "day",
+                        "seq_time_value": 3,
+                        "seq_event": "$pageview",
+                        "seq_event_type": "events",
+                        "value": "performed_event_sequence",
+                        "type": "behavioral",
+                        "negation": True,
+                    },
+                ],
             }
         )
 
@@ -1918,11 +1860,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                }
+            {
+                "type": "AND",
+                "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
             }
         )
 
@@ -2055,17 +1995,15 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "id",
-                            "value": cohort.pk,
-                            "type": "precalculated-cohort",
-                        }
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "key": "id",
+                        "value": cohort.pk,
+                        "type": "precalculated-cohort",
+                    }
+                ],
             }
         )
 
@@ -2091,18 +2029,16 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "id",
-                            "value": cohort.pk,
-                            "type": "precalculated-cohort",
-                        },
-                        {"key": "name", "value": "test2", "type": "person"},
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "key": "id",
+                        "value": cohort.pk,
+                        "type": "precalculated-cohort",
+                    },
+                    {"key": "name", "value": "test2", "type": "person"},
+                ],
             }
         )
 
@@ -2141,21 +2077,19 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {"key": "id", "value": cohort.pk, "type": "cohort"},
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "id", "value": cohort.pk, "type": "cohort"},
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    },
+                ],
             }
         )
 
@@ -2170,21 +2104,19 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert {p2.uuid} == {r[0] for r in res}
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {"key": "id", "value": cohort.pk, "type": "cohort"},
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "id", "value": cohort.pk, "type": "cohort"},
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    },
+                ],
             },
             team=self.team,
         )
@@ -2257,25 +2189,23 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {"key": "id", "value": cohort.pk, "type": "cohort"},
-                        {
-                            "key": "$new_view",
-                            "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 8,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 8,
-                            "seq_event": "$new_view",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "id", "value": cohort.pk, "type": "cohort"},
+                    {
+                        "key": "$new_view",
+                        "event_type": "events",
+                        "time_interval": "day",
+                        "time_value": 8,
+                        "seq_time_interval": "day",
+                        "seq_time_value": 8,
+                        "seq_event": "$new_view",
+                        "seq_event_type": "events",
+                        "value": "performed_event_sequence",
+                        "type": "behavioral",
+                    },
+                ],
             }
         )
 
@@ -2295,11 +2225,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         cohort.insert_users_by_list(["p1"])
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"key": "id", "value": cohort.pk, "type": "static-cohort"}],
-                }
+            {
+                "type": "OR",
+                "values": [{"key": "id", "value": cohort.pk, "type": "static-cohort"}],
             }
         )
 
@@ -2331,21 +2259,19 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         cohort.insert_users_by_list(["p1", "p2"])
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {"key": "id", "value": cohort.pk, "type": "cohort"},
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "id", "value": cohort.pk, "type": "cohort"},
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    },
+                ],
             }
         )
 
@@ -2354,21 +2280,19 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         assert [p2.uuid] == [r[0] for r in res]
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {"key": "id", "value": cohort.pk, "type": "cohort"},
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "id", "value": cohort.pk, "type": "cohort"},
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                    },
+                ],
             },
             team=self.team,
         )
@@ -2413,23 +2337,21 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            **time_bound,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 3,
-                            "seq_event": "$pageview",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        **time_bound,
+                        "seq_time_interval": "day",
+                        "seq_time_value": 3,
+                        "seq_event": "$pageview",
+                        "seq_event_type": "events",
+                        "value": "performed_event_sequence",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -2481,24 +2403,22 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": action1.pk,
-                            "event_type": "actions",
-                            "time_interval": "day",
-                            "time_value": 7,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 3,
-                            "seq_event": action1.pk,
-                            "seq_event_type": "actions",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        }
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": action1.pk,
+                        "event_type": "actions",
+                        "time_interval": "day",
+                        "time_value": 7,
+                        "seq_time_interval": "day",
+                        "seq_time_value": 3,
+                        "seq_event": action1.pk,
+                        "seq_event_type": "actions",
+                        "value": "performed_event_sequence",
+                        "type": "behavioral",
+                    }
+                ],
             }
         )
 
@@ -2538,34 +2458,32 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 7,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 3,
-                            "seq_event": "$pageview",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$new_view",
-                            "event_type": "events",
-                            "time_value": 2,
-                            "time_interval": "week",
-                            "seq_time_value": 1,
-                            "seq_time_interval": "week",
-                            "value": "restarted_performing_event",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_interval": "day",
+                        "time_value": 7,
+                        "seq_time_interval": "day",
+                        "seq_time_value": 3,
+                        "seq_event": "$pageview",
+                        "seq_event_type": "events",
+                        "value": "performed_event_sequence",
+                        "type": "behavioral",
+                    },
+                    {
+                        "key": "$new_view",
+                        "event_type": "events",
+                        "time_value": 2,
+                        "time_interval": "week",
+                        "seq_time_value": 1,
+                        "seq_time_interval": "week",
+                        "value": "restarted_performing_event",
+                        "type": "behavioral",
+                    },
+                ],
             }
         )
 
@@ -2614,34 +2532,32 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 7,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 3,
-                            "seq_event": "$pageview",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "operator": "gte",
-                            "operator_value": 1,
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event_multiple",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_interval": "day",
+                        "time_value": 7,
+                        "seq_time_interval": "day",
+                        "seq_time_value": 3,
+                        "seq_event": "$pageview",
+                        "seq_event_type": "events",
+                        "value": "performed_event_sequence",
+                        "type": "behavioral",
+                    },
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "operator": "gte",
+                        "operator_value": 1,
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event_multiple",
+                        "type": "behavioral",
+                    },
+                ],
             }
         )
 
@@ -2716,39 +2632,37 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
             filter = _properties(
-                data={
-                    "properties": {
-                        "type": "AND",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_interval": "day",
-                                "time_value": 7,
-                                "seq_time_interval": "day",
-                                "seq_time_value": 3,
-                                "seq_event": "$pageview",
-                                "seq_event_type": "events",
-                                "value": "performed_event_sequence",
-                                "type": "behavioral",
-                            },
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "operator": "gte",
-                                "operator_value": 1,
-                                "time_value": 1,
-                                "time_interval": "week",
-                                "value": "performed_event_multiple",
-                                "type": "behavioral",
-                            },
-                            {
-                                "key": "email",
-                                "value": "test@posthog.com",
-                                "type": "person",
-                            },  # pushed down
-                        ],
-                    }
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "seq_time_interval": "day",
+                            "seq_time_value": 3,
+                            "seq_event": "$pageview",
+                            "seq_event_type": "events",
+                            "value": "performed_event_sequence",
+                            "type": "behavioral",
+                        },
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 1,
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioral",
+                        },
+                        {
+                            "key": "email",
+                            "value": "test@posthog.com",
+                            "type": "person",
+                        },  # pushed down
+                    ],
                 }
             )
 
@@ -2805,36 +2719,34 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_interval": "day",
-                            "time_value": 7,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 3,
-                            "seq_event": "$pageview",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        },
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_interval": "week",
-                            "time_value": 2,
-                            "seq_time_interval": "day",
-                            "seq_time_value": 2,
-                            "seq_event": "$new_view",
-                            "seq_event_type": "events",
-                            "value": "performed_event_sequence",
-                            "type": "behavioral",
-                        },
-                    ],
-                }
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_interval": "day",
+                        "time_value": 7,
+                        "seq_time_interval": "day",
+                        "seq_time_value": 3,
+                        "seq_event": "$pageview",
+                        "seq_event_type": "events",
+                        "value": "performed_event_sequence",
+                        "type": "behavioral",
+                    },
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_interval": "week",
+                        "time_value": 2,
+                        "seq_time_interval": "day",
+                        "seq_time_value": 2,
+                        "seq_event": "$new_view",
+                        "seq_event_type": "events",
+                        "value": "performed_event_sequence",
+                        "type": "behavioral",
+                    },
+                ],
             }
         )
 
@@ -2882,34 +2794,32 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             flush_persons_and_events()
 
             filter = _properties(
-                data={
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_interval": "day",
-                                "time_value": 7,
-                                "seq_time_interval": "day",
-                                "seq_time_value": 3,
-                                "seq_event": "$pageview",
-                                "seq_event_type": "events",
-                                "value": "performed_event_sequence",
-                                "type": "behavioral",
-                            },
-                            {
-                                "key": "$new_view",
-                                "event_type": "events",
-                                "operator": "gte",
-                                "operator_value": 1,
-                                "time_value": 1,
-                                "time_interval": "week",
-                                "value": "performed_event_multiple",
-                                "type": "behavioral",
-                            },
-                        ],
-                    }
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_interval": "day",
+                            "time_value": 7,
+                            "seq_time_interval": "day",
+                            "seq_time_value": 3,
+                            "seq_event": "$pageview",
+                            "seq_event_type": "events",
+                            "value": "performed_event_sequence",
+                            "type": "behavioral",
+                        },
+                        {
+                            "key": "$new_view",
+                            "event_type": "events",
+                            "operator": "gte",
+                            "operator_value": 1,
+                            "time_value": 1,
+                            "time_interval": "week",
+                            "value": "performed_event_multiple",
+                            "type": "behavioral",
+                        },
+                    ],
                 }
             )
             res = execute(filter, self.team)
@@ -2988,26 +2898,24 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "key": "id",
-                            "value": other_cohort.pk,
-                            "type": "cohort",
-                        },  # p3 fits in here
-                        {
-                            "key": "$pageview",
-                            "event_type": "events",
-                            "time_value": 1,
-                            "time_interval": "week",
-                            "value": "performed_event",
-                            "type": "behavioral",
-                            # p2 fits in here
-                        },
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "key": "id",
+                        "value": other_cohort.pk,
+                        "type": "cohort",
+                    },  # p3 fits in here
+                    {
+                        "key": "$pageview",
+                        "event_type": "events",
+                        "time_value": 1,
+                        "time_interval": "week",
+                        "value": "performed_event",
+                        "type": "behavioral",
+                        # p2 fits in here
+                    },
+                ],
             }
         )
 
@@ -3120,11 +3028,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],  # p3 fits in here
-                }
+            {
+                "type": "OR",
+                "values": [{"key": "id", "value": cohort2.pk, "type": "cohort"}],  # p3 fits in here
             },
             team=self.team,
         )
@@ -3273,11 +3179,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"key": "id", "value": cohort3.pk, "type": "cohort"}],
-                }
+            {
+                "type": "OR",
+                "values": [{"key": "id", "value": cohort3.pk, "type": "cohort"}],
             },
             team=self.team,
         )
@@ -3375,30 +3279,28 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         # "Application Opened" gte 2 times per 1 year for at least 2 of the last 2 years
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "Application Opened",
-                                    "type": "behavioral",
-                                    "value": "performed_event_regularly",
-                                    "negation": False,
-                                    "operator": "gte",
-                                    "event_type": "events",
-                                    "time_value": 1,
-                                    "min_periods": 2,
-                                    "time_interval": "year",
-                                    "total_periods": 2,
-                                    "operator_value": 2,
-                                }
-                            ],
-                        }
-                    ],
-                }
+            {
+                "type": "OR",
+                "values": [
+                    {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "key": "Application Opened",
+                                "type": "behavioral",
+                                "value": "performed_event_regularly",
+                                "negation": False,
+                                "operator": "gte",
+                                "event_type": "events",
+                                "time_value": 1,
+                                "min_periods": 2,
+                                "time_interval": "year",
+                                "total_periods": 2,
+                                "operator_value": 2,
+                            }
+                        ],
+                    }
+                ],
             }
         )
 
@@ -3457,11 +3359,9 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         # Create filter using the cohort
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                }
+            {
+                "type": "OR",
+                "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
             },
             team=self.team,
         )
@@ -3518,11 +3418,9 @@ class TestCohortNegationValidation(BaseTest):
         )
 
         filter = _properties(
-            data={
-                "properties": {
-                    "type": "OR",
-                    "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-                }
+            {
+                "type": "OR",
+                "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
             },
             team=self.team,
         )
@@ -3585,23 +3483,21 @@ class TestCohortNegationValidation(BaseTest):
             },
         )
 
-        filter_data = {
-            "properties": {
-                "type": "OR",
-                "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
-            }
+        properties = {
+            "type": "OR",
+            "values": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
         }
 
         cohort_query1 = CohortQuery(
             property_groups=_properties(
-                data=filter_data,
+                properties,
                 team=self.team,
             ),
             team=self.team,
         )
         cohort_query2 = CohortQuery(
             property_groups=_properties(
-                data=filter_data,
+                properties,
                 team=other_team,
             ),
             team=other_team,

@@ -48,6 +48,11 @@ export class V4ParquetSinkMetrics {
         help: 'v4 sink flushes by outcome: wrote files, or committed offsets of messages that gave no rows',
         labelNames: ['outcome'],
     })
+    private static readonly watermarkWrites = new Counter({
+        name: 'ai_research_v4_parquet_sink_watermark_writes_total',
+        help: 'v4 index watermark file writes by index and outcome; a failed write leaves its flush successful and is tried again after the next interval, and a cancelled one was for a revoked partition',
+        labelNames: ['index', 'outcome'],
+    })
 
     public static incRowsParsed(index: V4Index): void {
         this.rowsParsed.labels(index).inc()
@@ -71,5 +76,8 @@ export class V4ParquetSinkMetrics {
     }
     public static incFlush(outcome: 'written' | 'empty'): void {
         this.flushes.labels(outcome).inc()
+    }
+    public static incWatermarkWrite(index: V4Index, outcome: 'written' | 'failed' | 'cancelled'): void {
+        this.watermarkWrites.labels(index, outcome).inc()
     }
 }

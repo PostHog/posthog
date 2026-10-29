@@ -96,6 +96,7 @@ from products.conversations.backend.temporal.schedule import create_support_repl
 from products.customer_analytics.backend.facade.temporal import (
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
+    create_membership_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
 )
 from products.data_catalog.backend.facade.temporal import create_data_catalog_weekly_digest_schedule
@@ -131,11 +132,9 @@ from products.replay_vision.backend.temporal.estimates import create_replay_visi
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
     create_replay_vision_gemini_cleanup_sweep_schedule,
 )
-from products.replay_vision.backend.temporal.jev_watch_rank import create_replay_vision_jev_watch_rank_schedule
 from products.replay_vision.backend.temporal.learned_rules import create_replay_vision_learned_rules_schedule
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
-from products.replay_vision.backend.temporal.search_suggestions import create_replay_vision_search_suggestions_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
 from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
@@ -166,6 +165,17 @@ async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
     if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
         await a_delete_schedule(client, "ai-sync-vectors-schedule")
+
+
+async def cleanup_retired_replay_vision_schedules(client: Client):
+    """Delete Replay Vision schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
+    retired_schedule_ids = [
+        "replay-vision-search-suggestions-refresher-schedule",
+        "replay-vision-jev-watch-rank-schedule",
+    ]
+    for schedule_id in retired_schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
 
 
 async def create_run_quota_limiting_schedule(client: Client):
@@ -1016,13 +1026,13 @@ schedules = [
     create_account_track_rule_coordinator_schedule,
     create_calendar_sync_coordinator_schedule,
     create_ownership_claims_coordinator_schedule,
+    create_membership_coordinator_schedule,
     create_replay_vision_reconciler_schedule,
     create_replay_vision_estimates_schedule,
-    create_replay_vision_search_suggestions_schedule,
+    cleanup_retired_replay_vision_schedules,
     create_replay_vision_learned_rules_schedule,
     create_vision_alert_check_schedule,
     create_replay_vision_read_meter_schedule,
-    create_replay_vision_jev_watch_rank_schedule,
     create_github_job_logs_coordinator_schedule,
     create_review_hog_finding_outcomes_schedule,
     create_ci_signals_coordinator_schedule,
