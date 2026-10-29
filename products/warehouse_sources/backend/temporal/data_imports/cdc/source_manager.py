@@ -46,7 +46,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import 
     parse_buffer_file_name,
     purge_buffer_prefix,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import COMPANION_JOB_IDS_KEY
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    COMPANION_JOB_IDS_KEY,
+    companions_completed,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import (
     LanePosition,
     content_columns,
@@ -230,7 +233,7 @@ def read_completed_listing_proof(schema: ExternalDataSchema) -> ListingProof | N
             continue
         if stamped.tzinfo is None:
             continue
-        if _companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
+        if companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []):
             tail = (snapshot or {}).get(BUFFER_LISTED_TAIL_KEY)
             return ListingProof(listed_at=stamped, tail=tail if isinstance(tail, dict) else {})
     return None
@@ -277,7 +280,7 @@ def buffer_may_have_expired_unread(schema: ExternalDataSchema, now: dt.datetime)
         .order_by("-created_at")
         .values_list("schema_snapshot", flat=True)[:_PROOF_SEARCH_DEPTH]
     )
-    return not any(_companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
+    return not any(companions_completed((snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []) for snapshot in reads)
 
 
 async def buffer_expired_unread(schema: ExternalDataSchema) -> bool:
@@ -309,18 +312,6 @@ def clear_listing(job_id: str, team_id: int) -> None:
             return
         snapshot = {k: v for k, v in stamped.items() if k not in (BUFFER_LISTED_AT_KEY, BUFFER_LISTED_TAIL_KEY)}
         ExternalDataJob.objects.filter(id=job.id).update(schema_snapshot=snapshot)
-
-
-def _companions_completed(companion_job_ids: list[str]) -> bool:
-    """Whether every companion table this run also wrote finished with it."""
-    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-
-    if not companion_job_ids:
-        return True
-    statuses = ExternalDataJob.objects.filter(id__in=companion_job_ids).values_list("status", flat=True)
-    return len(statuses) == len(companion_job_ids) and all(
-        status == ExternalDataJob.Status.COMPLETED for status in statuses
-    )
 
 
 # A run whose companion failed proves nothing, so look past it — but never far: an older listing

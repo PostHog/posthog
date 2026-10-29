@@ -4795,6 +4795,26 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
                 "date and time",
                 {"incremental_field": "id", "incremental_field_type": "integer"},
             ),
+            (
+                "integer_field_sent_with_the_unchanged_mode",
+                "both",
+                "both",
+                "datetime",
+                True,
+                "date and time",
+                {"cdc_table_mode": "both", "incremental_field": "id", "incremental_field_type": "integer"},
+            ),
+            (
+                "switch_from_cdc_keeping_the_history_table",
+                "both",
+                "both",
+                "datetime",
+                True,
+                None,
+                {"sync_type": "incremental", "cdc_table_mode": "both"},
+                True,
+                ExternalDataSchema.SyncType.CDC,
+            ),
         ]
     )
     @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
@@ -4808,15 +4828,17 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         refusal: str | None,
         request_body: dict | None = None,
         source_supports_history: bool = True,
+        initial_sync_type: str = ExternalDataSchema.SyncType.INCREMENTAL,
     ):
-        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type = initial_sync_type
         self.schema.sync_type_config = {
             "incremental_field": "updated_at",
             "incremental_field_type": cursor_type,
             "primary_key_columns": ["id"],
             "cdc_table_mode": initial_mode,
-            INCREMENTAL_HISTORY_KEY: initial_mode != "consolidated",
         }
+        if initial_sync_type == ExternalDataSchema.SyncType.INCREMENTAL:
+            self.schema.sync_type_config[INCREMENTAL_HISTORY_KEY] = initial_mode != "consolidated"
         self.schema.table = DataWarehouseTable.objects.create(
             team=self.team, name="orders", format="Parquet", external_data_source=self.source
         )

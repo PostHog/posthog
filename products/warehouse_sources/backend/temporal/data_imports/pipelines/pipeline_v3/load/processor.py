@@ -37,6 +37,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     enrich_toast_omitted_rows,
     history_naming_of,
 )
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import (
+    COMPANION_RUN_SUFFIX,
+    run_completed_on_every_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     SCD2_APPEND_MODE,
     has_engine_seq,
@@ -618,6 +622,8 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
         logger.debug("post_load_operations_complete_for_already_processed_batch")
         return post_load_result
 
+    if stages_history(export_signal.cdc_write_mode, export_signal.sync_type):
+        _refuse_incomplete_run(export_signal)
     return async_to_sync(_run)()
 
 
@@ -992,17 +998,26 @@ def _promote_staged_cursor(export_signal: ExportSignalMessage) -> None:
     # so it must be promoted only here, when the final batch completes the job. A run that completes
     # outside the loader (a run with zero batches) must not promote it.
     schema = ExternalDataSchema.objects.get(id=export_signal.schema_id, team_id=export_signal.team_id)
-    if export_signal.cdc_write_mode == SCD2_APPEND_MODE and schema.cdc_table_mode == "both":
-        # The history table's job shares the consolidated table's read, whose own job promotes the cursor.
-        return
+    # The tables of a `both` run share one read, and each completes its own job. The last one to complete
+    # promotes the cursor, so a table that failed reads the run's rows again on the next sync.
+    run_uuid = export_signal.run_uuid
+    if export_signal.sync_type == "incremental":
+        if not run_completed_on_every_table(export_signal.job_id, export_signal.team_id):
+            logger.info(
+                "staged_cursor_waits_for_companion_table",
+                run_uuid=export_signal.run_uuid,
+                team_id=export_signal.team_id,
+                external_data_job_id=export_signal.job_id,
+                external_data_schema_id=export_signal.schema_id,
+            )
+            return
+        run_uuid = run_uuid.removesuffix(COMPANION_RUN_SUFFIX)
 
     def merge_source_cursors(current: Any, candidate: Any) -> dict[str, Any]:
         source = SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type))
         return merge_cursor_payloads(source, current, candidate, logger)
 
-    promoted = schema.promote_staged_incremental_values(
-        export_signal.run_uuid, merge_source_cursors=merge_source_cursors
-    )
+    promoted = schema.promote_staged_incremental_values(run_uuid, merge_source_cursors=merge_source_cursors)
     if promoted:
         logger.info(
             "staged_cursor_promoted",
@@ -1032,6 +1047,9 @@ def _promote_loaded_prefixes(
     promotion only leaves the watermark lower, so it never fails the batch, which already landed.
     """
     if not settings.DATA_WAREHOUSE_IMPORT_PREFIX_WATERMARK_ENABLED:
+        return
+    if schema.keeps_history and schema.cdc_table_mode == "both":
+        # The history table loads apart from these batches, so only the run's completion moves the cursor.
         return
     completed = {signal.run_uuid for signal in finals}
     signals_by_run: dict[str, list[ExportSignalMessage]] = {}
@@ -1204,6 +1222,8 @@ def _finalize_run(
     with _record_post_load_phases(run_signal):
         report_phase("post_load")
         if stages_history(run_signal.cdc_write_mode, run_signal.sync_type):
+            # Versions written past a batch that never loaded would make its rows look older on the re-read.
+            _refuse_incomplete_run(run_signal)
             # Before post-load, which registers and publishes the history table this writes.
             async_to_sync(finalize_history_lane)(delta_table_ref, run_signal.primary_keys or [])
             history_table = async_to_sync(delta_table_ref.get_delta_table)()
@@ -1657,13 +1677,14 @@ def _process_message_reported(
             if any(run_uuid != export_signal.run_uuid for run_uuid, _ in members):
                 commit_metadata["members"] = commit_members_tag(members)
 
-        resolution_enabled = cdc_write_mode is not None
+        # An incremental history batch holds source rows, not change events, so no CDC row handling applies.
+        resolution_enabled = cdc_write_mode is not None and not stages_history(cdc_write_mode, export_signal.sync_type)
 
         with timer.step("cdc_resolve"):
             pa_table = _enrich_cdc_rows(
                 pa_table,
                 primary_keys=primary_keys,
-                cdc_write_mode=cdc_write_mode,
+                cdc_write_mode=cdc_write_mode if resolution_enabled else None,
                 existing_delta_table=existing_delta_table,
                 batch_index=export_signal.batch_index,
                 verify_deletes=resolution_enabled,

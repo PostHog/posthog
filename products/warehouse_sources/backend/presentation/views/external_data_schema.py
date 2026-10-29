@@ -226,8 +226,10 @@ def _apply_incremental_history_mode(
     `payload` is the schema's own config, so the mode it had comes from `history_mode_before`.
     """
     mode = data.get("cdc_table_mode")
+    # A CDC schema's history is no choice of incremental history, so a switch from CDC chooses it again.
+    chosen_before = history_mode_before if instance.is_incremental else None
     # The form sends the mode it shows on every save, so an unchanged mode needs neither the flag nor a check.
-    if mode not in _CDC_WRITE_TARGETS_BY_TABLE_MODE or mode == (history_mode_before or "consolidated"):
+    if mode not in _CDC_WRITE_TARGETS_BY_TABLE_MODE or mode == (chosen_before or "consolidated"):
         return False
     if mode == "consolidated":
         payload.pop(INCREMENTAL_HISTORY_KEY, None)
@@ -1409,7 +1411,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 trigger_refresh = (
                     _apply_incremental_history_mode(instance, data, payload, history_mode_before) or trigger_refresh
                 )
-            elif (
+            if (
                 resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL
                 and payload.get(INCREMENTAL_HISTORY_KEY)
                 and is_history_table_mode(payload.get("cdc_table_mode"))
