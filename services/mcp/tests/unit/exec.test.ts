@@ -1800,6 +1800,22 @@ describe('exec tool', () => {
             expect(result.hint).toBeUndefined()
         })
 
+        it('keeps the metric catalog hint when catalog order puts other matches first', async () => {
+            // searchToolsRegex filters without ranking, so description matches on unrelated
+            // tools come back ahead of the query tools a `query-` search is actually about.
+            const exec = createExec([
+                makeMockTool({ name: 'cohorts-create', title: 'Create cohort', description: 'Cohorts for a query-.' }),
+                makeMockTool({ name: 'cohorts-partial-update', title: 'Update cohort', description: 'A query- edit.' }),
+                makeMockTool({ name: 'insight-create', title: 'Create insight', description: 'Insights use query-.' }),
+                makeMockTool({ name: 'query-logs', title: 'Query logs' }),
+                ...catalogTools,
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search query-' })) as string)
+
+            expect(result.hint).toContain('metric-list')
+        })
+
         it('keeps the metric catalog hint when a data-domain tool is a top match', async () => {
             const exec = createExec([makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools])
 

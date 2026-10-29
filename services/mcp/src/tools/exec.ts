@@ -79,8 +79,6 @@ const MAX_RANKED_SEARCH_RESULTS = 25
 
 const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
 
-const DATA_DOMAIN_HINT_RANK_CUTOFF = 3
-
 const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
 const APPROVED_METRIC_STATUS = 'approved'
 const PROPOSED_METRIC_STATUS = 'proposed'
@@ -114,18 +112,30 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
     }
 }
 
-function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
+// A tool whose description happens to mention the search term says nothing about what the
+// search was for: `search persons-` reaches query-logs that way. Only a name match counts.
+function namesMatchingSearch(names: string[], term: string): string[] {
+    if (isRegexPattern(term)) {
+        try {
+            const regex = new RegExp(term, 'i')
+            return names.filter((name) => regex.test(name))
+        } catch {
+            return []
+        }
+    }
+    const tokens = term.toLowerCase().split(/\s+/).filter(Boolean)
+    return names.filter((name) => tokens.some((token) => name.toLowerCase().includes(token)))
+}
+
+function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], nameMatches: string[]): string | undefined {
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
         availableToolNames.has('metric-list') &&
         availableToolNames.has('metric-describe') &&
         availableToolNames.has('data-catalog-metric-run')
-    // Matches are ranked, so a data-domain tool near the top means the search was about a
-    // measure. One further down is incidental: `search persons-` reaches query-logs and used
-    // to answer a question about people with advice about the metric catalog.
-    const hasDataDomainMatch = matches
-        .slice(0, DATA_DOMAIN_HINT_RANK_CUTOFF)
-        .some((name) => DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix)))
+    const hasDataDomainMatch = nameMatches.some((name) =>
+        DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))
+    )
     if (!hasMetricCatalog || !hasDataDomainMatch) {
         return undefined
     }
@@ -1925,7 +1935,7 @@ export function createExecTool(
                         })
                     }
                     if (truncatedFrom > 0) {
-                        const catalogHint = catalogDiscoveryHint(allTools, matches)
+                        const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, rest))
                         return JSON.stringify({
                             matches,
                             truncated: true,
@@ -1937,7 +1947,7 @@ export function createExecTool(
                                 .join(' '),
                         })
                     }
-                    const catalogHint = catalogDiscoveryHint(allTools, matches)
+                    const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, rest))
                     if (catalogHint) {
                         return JSON.stringify({ matches, hint: catalogHint })
                     }
