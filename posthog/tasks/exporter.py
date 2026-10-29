@@ -7,7 +7,7 @@ from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 
 from posthog.event_usage import EventSource, groups
-from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_view, creator_access_revoked
+from posthog.query_creator_access import assert_creator_can_run
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.utils import CeleryQueue
 
@@ -124,9 +124,7 @@ def export_asset_direct(
     try:
         # Some exports are made with no owner on purpose (logs, activity logs), so only an owned one can lose its owner.
         if exported_asset.created_by is not None:
-            if creator_access_revoked(exported_asset.created_by, team):
-                raise CreatorLeftOrganizationError()
-            assert_creator_can_view(exported_asset.created_by, team, exported_asset.dashboard, exported_asset.insight)
+            assert_creator_can_run(exported_asset.created_by, team, exported_asset.dashboard, exported_asset.insight)
         assert_export_authorization(exported_asset)
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
             csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)

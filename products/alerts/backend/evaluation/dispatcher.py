@@ -13,7 +13,7 @@ from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
-from posthog.query_creator_access import assert_creator_can_view, creator_access_revoked
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
@@ -307,14 +307,13 @@ def check_alert_per_series(
 def check_alert_for_insight(
     alert: AlertConfiguration, *, evaluation_id: str | None = None, query_slot: QuerySlot = nullcontext
 ) -> AlertEvaluationResult:
-    # The query runs with the owner's access. A deleted owner leaves `created_by` null and counts as one who left.
-    if creator_access_revoked(alert.created_by, alert.team):
-        # Checked before the query, because a query that reads no restricted table still succeeds.
-        raise AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)
     try:
-        # Object access first, because the query itself only checks tables and runner resources.
-        assert_creator_can_view(alert.created_by, alert.team, alert.insight)
+        # The query runs with the owner's access, so the owner is checked before it: a query that reads no
+        # restricted table still succeeds, and the query itself only checks tables and runner resources.
+        assert_creator_can_run(alert.created_by, alert.team, alert.insight)
         return _check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
+    except CreatorLeftOrganizationError as err:
+        raise AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON) from err
     except (TableAccessDeniedError, UserAccessControlError) as err:
         raise AlertOwnerAccessError(CREATOR_LOST_ACCESS_DISABLE_REASON) from err
     except DelayedEvaluationUnavailable as err:
