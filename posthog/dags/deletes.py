@@ -63,9 +63,15 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
     PERSONS_TABLE,
 )
-from posthog.models.raw_sessions.sessions_v2 import SHARDED_RAW_SESSIONS_DATA_TABLE
+from posthog.models.raw_sessions.sessions_v2 import (
+    SHARDED_RAW_SESSIONS_DATA_TABLE,
+    TABLE_BASE_NAME as RAW_SESSIONS_TABLE_BASE_NAME,
+)
 from posthog.models.raw_sessions.sessions_v3 import SHARDED_RAW_SESSIONS_TABLE_V3, TABLE_BASE_NAME_V3
-from posthog.models.sessions.sql import SESSIONS_DATA_TABLE
+from posthog.models.sessions.sql import (
+    SESSIONS_DATA_TABLE,
+    TABLE_BASE_NAME as SESSIONS_TABLE_BASE_NAME,
+)
 from posthog.run_mode import run_mode
 
 from products.error_tracking.backend.facade.api import (
@@ -187,6 +193,11 @@ SESSIONS_RETENTION_TABLES: tuple[str, ...] = (
     SHARDED_RAW_SESSIONS_DATA_TABLE(),
     SHARDED_RAW_SESSIONS_TABLE_V3(),
 )
+SATELLITE_SESSIONS_RETENTION_TABLES: tuple[str, ...] = (
+    SESSIONS_TABLE_BASE_NAME,
+    RAW_SESSIONS_TABLE_BASE_NAME,
+    TABLE_BASE_NAME_V3,
+)
 
 
 def _sessions_placements(cluster: ClickhouseCluster) -> list[SessionsPlacement]:
@@ -195,13 +206,14 @@ def _sessions_placements(cluster: ClickhouseCluster) -> list[SessionsPlacement]:
         for table in SESSIONS_RETENTION_TABLES
         if _any_node_has(cluster, table)
     ]
-    # Only deployed cloud has the satellite copy, which is the gate the sessions v3 migrations use.
+    # Deployed cloud keeps every sessions table on the sessions satellite, under its base name.
+    # Other deployments have no such cluster, which is the gate the sessions v3 migrations use.
     if run_mode().is_deployed_cloud:
-        placements.append(
-            SessionsPlacement(
-                table=TABLE_BASE_NAME_V3,
-                cluster=cluster.sibling(settings.CLICKHOUSE_SESSIONS_CLUSTER, NodeRole.SESSIONS),
-            )
+        satellite = cluster.sibling(settings.CLICKHOUSE_SESSIONS_CLUSTER, NodeRole.SESSIONS)
+        placements.extend(
+            SessionsPlacement(table=table, cluster=satellite)
+            for table in SATELLITE_SESSIONS_RETENTION_TABLES
+            if _any_node_has(satellite, table)
         )
     return placements
 
