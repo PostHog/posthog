@@ -142,6 +142,24 @@ describe('recording cleanup (integration)', () => {
         )
         await postgres.query(
             PostgresUse.COMMON_WRITE,
+            `INSERT INTO replay_vision_replayobservationrank
+                 (observation_id, team_id, scanner_id, created_at, anchor_version, contrast, category, person_key,
+                  experiment_id)
+             VALUES ($1, $2, $3, now(), 1, 0.5, 1, 7, 0)`,
+            [targetObservationId, teamId, scannerId],
+            'fixtureRank'
+        )
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `INSERT INTO replay_vision_replayhighlightfeedentry
+                 (team_id, window_days, generation, place, observation_id, scanner_id, created_at, category,
+                  experiment_id, percentile, group_root, group_sessions, group_people)
+             VALUES ($1, 1, 1, 1, $2, $3, now(), 1, 0, 0.9, $2, 1, 1)`,
+            [teamId, targetObservationId, scannerId],
+            'fixtureHighlightEntry'
+        )
+        await postgres.query(
+            PostgresUse.COMMON_WRITE,
             `INSERT INTO replay_vision_replayobservationfeeddismissal
                  (id, observation_id, team_id, user_id, created_at)
              VALUES ($1, $2, $3, $4, now())`,
@@ -198,6 +216,8 @@ describe('recording cleanup (integration)', () => {
             'replay_vision_replayobservationfeeddismissal',
             'replay_vision_replayobservationfeedimpression',
             'replay_vision_replayobservationanchorsimilarity',
+            'replay_vision_replayobservationrank',
+            'replay_vision_replayhighlightfeedentry',
         ]) {
             expect(await count(`SELECT count(*) FROM ${table} WHERE observation_id = $1`, [targetObservationId])).toBe(
                 0
