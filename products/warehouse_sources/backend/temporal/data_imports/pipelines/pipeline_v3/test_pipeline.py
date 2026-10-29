@@ -1338,6 +1338,16 @@ class TestCompanionJob:
 
         assert pipeline._maintains_companion_table() is True
 
+    def test_an_incremental_history_only_run_loads_its_batches_as_history(self) -> None:
+        pipeline = self._laned([OutputLane(name="users_history", cdc_write_mode="scd2_append")])
+        pipeline._resource.cdc_write_mode = None
+
+        with patch(f"{_PIPELINE}.PostgresProducer") as producer:
+            pipeline._build_producer(MagicMock(), resource_name="users_history", cdc_write_mode=None)
+
+        assert producer.call_args.kwargs["cdc_write_mode"] == "scd2_append"
+        assert pipeline._maintains_companion_table() is True
+
     def test_the_companion_delivers_to_no_destination(self) -> None:
         # Delivery names the destination table from the schema, so history rows merged by key
         # there would clobber the consolidated table's rows.

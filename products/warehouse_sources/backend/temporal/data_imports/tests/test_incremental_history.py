@@ -18,6 +18,10 @@ from products.warehouse_sources.backend.temporal.data_imports.incremental_histor
     stage_history_batch,
     stamp_history_batch,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_writer import (
+    STAGED_BATCH_COLUMN,
+    STAGED_ROW_COLUMN,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.helpers import make_logger
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -71,12 +75,21 @@ class TestAttachHistoryLanes:
         assert lanes == expected
         assert response.name == (expected[0][0] if expected else "orders")
 
-    def test_a_source_without_a_primary_key_fails_the_run(self) -> None:
+    @parameterized.expand([("no_key_anywhere", None, True), ("key_saved_on_the_schema", ["id"], False)])
+    def test_a_run_without_a_resolvable_primary_key_fails(
+        self, _name: str, saved_key: list[str] | None, fails: bool
+    ) -> None:
+        schema = _schema("both")
+        schema.sync_type_config["primary_key_columns"] = saved_key
         response = _response()
         response.primary_keys = None
 
-        with pytest.raises(ValueError, match="primary key"):
-            _attach(_schema("both"), response)
+        if fails:
+            with pytest.raises(ValueError, match="primary key"):
+                _attach(schema, response)
+        else:
+            _attach(schema, response)
+            assert response.lanes is not None
 
 
 class TestStampHistoryBatch:
@@ -94,8 +107,9 @@ class TestStampHistoryBatch:
 
         assert stamped.column("_ph_valid_from").to_pylist() == expected
 
-    def test_a_source_column_named_like_a_validity_column_fails_the_batch(self) -> None:
-        batch = pa.table({"updated_at": pa.array([date(2026, 1, 2)]), "_ph_valid_to": pa.array([1])})
+    @parameterized.expand([(STAGED_ROW_COLUMN,), (STAGED_BATCH_COLUMN,), ("_ph_valid_to",)])
+    def test_a_source_column_named_like_a_history_column_fails_the_batch(self, column: str) -> None:
+        batch = pa.table({"updated_at": pa.array([date(2026, 1, 2)]), column: pa.array([1])})
 
         with pytest.raises(CDCReservedColumnError):
             stamp_history_batch(batch, cursor="updated_at", naming=HISTORY_NAMING, tracked_since=_TRACKED_SINCE)
