@@ -14607,6 +14607,51 @@ export namespace Schemas {
       has_membership_data: boolean;
     }
 
+    export interface PRLLMSpend {
+      /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+      cost_usd: number;
+      /** Total input (prompt) tokens across the attributed generations. */
+      input_tokens: number;
+      /** Total output (completion) tokens across the attributed generations. */
+      output_tokens: number;
+      /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+      generations: number;
+      /** Total prompt tokens read from the provider's prompt cache across the attributed generations ($ai_cache_read_input_tokens). Not included in input_tokens. */
+      cache_read_input_tokens: number;
+      /** Total prompt tokens written to the provider's prompt cache across the attributed generations ($ai_cache_creation_input_tokens). Not included in input_tokens. */
+      cache_creation_input_tokens: number;
+      /** Largest prompt any single attributed generation sent: input plus cache read plus cache write tokens. */
+      peak_context_tokens: number;
+    }
+
+    export interface AuthorPRLLMSpend {
+      /** Agent LLM token spend attributed to this pull request, by the same rule as `pr_cost`, or null when no generation matched. */
+      llm_spend: PRLLMSpend | null;
+      /** Pull request number. */
+      number: number;
+      /** Pull request title. */
+      title: string;
+      /** Pull request state: open, closed, or merged.
+       *
+       * * `open` - Open
+       * * `closed` - Closed
+       * * `merged` - Merged */
+      state: PRStateEnum;
+      /** The pull request's head branch, which attribution joins on. */
+      head_branch: string;
+      /** When the pull request was opened. */
+      created_at: string;
+    }
+
+    export interface AuthorLLMSpendList {
+      /** The author's pull requests active in the window, newest first, capped at `limit`. Each spend covers the pull request's whole attribution window, so it can include spend from before date_from. */
+      items: AuthorPRLLMSpend[];
+      /** True when more pull requests matched than `limit`. */
+      truncated: boolean;
+      /** Maximum number of pull requests returned in `items`. */
+      limit: number;
+    }
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -67449,6 +67494,17 @@ export namespace Schemas {
       results: LLMSkillSearchResult[];
     }
 
+    export interface LLMSpendCoverage {
+      /** Total cost in USD of the $ai_generation events stamped with this repository ($ai_git_repo) in the window. Generations with no repository stamp are not counted. */
+      cost_usd: number;
+      /** The part of cost_usd that the branch and session attribution credits to a pull request. A generation credited to several pull requests counts once. */
+      attributed_cost_usd: number;
+      /** Number of $ai_generation events in cost_usd. */
+      generations: number;
+      /** Number of $ai_generation events in attributed_cost_usd. */
+      attributed_generations: number;
+    }
+
     export interface LLMTaggerConfig {
       /**
          * Prompt instructing the LLM how to tag generations
@@ -76088,17 +76144,6 @@ export namespace Schemas {
        * * `github_actions` - GitHub Actions
        * * `depot_ci` - Depot CI */
       ci_engine?: CIEngineEnum | null;
-    }
-
-    export interface PRLLMSpend {
-      /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
-      cost_usd: number;
-      /** Total input (prompt) tokens across the attributed generations. */
-      input_tokens: number;
-      /** Total output (completion) tokens across the attributed generations. */
-      output_tokens: number;
-      /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
-      generations: number;
     }
 
     export interface PRCostSummary {
@@ -133078,6 +133123,33 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsAuthorLlmSpendParams = {
+    /**
+     * GitHub handle whose pull requests to list.
+     */
+    author: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Maximum pull requests to return, 1 to 200. Defaults to 100.
+     */
+    limit?: number;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsAuthorWorkflowCostsParams = {
     /**
      * GitHub handle whose CI spend to break down.
@@ -133436,6 +133508,25 @@ export namespace Schemas {
       GithubActions: 'github_actions',
       DepotCi: 'depot_ci',
     } as const;
+
+    export type EngineeringAnalyticsLlmSpendCoverageParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
 
     export type EngineeringAnalyticsMasterFailuresParams = {
     /**
