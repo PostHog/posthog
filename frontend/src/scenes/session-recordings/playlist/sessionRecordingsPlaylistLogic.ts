@@ -335,9 +335,7 @@ export function overviewPropertyFilterType(
 
 // PostHog AI, and the replay links it builds, can send filter_test_accounts as the string "true" or "false".
 // isValidRecordingFilters rejects a string, so without this the user's filters reset to the defaults.
-function normalizeRecordingFilters(
-    filters: Partial<RecordingUniversalFilters> | undefined
-): Partial<RecordingUniversalFilters> | undefined {
+function normalizeRecordingFilters(filters: Partial<RecordingUniversalFilters>): Partial<RecordingUniversalFilters> {
     const filterTestAccounts: unknown = filters?.filter_test_accounts
     if (filterTestAccounts === 'true' || filterTestAccounts === 'false') {
         return { ...filters, filter_test_accounts: filterTestAccounts === 'true' }
