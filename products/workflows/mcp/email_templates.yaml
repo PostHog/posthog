@@ -95,7 +95,10 @@ tools:
             subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one,
             otherwise the project's default sender is used). Requires human typed confirmation. The response has
             transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user
-            can review and publish it.
+            can review and publish it. Then tell the user what is left: create a project secret API key with Workflow
+            set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST
+            /api/projects/@current/messaging/send/email/ with template.id in the body. Each send returns a message ID,
+            and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/ reads its status.
         feature_flag: workflows-transactional-email-api
         response:
             exclude:
