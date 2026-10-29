@@ -51,7 +51,7 @@ def _datetime_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class OpenAIAdsEndpointConfig:
     name: str
     path: str
