@@ -5,6 +5,30 @@ from posthog.models.utils import UUIDModel
 
 # A theme waits for this many members before its first name, so a one-off session never costs a model call.
 THEME_FIRST_RENAME_AT = 5
+# A group is narrower than a theme, so it waits for more members before a model names it.
+GROUP_FIRST_RENAME_AT = 10
+
+
+class ClusterReview(models.TextChoices):
+    """What a person decided about a cluster. A cluster nobody reviewed has an empty state."""
+
+    KNOWN = "known", "Known"
+    RESOLVED = "resolved", "Resolved"
+    NOT_AN_ISSUE = "not_an_issue", "Not an issue"
+
+
+class ClusterReviewMixin(models.Model):
+    """A person's decision about a cluster. A reviewed cluster is never pruned, so the decision outlives quiet spells."""
+
+    # Database defaults let a consumer still on the old release insert clusters while the new one rolls out.
+    review_state = models.CharField(max_length=16, choices=ClusterReview.choices, blank=True, default="", db_default="")
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+
+    class Meta:
+        abstract = True
 
 
 class ReplayScannerSemanticCenter(TeamScopedRootMixin, models.Model):
@@ -22,7 +46,7 @@ class ReplayScannerSemanticCenter(TeamScopedRootMixin, models.Model):
         app_label = "replay_vision"
 
 
-class ReplayScannerSearchTheme(TeamScopedRootMixin, UUIDModel):
+class ReplayScannerSearchTheme(TeamScopedRootMixin, ClusterReviewMixin, UUIDModel):
     """A broad cluster of one scanner's issue observations, named as a search the Search tab suggests."""
 
     # The scanner and recency index serves every read, so the foreign key needs no index of its own.
@@ -43,7 +67,7 @@ class ReplayScannerSearchTheme(TeamScopedRootMixin, UUIDModel):
         indexes = [models.Index(fields=["scanner", "-last_member_at"], name="rv_theme_scanner_recent_idx")]
 
 
-class ReplayScannerFeedGroup(TeamScopedRootMixin, UUIDModel):
+class ReplayScannerFeedGroup(TeamScopedRootMixin, ClusterReviewMixin, UUIDModel):
     """A tight cluster of one scanner's issue observations that tell the same story, shown as one feed card."""
 
     # The scanner and recency index serves every read, so the foreign key needs no index of its own.
@@ -53,6 +77,11 @@ class ReplayScannerFeedGroup(TeamScopedRootMixin, UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     vector_sum = models.BinaryField()
     member_count = models.PositiveIntegerField(default=0)
+    # A short headline of what the members share, written once the group is large enough to be worth a model call.
+    name = models.CharField(max_length=128, blank=True, default="", db_default="")
+    rename_at_member_count = models.PositiveIntegerField(
+        default=GROUP_FIRST_RENAME_AT, db_default=GROUP_FIRST_RENAME_AT
+    )
     last_member_at = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)
 

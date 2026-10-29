@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
+from posthog.dataclasses import frozen
 from posthog.models.utils import uuid7
 
 from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerFeedGroup
@@ -47,6 +48,12 @@ class _ScannerGroups(ClusterArrays):
         self.keep(keep)
 
 
+@frozen
+class GroupAssignment:
+    group_id: uuid.UUID
+    member_count: int
+
+
 class FeedGroupCache:
     def __init__(self) -> None:
         self._scanners: OrderedDict[str, _ScannerGroups] = OrderedDict()
@@ -60,7 +67,7 @@ class FeedGroupCache:
         version: int,
         now: datetime,
         writes: ClusterWrites,
-    ) -> uuid.UUID:
+    ) -> GroupAssignment:
         """Put one observation in its scanner's closest active group, or start a group. Call under the centre lock,
         with the centre's member count before this observation joins, and save `writes` before the lock is released."""
         groups = self._load(team_id, scanner_id, version, now)
@@ -73,7 +80,7 @@ class FeedGroupCache:
             groups.join(best, space.vector, now)
         writes.record(groups, best)
         groups.version = version + 1
-        return groups.ids[best]
+        return GroupAssignment(group_id=groups.ids[best], member_count=int(groups.counts[best]))
 
     def forget(self, scanner_id: str) -> None:
         """Drop a scanner's groups, so an assignment whose transaction rolled back never leaves them ahead of Postgres."""

@@ -221,10 +221,7 @@ class TestWatchRankConsumerRetries(SimpleTestCase):
             return REGISTRY.get_sample_value("replay_vision_watch_rank_consumer_theme_naming_total", labels) or 0.0
 
         before = timeouts()
-        with (
-            patch(f"{_CONSUMER}.name_theme", never_returns),
-            patch(f"{_CONSUMER}._NAMING_TIMEOUT_S", 0.01),
-        ):
-            async_to_sync(WatchRankConsumer._name)(7, uuid.uuid4(), timezone.now())
+        with patch(f"{_CONSUMER}._NAMING_TIMEOUT_S", 0.01):
+            async_to_sync(WatchRankConsumer._name)(never_returns, 7, uuid.uuid4(), timezone.now())
 
         assert timeouts() == before + 1

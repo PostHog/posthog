@@ -32,6 +32,7 @@ from products.replay_vision.backend.highlight_feed_groups import feed_group_cach
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import (
+    GROUP_FIRST_RENAME_AT,
     ReplayScannerFeedGroup,
     ReplayScannerSearchTheme,
     ReplayScannerSemanticCenter,
@@ -58,6 +59,8 @@ _MERGE_CHUNK = 500
 @frozen
 class SemanticAssignment:
     group_id: uuid.UUID
+    # The group reached a size at which it gets a headline, starting at its first rename size and at every doubling.
+    group_name_due: bool
     theme: ThemeAssignment | None
 
 
@@ -124,7 +127,7 @@ def assign_semantics_batch(
                     continue
                 v = semantic_vector(item.vector)
                 space = scanner_space(center_sum, member_count, v)
-                group_id = feed_group_cache.assign(
+                group = feed_group_cache.assign(
                     team_id=team_id,
                     scanner_id=scanner_id,
                     space=space,
@@ -155,7 +158,10 @@ def assign_semantics_batch(
                     theme = themes.assign(space, item.now)
                 center_sum += v
                 member_count += 1
-                assigned[item.observation_id] = SemanticAssignment(group_id=group_id, theme=theme)
+                group_id = group.group_id
+                assigned[item.observation_id] = SemanticAssignment(
+                    group_id=group_id, group_name_due=_at_rename_size(group.member_count), theme=theme
+                )
                 memberships.append(
                     Membership(
                         observation_id=row["id"],
@@ -194,6 +200,13 @@ def assign_semantics_batch(
         feed_group_cache.forget(scanner_id)
         raise
     return assigned
+
+
+def _at_rename_size(member_count: int) -> bool:
+    size = GROUP_FIRST_RENAME_AT
+    while size < member_count:
+        size *= 2
+    return size == member_count
 
 
 def _as_uuid(observation_id: str) -> uuid.UUID | None:
@@ -249,5 +262,8 @@ def _experiment_scoped(snapshot: dict[str, Any] | None) -> bool:
 
 def _prune(team_id: int, scanner_id: str, now: datetime) -> None:
     cutoff = now - SEMANTIC_RETENTION
-    ReplayScannerFeedGroup.objects.for_team(team_id).filter(scanner_id=scanner_id, last_member_at__lt=cutoff).delete()
-    ReplayScannerSearchTheme.objects.for_team(team_id).filter(scanner_id=scanner_id, last_member_at__lt=cutoff).delete()
+    # A person's decision about a cluster outlives its quiet spells, so reviewed clusters stay.
+    for model in (ReplayScannerFeedGroup, ReplayScannerSearchTheme):
+        model.objects.for_team(team_id).filter(
+            scanner_id=scanner_id, last_member_at__lt=cutoff, review_state=""
+        ).delete()

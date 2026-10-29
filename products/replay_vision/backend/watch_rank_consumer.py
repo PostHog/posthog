@@ -9,7 +9,7 @@ import time
 import uuid
 import signal
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
@@ -37,7 +37,7 @@ from products.replay_vision.backend.embeddings import (
 from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import RankRequest, rank_observation
 from products.replay_vision.backend.watch_semantics import SemanticAssignment, assign_semantics
-from products.replay_vision.backend.watch_themes import name_theme
+from products.replay_vision.backend.watch_themes import name_group, name_theme
 
 logger = structlog.get_logger(__name__)
 
@@ -58,6 +58,8 @@ _NAMING_TIMEOUT_S = 120.0
 _NAMING_DRAIN_S = 20.0
 # A due theme left unnamed while this many are in flight is named when its next member arrives.
 _MAX_NAMING_TASKS = 8
+
+Namer = Callable[[int, uuid.UUID, datetime], Awaitable[str | None]]
 _RETRY_BACKOFF_S = 2.0
 _RETRY_BACKOFF_MAX_S = 60.0
 
@@ -205,7 +207,7 @@ class WatchRankConsumer:
             backoff = min(backoff * 2, _RETRY_BACKOFF_MAX_S)
 
     async def _semantics(self, request: RankRequest) -> None:
-        """Put a ranked observation in a feed group and a theme, and name the theme in the background once it is due."""
+        """Put a ranked observation in a feed group and a theme, and name either in the background once it is due."""
         now = timezone.now()
         assignment = await sync_to_async(_assign_with_timeouts)(
             team_id=request.team_id,
@@ -214,19 +216,25 @@ class WatchRankConsumer:
             vector=request.vector,
             now=now,
         )
-        if assignment is None or assignment.theme is None or not assignment.theme.name_due:
+        if assignment is None:
             return
+        if assignment.theme is not None and assignment.theme.name_due:
+            self._start_naming(name_theme, request.team_id, assignment.theme.theme_id, now)
+        if assignment.group_name_due:
+            self._start_naming(name_group, request.team_id, assignment.group_id, now)
+
+    def _start_naming(self, namer: Namer, team_id: int, cluster_id: uuid.UUID, now: datetime) -> None:
         if len(self._naming) >= _MAX_NAMING_TASKS:
             THEME_NAMING_TOTAL.labels(outcome="dropped").inc()
             return
-        task = asyncio.create_task(self._name(request.team_id, assignment.theme.theme_id, now))
+        task = asyncio.create_task(self._name(namer, team_id, cluster_id, now))
         self._naming.add(task)
         task.add_done_callback(self._naming.discard)
 
     @staticmethod
-    async def _name(team_id: int, theme_id: uuid.UUID, now: datetime) -> None:
+    async def _name(namer: Namer, team_id: int, cluster_id: uuid.UUID, now: datetime) -> None:
         try:
-            name = await asyncio.wait_for(name_theme(team_id, theme_id, now), timeout=_NAMING_TIMEOUT_S)
+            name = await asyncio.wait_for(namer(team_id, cluster_id, now), timeout=_NAMING_TIMEOUT_S)
         except TimeoutError:
             THEME_NAMING_TOTAL.labels(outcome="timeout").inc()
             logger.warning("replay_vision.watch_rank_consumer.theme_naming_timed_out", team_id=team_id)

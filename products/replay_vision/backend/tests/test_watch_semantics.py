@@ -43,7 +43,13 @@ from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics, assign_semantics_batch
 from products.replay_vision.backend.watch_semantics_backfill import backfill_team_semantics
-from products.replay_vision.backend.watch_themes import belongs_in_theme, finalize_label, name_theme, naming_candidates
+from products.replay_vision.backend.watch_themes import (
+    belongs_in_theme,
+    finalize_label,
+    name_group,
+    name_theme,
+    naming_candidates,
+)
 
 _THEMES = "products.replay_vision.backend.watch_themes"
 _BACKFILL = "products.replay_vision.backend.watch_semantics_backfill"
@@ -352,15 +358,26 @@ class TestAssignSemantics(BaseTest):
                 member_count=3,
                 last_member_at=stale,
             )
+        reviewed = ReplayScannerFeedGroup.objects.for_team(self.team.id).create(
+            team=self.team,
+            scanner=self.scanner,
+            vector_sum=pack(semantic_vector(_vector(0.0, 0.0, 1.0))),
+            member_count=7,
+            last_member_at=stale,
+            review_state="resolved",
+        )
         with patch("products.replay_vision.backend.watch_semantics._PRUNE_EVERY", 1):
             self._assign(self._observation(), _vector(1.0))
 
-        assert self._counts(ReplayScannerFeedGroup) == [1]
+        # A reviewed group outlives the quiet spell, so a regression can still find the decision.
+        assert self._counts(ReplayScannerFeedGroup) == [1, reviewed.member_count]
         assert self._counts(ReplayScannerSearchTheme) == [1]
 
-    def test_a_theme_is_due_a_name_at_its_fifth_member(self) -> None:
-        due = [self._assign(self._observation(), _vector(1.0)).theme.name_due for _ in range(5)]
-        assert due == [False, False, False, False, True]
+    def test_a_theme_is_due_a_name_at_its_fifth_member_and_a_group_at_its_tenth_and_twentieth(self) -> None:
+        assignments = [self._assign(self._observation(), _vector(1.0)) for _ in range(20)]
+
+        assert [a.theme.name_due for a in assignments[:5]] == [False, False, False, False, True]
+        assert [i + 1 for i, a in enumerate(assignments) if a.group_name_due] == [10, 20]
 
     def test_only_themes_a_suggestion_can_show_are_due_a_name(self) -> None:
         def theme(member_count: int, rename_at: int) -> ReplayScannerSearchTheme:
@@ -381,6 +398,28 @@ class TestAssignSemantics(BaseTest):
 
         shown = theme(30, rename_at=5)
         assert list(naming_candidates(self.team.id, timezone.now())) == [shown]
+
+    def test_a_group_headline_keeps_its_case_and_ignores_experiment_rows(self) -> None:
+        group = ReplayScannerFeedGroup.objects.for_team(self.team.id).create(
+            team=self.team, scanner=self.scanner, vector_sum=b"", member_count=10, last_member_at=timezone.now()
+        )
+        for summary, experiment in [("Card rejected.", None), ("Secret variant copy.", 7)]:
+            row = self._observation(output={"scanner_type": "summarizer", "summary": summary})
+            snapshot = {**row.scanner_snapshot, "experiment_targeting": {"experiment_id": experiment}}
+            ReplayObservation.objects.filter(id=row.id).update(feed_group_id=group.id, scanner_snapshot=snapshot)
+        client = MagicMock(aclose=AsyncMock())
+        client.models.generate_content = AsyncMock(
+            return_value=MagicMock(text='{"query": "Card rejected at checkout"}')
+        )
+        with (
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
+            patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
+        ):
+            name = async_to_sync(name_group)(self.team.id, group.id, timezone.now())
+
+        assert name == "Card rejected at checkout"
+        prompt = client.models.generate_content.await_args.kwargs["contents"]
+        assert "Card rejected." in prompt and "Secret variant copy." not in prompt
 
     def test_naming_writes_the_label_once_per_doubling_and_retries_a_failed_call(self) -> None:
         for _ in range(5):
