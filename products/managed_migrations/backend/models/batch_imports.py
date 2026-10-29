@@ -149,8 +149,8 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         saved offset can land mid-record in the new stream and the job pauses with a
         parse error at the resume point. The fix is to re-import that part from
         offset 0. The re-imported overlap dedupes only for events with a source ID
-        (Mixpanel $insert_id, an Amplitude or captured uuid); the worker gives other
-        events, including the identify events it generates for Amplitude, a new UUID.
+        (Mixpanel $insert_id, an Amplitude or captured uuid). Other events, including
+        the identify events the worker generates for Amplitude, get a new UUID.
 
         Resets the first unfinished part to offset 0, then resumes as
         `resume_after_pause` does. Returns the key of the reset part. Raises

@@ -170,7 +170,7 @@ class BatchImportAdmin(admin.ModelAdmin):
                     "shows up as an 'Invalid JSON syntax' pause. Re-imported events are "
                     "deduplicated only when they carry a source ID (Mixpanel $insert_id, or an "
                     "Amplitude or captured event uuid). Other events, including the identify "
-                    "events created for Amplitude imports, are imported again as duplicates."
+                    "events created for Amplitude imports, get a new ID and are not deduplicated."
                 ),
             },
         ),
