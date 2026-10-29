@@ -214,19 +214,19 @@ export const Narrow: Story = {
 export const PartialLastPage: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await canvas.findByText('1-10 of 24 entries')
-        await canvas.findByText('1-10 of 12 entries')
+        await canvas.findByText('1–10 of 24')
+        await canvas.findByText('1–10 of 12')
         const tables = [
-            { section: 'attention', lastPage: '21-24 of 24 entries' },
-            { section: 'failing-checks', lastPage: '11-12 of 12 entries' },
+            { section: 'attention', lastPage: '21–24 of 24' },
+            { section: 'failing-checks', lastPage: '11–12 of 12' },
         ].map(({ section, lastPage }) => {
             const table = canvasElement.querySelector<HTMLElement>(`[data-attr="models-overview-${section}"]`)!
             return { table, lastPage, height: table.offsetHeight, top: table.getBoundingClientRect().top }
         })
         for (const { table, lastPage } of tables) {
             while (!within(table).queryByText(lastPage)) {
-                fireEvent.click(within(table).getByRole('button', { name: 'Next page' }))
-                await waitFor(() => within(table).getByRole('button', { name: 'Next page' }))
+                fireEvent.click(within(table).getByRole('button', { name: 'Go to next page' }))
+                await waitFor(() => within(table).getByRole('button', { name: 'Go to next page' }))
             }
         }
         await waitFor(() => {

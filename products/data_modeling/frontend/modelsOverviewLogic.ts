@@ -10,14 +10,16 @@ import {
     dataQualityOverviewLogic,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { BehindScheduleModel } from './freshness'
+import { BehindScheduleModel, MATERIALIZING_TYPES } from './freshness'
 import { AttentionModel, modelsSceneLogic } from './modelsSceneLogic'
 import { OverviewStatItem, overviewStatItems } from './overviewStatItems'
 
 const FAILING_CHECK_STATUSES = new Set(['failed', 'errored'])
 
-function materializedViewCount(nodes: DataModelingNode[]): number {
-    return new Set(nodes.filter((node) => node.type === 'matview').map((node) => node.saved_query_id ?? node.id)).size
+function materializedModelCount(nodes: DataModelingNode[]): number {
+    return new Set(
+        nodes.filter((node) => MATERIALIZING_TYPES.has(node.type)).map((node) => node.saved_query_id ?? node.id)
+    ).size
 }
 
 export type OverviewIssue =
@@ -195,7 +197,7 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
                 checksTruncated: boolean
             ): OverviewStats => ({
                 models: modelsKnown ? savedQueries.length : null,
-                materialized: modelsKnown ? materializedViewCount(nodes) : null,
+                materialized: modelsKnown ? materializedModelCount(nodes) : null,
                 materializationIssues: modelsKnown ? materializationIssues.length : null,
                 failingChecks: checksKnown ? failingCheckCount : null,
                 failingChecksIsLowerBound: checksKnown && checksTruncated,

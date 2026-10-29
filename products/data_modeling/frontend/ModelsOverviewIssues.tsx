@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useRef } from 'react'
 
 import {
     Badge,
@@ -31,11 +31,13 @@ import { nodeEndpointModel, nodeEndpointUrl } from './endpointModelName'
 import { healthyMessage } from './healthyMessage'
 import { modelsOverviewLogic, OverviewIssue } from './modelsOverviewLogic'
 import { downstreamSummary, IssueTone, issueDetail, issueStatus } from './overviewIssueCopy'
+import { useHoldTallestHeight } from './useHoldTallestHeight'
 
 const WIDE_ONLY = 'hidden @min-[40rem]/main-content:inline'
 const WIDE_ONLY_BLOCK = 'hidden @min-[40rem]/main-content:block'
 const NARROW_ONLY = '@min-[40rem]/main-content:hidden'
 const SKELETON_ROWS = 3
+const PAGE_SIZE = 10
 
 interface IssueCellContext {
     row: { original: OverviewIssue }
@@ -192,6 +194,20 @@ function ErrorCallout({
     )
 }
 
+function IssueTable({ issues, dataAttr }: { issues: OverviewIssue[]; dataAttr: string }): JSX.Element {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const contentRef = useRef<HTMLDivElement>(null)
+    useHoldTallestHeight(containerRef, contentRef, issues.length > PAGE_SIZE)
+
+    return (
+        <div ref={containerRef} data-attr={dataAttr}>
+            <div ref={contentRef}>
+                <DataTable columns={COLUMNS} data={issues} pageSize={PAGE_SIZE} size="sm" fullWidth />
+            </div>
+        </div>
+    )
+}
+
 interface IssueSectionProps {
     id: string
     title: string
@@ -222,11 +238,7 @@ function IssueSection({ id, title, issues, loading, allLink, error, tableDataAtt
             {error}
             {loading &&
                 Array.from({ length: SKELETON_ROWS }, (_, index) => <Skeleton key={index} className="h-8 w-full" />)}
-            {issues.length > 0 && (
-                <div data-attr={tableDataAttr}>
-                    <DataTable columns={COLUMNS} data={issues} pageSize={10} size="sm" fullWidth />
-                </div>
-            )}
+            {issues.length > 0 && <IssueTable issues={issues} dataAttr={tableDataAttr} />}
         </section>
     )
 }

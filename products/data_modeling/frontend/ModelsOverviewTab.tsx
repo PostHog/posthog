@@ -13,7 +13,7 @@ import { ModelsOverviewStats } from './ModelsOverviewStats'
 
 export function ModelsOverviewTab(): JSX.Element {
     const { showFirstView, checksStatus } = useValues(modelsOverviewLogic)
-    const { loadNodes } = useActions(modelsOverviewLogic)
+    const { loadNodes, loadDataWarehouseSavedQueries } = useActions(modelsOverviewLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const summaryRef = useRef<HTMLDivElement>(null)
 
@@ -32,7 +32,13 @@ export function ModelsOverviewTab(): JSX.Element {
             </div>
             <ModelsOverviewIssues />
             {featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS] && (
-                <SuggestedModelsPreview onAccepted={() => loadNodes()} emptyFocusRef={summaryRef} />
+                <SuggestedModelsPreview
+                    onAccepted={() => {
+                        loadNodes()
+                        loadDataWarehouseSavedQueries()
+                    }}
+                    emptyFocusRef={summaryRef}
+                />
             )}
         </div>
     )

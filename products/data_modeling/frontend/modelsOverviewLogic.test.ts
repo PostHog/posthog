@@ -49,6 +49,7 @@ const NODES = [
     }),
     buildNode('late', { last_run_status: 'Completed', sync_interval: '1hour', last_run_at: '2026-01-01T00:00:00Z' }),
     buildNode('plain-view', { type: 'view' }),
+    buildNode('endpoint', { type: 'endpoint', last_run_status: 'Completed' }),
     buildNode('broken-in-second-dag', { saved_query_id: 'query-broken', last_run_status: 'Completed' }),
 ]
 const SAVED_QUERIES = { count: 3, results: ['a', 'b', 'c'].map((id) => ({ id, name: id, columns: [] })) }
@@ -106,10 +107,10 @@ describe('modelsOverviewLogic', () => {
         expect(logic.values.overviewStats).toMatchObject({ materializationIssues: 3, failingChecks: 1 })
     })
 
-    it('counts models from the list the Models tab shows and each materialized view once across DAGs', async () => {
+    it('counts models from the list the Models tab shows and each materialized view or endpoint once across DAGs', async () => {
         await mountLoaded()
 
-        expect(logic.values.overviewStats).toMatchObject({ models: 3, materialized: 3 })
+        expect(logic.values.overviewStats).toMatchObject({ models: 3, materialized: 4 })
     })
 
     it('reports failing checks as unknown, not zero, when checks fail to load', async () => {
