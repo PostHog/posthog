@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest
 
@@ -25,11 +26,13 @@ class TestSqlFreshnessClassifier(BaseTest):
         super().setUpClass()
         cls.database = Database.create_for(team=cls.team)
 
-    def _classify(self, sql: str, now: datetime = NOW, relative_date_range: bool = False) -> SqlFreshness | None:
+    def _classify(
+        self, sql: str, now: datetime = NOW, relative_date_range: bool = False, timezone: ZoneInfo | None = None
+    ) -> SqlFreshness | None:
         context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
         resolved = resolve_types(parse_select(sql), context, dialect="hogql")
         classifier = SqlFreshnessClassifier(
-            now=now, timezone=self.team.timezone_info, relative_date_range=relative_date_range
+            now=now, timezone=timezone or self.team.timezone_info, relative_date_range=relative_date_range
         )
         return classifier.classify(resolved)
 
@@ -161,3 +164,22 @@ class TestSqlFreshnessClassifier(BaseTest):
     def test_relative_filters_expire_at_midnight(self) -> None:
         freshness = self._classify(PAST_DAY, relative_date_range=True)
         assert freshness == SqlFreshness(window=SqlWindowClass.FIXED_PAST, fresh_until=NEXT_MIDNIGHT)
+
+    @parameterized.expand(
+        [
+            ("morning_utc_yesterday_is_closed", datetime(2026, 10, 29, 15, 0, tzinfo=UTC), SqlWindowClass.FIXED_PAST),
+            (
+                "evening_utc_yesterday_is_the_local_today",
+                datetime(2026, 10, 30, 3, 0, tzinfo=UTC),
+                SqlWindowClass.UP_TO_NOW_SHORT,
+            ),
+        ]
+    )
+    def test_today_and_yesterday_follow_the_utc_day(self, _name: str, now: datetime, expected: SqlWindowClass) -> None:
+        freshness = self._classify(
+            "select count() from events where toDate(timestamp) = yesterday()",
+            now=now,
+            timezone=ZoneInfo("America/Los_Angeles"),
+        )
+        assert freshness is not None
+        assert freshness.window == expected

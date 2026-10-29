@@ -325,6 +325,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
     def _calculate(self) -> HogQLQueryResponse:
         tag_contains_user_hogql()
+        self._stored_sql_freshness = None
         if self._capped_for_query_service():
             assert self.settings is not None
             # p95 threads is 102, limiting to 60 (below global max_threads of 64)

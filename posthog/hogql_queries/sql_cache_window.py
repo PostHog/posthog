@@ -36,6 +36,7 @@ LIVE_WINDOW_MAX_LENGTH = timedelta(hours=1)
 SHORT_WINDOW_MAX_LENGTH = timedelta(days=1)
 FIXED_PAST_SETTLE_TIME = timedelta(hours=1)
 
+_UTC = ZoneInfo("UTC")
 _DATE_PREFIX_LENGTH = len("2026-01-01")
 _TIMESTAMP_COLUMN = "timestamp"
 _TIMESTAMP_WRAPPERS = frozenset({"toDateTime", "toDateTime64", "parseDateTimeBestEffort", "parseDateTime64BestEffort"})
@@ -89,6 +90,7 @@ class SqlFreshness:
 class _Value:
     at: datetime
     is_date: bool
+    utc_day: bool = False
 
 
 class _Unqualified(Exception):
@@ -233,6 +235,7 @@ class SqlFreshnessClassifier:
         self._timezone = timezone
         self._relative_date_range = relative_date_range
         self._start_of_today = _truncate(self._now, "day", timezone)
+        self._start_of_utc_today = _truncate(self._now, "day", _UTC)
         self._consumed_clock_calls: set[int] = set()
         self._reads_now = False
 
@@ -290,9 +293,9 @@ class SqlFreshnessClassifier:
                 self._reads_now = True
                 return _Value(at=self._now, is_date=False)
             if clock == "today":
-                return _Value(at=self._start_of_today, is_date=True)
+                return _Value(at=self._start_of_utc_today, is_date=True, utc_day=True)
             if clock == "yesterday":
-                return _Value(at=self._start_of_today - timedelta(days=1), is_date=True)
+                return _Value(at=self._start_of_utc_today - timedelta(days=1), is_date=True, utc_day=True)
             return None
         if not call.args:
             return None
@@ -300,7 +303,7 @@ class SqlFreshnessClassifier:
             return self._evaluate_wrapper(call)
         if call.name in _TRUNCATE_FUNCTIONS and len(call.args) == 1:
             inner = self._evaluate(call.args[0])
-            if inner is None:
+            if inner is None or inner.utc_day:
                 return None
             truncated = _truncate(inner.at, _TRUNCATE_FUNCTIONS[call.name], self._timezone)
             return _Value(at=truncated, is_date=call.name in _DATE_RESULT_FUNCTIONS)
@@ -310,7 +313,9 @@ class SqlFreshnessClassifier:
             amount = _int_constant(call.args[1])
             if inner is None or amount is None:
                 return None
-            return _Value(at=inner.at + _UNIT_DELTAS[unit] * (sign * amount), is_date=inner.is_date)
+            return _Value(
+                at=inner.at + _UNIT_DELTAS[unit] * (sign * amount), is_date=inner.is_date, utc_day=inner.utc_day
+            )
         if call.name in _DATE_SHIFT_FUNCTIONS and len(call.args) == 3:
             unit = (_string_constant(call.args[0]) or "").lower().rstrip("s")
             amount = _int_constant(call.args[1])
@@ -318,7 +323,9 @@ class SqlFreshnessClassifier:
             if unit not in _UNIT_DELTAS or amount is None or inner is None:
                 return None
             sign = _DATE_SHIFT_FUNCTIONS[call.name]
-            return _Value(at=inner.at + _UNIT_DELTAS[unit] * (sign * amount), is_date=inner.is_date)
+            return _Value(
+                at=inner.at + _UNIT_DELTAS[unit] * (sign * amount), is_date=inner.is_date, utc_day=inner.utc_day
+            )
         return None
 
     def _evaluate(self, expr: ast.Expr) -> Optional[_Value]:
@@ -338,7 +345,7 @@ class SqlFreshnessClassifier:
             if delta is None:
                 return None
             sign = 1 if expr.op == ast.ArithmeticOperationOp.Add else -1
-            return _Value(at=base.at + delta * sign, is_date=base.is_date)
+            return _Value(at=base.at + delta * sign, is_date=base.is_date, utc_day=base.utc_day)
         return None
 
     def _column_unit(self, expr: ast.Expr) -> tuple[bool, Optional[str]]:
@@ -354,6 +361,12 @@ class SqlFreshnessClassifier:
             return True, _TRUNCATE_FUNCTIONS[expr.name]
         return False, None
 
+    def _anchor(self, value: _Value, unit: Optional[str]) -> datetime:
+        if not value.utc_day or unit is None:
+            return value.at
+        day = value.at.astimezone(_UTC).date()
+        return datetime(day.year, day.month, day.day, tzinfo=self._timezone)
+
     def _bound(
         self, column: ast.Expr, op: ast.CompareOperationOp, value_expr: ast.Expr
     ) -> Optional[tuple[Optional[datetime], Optional[datetime]]]:
@@ -363,12 +376,13 @@ class SqlFreshnessClassifier:
         value = self._evaluate(value_expr)
         if value is None:
             raise _Unqualified()
+        at = self._anchor(value, unit)
         step = _UNIT_DELTAS[unit] if unit else relativedelta()
         if op in _LOWER_BOUND_OPS:
-            return (value.at + step if unit and op in _TRUNCATION_SHIFTED_OPS else value.at), None
+            return (at + step if unit and op in _TRUNCATION_SHIFTED_OPS else at), None
         if op in _UPPER_BOUND_OPS:
-            return None, (value.at + step if unit and op in _TRUNCATION_SHIFTED_OPS else value.at)
-        return value.at, value.at + step
+            return None, (at + step if unit and op in _TRUNCATION_SHIFTED_OPS else at)
+        return at, at + step
 
     def _bounds_from_conjunct(self, conjunct: ast.Expr) -> tuple[Optional[datetime], Optional[datetime]]:
         if isinstance(conjunct, ast.CompareOperation) and conjunct.op in _FLIPPED_OPS:
@@ -384,7 +398,9 @@ class SqlFreshnessClassifier:
                 high = self._evaluate(conjunct.high)
                 if low is None or high is None:
                     raise _Unqualified()
-                return low.at, high.at + (_UNIT_DELTAS[unit] if unit else relativedelta())
+                return self._anchor(low, unit), self._anchor(high, unit) + (
+                    _UNIT_DELTAS[unit] if unit else relativedelta()
+                )
         raise _Unqualified()
 
     def _conjuncts(self, expr: Optional[ast.Expr]) -> list[ast.Expr]:
@@ -427,7 +443,9 @@ class SqlFreshnessClassifier:
         if end is not None and end <= self._start_of_today and end <= self._now - FIXED_PAST_SETTLE_TIME:
             fresh_until = self._now + SQL_WINDOW_MAX_AGE[SqlWindowClass.FIXED_PAST]
             if clock_derived:
-                fresh_until = min(fresh_until, self._start_of_today + timedelta(days=1))
+                fresh_until = min(
+                    fresh_until, self._start_of_today + timedelta(days=1), self._start_of_utc_today + timedelta(days=1)
+                )
             if self._reads_now:
                 fresh_until = min(fresh_until, self._now + SQL_WINDOW_MAX_AGE[SqlWindowClass.UP_TO_NOW_LONG])
             return SqlFreshness(window=SqlWindowClass.FIXED_PAST, fresh_until=fresh_until.astimezone(UTC))

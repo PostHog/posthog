@@ -584,6 +584,16 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
 
+    def test_recompute_drops_window_inherited_from_the_cached_entry(self) -> None:
+        runner = self._create_runner(
+            HogQLQuery(query="select count() from events where timestamp > now() - interval 7 day")
+        )
+        runner._read_cache_entry_freshness(
+            {"window": "up_to_now_long", "fresh_until": (datetime.now(UTC) - timedelta(minutes=1)).isoformat()}
+        )
+        runner.calculate()
+        assert CACHE_ENTRY_FRESHNESS_KEY not in runner._cache_entry_with_freshness({})
+
 
 class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
     def _flag(self, on: bool):
