@@ -1,14 +1,17 @@
+import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import type { Sorting } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { slugify } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import type {
     DataCatalogMetricNameConflictApi,
     DataCatalogMetricNameConflictExistingApi,
 } from './generated/api.schemas'
+import type { NewMetricPrefill } from './proposedRows'
 
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
@@ -40,6 +43,11 @@ export function humanizeDefinitionKind(kind: string | null): string {
         return 'Markdown'
     }
     return kind
+}
+
+/** The form values travel in the hash, because a query can outgrow what a URL path should carry to the server. */
+export function newMetricUrl(prefill: NewMetricPrefill): string {
+    return combineUrl(urls.dataCatalogNewMetric(), {}, { prefill }).url
 }
 
 export function sqlNameFromDisplayName(displayName: string): string {
