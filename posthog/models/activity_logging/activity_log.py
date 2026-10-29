@@ -1007,6 +1007,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "lease_id",
         "backoff_attempt",
         "backoff_until",
+        "pending_commit",
     ],
     "Integration": [
         "sensitive_config",

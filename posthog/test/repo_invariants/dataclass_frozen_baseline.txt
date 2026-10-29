@@ -1135,7 +1135,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/vercel/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/vercel/vercel.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/vultr/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/wasabi/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/wasabi/wasabi.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/watchmode/watchmode.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/webflow/settings.py

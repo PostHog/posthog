@@ -56,6 +56,17 @@ class GithubAccess(StrEnum):
     WRITE = "write"
 
 
+class SourceKind(StrEnum):
+    SIGNAL_REPORT = "signal_report"
+    HOG_FLOW = "hog_flow"
+
+
+@frozen
+class TaskSource:
+    kind: SourceKind
+    id: str
+
+
 @frozen
 class WarmPolicy:
     """Lets a profile start a sandbox before the first message arrives, so the first reply is fast."""
@@ -91,9 +102,9 @@ class TaskProfile:
     # The TaskRunOptions fields a public API caller may set. The server refuses any other field from
     # a public caller.
     public_options: frozenset[str]
-    # The kind of row that started the task, such as "signal_report". The server checks that the
-    # row exists in the caller's team. None means the task has no source row.
-    source_kind: str | None
+    # The kind of row that starts every task on this profile, such as SIGNAL_REPORT. Task creation
+    # refuses a source of any other kind. None means the task takes no source.
+    source_kind: SourceKind | None
 
     # True shows the task in task lists, personal channel filing, auto-archive, the MCP task filter
     # and the Desktop staff toggle. Automated work such as loops and scouts is unlisted.
@@ -253,6 +264,10 @@ class TaskRunOptionsError(ValueError):
     pass
 
 
+class TaskSourceError(ValueError):
+    pass
+
+
 # Tasks stored without a profile and SQL filters only know a task's origin_product, so every profile
 # that shares an origin must agree on these fields.
 _ORIGIN_SCOPED_FIELDS = (
@@ -312,3 +327,11 @@ def resolve_task_origin(
     if internal is not None and internal == profile.listed:
         raise TaskProfileError(f"internal={internal} does not match task profile {profile.key!r}")
     return TaskOrigin(origin_product=profile.origin_product, internal=not profile.listed, profile_key=profile.key)
+
+
+def check_task_source(*, profile: TaskProfile | None, source: TaskSource | None) -> None:
+    if profile is None:
+        return
+    kind = source.kind if source is not None else None
+    if kind != profile.source_kind:
+        raise TaskSourceError(f"Task profile {profile.key!r} takes source {profile.source_kind}, got {kind}")
