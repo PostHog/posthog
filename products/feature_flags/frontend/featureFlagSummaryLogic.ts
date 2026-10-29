@@ -81,7 +81,7 @@ export const featureFlagSummaryLogic = kea<featureFlagSummaryLogicType>([
         flag: [
             null as FeatureFlagApi | null,
             {
-                loadFlag: async (_, breakpoint) => {
+                loadFlag: async (_: void, breakpoint) => {
                     // A pointer that sweeps across `$feature/` rows mounts this logic for each row it crosses.
                     await breakpoint(300)
                     if (!values.currentProjectId) {
