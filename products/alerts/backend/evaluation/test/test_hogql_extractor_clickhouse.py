@@ -7,6 +7,7 @@ from posthog.schema import HogQLAlertConfig
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.tasks.alerts.utils import _chart_warmup, _resolve_alert_render_user
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import evaluate_with_detector
@@ -72,6 +73,36 @@ class TestHogQLExtractorFiltersPlaceholder(APIBaseTest, ClickhouseDestroyTablesM
                 )
                 == 5.0
             )
+
+
+class TestHogQLChartRenderReusesEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
+    def test_chart_warmup_reads_the_result_the_evaluation_cached(self) -> None:
+        hogql_source = {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        insight = Insight.objects.create(
+            team=self.team, query={"kind": "DataVisualizationNode", "source": hogql_source}
+        )
+        alert = AlertConfiguration.objects.create(
+            team=self.team,
+            insight=insight,
+            name="chart reuse alert",
+            created_by=self.user,
+            condition={"type": "absolute_value"},
+            config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
+            calculation_interval="hourly",
+        )
+        HogQLExtractor().extract(alert, insight, hogql_source, ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        warmup = _chart_warmup(alert)
+        assert warmup.limit_context is not None
+        rendered = calculate_for_query_based_insight(
+            insight,
+            team=self.team,
+            execution_mode=warmup.execution_mode,
+            limit_context=warmup.limit_context,
+            user=_resolve_alert_render_user(alert),
+        )
+
+        assert rendered.is_cached is True
 
 
 class TestHogQLThresholdTruncation(APIBaseTest):

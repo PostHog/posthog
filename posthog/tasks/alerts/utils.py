@@ -12,7 +12,10 @@ import structlog
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
@@ -437,6 +440,24 @@ class RenderedInsightChart:
     render_user_id: int
 
 
+@frozen
+class _ChartWarmup:
+    execution_mode: ExecutionMode
+    limit_context: LimitContext | None
+
+
+def _chart_warmup(alert: AlertConfiguration) -> _ChartWarmup:
+    query = alert.insight.query or {}
+    if query.get("kind") in WRAPPER_NODE_KINDS:
+        query = query.get("source") or {}
+    if query.get("kind") == NodeKind.HOG_QL_QUERY:
+        return _ChartWarmup(
+            execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+            limit_context=LimitContext.SQL_ALERT,
+        )
+    return _ChartWarmup(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, limit_context=None)
+
+
 def render_alert_insight_chart(
     alert: AlertConfiguration, render_user: User | None = None
 ) -> RenderedInsightChart | None:
@@ -475,10 +496,13 @@ def render_alert_insight_chart(
                             "displayLabel": False,
                         }
                     )
+        warmup = _chart_warmup(alert)
         asset, content = exports.render_png_export(
             team=alert.team,
             created_by=render_user,
             insight_id=alert.insight_id,
+            execution_mode=warmup.execution_mode,
+            limit_context=warmup.limit_context,
             reference_lines=alert_threshold_lines,
             # System render: keep it out of the user's export listings and quota.
             is_system=True,

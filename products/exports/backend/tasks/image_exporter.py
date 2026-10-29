@@ -20,6 +20,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.schema import ChartDisplayType, FunnelLayout, NodeKind
 
+from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.api.services.query import process_query_dict
@@ -564,6 +565,7 @@ def export_image(
                 export_context = exported_asset.export_context or {}
                 query_override = export_context.get("source")
                 insight_execution_mode = export_execution_mode(export_context)
+                insight_limit_context = export_limit_context(export_context, default=LimitContext.QUERY_ASYNC)
 
                 dashboard_variables = None
                 tile_filters_override = None
@@ -590,6 +592,7 @@ def export_image(
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
                         execution_mode=insight_execution_mode,
+                        limit_context=insight_limit_context,
                         # Background render (no request user); attribute the read to the export owner.
                         user=exported_asset.created_by,
                         variables_override=None,
@@ -614,6 +617,7 @@ def export_image(
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
                             execution_mode=insight_execution_mode,
+                            limit_context=insight_limit_context,
                             # Background render (no request user); attribute the read to the export owner.
                             user=exported_asset.created_by,
                             variables_override=dashboard_variables,
