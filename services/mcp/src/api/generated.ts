@@ -58721,6 +58721,98 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `failure` - Failure
+     * * `struggle` - Struggle
+     * * `revenue` - Revenue
+     */
+    export type HighlightFeedCategoryEnum = typeof HighlightFeedCategoryEnum[keyof typeof HighlightFeedCategoryEnum];
+
+
+    export const HighlightFeedCategoryEnum = {
+      Failure: 'failure',
+      Struggle: 'struggle',
+      Revenue: 'revenue',
+    } as const;
+
+    /**
+     * Body of POST /vision/scanners/highlight_feed_impressions/.
+     */
+    export interface HighlightFeedImpressions {
+      /** The client's id for the feed load that showed these cards. One load counts each card once. */
+      feed_load_id: string;
+      /**
+         * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
+         * @minItems 1
+         * @maxItems 100
+         */
+      observation_ids: string[];
+    }
+
+    /**
+     * * `embedding_pick` - Embedding Pick
+     * * `unviewed_recent` - Unviewed Recent
+     * * `recent` - Recent
+     */
+    export type HighlightFeedReasonEnum = typeof HighlightFeedReasonEnum[keyof typeof HighlightFeedReasonEnum];
+
+
+    export const HighlightFeedReasonEnum = {
+      EmbeddingPick: 'embedding_pick',
+      UnviewedRecent: 'unviewed_recent',
+      Recent: 'recent',
+    } as const;
+
+    /**
+     * Machine-readable reason an observation made the feed; the frontend renders the copy.
+     */
+    export interface HighlightFeedReason {
+      /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
+       *
+       * * `embedding_pick` - Embedding Pick
+       * * `unviewed_recent` - Unviewed Recent
+       * * `recent` - Recent */
+      kind: HighlightFeedReasonEnum;
+      /** What the session reads like, for `embedding_pick`.
+       *
+       * * `failure` - Failure
+       * * `struggle` - Struggle
+       * * `revenue` - Revenue */
+      watch_category?: HighlightFeedCategoryEnum;
+      /**
+         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
+         * @nullable
+         */
+      similar_count?: number | null;
+      /**
+         * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
+         * @nullable
+         */
+      affected_people?: number | null;
+    }
+
+    /**
+     * One feed entry: the observation plus why it ranked.
+     */
+    export interface HighlightFeedItem {
+      /** The observation, in the standard shape. */
+      observation: ReplayObservation;
+      /** Why this observation made the feed. */
+      reason: HighlightFeedReason;
+    }
+
+    /**
+     * Response of GET /vision/scanners/highlight_feed/.
+     */
+    export interface HighlightFeedResponse {
+      /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
+      results: HighlightFeedItem[];
+      /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
+      has_more: boolean;
+      /** The time this feed ranks as of. Send it back with later pages. */
+      as_of: string;
+    }
+
+    /**
      * * `risk` - Risk
      * * `opportunity` - Opportunity
      */
@@ -121461,6 +121553,66 @@ export namespace Schemas {
       queue_id?: string | null;
     }
 
+    export type TraceSummaryStatusEnum = typeof TraceSummaryStatusEnum[keyof typeof TraceSummaryStatusEnum];
+
+
+    export const TraceSummaryStatusEnum = {
+      Pending: 'pending',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface TraceSummaryItem {
+      text: string;
+      /** The step the item refers to, or null when it names none. */
+      nodeId: string | null;
+    }
+
+    export interface TraceSummaryContent {
+      title: string;
+      bullets: TraceSummaryItem[];
+      /** Details worth a second look, or empty. */
+      notes: TraceSummaryItem[];
+      /** The main steps of the trace as a small text diagram. */
+      flow: string;
+      /** The model that wrote the summary. */
+      model: string;
+      generatedAt: string;
+    }
+
+    export type TraceSummaryFailureReasonEnum = typeof TraceSummaryFailureReasonEnum[keyof typeof TraceSummaryFailureReasonEnum];
+
+
+    export const TraceSummaryFailureReasonEnum = {
+      TraceNotFound: 'trace_not_found',
+      TooLarge: 'too_large',
+      Timeout: 'timeout',
+      ProviderError: 'provider_error',
+      NotApproved: 'not_approved',
+      AccessChanged: 'access_changed',
+      Error: 'error',
+    } as const;
+
+    export interface TraceSummaryFailure {
+      reason: TraceSummaryFailureReasonEnum;
+      /** Why the summary failed, ready to show to the user. */
+      message: string;
+    }
+
+    export interface TraceSummary {
+      /** `pending` while the summary is written, then `ready` or `failed`. */
+      status: TraceSummaryStatusEnum;
+      /** The summary when `status` is `ready`, else null. */
+      content: TraceSummaryContent | null;
+      /** Why it failed when `status` is `failed`, else null. */
+      failure: TraceSummaryFailure | null;
+    }
+
+    export interface TraceSummaryRequest {
+      /** Replace a ready summary with a new one. A pending summary is never replaced. */
+      regenerate?: boolean;
+    }
+
     /**
      * One prior completed training run plus its full iteration trail.
      */
@@ -122969,98 +123121,6 @@ export namespace Schemas {
       task_id: string;
       /** ID of the idling successor run that submit will activate. */
       run_id: string;
-    }
-
-    /**
-     * * `failure` - Failure
-     * * `struggle` - Struggle
-     * * `revenue` - Revenue
-     */
-    export type WatchFeedCategoryEnum = typeof WatchFeedCategoryEnum[keyof typeof WatchFeedCategoryEnum];
-
-
-    export const WatchFeedCategoryEnum = {
-      Failure: 'failure',
-      Struggle: 'struggle',
-      Revenue: 'revenue',
-    } as const;
-
-    /**
-     * Body of POST /vision/scanners/watch_feed_impressions/.
-     */
-    export interface WatchFeedImpressions {
-      /** The client's id for the feed load that showed these cards. One load counts each card once. */
-      feed_load_id: string;
-      /**
-         * Observations the calling user saw in the Highlights feed, at most 100. Ids the user cannot read are ignored.
-         * @minItems 1
-         * @maxItems 100
-         */
-      observation_ids: string[];
-    }
-
-    /**
-     * * `embedding_pick` - Embedding Pick
-     * * `unviewed_recent` - Unviewed Recent
-     * * `recent` - Recent
-     */
-    export type WatchFeedReasonEnum = typeof WatchFeedReasonEnum[keyof typeof WatchFeedReasonEnum];
-
-
-    export const WatchFeedReasonEnum = {
-      EmbeddingPick: 'embedding_pick',
-      UnviewedRecent: 'unviewed_recent',
-      Recent: 'recent',
-    } as const;
-
-    /**
-     * Machine-readable reason an observation made the feed; the frontend renders the copy.
-     */
-    export interface WatchFeedReason {
-      /** Why the observation is in the feed: `embedding_pick` (the session reads like a failure, struggle, or revenue moment and ranks in its scanner's top fifth), `unviewed_recent` (new to you), `recent` (nothing special, newest available).
-       *
-       * * `embedding_pick` - Embedding Pick
-       * * `unviewed_recent` - Unviewed Recent
-       * * `recent` - Recent */
-      kind: WatchFeedReasonEnum;
-      /** What the session reads like, for `embedding_pick`.
-       *
-       * * `failure` - Failure
-       * * `struggle` - Struggle
-       * * `revenue` - Revenue */
-      watch_category?: WatchFeedCategoryEnum;
-      /**
-         * Other sessions from the same scanner in the window that describe nearly the same thing, for `embedding_pick`. The feed shows one session per group.
-         * @nullable
-         */
-      similar_count?: number | null;
-      /**
-         * Distinct people across the session's feed group in the window, for `embedding_pick`. A finding that reached more people ranks higher.
-         * @nullable
-         */
-      affected_people?: number | null;
-    }
-
-    /**
-     * One feed entry: the observation plus why it ranked.
-     */
-    export interface WatchFeedItem {
-      /** The observation, in the standard shape. */
-      observation: ReplayObservation;
-      /** Why this observation made the feed. */
-      reason: WatchFeedReason;
-    }
-
-    /**
-     * Response of GET /vision/scanners/watch_feed/.
-     */
-    export interface WatchFeedResponse {
-      /** Succeeded observations in the window worth watching, most interesting first, each carrying the reason it ranked. Every observation that carries a finding is returned; observations that carry none (`unviewed_recent`, `recent`) are returned only to pad a near-empty feed to three items, so a quiet window answers with a handful of rows rather than a full page of newest clips. */
-      results: WatchFeedItem[];
-      /** Whether a later page holds more ranked items. Request it with `offset` set past this page. */
-      has_more: boolean;
-      /** The time this feed ranks as of. Send it back with later pages. */
-      as_of: string;
     }
 
     export interface WebAnalyticsBotCondition {
@@ -129948,6 +130008,13 @@ export namespace Schemas {
     };
 
     export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesSummaryCreateParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -142364,7 +142431,7 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142610,7 +142677,7 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142673,7 +142740,7 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142736,7 +142803,7 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
@@ -142823,12 +142890,12 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
-     * Only observations the watch feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
+     * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
     };
 
-    export type VisionScannersWatchFeedRetrieveParams = {
+    export type VisionScannersHighlightFeedRetrieveParams = {
     /**
      * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
      */
@@ -142875,7 +142942,7 @@ export namespace Schemas {
      * * `experiment` - Experiment
      * @minLength 1
      */
-    scanner_type?: VisionScannersWatchFeedRetrieveScannerType;
+    scanner_type?: VisionScannersHighlightFeedRetrieveScannerType;
     /**
      * Comma-separated scanner tags to restrict the feed to. A team with many scanners uses these to follow one area without naming every scanner in it.
      * @minLength 1
@@ -142883,10 +142950,10 @@ export namespace Schemas {
     tags?: string;
     };
 
-    export type VisionScannersWatchFeedRetrieveScannerType = typeof VisionScannersWatchFeedRetrieveScannerType[keyof typeof VisionScannersWatchFeedRetrieveScannerType];
+    export type VisionScannersHighlightFeedRetrieveScannerType = typeof VisionScannersHighlightFeedRetrieveScannerType[keyof typeof VisionScannersHighlightFeedRetrieveScannerType];
 
 
-    export const VisionScannersWatchFeedRetrieveScannerType = {
+    export const VisionScannersHighlightFeedRetrieveScannerType = {
       Monitor: 'monitor',
       Classifier: 'classifier',
       Scorer: 'scorer',
