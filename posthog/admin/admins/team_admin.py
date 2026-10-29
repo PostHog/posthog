@@ -403,7 +403,7 @@ class TeamAdmin(admin.ModelAdmin):
             return "-"
         client = get_personhog_client()
         if client is None:
-            return format_html("<em>personhog client not configured</em>")
+            return mark_safe("<em>personhog client not configured</em>")
         try:
             resp = client.get_group_type_mappings_by_team_id(GetGroupTypeMappingsByTeamIdRequest(team_id=team.id))
             mappings_raw = sorted(
@@ -412,7 +412,7 @@ class TeamAdmin(admin.ModelAdmin):
             )
         except Exception as exc:
             logger.warning("admin_group_type_mappings_fetch_failed", team_id=team.id, error=str(exc))
-            return format_html(
+            return mark_safe(
                 '<p style="color: #856404; background: #fff3cd; border: 1px solid #ffc107; '
                 'padding: 8px 12px; border-radius: 4px; margin: 4px 0; font-size: 13px;">'
                 "Failed to fetch group type mappings from personhog</p>",
@@ -938,7 +938,7 @@ class TeamAdmin(admin.ModelAdmin):
                 state.suspended_at.isoformat(),
                 state.suspension_reason or "no reason recorded",
             )
-        return format_html("<em>Sending enabled</em>")
+        return mark_safe("<em>Sending enabled</em>")
 
     @admin.display(description="Email sending actions")
     def email_sending_suspension_actions(self, team: Team):
@@ -1260,7 +1260,7 @@ class TeamAdmin(admin.ModelAdmin):
                 '<span style="color:green"><strong>Enrolled</strong></span> since {}',
                 team.llm_gateway_enabled_at.isoformat(),
             )
-        return format_html("<em>Not enrolled</em>")
+        return mark_safe("<em>Not enrolled</em>")
 
     @admin.display(description="Wallet (AI gateway credits)")
     def ai_gateway_wallet(self, team: Team):
@@ -1292,7 +1292,7 @@ class TeamAdmin(admin.ModelAdmin):
             .order_by("-created_at")[:20]
         )
         if not entries:
-            return format_html("<em>(no top-ups recorded)</em>")
+            return mark_safe("<em>(no top-ups recorded)</em>")
         rows = format_html_join(
             "",
             "<tr><td>{}</td><td>{}</td><td>${}</td><td>{}</td></tr>",
@@ -1343,9 +1343,9 @@ class TeamAdmin(admin.ModelAdmin):
         except Exception as exc:
             return format_html("<em>(cache read failed: {})</em>", str(exc))
         if source == "absent":
-            return format_html("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
+            return mark_safe("<em>(no entry in Redis for this team; gateway denies until something writes one)</em>")
         if source == "redis_negative":
-            return format_html(
+            return mark_safe(
                 "<em>(negative-cache sentinel in Redis; gateway treats as default-deny "
                 "until the entry expires, default 24h)</em>"
             )

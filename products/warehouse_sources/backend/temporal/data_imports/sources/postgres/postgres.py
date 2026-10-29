@@ -596,32 +596,50 @@ def _is_server_starting_up_error(error: BaseException) -> bool:
     return any(substring in message for substring in _SERVER_STARTING_UP_ERROR_SUBSTRINGS)
 
 
+# A connect-time refusal some proxy/pooler layers in front of Postgres raise during their own brief
+# internal hiccup: a bare "FATAL:  service temporarily unavailable" with no SQLSTATE-mapped
+# subclass and none of the lifecycle wording above (it names no startup/shutdown/recovery state, and
+# no capacity limit like `_CONNECTION_LIMIT_ERROR_SUBSTRINGS`). Deterministic for the moment it's
+# raised but self-recovering on a fresh attempt once the outage clears, so it stays retryable rather
+# than disabling the sync.
+_SERVICE_UNAVAILABLE_ERROR_SUBSTRING = "service temporarily unavailable"
+
+
+def _is_service_unavailable_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return _SERVICE_UNAVAILABLE_ERROR_SUBSTRING in " ".join(str(arg) for arg in error.args).lower()
+
+
 def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
     A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, a connect-time
     connection-limit refusal (`_is_connection_limit_error`), a connect-time "server not ready"
-    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`), or
-    this worker process running out of file descriptors while opening the socket
+    refusal while the source is still starting up / recovering (`_is_server_starting_up_error`), a
+    proxy/pooler reporting a brief service outage (`_is_service_unavailable_error`), or this worker
+    process running out of file descriptors while opening the socket
     (`_is_too_many_open_files_error`). psycopg raises `ConnectionTimeout` ("connection timeout
     expired") only while *establishing* a connection, never mid-query, so on the import/read path
     it's transient: the source was reachable moments earlier in the same sync, and the reconnect
-    just needs retrying. Connection-limit refusals ("sorry, too many clients already", etc.) and
-    server-still-starting-up refusals ("the database system is not yet accepting connections", etc.)
-    are likewise transient — a slot frees the moment another connection closes, and the server
-    begins accepting connections once startup/recovery finishes. A file-descriptor exhaustion is the
-    same shape on our side of the wire: a descriptor frees the moment another connection/cursor in
-    this worker closes. Used by the read/sync connect retry (`_connect_with_dropped_retry`) and the
-    `offset_chunking` reconnect. The schema-discovery path retries drops, connection-limit refusals,
-    server-startup refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but
-    deliberately keeps failing fast on connect-time *timeouts*, where a timeout usually means an
-    unreachable host / unconfigured firewall (see `PostgresErrors`). A fast failure there is still
-    retried by the activity, because `get_retryable_errors` lists the timeout.
+    just needs retrying. Connection-limit refusals ("sorry, too many clients already", etc.),
+    server-still-starting-up refusals ("the database system is not yet accepting connections", etc.),
+    and bare service-unavailable refusals are likewise transient — a slot frees the moment another
+    connection closes, the server begins accepting connections once startup/recovery finishes, and a
+    proxy/pooler outage clears on its own. A file-descriptor exhaustion is the same shape on our side
+    of the wire: a descriptor frees the moment another connection/cursor in this worker closes. Used
+    by the read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking`
+    reconnect. The schema-discovery path retries drops, connection-limit refusals, server-startup
+    refusals, and recovery conflicts too (via `_is_dropped_or_connection_limit`) but deliberately
+    keeps failing fast on connect-time *timeouts*, where a timeout usually means an unreachable host
+    / unconfigured firewall (see `PostgresErrors`). A fast failure there is still retried by the
+    activity, because `get_retryable_errors` lists the timeout.
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
         or _is_server_starting_up_error(error)
+        or _is_service_unavailable_error(error)
         or _is_too_many_open_files_error(error)
         or isinstance(error, psycopg.errors.ConnectionTimeout)
     )
@@ -632,22 +650,24 @@ def _is_dropped_or_connection_limit(error: BaseException) -> bool:
 
     A mid-stream drop (`_is_connection_dropped_error`), a connection-limit refusal
     (`_is_connection_limit_error`), a "server not ready" refusal while the source is still starting
-    up / recovering (`_is_server_starting_up_error`), or a hot-standby recovery conflict
+    up / recovering (`_is_server_starting_up_error`), a proxy/pooler reporting a brief service outage
+    (`_is_service_unavailable_error`), or a hot-standby recovery conflict
     (`_is_recovery_conflict_error`). All are transient — a slot frees as connections close, a
     pooler-cached login failure clears once the upstream has capacity, the server begins accepting
-    connections once startup/recovery finishes, and a recovery conflict clears once the replica's WAL
-    replay moves past the conflicting row versions — so discovery retries them on a fresh connection
-    instead of failing the activity and surfacing captured error-tracking noise. The import read path
-    already retries the same recovery-conflict condition mid-stream (see `handle_recovery_conflict`);
-    discovery just needed the same treatment. Unlike the read/sync connect path
-    (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is deliberately excluded: during
-    discovery a timeout usually means a now-unreachable host, which should fail fast rather than burn
-    the retry budget.
+    connections once startup/recovery finishes, a proxy/pooler outage clears on its own, and a
+    recovery conflict clears once the replica's WAL replay moves past the conflicting row versions —
+    so discovery retries them on a fresh connection instead of failing the activity and surfacing
+    captured error-tracking noise. The import read path already retries the same recovery-conflict
+    condition mid-stream (see `handle_recovery_conflict`); discovery just needed the same treatment.
+    Unlike the read/sync connect path (`_is_dropped_or_connect_timeout`), a connect-time *timeout* is
+    deliberately excluded: during discovery a timeout usually means a now-unreachable host, which
+    should fail fast rather than burn the retry budget.
     """
     return (
         _is_connection_dropped_error(error)
         or _is_connection_limit_error(error)
         or _is_server_starting_up_error(error)
+        or _is_service_unavailable_error(error)
         or _is_recovery_conflict_error(error)
     )
 

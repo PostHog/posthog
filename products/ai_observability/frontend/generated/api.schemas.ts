@@ -1405,6 +1405,13 @@ export interface TraceTimelineRowApi {
     hasError: boolean
 }
 
+export interface TraceGitApi {
+    /** The git branch checked out when the trace ran. */
+    branch: string
+    /** The repository as owner/name, or null when the branch's event has none. */
+    repo: string | null
+}
+
 export interface TraceApi {
     id: string
     name: string | null
@@ -1420,6 +1427,8 @@ export interface TraceApi {
     threadNodeIds: string[]
     defaultNodeId: string
     nodeIdsByAlias: TraceApiNodeIdsByAlias
+    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+    git: TraceGitApi | null
 }
 
 export interface TraceClusterApi {
@@ -1462,13 +1471,44 @@ export interface TraceEvaluationResultApi {
     outcome: TraceEvaluationResultOutcomeEnumApi
     /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
     label: string
+    /** The numeric result of a numeric evaluation, null for every other type. */
+    score: number | null
     reasoning: string | null
     timestamp: string
     isBackfill: boolean
 }
 
+export type TraceNodeEvaluationRollupOutcomeEnumApi =
+    (typeof TraceNodeEvaluationRollupOutcomeEnumApi)[keyof typeof TraceNodeEvaluationRollupOutcomeEnumApi]
+
+export const TraceNodeEvaluationRollupOutcomeEnumApi = {
+    Pass: 'pass',
+    Fail: 'fail',
+    Unrated: 'unrated',
+} as const
+
+export interface TraceNodeEvaluationRollupApi {
+    /** The tree node the results grade. */
+    nodeId: string
+    /** Fail if any evaluation fails on the node, else pass if any passes, else unrated. */
+    outcome: TraceNodeEvaluationRollupOutcomeEnumApi
+}
+
+/**
+ * Counts the latest run of each evaluation on each node, by when the run started, so re-runs and backfills
+ * count once. Inconclusive results count as unrated. Computed over the results returned, at most 250.
+ */
+export interface TraceEvaluationSummaryApi {
+    passed: number
+    failed: number
+    unrated: number
+    /** One entry per node with results, sorted by node id. */
+    nodes: TraceNodeEvaluationRollupApi[]
+}
+
 export interface TraceEvaluationResultsApi {
     results: TraceEvaluationResultApi[]
+    summary: TraceEvaluationSummaryApi
 }
 
 export interface TraceNodeMetadataApi {

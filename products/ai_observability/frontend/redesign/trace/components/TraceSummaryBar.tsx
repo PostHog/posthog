@@ -4,6 +4,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { TraceNodeStatsApi } from '../../../generated/api.schemas'
 import { LabeledLink } from '../types'
+import { EvalsChip, EvalsChipProps } from './EvalsChip'
+import { GitBranchChip, GitBranchChipProps } from './GitBranchChip'
 import { NodeStatsLine } from './NodeStatsLine'
 import { PersonChip } from './PersonChip'
 import { TraceClustersChip, TraceClustersChipProps } from './TraceClustersChip'
@@ -15,9 +17,19 @@ export interface TraceSummaryBarProps {
     person: LabeledLink | null
     totals: TraceNodeStatsApi
     clusters?: TraceClustersChipProps | null
+    evals?: EvalsChipProps | null
+    git?: GitBranchChipProps | null
 }
 
-export function TraceSummaryBar({ traceId, timestamp, person, totals, clusters }: TraceSummaryBarProps): JSX.Element {
+export function TraceSummaryBar({
+    traceId,
+    timestamp,
+    person,
+    totals,
+    clusters = null,
+    evals = null,
+    git = null,
+}: TraceSummaryBarProps): JSX.Element {
     return (
         <div className="@container">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -33,6 +45,8 @@ export function TraceSummaryBar({ traceId, timestamp, person, totals, clusters }
                     </LemonTag>
                     {person ? <PersonChip person={person} /> : null}
                     {clusters ? <TraceClustersChip {...clusters} /> : null}
+                    {evals ? <EvalsChip {...evals} /> : null}
+                    {git ? <GitBranchChip {...git} /> : null}
                 </div>
                 <NodeStatsLine stats={totals} className="@2xl:ml-auto" />
             </div>

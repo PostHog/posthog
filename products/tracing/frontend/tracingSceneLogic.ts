@@ -693,7 +693,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 hasChanges = true
             }
 
-            // `view` spans two states: 'operations' round-trips the scene tab, 'spans'/absent
+            // `view` spans two states: 'operations' round-trips the scene tab, 'spans'/'traces'/absent
             // round-trips the viewMode filter. While the URL says operations the viewMode filter
             // is left untouched — it has no effect on that view and shouldn't be reset under it.
             // The whole operations leg is flag-gated on BOTH the read side (here) and the write
@@ -705,7 +705,10 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 actions.setActiveTracingTab(operationsFromUrl ? 'operations' : 'traces')
             }
             if (!operationsFromUrl) {
-                const viewModeFromUrl = searchParams.view === 'spans' ? 'spans' : DEFAULT_VIEW_MODE
+                const viewModeFromUrl: TracingViewMode =
+                    searchParams.view === 'spans' || searchParams.view === 'traces'
+                        ? searchParams.view
+                        : DEFAULT_VIEW_MODE
                 if (viewModeFromUrl !== values.filters.viewMode) {
                     filtersFromUrl.viewMode = viewModeFromUrl
                     hasChanges = true

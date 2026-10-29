@@ -3186,6 +3186,27 @@ describe('maxThreadLogic', () => {
             expect(visibleProposal()).toBe('new')
         })
 
+        it('marks the rest of a pending batch as rejected when the user rejects one card with feedback', async () => {
+            const streamSpy = mockStream()
+            logic.actions.setConversation(MOCK_CONVERSATION)
+            for (const id of ['first', 'second', 'third']) {
+                logic.actions.addPendingApprovalData(approval(id, 'pending'))
+            }
+            logic.actions.setResolvedApprovalStatus('third', 'approved')
+            logic.actions.setPendingApproval('first')
+
+            await expectLogic(logic, () => {
+                logic.actions.continueAfterRejection('first', 'monthly')
+            }).toDispatchActions(['autoRejectPendingApprovals'])
+
+            expect(logic.values.resolvedApprovalStatuses['second']?.status).toBe('auto_rejected')
+            expect(logic.values.resolvedApprovalStatuses['third']?.status).toBe('approved')
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ resume_payload: expect.objectContaining({ action: 'reject' }) }),
+                expect.any(Object)
+            )
+        })
+
         it('follows the server for approvals it returns and selects none at turn end without a selection', () => {
             logic.actions.addPendingApprovalData(approval('other', 'pending'))
             logic.actions.completeThreadGeneration()

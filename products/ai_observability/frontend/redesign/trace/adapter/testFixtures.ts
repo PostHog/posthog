@@ -4,6 +4,7 @@ import type {
     TraceApi,
     TraceClusterApi,
     TraceEvaluationResultApi,
+    TraceEvaluationResultsApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceNodeIOKeysApi,
@@ -122,6 +123,7 @@ export function makeTraceResource(overrides: Partial<TraceApi> = {}): TraceApi {
         threadNodeIds: ['gen-2'],
         defaultNodeId: 'trace-1',
         nodeIdsByAlias: {},
+        git: null,
         ...overrides,
     }
 }
@@ -134,6 +136,7 @@ export function makeEvaluationResult(overrides: Partial<TraceEvaluationResultApi
         targetNodeId: 'trace-1',
         outcome: 'pass',
         label: 'True',
+        score: null,
         reasoning: 'Direct answer.',
         timestamp: '2026-09-01T10:16:00Z',
         isBackfill: false,
@@ -153,4 +156,8 @@ export function makeTraceCluster(overrides: Partial<TraceClusterApi> = {}): Trac
         isOutlier: false,
         ...overrides,
     }
+}
+
+export function makeEvaluationResults(overrides: Partial<TraceEvaluationResultsApi> = {}): TraceEvaluationResultsApi {
+    return { results: [], summary: { passed: 0, failed: 0, unrated: 0, nodes: [] }, ...overrides }
 }

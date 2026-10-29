@@ -8,7 +8,10 @@ logger = logging.getLogger(__name__)
 
 
 class CustomerIOAPIError(Exception):
-    pass
+    def __init__(self, message: str, status_code: int | None = None):
+        super().__init__(message)
+        # The HTTP status Customer.io returned, or None when the request got no response.
+        self.status_code = status_code
 
 
 class CustomerIOClient:
@@ -58,7 +61,7 @@ class CustomerIOClient:
                 logger.exception(f"API request failed. {error_msg}. {status_info}")
             else:
                 logger.exception(f"API request failed. {error_msg}")
-            raise CustomerIOAPIError(error_msg)
+            raise CustomerIOAPIError(error_msg, status_code=e.response.status_code if e.response is not None else None)
         except requests.exceptions.RequestException as e:
             raise CustomerIOAPIError(f"Request failed: {e}")
 

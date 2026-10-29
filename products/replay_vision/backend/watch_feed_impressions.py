@@ -1,4 +1,4 @@
-"""Per-user counts of how often What to watch showed each observation."""
+"""Per-user counts of how often the Highlights feed showed each observation."""
 
 from collections.abc import Sequence
 from datetime import datetime

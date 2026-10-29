@@ -661,6 +661,40 @@ class TestMSSQLSourceRetryableErrors:
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql shape for SQL Server error 1105 during an ORDER BY sort spill into tempdb.
+            "(1105, b\"Could not allocate space for object 'dbo.SORT temporary run storage:  "
+            "140760200970240' in database 'tempdb' because the 'PRIMARY' filegroup is full due to "
+            'lack of storage space or database files reaching the maximum allowed size.")',
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
+            "'SECONDARY' filegroup is full due to lack of storage space or database files reaching "
+            "the maximum allowed size.",
+        ],
+    )
+    def test_tempdb_storage_exhausted_is_retryable(self, error_msg):
+        retryable = MSSQLSource().get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable), error_msg
+
+    def test_tempdb_storage_exhausted_is_not_non_retryable(self):
+        error_msg = (
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
+            "'PRIMARY' filegroup is full due to lack of storage space."
+        )
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    def test_tempdb_storage_exhausted_has_a_friendly_exhausted_message(self):
+        exhausted = MSSQLSource().get_retry_exhausted_errors()
+        error_msg = (
+            "Could not allocate space for object 'dbo.SORT temporary run storage' in database "
+            "'tempdb' because the 'PRIMARY' filegroup is full due to lack of storage space."
+        )
+        matches = [message for pattern, message in exhausted.items() if pattern in error_msg]
+        assert matches, error_msg
+        assert "still enabled" in matches[0]
+
 
 class TestMSSQLSourceValidateCredentials:
     @pytest.fixture
