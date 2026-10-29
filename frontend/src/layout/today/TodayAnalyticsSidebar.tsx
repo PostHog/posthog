@@ -8,7 +8,7 @@ import { Logomark } from 'lib/brand'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
 import { AnalyticsPinButton } from 'scenes/analytics/AnalyticsPinButton'
-import { analyticsPinnedLogic, pinKey } from 'scenes/analytics/analyticsPinnedLogic'
+import { analyticsPinnedLogic } from 'scenes/analytics/analyticsPinnedLogic'
 import { AnalyticsSpaceGlyph } from 'scenes/analytics/AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from 'scenes/analytics/AnalyticsTypeIcon'
 import { ANALYTICS_TYPE_INFO, AnalyticsType } from 'scenes/analytics/analyticsUtils'
@@ -80,7 +80,7 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { collapsedSections, fromPostHog, recentAnalytics } = useValues(todayAnalyticsLogic)
     const { toggleSection } = useActions(todayAnalyticsLogic)
-    const { pinnedAnalytics, pinnedShortcutIds } = useValues(analyticsPinnedLogic)
+    const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const isOpen = (section: TodayAnalyticsSection): boolean => !collapsedSections.includes(section)
@@ -213,7 +213,6 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                                         dataAttr="analytics-sidebar-recent-pin"
                                     />
                                 }
-                                actionVisible={pinnedShortcutIds.has(pinKey(item.type, item.id))}
                                 dataAttr="analytics-sidebar-recent"
                             />
                         ))}
