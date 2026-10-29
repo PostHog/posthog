@@ -1607,7 +1607,7 @@ class TestRunEvaluationWorkflow:
             patch(
                 "posthog.temporal.ai_observability.evaluation_llm_judge.posthoganalytics.feature_enabled",
                 return_value=flag_enabled,
-            ),
+            ) as feature_enabled,
             patch(
                 "products.ai_observability.backend.ai_blobs.object_storage.get_presigned_url",
                 return_value="https://signed",
@@ -1621,6 +1621,9 @@ class TestRunEvaluationWorkflow:
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 
         content = mock_client.complete.call_args.args[0].messages[0]["content"]
+        if "include_media" not in evaluation_config:
+            # Team ids repeat across regions, so the flag is checked against the project uuid.
+            assert feature_enabled.call_args.kwargs["groups"] == {"project": str(team.uuid)}
         if attaches_image:
             assert ImagePart(mime_type="image/jpeg", url="https://signed") in content
             assert "user: [image 1] What does this chart show?" in content[-1]["text"]
@@ -4718,6 +4721,7 @@ class TestJudgePromptAssembly:
                 "posthog.temporal.ai_observability.evaluation_llm_judge.posthoganalytics.feature_enabled",
                 return_value=True,
             ),
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge._project_uuid", return_value="uuid"),
         ):
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 

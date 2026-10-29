@@ -2,6 +2,7 @@ import json
 import math
 from dataclasses import dataclass, replace
 from datetime import timedelta
+from functools import lru_cache
 from typing import Annotated, Any, Literal
 
 import structlog
@@ -24,6 +25,7 @@ from posthog.llm.system_one import (
     ScoreAnswer,
     ScoreQuestion,
 )
+from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_errors import (
     require_user_error_spec,
     terminal_user_error_result,
@@ -616,18 +618,27 @@ def _build_user_prompt(input_raw: Any, output_raw: Any, tools_data: str, *, imag
     return sanitize_surrogates(f"Input: {context}{output_section}")
 
 
+@lru_cache(maxsize=4096)
+def _project_uuid(team_id: int) -> str | None:
+    project_uuid = Team.objects.filter(pk=team_id).values_list("uuid", flat=True).first()
+    return str(project_uuid) if project_uuid else None
+
+
 def _judge_sees_images(evaluation: dict[str, Any]) -> bool:
     if evaluation["evaluation_config"].get("include_media") is False:
         return False
-    team_id = str(evaluation["team_id"])
     # Local evaluation keeps the check off the network. An inconclusive result means off.
     try:
+        # Team ids repeat across regions and self-hosted instances, so the flag targets the project uuid.
+        project_uuid = _project_uuid(evaluation["team_id"])
+        if project_uuid is None:
+            return False
         return bool(
             posthoganalytics.feature_enabled(
                 JUDGE_IMAGES_FLAG,
-                team_id,
-                groups={"project": team_id},
-                group_properties={"project": {"id": team_id}},
+                project_uuid,
+                groups={"project": project_uuid},
+                group_properties={"project": {"id": str(evaluation["team_id"]), "uuid": project_uuid}},
                 only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
