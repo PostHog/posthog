@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { dirname, relative } from 'node:path'
+import { dirname, isAbsolute, relative } from 'node:path'
 
 import { contentHash } from './container'
 import { decodeUtf8 } from './json'
@@ -120,8 +120,14 @@ function cssRemovalRange(content: string): [number, number] | undefined {
         : range
 }
 
-// CSS bundles with maps under the given roots, so their maps are cleaned up too.
-export function cssTargets(files: string[], publicPathPrefix: string | undefined, warnings: string[]): CleanupTarget[] {
+// CSS bundles with maps under the given roots, so their maps are cleaned up too. A map that an
+// ignore glob excludes, or a JSON file that isn't a sourcemap, is left alone.
+export function cssTargets(
+    files: string[],
+    publicPathPrefix: string | undefined,
+    warnings: string[],
+    ignored: (mapPath: string) => boolean
+): CleanupTarget[] {
     const targets: CleanupTarget[] = []
     for (const file of files.filter((path) => path.endsWith('.css'))) {
         let source: string
@@ -133,13 +139,16 @@ export function cssTargets(files: string[], publicPathPrefix: string | undefined
             warnings.push(`Skipping sourcemap cleanup for ${file}: its sourcemap reference can't be read.`)
             continue
         }
-        if (mapPath === undefined) {
+        if (mapPath === undefined || ignored(mapPath)) {
             continue
         }
         let map
         try {
             map = loadMapContent(decodeUtf8(readFileSync(mapPath)))
         } catch {
+            continue
+        }
+        if (!map.fields.has('mappings') && !map.fields.has('sections')) {
             continue
         }
         targets.push({
@@ -165,7 +174,12 @@ export function cleanUp(targets: CleanupTarget[], roots: string[]): CleanupResul
     const maps = new Map<string, Set<string>>()
     for (const target of targets) {
         const canonicalMap = existsSync(target.mapPath) ? realpathSync(target.mapPath) : target.mapPath
-        if (!canonicalRoots.some((root) => !relative(root, canonicalMap).startsWith('..'))) {
+        // On Windows, `relative` returns an absolute path for a file on another drive.
+        const inside = (root: string): boolean => {
+            const within = relative(root, canonicalMap)
+            return !within.startsWith('..') && !isAbsolute(within)
+        }
+        if (!canonicalRoots.some(inside)) {
             warnings.push(
                 `Skipping sourcemap cleanup for ${target.mapPath} because it resolves outside the selected paths.`
             )
