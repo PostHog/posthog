@@ -402,6 +402,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     def _disabled_email_sub(self) -> int:
         return Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2031,6 +2032,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # after the immediate SUBSCRIPTION_CHANGE confirmation.
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2076,6 +2078,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             kwargs["until_date"] = timezone.now() + timedelta(days=kwargs["until_date"])
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2138,6 +2141,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         # candidate-rrule check honors the new `until_date` and lets it through.
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
@@ -2193,6 +2197,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     ):
         subscription = Subscription.objects.create(
             team=self.team,
+            created_by=self.user,
             target_type="email",
             target_value="vasco@posthog.com",
             frequency="daily",
