@@ -5,14 +5,15 @@ judge a Renovate PR, this module proves the shape of the update from facts the P
 
 - GitHub attests the author, the head branch and the PR's one commit.
 - The manifests change only the version specifiers of dependencies that they already declare.
-- Every version change, and every changed reference to a locked version, is a minor or patch
-  update, and never a minor update below 1.0.
-- The lockfile adds no package that it did not already lock, never points a dependency at another
-  package, and resolves every new version from the registry by integrity hash alone.
+- Every changed specifier and every new locked version is a minor or patch update, and never a
+  minor update below 1.0.
+- The lockfile adds no package that it did not already lock, keeps every retained entry as it was,
+  and resolves every new version from the registry by integrity hash alone.
 
-Whether each new version is safe to install is pnpm's check, so the lockfile's `pnpm-workspace.yaml`
-must set `minimumReleaseAge` and `trustPolicy: no-downgrade`. Python updates are out of scope:
-`uv sync --frozen` checks none of that, so they need a human. Every check fails closed.
+The lockfile's dependency edges are pnpm's output on Renovate's commit, so this module does not
+walk them. Whether each new version is safe to install is pnpm's check, so the lockfile's
+`pnpm-workspace.yaml` must set `minimumReleaseAge` and `trustPolicy: no-downgrade`. Python updates
+are out of scope: `uv sync --frozen` checks none of that, so they need a human. Every check fails closed.
 """
 
 from __future__ import annotations
@@ -131,73 +132,6 @@ def _without(document: Mapping[str, Any], keys: Iterable[str]) -> dict[str, Any]
     return {key: value for key, value in document.items() if key not in excluded}
 
 
-def _npm_range_map_problems(path: str, field: str, base: Any, head: Any) -> list[str]:
-    if not isinstance(base, dict) or not isinstance(head, dict):
-        return [f"{path} changes the shape of {field}."]
-    if set(base) != set(head):
-        return [f"{path} adds or removes an entry in {field}."]
-    return [
-        f"{path} sets {field}.{name} to something other than an exact, caret or tilde version."
-        for name, value in head.items()
-        if value != base[name] and not (isinstance(value, str) and _NPM_RANGE_RE.match(value))
-    ]
-
-
-def package_json_problems(path: str, base_text: str, head_text: str) -> list[str]:
-    base, head = json.loads(base_text), json.loads(head_text)
-    if not isinstance(base, dict) or not isinstance(head, dict):
-        return [f"{path} is not a JSON object."]
-    if _without(base, _NPM_DEPENDENCY_FIELDS) != _without(head, _NPM_DEPENDENCY_FIELDS):
-        return [f"{path} changes fields other than dependency versions."]
-    problems = []
-    for field in _NPM_DEPENDENCY_FIELDS:
-        if field in base or field in head:
-            problems.extend(_npm_range_map_problems(path, field, base.get(field, {}), head.get(field, {})))
-    return problems
-
-
-def _excluded_name_pattern(entry: str) -> str:
-    """The package name pattern of an exclude entry such as ``semver@5.7.2 || 6.3.1`` or ``@posthog/*``."""
-    version_at = entry.find("@", 1)
-    return entry[:version_at] if version_at > 0 else entry
-
-
-def pnpm_policy_problems(workspace_path: str, base_text: str | None, changes: Iterable[VersionChange]) -> list[str]:
-    """The merge-base settings that make pnpm check each new version. An excluded package's update is refused."""
-    settings = yaml.safe_load(base_text) if base_text is not None else None
-    if not (
-        isinstance(settings, dict)
-        and type(settings.get("minimumReleaseAge")) is int
-        and settings["minimumReleaseAge"] > 0
-        and settings.get("minimumReleaseAgeStrict") is not False
-        and settings.get("trustPolicy") == "no-downgrade"
-        and settings.get("dangerouslyAllowAllBuilds") is not True
-    ):
-        return [
-            f"{workspace_path} does not make pnpm enforce a strict minimumReleaseAge, trustPolicy: no-downgrade "
-            "and its default refusal of dependency install scripts, so nothing checks the new versions."
-        ]
-    excluded = [
-        _excluded_name_pattern(str(entry))
-        for key in ("minimumReleaseAgeExclude", "trustPolicyExclude")
-        for entry in settings.get(key) or []
-    ]
-    return [
-        f"{workspace_path} exempts {change.name} from the release age or trust policy, so pnpm does not check it."
-        for change in changes
-        if any(fnmatchcase(change.name, pattern) for pattern in excluded)
-    ]
-
-
-def pnpm_workspace_problems(path: str, base_text: str, head_text: str) -> list[str]:
-    base, head = yaml.safe_load(base_text) or {}, yaml.safe_load(head_text) or {}
-    if not isinstance(base, dict) or not isinstance(head, dict):
-        return [f"{path} is not a YAML mapping."]
-    if _without(base, ("catalog",)) != _without(head, ("catalog",)):
-        return [f"{path} changes settings other than catalog versions."]
-    return _npm_range_map_problems(path, "catalog", base.get("catalog", {}), head.get("catalog", {}))
-
-
 def _numeric_version(version: str) -> tuple[int, ...]:
     match = _NUMERIC_VERSION_RE.match(version)
     return tuple(int(part or 0) for part in match.groups()) if match else ()
@@ -227,6 +161,89 @@ def update_refusal(change: VersionChange) -> str | None:
     if "-" in change.new_version:
         return "a prerelease"
     return None
+
+
+def _npm_range_map_problems(path: str, field: str, base: Any, head: Any) -> list[str]:
+    if not isinstance(base, dict) or not isinstance(head, dict):
+        return [f"{path} changes the shape of {field}."]
+    if set(base) != set(head):
+        return [f"{path} adds or removes an entry in {field}."]
+    problems = []
+    for name, value in head.items():
+        if value == base[name]:
+            continue
+        if not (isinstance(value, str) and _NPM_RANGE_RE.match(value)):
+            problems.append(f"{path} sets {field}.{name} to something other than an exact, caret or tilde version.")
+        elif refusal := update_refusal(
+            VersionChange(name=name, old_version=str(base[name]).lstrip("^~"), new_version=value.lstrip("^~"))
+        ):
+            problems.append(f"{path} moves {field}.{name} from {base[name]} to {value}, {refusal}.")
+    return problems
+
+
+def package_json_problems(path: str, base_text: str, head_text: str) -> list[str]:
+    base, head = json.loads(base_text), json.loads(head_text)
+    if not isinstance(base, dict) or not isinstance(head, dict):
+        return [f"{path} is not a JSON object."]
+    if _without(base, _NPM_DEPENDENCY_FIELDS) != _without(head, _NPM_DEPENDENCY_FIELDS):
+        return [f"{path} changes fields other than dependency versions."]
+    problems = []
+    for field in _NPM_DEPENDENCY_FIELDS:
+        if field in base or field in head:
+            problems.extend(_npm_range_map_problems(path, field, base.get(field, {}), head.get(field, {})))
+    return problems
+
+
+def _excluded_name_pattern(entry: str) -> str:
+    """The package name pattern of an exclude entry such as ``semver@5.7.2 || 6.3.1`` or ``@posthog/*``."""
+    version_at = entry.find("@", 1)
+    return entry[:version_at] if version_at > 0 else entry
+
+
+def pnpm_policy_problems(workspace_path: str, base_text: str | None, changes: Iterable[VersionChange]) -> list[str]:
+    """The merge-base settings that make pnpm check each new version.
+
+    An update is refused for a package that pnpm exempts from a check, or one whose install scripts
+    pnpm runs.
+    """
+    settings = yaml.safe_load(base_text) if base_text is not None else None
+    if not (
+        isinstance(settings, dict)
+        and type(settings.get("minimumReleaseAge")) is int
+        and settings["minimumReleaseAge"] > 0
+        and settings.get("minimumReleaseAgeStrict") is not False
+        and settings.get("trustPolicy") == "no-downgrade"
+        and "trustPolicyIgnoreAfter" not in settings
+        and settings.get("dangerouslyAllowAllBuilds") is not True
+    ):
+        return [
+            f"{workspace_path} does not make pnpm enforce a strict minimumReleaseAge, trustPolicy: no-downgrade "
+            "and its default refusal of dependency install scripts, so nothing checks the new versions."
+        ]
+    excluded = [
+        _excluded_name_pattern(str(entry))
+        for key in ("minimumReleaseAgeExclude", "trustPolicyExclude")
+        for entry in settings.get(key) or []
+    ]
+    allow_builds = settings.get("allowBuilds") or {}
+    built = {name for name, allowed in allow_builds.items() if allowed} if isinstance(allow_builds, dict) else set()
+    built.update(str(name) for name in settings.get("onlyBuiltDependencies") or [])
+    problems = []
+    for change in changes:
+        if any(fnmatchcase(change.name, pattern) for pattern in excluded):
+            problems.append(f"{workspace_path} exempts {change.name} from the release age or trust policy.")
+        elif change.name in built:
+            problems.append(f"{workspace_path} lets {change.name} run install scripts.")
+    return problems
+
+
+def pnpm_workspace_problems(path: str, base_text: str, head_text: str) -> list[str]:
+    base, head = yaml.safe_load(base_text) or {}, yaml.safe_load(head_text) or {}
+    if not isinstance(base, dict) or not isinstance(head, dict):
+        return [f"{path} is not a YAML mapping."]
+    if _without(base, ("catalog",)) != _without(head, ("catalog",)):
+        return [f"{path} changes settings other than catalog versions."]
+    return _npm_range_map_problems(path, "catalog", base.get("catalog", {}), head.get("catalog", {}))
 
 
 def _replaced_version(base_versions: list[str], *, kept: set[str], new_version: str) -> str:
@@ -266,8 +283,8 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
     problems: list[str] = []
     for key, entry in head_packages.items():
         if key in base_packages:
-            if (entry or {}).get("resolution") != (base_packages[key] or {}).get("resolution"):
-                problems.append(f"{path} changes the resolution of {key} without changing its version.")
+            if entry != base_packages[key]:
+                problems.append(f"{path} changes the entry of {key} without changing its version.")
             continue
         parsed = _split_pnpm_key(key)
         if parsed is None:
@@ -277,8 +294,9 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
         if name not in base_versions:
             problems.append(f"{path} adds {name}, which it did not lock before.")
             continue
-        # A tarball, a git repository or a directory carries more keys than the integrity hash.
-        if set((entry or {}).get("resolution") or {}) != {"integrity"}:
+        # A tarball, a git repository or a directory carries more keys than the integrity hash, and a
+        # `version` field overrides the version in the key.
+        if set((entry or {}).get("resolution") or {}) != {"integrity"} or "version" in (entry or {}):
             problems.append(f"{path} resolves {name}@{version} from somewhere other than the registry.")
             continue
         changes.append(
@@ -292,140 +310,7 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
                 new_version=version,
             )
         )
-    return changes, [*problems, *_pnpm_reference_problems(path, base, head)]
-
-
-def _pnpm_reference_target(name: str, reference: Any, *, alias: bool) -> LockedPackage | None:
-    """The package and version that a lockfile reference to ``name`` selects, or None for ``link:`` or ``file:``.
-
-    A reference is a version with an optional peer suffix, ``1.2.0(react@18.3.1)``. With ``alias``,
-    it may also name another locked package, ``web-vitals@6.2.1``, as an ``npm:`` dependency locks.
-    """
-    if not isinstance(reference, str):
-        return None
-    target = reference.split("(", 1)[0]
-    if alias and (parsed := _split_pnpm_key(target)) is not None:
-        return parsed
-    return LockedPackage(name=name, version=target) if _VERSION_RE.match(target) else None
-
-
-def _pnpm_reference_problem(
-    path: str,
-    owner: str,
-    name: str,
-    base_reference: Any,
-    reference: Any,
-    packages: Mapping[str, Any],
-    *,
-    alias: bool = False,
-) -> str | None:
-    """A changed reference must select a locked package, the same package as before, in the same release line.
-
-    A reference with no previous one comes from a new version's snapshot, and an alias there
-    substitutes a package that no check has seen.
-    """
-    target = _pnpm_reference_target(name, reference, alias=alias)
-    if target is None or f"{target.name}@{target.version}" not in packages:
-        return f"{path} points {owner} at {name} through something other than a locked version."
-    previous = _pnpm_reference_target(name, base_reference, alias=alias)
-    if (previous.name if previous else name) != target.name:
-        return f"{path} points {owner} at another package for {name}."
-    if previous is None:
-        return None
-    if refusal := update_refusal(
-        VersionChange(name=target.name, old_version=previous.version, new_version=target.version)
-    ):
-        return f"{path} moves {owner} from {name} {previous.version} to {target.version}, {refusal}."
-    return None
-
-
-def _pnpm_specifier_map_problems(
-    path: str, owner: str, base: Mapping[str, Any], head: Mapping[str, Any], packages: Mapping[str, Any]
-) -> list[str]:
-    if set(base) != set(head):
-        return [f"{path} adds or removes a dependency of {owner}."]
-    problems = []
-    for name, entry in head.items():
-        if entry == base[name]:
-            continue
-        if not isinstance(entry, dict) or set(entry) != {"specifier", "version"}:
-            problems.append(f"{path} points {owner} at {name} through something other than a locked version.")
-            continue
-        base_entry = base[name] if isinstance(base[name], dict) else {}
-        base_reference = base_entry.get("version")
-        target = _pnpm_reference_target(name, entry["version"], alias=False)
-        # A frozen install only checks that the manifest and the lockfile specifiers agree, so a new
-        # specifier outside the newly locked version's release line lets the next relock leave it.
-        if entry["specifier"] != base_entry.get("specifier") and (
-            target is None
-            or target == _pnpm_reference_target(name, base_reference, alias=False)
-            or _release_line(str(entry["specifier"]).lstrip("^~")) != _release_line(target.version)
-        ):
-            problems.append(f"{path} changes the specifier of {name} in {owner} beyond a newly locked version.")
-            continue
-        if problem := _pnpm_reference_problem(path, owner, name, base_reference, entry["version"], packages):
-            problems.append(problem)
-    return problems
-
-
-_PNPM_SNAPSHOT_FIELDS = ("dependencies", "optionalDependencies")
-
-
-def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[str, Any]) -> list[str]:
-    """Every changed reference in ``importers``, ``catalogs`` and ``snapshots`` must select a locked package."""
-    packages = head.get("packages") or {}
-    base_importers, head_importers = base.get("importers") or {}, head.get("importers") or {}
-    base_catalogs, head_catalogs = base.get("catalogs") or {}, head.get("catalogs") or {}
-    if set(base_importers) != set(head_importers) or set(base_catalogs) != set(head_catalogs):
-        return [f"{path} adds or removes a workspace package or a catalog."]
-    problems = []
-    for importer, head_entry in head_importers.items():
-        base_entry, head_entry = base_importers[importer] or {}, head_entry or {}
-        if _without(base_entry, _NPM_DEPENDENCY_FIELDS) != _without(head_entry, _NPM_DEPENDENCY_FIELDS):
-            problems.append(f"{path} changes {importer} beyond its dependency versions.")
-            continue
-        for field in _NPM_DEPENDENCY_FIELDS:
-            problems.extend(
-                _pnpm_specifier_map_problems(
-                    path, importer, base_entry.get(field) or {}, head_entry.get(field) or {}, packages
-                )
-            )
-    for catalog, entries in head_catalogs.items():
-        problems.extend(
-            _pnpm_specifier_map_problems(
-                path, f"catalog {catalog}", base_catalogs[catalog] or {}, entries or {}, packages
-            )
-        )
-
-    base_snapshots = base.get("snapshots") or {}
-    # A snapshot key carries the resolved peers, so a peer change renames the snapshot of a version
-    # that the base already locked. That version's dependencies are compared like an unchanged key's.
-    base_by_version: dict[str, Any] = {}
-    for key, snapshot in base_snapshots.items():
-        base_by_version.setdefault(key.split("(", 1)[0], snapshot or {})
-    for key, snapshot in (head.get("snapshots") or {}).items():
-        unsuffixed = key.split("(", 1)[0]
-        parsed = _split_pnpm_key(unsuffixed)
-        if parsed is None or unsuffixed not in packages:
-            problems.append(f"{path} adds a snapshot that matches no locked package.")
-            continue
-        owner = f"the snapshot of {parsed.name}"
-        previous = base_snapshots.get(key) or base_by_version.get(unsuffixed)
-        for field in _PNPM_SNAPSHOT_FIELDS:
-            references = (snapshot or {}).get(field) or {}
-            base_references = (previous or {}).get(field) or {}
-            if previous is not None and set(references) != set(base_references):
-                problems.append(f"{path} adds or removes a dependency of {owner} without changing its version.")
-                continue
-            for name, reference in references.items():
-                base_reference = base_references.get(name)
-                if reference != base_reference and (
-                    problem := _pnpm_reference_problem(
-                        path, owner, name, base_reference, reference, packages, alias=True
-                    )
-                ):
-                    problems.append(problem)
-    return problems
+    return changes, problems
 
 
 def verify_renovate_update(
