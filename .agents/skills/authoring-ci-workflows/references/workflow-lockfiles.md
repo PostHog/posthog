@@ -9,6 +9,13 @@ Renovate cannot regenerate the lockfile.
 ## Update and verify
 
 Use the `gh-actions-lock` version pinned in `.github/workflows/ci-lint-workflows.yml`.
+CI checks that release's `linux-amd64` binary against `LOCK_VERIFIER_SHA256`.
+When you bump the version, set `LOCK_VERIFIER_SHA256` to the bare hex this command prints:
+
+```sh
+gh release view <tag> --repo github/gh-actions-lock --json assets --jq '.assets[] | select(.name == "linux-amd64") | .digest | ltrimstr("sha256:")'
+```
+
 After changing an onboarded workflow's action references, regenerate and verify only that workflow:
 
 ```sh

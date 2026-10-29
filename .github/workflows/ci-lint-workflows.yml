@@ -30,11 +30,17 @@ jobs:
             - name: Verify Actions lockfile
               env:
                   GH_TOKEN: ${{ github.token }}
+                  LOCK_VERIFIER_VERSION: v0.4.0
+                  LOCK_VERIFIER_SHA256: f9da98f2a6e9e0ae77deadf9a2319a8a86bb002b541cc3203b247cc59fb04842
               run: |
                   mapfile -t workflows < <(yq '.workflows | keys | .[]' .github/workflows/actions.lock)
                   (( ${#workflows[@]} )) || { echo "::error::actions.lock lists no workflows"; exit 1; }
-                  gh extension install github/gh-actions-lock --pin v0.4.0 || { echo "::warning::gh-actions-lock install failed, retrying once"; sleep $((5 + RANDOM % 26)); gh extension install github/gh-actions-lock --pin v0.4.0; }
-                  gh actions-lock --verify "${workflows[@]}"
+                  bin="$RUNNER_TEMP/gh-actions-lock"
+                  download() { gh release download "$LOCK_VERIFIER_VERSION" --repo github/gh-actions-lock --pattern linux-amd64 --output "$bin" --clobber; }
+                  download || { echo "::warning::gh-actions-lock download failed, retrying once"; sleep $((5 + RANDOM % 26)); download; }
+                  echo "$LOCK_VERIFIER_SHA256  $bin" | sha256sum --check --strict
+                  chmod +x "$bin"
+                  "$bin" --verify "${workflows[@]}"
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
