@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync } from 'node:fs'
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync } from 'node:fs'
 
 import { compareUtf8, writeString } from '../json'
 import { BufferSource, type Source } from './object'
@@ -153,13 +153,28 @@ export function sourcePaths(source: Source, filter: SourceFilter, warnings: stri
     return filter === 'dsym' ? filterSourcePaths(all) : filterNativeSourcePaths(all)
 }
 
+// Kernel-backed files hold no source code, but some hold secrets, like /proc/self/environ. Their
+// bytes change with every process, so posthog-cli can never upload the same ones.
+const VIRTUAL_FILESYSTEMS = ['/proc/', '/sys/', '/dev/']
+const isVirtual = (path: string): boolean => {
+    let real: string
+    try {
+        real = realpathSync(path)
+    } catch {
+        return false
+    }
+    return VIRTUAL_FILESYSTEMS.some((prefix) => real.startsWith(prefix))
+}
+
 export function sourceStep(
     bytes: Uint8Array,
     filter: SourceFilter,
     warnings: string[],
     ignored: (path: string) => boolean
 ): ((zip: ZipWriter) => void) | undefined {
-    const paths = sourcePaths(new BufferSource(bytes), filter, warnings).filter((path) => !ignored(path))
+    const paths = sourcePaths(new BufferSource(bytes), filter, warnings).filter(
+        (path) => !ignored(path) && !isVirtual(path)
+    )
     if (paths.length === 0) {
         return undefined
     }
