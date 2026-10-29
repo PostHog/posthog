@@ -694,6 +694,20 @@ const NATIVE_PROBLEMS: Record<NativeProblem, string> = {
         "its DWARF is compressed (`__zdebug` sections), which PostHog can't read yet. Go needs `-ldflags=-compressdwarf=false` on macOS.",
 }
 
+// A path the DWARF names can reach the source folder through a symlink, or the folder can be one,
+// so both are canonical before the ignore globs match.
+function sourceIgnored(root: Root, folder: string): (path: string) => boolean {
+    const canonical = (path: string): string => {
+        try {
+            return realpathSync(path)
+        } catch {
+            return path
+        }
+    }
+    const realFolder = canonical(folder)
+    return (path) => isIgnored(root, realFolder, canonical(path))
+}
+
 // `symbol-sets upload`: native files are parsed and deduplicated by debug ID, dSYM bundles are
 // split per slice, and a dSYM wins over a native file with the same ID.
 function packageNative(
@@ -733,7 +747,7 @@ function packageNative(
         const { root } = byFile.get(file)!
         const folder = resolve(cwd, root.path)
         const sources = includeSource
-            ? sourceStep(file.data, 'native', warnings, (path) => isIgnored(root, folder, path))
+            ? sourceStep(file.data, 'native', warnings, sourceIgnored(root, folder))
             : undefined
         const upload = nativeUpload(file, sources)
         owners.set(upload, byFile.get(file)!)
@@ -750,7 +764,7 @@ function packageNative(
                 if (includeSource && !steps.has(slice.path)) {
                     steps.set(
                         slice.path,
-                        sourceStep(slice.file, 'dsym', warnings, (path) => isIgnored(artifact.root, folder, path))
+                        sourceStep(slice.file, 'dsym', warnings, sourceIgnored(artifact.root, folder))
                     )
                 }
                 return dsymUpload(slice, steps.get(slice.path))
