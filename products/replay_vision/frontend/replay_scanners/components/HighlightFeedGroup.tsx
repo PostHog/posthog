@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useState } from 'react'
 
 import { IconChevronDown, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
@@ -19,7 +21,22 @@ import { observationKeyMomentMs, highlightCardHeadline, highlightFeedObservation
 /** The card's telemetry properties, so group events join the card they came from. */
 type CardContext = Record<string, unknown>
 
-type HighlightFeedGroupProps = HighlightFeedGroupLogicProps & { similarCount: number; cardContext: CardContext }
+type HighlightFeedGroupProps = HighlightFeedGroupLogicProps & {
+    similarCount: number
+    /** Distinct people across the whole group, the card's own session included. */
+    affectedPeople: number | null
+    cardContext: CardContext
+}
+
+/** Shared by the card's reason line and its button, so the two always show the same count. */
+export function similarSessionsLabel(similarCount: number): string {
+    return pluralize(similarCount, 'similar session')
+}
+
+function groupSummary(similarCount: number, affectedPeople: number | null): string {
+    const others = `This session and ${pluralize(similarCount, 'similar one')}`
+    return affectedPeople ? `${others}, from ${pluralize(affectedPeople, 'person', 'people')}` : others
+}
 
 function HighlightFeedGroupMember({
     observation,
@@ -55,7 +72,7 @@ function HighlightFeedGroupMember({
             <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <Link
                     to={url}
-                    className="truncate text-sm font-medium text-default"
+                    className="line-clamp-2 text-sm font-medium wrap-anywhere text-default"
                     title={title}
                     onClick={captureOpened('title')}
                 >
@@ -74,6 +91,7 @@ function HighlightFeedGroupMember({
                 to={url}
                 tooltip="Watch session"
                 onClick={captureOpened('watch')}
+                className="shrink-0"
             >
                 {keyMomentMs !== null ? colonDelimitedDuration(Math.floor(keyMomentMs / 1000), null) : null}
             </LemonButton>
@@ -81,52 +99,17 @@ function HighlightFeedGroupMember({
     )
 }
 
-/** Opens the other sessions in a card's feed group under the card, so a reader can see who else hit it. */
-export function HighlightFeedGroupToggle({
+function HighlightFeedGroupList({
     similarCount,
+    affectedPeople,
     cardContext,
     ...logicProps
 }: HighlightFeedGroupProps): JSX.Element {
-    const { expanded } = useValues(highlightFeedGroupLogic(logicProps))
-    const { toggleExpanded } = useActions(highlightFeedGroupLogic(logicProps))
-    return (
-        <LemonButton
-            size="small"
-            type="tertiary"
-            sideIcon={
-                <IconChevronDown className={expanded ? 'rotate-180 transition-transform' : 'transition-transform'} />
-            }
-            onClick={() => {
-                if (!expanded) {
-                    posthog.capture('replay_vision_watch_group_expanded', {
-                        ...cardContext,
-                        similar_count: similarCount,
-                    })
-                }
-                toggleExpanded()
-            }}
-            aria-expanded={expanded}
-            className="relative z-10 ml-auto"
-            data-attr="vision-highlight-feed-group-toggle"
-        >
-            {similarCount === 1 ? '1 similar session' : `${similarCount} similar sessions`}
-        </LemonButton>
-    )
-}
-
-export function HighlightFeedGroupList({
-    similarCount,
-    cardContext,
-    ...logicProps
-}: HighlightFeedGroupProps): JSX.Element | null {
-    const { expanded, members, membersLoading } = useValues(highlightFeedGroupLogic(logicProps))
+    const { members, membersLoading } = useValues(highlightFeedGroupLogic(logicProps))
     const { loadMembers } = useActions(highlightFeedGroupLogic(logicProps))
-    if (!expanded) {
-        return null
-    }
     return (
-        // Sits above the card's full-size link, so a click here never opens the card's own session.
-        <div className="relative z-10 flex flex-col gap-3 border-t pt-3" data-attr="vision-highlight-feed-group">
+        <div className="flex w-[30rem] max-w-[90vw] flex-col gap-3 p-2" data-attr="vision-highlight-feed-group">
+            <p className="m-0 text-xs text-secondary">{groupSummary(similarCount, affectedPeople)}</p>
             {membersLoading ? (
                 <div className="flex flex-col gap-3" aria-busy>
                     {Array.from({ length: Math.min(similarCount, 3) }, (_, i) => (
@@ -157,6 +140,7 @@ export function HighlightFeedGroupList({
                             tab: ReplayScannerTab.Observations,
                             watch_group: logicProps.observationId,
                             date_from: logicProps.dateFrom,
+                            watch_category: logicProps.categories,
                         }).url
                     }
                     className="self-start text-sm"
@@ -168,9 +152,55 @@ export function HighlightFeedGroupList({
                         })
                     }
                 >
-                    See all similar sessions
+                    See all {members.total} similar sessions
                 </Link>
             )}
         </div>
+    )
+}
+
+/**
+ * Opens the other sessions in a card's duplicate group in a popover, so a reader can see who else hit it
+ * without the card growing and pushing its row out of line with the rest of the grid.
+ */
+export function HighlightFeedGroupToggle(props: HighlightFeedGroupProps): JSX.Element {
+    const { similarCount, affectedPeople, cardContext, ...logicProps } = props
+    // Mounted with the card, so members loaded once survive closing and reopening the popover.
+    const { members, membersLoading } = useValues(highlightFeedGroupLogic(logicProps))
+    const { loadMembers } = useActions(highlightFeedGroupLogic(logicProps))
+    const [open, setOpen] = useState(false)
+    return (
+        <LemonDropdown
+            visible={open}
+            onVisibilityChange={(visible) => {
+                if (visible) {
+                    posthog.capture('replay_vision_watch_group_expanded', {
+                        ...cardContext,
+                        similar_count: similarCount,
+                    })
+                    if (members === null && !membersLoading) {
+                        loadMembers()
+                    }
+                }
+                setOpen(visible)
+            }}
+            // A click on "Try again" must leave the list open to show the retried result.
+            closeOnClickInside={false}
+            placement="bottom-end"
+            overlay={<HighlightFeedGroupList {...props} />}
+        >
+            <LemonButton
+                size="small"
+                type="tertiary"
+                sideIcon={
+                    <IconChevronDown className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
+                }
+                aria-expanded={open}
+                className="relative z-10 ml-auto"
+                data-attr="vision-highlight-feed-group-toggle"
+            >
+                {similarSessionsLabel(similarCount)}
+            </LemonButton>
+        </LemonDropdown>
     )
 }
