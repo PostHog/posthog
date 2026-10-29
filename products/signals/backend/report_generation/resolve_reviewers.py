@@ -365,6 +365,31 @@ def source_skills_from_suggested_reviewer_artefacts(artefacts: Iterable[SignalRe
     return frozenset(skills)
 
 
+def latest_suggested_reviewer_logins(team_id: int, report_id: str) -> list[str]:
+    """Normalized GitHub logins from the report's latest `suggested_reviewers` artefact, in assignment order.
+
+    Empty when the report has no such artefact or its content does not parse as a list.
+    """
+    artefact = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            report_id=report_id,
+            type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
+        )
+        .order_by("-created_at")
+        .first()
+    )
+    if artefact is None:
+        return []
+    try:
+        reviewers = json.loads(artefact.content)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return []
+    if not isinstance(reviewers, list):
+        return []
+    return [str(r["github_login"]).strip().lower() for r in reviewers if isinstance(r, dict) and r.get("github_login")]
+
+
 def normalized_github_logins_from_reviewer_payloads(rows: Iterable[object]) -> frozenset[str]:
     logins: set[str] = set()
     for row in rows:
