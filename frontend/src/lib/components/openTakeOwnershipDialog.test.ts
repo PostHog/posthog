@@ -61,6 +61,24 @@ describe('openTakeOwnershipDialog', () => {
         expect(captureSpy).not.toHaveBeenCalled()
     })
 
+    it('waits for an in-flight takeover before reporting a dismissal', async () => {
+        let finishTakeover: () => void = () => {}
+        const takeOwnership = jest.fn(
+            () =>
+                new Promise<void>((resolve) => {
+                    finishTakeover = resolve
+                })
+        )
+        const result = openTakeOwnershipDialog({ resourceLabel: 'alert', resourceId: 'alert-1', takeOwnership })
+
+        const confirming = dialogProps?.primaryButton?.onClick?.({} as any)
+        dialogProps?.onAfterClose?.()
+        finishTakeover()
+        await confirming
+
+        expect(await result).toBe(true)
+    })
+
     it('resolves false when the dialog is dismissed', async () => {
         const takeOwnership = jest.fn()
         const result = openTakeOwnershipDialog({ resourceLabel: 'subscription', resourceId: 7, takeOwnership })

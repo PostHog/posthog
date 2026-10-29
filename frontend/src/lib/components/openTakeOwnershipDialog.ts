@@ -29,6 +29,7 @@ export function openTakeOwnershipDialog({
 }): Promise<boolean> {
     return new Promise((resolve) => {
         let taken = false
+        let request: Promise<void> = Promise.resolve()
         LemonDialog.open({
             title: `Take ownership of this ${resourceLabel}?`,
             description: `This ${resourceLabel} runs with its owner's access, and the owner can no longer run it. Taking ownership makes you the owner and enables it, so it runs with your access from now on.`,
@@ -37,8 +38,9 @@ export function openTakeOwnershipDialog({
                 children: 'Take ownership and enable',
                 'data-attr': `${resourceLabel}-take-ownership-confirm`,
                 onClick: async () => {
+                    request = takeOwnership()
                     try {
-                        await takeOwnership()
+                        await request
                     } catch (error) {
                         const detail = error instanceof ApiError ? error.detail : null
                         lemonToast.error(detail || `Could not take ownership of this ${resourceLabel}. Try again.`)
@@ -49,7 +51,13 @@ export function openTakeOwnershipDialog({
                 },
             },
             secondaryButton: { children: 'Cancel', 'data-attr': `${resourceLabel}-take-ownership-cancel` },
-            onAfterClose: () => resolve(taken),
+            // A dismissal while the request is in flight waits for it, so a takeover that lands is still reported.
+            onAfterClose: () => {
+                void request.then(
+                    () => resolve(taken),
+                    () => resolve(taken)
+                )
+            },
         })
     })
 }
