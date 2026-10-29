@@ -42,7 +42,11 @@ class TestEvaluationDelay(SimpleTestCase):
 
     def evaluate(self, data: list[float | None], dates: list[str], detector: bool = False) -> AlertEvaluationResult:
         module = "detector" if detector else "trends"
-        with patch(f"products.alerts.backend.evaluation.{module}.calculate_for_query_based_insight") as calculate:
+        with (
+            patch(f"products.alerts.backend.evaluation.{module}.calculate_for_query_based_insight") as calculate,
+            # The owner check needs the database, and these alerts have no owner on purpose.
+            patch("products.alerts.backend.evaluation.dispatcher.assert_creator_can_run"),
+        ):
             calculate.return_value.result = [{"data": data, "dates": dates, "days": dates, "label": "Orders"}]
             return check_alert_for_insight(self.alert)
 
