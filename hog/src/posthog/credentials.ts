@@ -12,16 +12,22 @@ export interface Credentials {
     host: string
 }
 
+export type CredentialSource = 'env' | 'dotenv-file' | 'credentials-file'
+
+export type ResolvedCredentials = Credentials & { source: CredentialSource }
+
 interface RawCredentials {
     apiKey: string
     projectId: string
     host: string | undefined
 }
 
+export const API_KEY_ENV_VARS = ['POSTHOG_CLI_API_KEY', 'POSTHOG_CLI_TOKEN'] as const
+
 // Same variables and aliases as posthog-cli. The host only counts when it comes from the
 // same source as the key, so a stray host cannot redirect a key from somewhere else.
 function fromLookup(lookup: (name: string) => string | undefined): RawCredentials | undefined {
-    const apiKey = lookup('POSTHOG_CLI_API_KEY') ?? lookup('POSTHOG_CLI_TOKEN')
+    const apiKey = lookup(API_KEY_ENV_VARS[0]) ?? lookup(API_KEY_ENV_VARS[1])
     const projectId = lookup('POSTHOG_CLI_PROJECT_ID') ?? lookup('POSTHOG_CLI_ENV_ID')
     if (!apiKey || !projectId) {
         return undefined
@@ -80,40 +86,76 @@ function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefin
     return homeDir === undefined ? undefined : join(homeDir, '.posthog')
 }
 
+export function posthogFile(runtime: Runtime, name: string): string {
+    const home = posthogHomeDir(runtime.env, runtime.homeDir())
+    if (home === undefined) {
+        throw new HogError(
+            'no_home_directory',
+            "hog couldn't find your home folder to store credentials in.",
+            'Set POSTHOG_HOME to the folder to use.'
+        )
+    }
+    return join(home, name)
+}
+
+export function checkApiKey(apiKey: string): string | undefined {
+    return apiKey.startsWith('phx_') ? undefined : "The personal API key doesn't look right: it must start with 'phx_'."
+}
+
+export function checkProjectId(projectId: string): string | undefined {
+    return /^\d+$/.test(projectId) ? undefined : `The project ID must be a number, but it is "${projectId}".`
+}
+
+export function checkHost(host: string): string | undefined {
+    return URL.canParse(host) ? undefined : `The host must be a valid URL, but it is "${host}".`
+}
+
 function validate(raw: RawCredentials, host: string): Credentials {
-    if (!raw.apiKey.startsWith('phx_')) {
+    const keyError = checkApiKey(raw.apiKey)
+    if (keyError) {
         throw new HogError(
             'invalid_credentials',
-            "The personal API key doesn't look right: it must start with 'phx_'.",
+            keyError,
             'Create a personal API key in PostHog under Settings > Personal API keys.'
         )
     }
-    if (!/^\d+$/.test(raw.projectId)) {
+    const projectError = checkProjectId(raw.projectId)
+    if (projectError) {
         throw new HogError(
             'invalid_credentials',
-            `The project ID must be a number, but it is "${raw.projectId}".`,
+            projectError,
             'Use the number in your project URL, like the 2 in https://us.posthog.com/project/2.'
         )
     }
-    try {
-        new URL(host)
-    } catch {
-        throw new HogError('invalid_credentials', `The host must be a valid URL, but it is "${host}".`)
+    const hostError = checkHost(host)
+    if (hostError) {
+        throw new HogError('invalid_credentials', hostError)
     }
     return { apiKey: raw.apiKey, projectId: raw.projectId, host }
 }
 
+// Same file and fields as posthog-cli, so either CLI can use a login made by the other.
+export async function saveCredentials(runtime: Runtime, credentials: Credentials): Promise<string> {
+    const path = posthogFile(runtime, 'credentials.json')
+    const stored = { host: credentials.host, token: credentials.apiKey, env_id: credentials.projectId }
+    await runtime.writePrivateFile(path, JSON.stringify(stored))
+    return path
+}
+
 // Lookup order matches posthog-cli: process env, then --dotenv-file, then the credentials
-// file `posthog-cli login` writes. --host overrides whichever host the source carried.
+// file `hog auth login` and `posthog-cli login` write. --host overrides whichever host the source carried.
 export async function resolveCredentials(
     runtime: Runtime,
     options: { host?: string; dotenvFile?: string }
-): Promise<Credentials> {
-    const withHost = (raw: RawCredentials): Credentials => validate(raw, options.host ?? raw.host ?? DEFAULT_HOST)
+): Promise<ResolvedCredentials> {
+    const withHost = (raw: RawCredentials, source: CredentialSource): ResolvedCredentials => ({
+        ...validate(raw, options.host ?? raw.host ?? DEFAULT_HOST),
+        source,
+    })
 
     const fromEnv = fromLookup((name) => runtime.env[name] || undefined)
     if (fromEnv) {
-        return withHost(fromEnv)
+        return withHost(fromEnv, 'env')
     }
 
     const dotenvFile = options.dotenvFile ?? (runtime.env.POSTHOG_CLI_DOTENV_FILE || undefined)
@@ -129,7 +171,7 @@ export async function resolveCredentials(
                     'Add both variables to the file, or remove --dotenv-file.'
                 )
             }
-            return withHost(fromFile)
+            return withHost(fromFile, 'dotenv-file')
         }
     }
 
@@ -147,13 +189,13 @@ export async function resolveCredentials(
                 projectId: String(stored.env_id),
                 host: typeof stored.host === 'string' ? stored.host : undefined,
             }
-            return withHost(raw)
+            return withHost(raw, 'credentials-file')
         }
     }
 
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",
-        'Run `posthog-cli login`, or set POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID.'
+        'Run `hog auth login`, or set POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID.'
     )
 }

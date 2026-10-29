@@ -22,7 +22,7 @@ import { VERSION } from '@/version'
 
 const ROOT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
-Run \`hog commands -o json\` to list every command, its arguments and its options.`
+Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.`
 
 const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
 
@@ -251,6 +251,17 @@ function findLegacy(tokens: Token[]): LegacyRoute | undefined {
     return undefined
 }
 
+// Full names of commands in groups whose last word is `name`, so `hog login` can point to `hog auth login`.
+function nestedMatches(tree: CommandTree, name: string, prefix = ''): string[] {
+    return Object.entries(tree).flatMap(([key, node]) => {
+        const path = prefix ? `${prefix} ${key}` : key
+        if (node.kind === 'group') {
+            return nestedMatches(node.commands, name, path)
+        }
+        return prefix && key === name ? [path] : []
+    })
+}
+
 function toHogError(caught: unknown): HogError {
     if (caught instanceof HogError) {
         return caught
@@ -259,9 +270,12 @@ function toHogError(caught: unknown): HogError {
         const message = caught.message.replace(/^error: /, '')
         const sentence = message.charAt(0).toUpperCase() + message.slice(1)
         if (caught.code === 'commander.unknownCommand') {
+            const name = /unknown command '([^']+)'/.exec(caught.message)?.[1] ?? ''
+            const [match] = nestedMatches(COMMANDS, name)
+            const message = match ? `Unknown command '${name}'. Did you mean \`hog ${match}\`?` : sentence
             return new HogError(
                 'unknown_command',
-                sentence,
+                message,
                 'Run `hog --help` to see the available commands.',
                 EXIT_USAGE
             )

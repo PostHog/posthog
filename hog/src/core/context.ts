@@ -1,8 +1,9 @@
 import { PostHogApi } from '@/posthog/api'
-import { resolveCredentials } from '@/posthog/credentials'
+import { resolveCredentials, type ResolvedCredentials } from '@/posthog/credentials'
 
 import type { Mode } from './agent'
 import type { CommandTree, OptionSpec, OptionValues } from './command'
+import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
 
 export const GLOBAL_OPTIONS = {
@@ -35,6 +36,7 @@ export type GlobalOptions = OptionValues<typeof GLOBAL_OPTIONS>
 // purpose: `run` returns data, and the command's `human` and `agent` views print it.
 export class Context {
     private api?: PostHogApi
+    private resolved?: ResolvedCredentials
 
     constructor(
         readonly runtime: Runtime,
@@ -43,13 +45,23 @@ export class Context {
         readonly tree: CommandTree
     ) {}
 
+    // Undefined unless a person is at the terminal, so a command can ask questions only when
+    // someone can answer them. Agents, pipes and `-o json` never get prompts.
+    get prompts(): Prompts | undefined {
+        const person = this.mode.format === 'text' && this.mode.agent === undefined
+        return person && this.runtime.stdinIsTTY && this.runtime.stdoutIsTTY ? this.runtime.prompts : undefined
+    }
+
     // The PostHog API client. Credentials resolve on first use, so commands that never call
     // the API work without them.
     async posthog(): Promise<PostHogApi> {
-        if (!this.api) {
-            const credentials = await resolveCredentials(this.runtime, this.globals)
-            this.api = new PostHogApi(credentials, this.runtime.fetch)
-        }
+        this.api ??= new PostHogApi(await this.credentials(), this.runtime.fetch)
         return this.api
+    }
+
+    // Throws `not_authenticated` when there are none.
+    async credentials(): Promise<ResolvedCredentials> {
+        this.resolved ??= await resolveCredentials(this.runtime, this.globals)
+        return this.resolved
     }
 }
