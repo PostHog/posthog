@@ -344,13 +344,13 @@ _PAGEVIEW_LEAF = {
 _TEN_DAYS_AGO = (datetime.now(UTC) - timedelta(days=10)).strftime("%Y-%m-%d")
 _120_DAYS_AGO = (datetime.now(UTC) - timedelta(days=120)).strftime("%Y-%m-%d")
 _FLAG_CALL_TABLE_CASES = [
-    ("swapped", _FLAG_CALL_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "flag_evaluations"),
-    ("rewrite_off", _FLAG_CALL_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, "events"),
-    ("events_mode", _FLAG_CALL_LEAF, FlagEvaluationsMode.EVENTS, True, "events"),
-    ("no_flag_key", _ANY_FLAG_CALL_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
+    ("swapped", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "flag_evaluations"),
+    ("rewrite_off", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False, "events"),
+    ("events_mode", (_FLAG_CALL_LEAF,), FlagEvaluationsMode.EVENTS, True, "events"),
+    ("no_flag_key", (_ANY_FLAG_CALL_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
     (
         "window_past_coverage",
-        {**_FLAG_CALL_LEAF, "time_value": 120},
+        ({**_FLAG_CALL_LEAF, "time_value": 120},),
         FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
         True,
         "events",
@@ -359,14 +359,14 @@ _FLAG_CALL_TABLE_CASES = [
     # can leave flag_evaluations before the seeder scans it.
     (
         "fixed_range",
-        {**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},
+        ({**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},),
         FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
         True,
         "events",
     ),
     (
         "only_in_flag_evaluations",
-        _ANY_FLAG_CALL_LEAF,
+        (_ANY_FLAG_CALL_LEAF,),
         FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
         True,
         "flag_evaluations",
@@ -374,12 +374,12 @@ _FLAG_CALL_TABLE_CASES = [
     # events holds no new flag calls in this mode. flag_evaluations is the only table that has any of them.
     (
         "fixed_range_only_in_flag_evaluations",
-        {**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},
+        ({**_FLAG_CALL_LEAF, "explicit_datetime": _TEN_DAYS_AGO},),
         FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
         True,
         "flag_evaluations",
     ),
-    ("no_flag_calls", _PAGEVIEW_LEAF, FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
+    ("no_flag_calls", (_PAGEVIEW_LEAF,), FlagEvaluationsMode.READ_FLAG_EVALUATIONS, True, "events"),
     (
         "sliding_and_fixed_range_in_one_cohort",
         (_FLAG_CALL_LEAF, {**_FLAG_CALL_LEAF, "conditionHash": "flagcall00000002", "explicit_datetime": _TEN_DAYS_AGO}),
@@ -417,22 +417,22 @@ class TestBackfillRunFlagCallsTable(BaseTest):
 
     @parameterized.expand(
         [
-            (f"{scope}_{name}", scope, leaf, mode, rewrite_enabled, expected)
+            (f"{scope}_{name}", scope, leaves, mode, rewrite_enabled, expected)
             for scope in ("cohort", "team")
-            for name, leaf, mode, rewrite_enabled, expected in _FLAG_CALL_TABLE_CASES
+            for name, leaves, mode, rewrite_enabled, expected in _FLAG_CALL_TABLE_CASES
         ]
     )
     def test_run_pins_the_table_the_batch_calculation_reads_flag_calls_from(
         self,
         _name: str,
         scope: str,
-        leaf: dict | tuple[dict, ...],
+        leaves: tuple[dict, ...],
         mode: FlagEvaluationsMode,
         rewrite_enabled: bool,
         expected: str,
     ) -> None:
         self._set_flag_evaluations_mode(mode)
-        cohort = self._cohort(*(leaf if isinstance(leaf, tuple) else (leaf,)))
+        cohort = self._cohort(*leaves)
 
         with self._flag_calls_rewrite(rewrite_enabled):
             if scope == "team":

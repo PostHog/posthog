@@ -1,23 +1,22 @@
 import math
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from posthog.models.flag_evaluations.sql import (
-    FLAG_EVALUATIONS_SOURCE_EVENT,
-    FLAG_EVALUATIONS_TABLE,
-    FLAG_EVALUATIONS_TTL_DAYS,
-)
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TABLE
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.parity.eligibility import resolve_behavioral_window
+from products.cohorts.backend.parity.tzdates import day_of_instant
 
 # The seeder scans team-local days and includes the oldest day of the window. A team east of UTC starts its day on
-# the UTC date before. A scan that starts at most this many days back reads only days that the TTL keeps, in every
-# timezone.
-_MAX_FLAG_EVALUATIONS_DAYS_BACK = FLAG_EVALUATIONS_TTL_DAYS - 2
+# the UTC date before. A scan that starts at most this many days back reads only days that flag_evaluations holds,
+# in every timezone. The API's save guard for flag-call windows uses the same limit.
+_MAX_FLAG_EVALUATIONS_DAYS_BACK = FLAG_EVALUATIONS_COMPLETE_DAYS - 1
 
 
 class FlagCallsTable(StrEnum):
@@ -29,24 +28,20 @@ class FlagCallsTableUnresolved(ValueError):
     pass
 
 
-def _slides_with_the_boundary(condition: dict[str, Any]) -> bool:
-    window = resolve_behavioral_window(condition)
-    return window is not None and window.kind != "explicit"
-
-
-def _days_back(condition: dict[str, Any], team: Team) -> float:
-    """How many team-local days before today the seeder's scan for this condition starts."""
+def _scan_window(condition: dict[str, Any], team: Team) -> tuple[bool, float]:
+    """Whether the condition's window slides with the run's boundary, and how many team-local days before today the
+    seeder's scan for it starts."""
     window = resolve_behavioral_window(condition)
     if window is None:
-        return math.inf
+        return False, math.inf
     if window.kind != "explicit":
-        return window.days
+        return True, window.days
     start = condition.get("explicit_datetime")
     if not isinstance(start, str):
-        return math.inf
+        return False, math.inf
     parsed = datetime.fromisoformat(start)
-    start_day = parsed.astimezone(team.timezone_info).date() if parsed.tzinfo else parsed.date()
-    return (datetime.now(team.timezone_info).date() - start_day).days
+    start_day = day_of_instant(parsed, team.timezone_info) if parsed.tzinfo else parsed.date()
+    return False, (day_of_instant(datetime.now(UTC), team.timezone_info) - start_day).days
 
 
 def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, Any]], team: Team) -> bool:
@@ -65,7 +60,8 @@ def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, A
         ) from error
     if not (reads.rewrite_enabled and reads.reads_from_events == 0):
         return False
-    within_ttl = all(_days_back(condition, team) <= _MAX_FLAG_EVALUATIONS_DAYS_BACK for condition in conditions)
+    scans = [_scan_window(condition, team) for condition in conditions]
+    within_ttl = all(days_back <= _MAX_FLAG_EVALUATIONS_DAYS_BACK for _, days_back in scans)
     if reads.only_in_flag_evaluations:
         if not within_ttl:
             raise FlagCallsTableUnresolved(
@@ -73,7 +69,7 @@ def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, A
                 "events holds no new flag calls"
             )
         return True
-    return within_ttl and all(_slides_with_the_boundary(condition) for condition in conditions)
+    return within_ttl and all(slides for slides, _ in scans)
 
 
 def pinned_flag_calls_table(
@@ -90,16 +86,13 @@ def pinned_flag_calls_table(
     - Every flag-call window starts at most _MAX_FLAG_EVALUATIONS_DAYS_BACK days before today. The seeder fails a
       run that scans a day older than the flag_evaluations TTL.
     - Every flag-call window slides with the run's boundary, unless the organization's flag calls are only in
-      flag_evaluations. batch_flag_call_reads checks the window against flag_evaluations as of today, not as of the
-      day the seeder scans it. flag_evaluations drops rows after its TTL. A day that a sliding window still needs
-      when the seeder scans it is a day that the TTL keeps. The first day of a fixed range can leave
-      flag_evaluations before the seeder scans it, while events still holds it. When events holds no new flag calls,
-      flag_evaluations is the only table that has any of them.
+      flag_evaluations. The first day of a fixed range can leave flag_evaluations before the seeder scans it, while
+      events still holds it. When events holds no new flag calls, flag_evaluations is the only table that has any
+      of them.
 
     Raises FlagCallsTableUnresolved when a cohort's batch query does not compile, or when the organization's flag
-    calls are only in flag_evaluations and a flag-call window starts before the oldest day flag_evaluations keeps.
-    In an organization whose flag calls are only in flag_evaluations, events would give the cohort an empty
-    flag-call history that still counts as backfilled.
+    calls are only in flag_evaluations and a flag-call window starts too far back. Pinning events there would give
+    the cohort an empty flag-call history that still counts as backfilled.
     """
     flag_call_conditions: dict[int, list[dict[str, Any]]] = {}
     for condition in conditions:
