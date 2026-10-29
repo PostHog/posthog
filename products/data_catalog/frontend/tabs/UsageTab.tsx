@@ -8,13 +8,14 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { newMetricUrl } from '../common'
 import type { TopicClusterApi, UsageSnapshotApi } from '../generated/api.schemas'
 import { ProposedRow, proposedRowPrefill } from '../proposedRows'
 import { usageLogic } from '../usageLogic'
-import { SourceRow } from '../usageRows'
+import { SourceRow, agentSurfaceLabel } from '../usageRows'
 import { ProposedMetricSources } from './ProposedMetricSources'
 import { ProposedRowDerivedFrom } from './ProposedRowDerivedFrom'
 import { TopicCoverageBar } from './TopicCoverageBar'
@@ -61,7 +62,13 @@ const SOURCE_COLUMNS: LemonTableColumns<SourceRow> = [
         tooltip:
             'Metrics count the runs by agents. Tables count the agent sessions that found a connected source or a view through its description and then queried it. PostHog tables such as events stay out. Both cover the whole scan window. Hover a metric to split its runs by agent.',
         render: (_, row) => (
-            <Tooltip title={row.surfaces.map(([surface, runs]) => `${surface}: ${runs}`).join(', ') || undefined}>
+            <Tooltip
+                title={
+                    row.surfaces
+                        .map(([surface, runs]) => `${agentSurfaceLabel(surface)}: ${humanFriendlyNumber(runs)}`)
+                        .join(', ') || undefined
+                }
+            >
                 <span className="font-semibold whitespace-nowrap">
                     {pluralize(row.uses, row.kind === 'metric' ? 'run' : 'session')} /{' '}
                     {pluralize(row.people, 'person', 'people')}

@@ -13,16 +13,44 @@ export interface SourceRow {
 const SOURCES_SHOWN_PER_KIND = 3
 const SHOWN_ROWS = 25
 
+const AGENT_SURFACE_LABELS: Record<string, string> = {
+    mcp: 'MCP',
+    posthog_ai: 'PostHog AI',
+    posthog_code: 'PostHog Code',
+    self_driving: 'Self-driving',
+    desktop: 'Desktop app',
+    mobile: 'Mobile app',
+    slack: 'Slack',
+    wizard: 'Wizard',
+    cli: 'CLI',
+    webmcp: 'WebMCP',
+    unknown: 'Unknown',
+}
+
+export function agentSurfaceLabel(surface: string): string {
+    return AGENT_SURFACE_LABELS[surface] ?? surface
+}
+
+export interface SurfaceRuns {
+    /** Runs per surface, most runs first. */
+    surfaces: [string, number][]
+    total: number
+}
+
+export function surfaceRuns(directRuns: Record<string, number>): SurfaceRuns {
+    const surfaces = Object.entries(directRuns).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    return { surfaces, total: surfaces.reduce((total, [, runs]) => total + runs, 0) }
+}
+
 // Scout runs stay out, because one scheduled agent can run a metric many times a day and hide every other surface.
 export function buildSourceRows(payload: UsageSnapshotPayloadApi, metricNames: Record<string, string>): SourceRow[] {
     const metrics = (payload.metric_runs ?? []).map((counts): SourceRow => {
-        const surfaces: [string, number][] = Object.entries(counts.direct_runs)
-        surfaces.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        const { surfaces, total } = surfaceRuns(counts.direct_runs)
         return {
             key: `metric-${counts.metric_id}`,
             kind: 'metric',
             name: metricNames[counts.metric_id] ?? counts.metric_id,
-            uses: surfaces.reduce((total, [, runs]) => total + runs, 0),
+            uses: total,
             people: counts.direct_people,
             surfaces,
         }
