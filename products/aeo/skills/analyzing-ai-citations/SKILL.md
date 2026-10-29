@@ -19,26 +19,26 @@ question reduces to an aggregation over that record, optionally joined to two ot
 sources: Google Search Console (a data warehouse source) and the project's own web traffic
 (the `sessions` and `events` tables).
 
-This skill covers the citation record, the prompt set tools, the joins, and the HogQL
+This skill covers the citation record, the prompt set, the joins, and the HogQL
 papercuts that make the first query fail.
 
 ## Tools
 
-| Tool                                 | Purpose                                                                                  |
-| ------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `posthog:execute-sql`                | HogQL over `system.aeo_citation_checks`, Search Console tables, `sessions` and `events`  |
-| `posthog:aeo-prompts-list`           | The tracked prompt set with topic, on/off state and the latest result per engine         |
-| `posthog:aeo-prompts-topics-list`    | Topics in the prompt set with prompt counts                                              |
-| `posthog:aeo-prompts-get`            | One prompt with its latest check per engine                                              |
-| `posthog:aeo-prompts-stats-get`      | Per-engine citation and mention rates, 30-day daily counts, consensus domains, sentiment |
-| `posthog:aeo-prompts-checks-list`    | A prompt's check history: answers, cited URLs, search queries, failures                  |
-| `posthog:aeo-prompts-versions-list`  | A prompt's text versions, to compare results before and after a reword                   |
-| `posthog:aeo-prompts-import`         | Add prompts to the set (write; ask the user first)                                       |
-| `posthog:aeo-prompts-update`         | Turn a prompt on or off, change its topic or text (write; ask the user first)            |
-| `posthog:aeo-prompts-archive`        | Archive a prompt (write; ask the user first)                                             |
-| `posthog:external-data-sources-list` | Find the Search Console source and its table names                                       |
-| `posthog:read-data-schema`           | Discover event and action properties before joining to traffic (not warehouse tables)    |
-| `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/content-autopilot`                             |
+| Tool                                 | Purpose                                                                                             |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| `posthog:execute-sql`                | HogQL over `system.aeo_citation_checks`, `system.aeo_prompts`, Search Console, `sessions`, `events` |
+| `posthog:aeo-prompts-list`           | The tracked prompt set with topic, on/off state and the latest result per engine                    |
+| `posthog:aeo-prompts-topics-list`    | Topics in the prompt set with prompt counts                                                         |
+| `posthog:aeo-prompts-get`            | One prompt with its latest check per engine                                                         |
+| `posthog:aeo-prompts-stats-get`      | Per-engine citation and mention rates, 30-day daily counts, consensus domains, sentiment            |
+| `posthog:aeo-prompts-checks-list`    | A prompt's check history: answers, cited URLs, search queries, failures                             |
+| `posthog:aeo-prompts-versions-list`  | A prompt's text versions, to compare results before and after a reword                              |
+| `posthog:aeo-prompts-import`         | Add prompts to the set (write; ask the user first)                                                  |
+| `posthog:aeo-prompts-update`         | Turn a prompt on or off, change its topic or text (write; ask the user first)                       |
+| `posthog:aeo-prompts-archive`        | Archive a prompt (write; ask the user first)                                                        |
+| `posthog:external-data-sources-list` | Find the Search Console source and its table names                                                  |
+| `posthog:read-data-schema`           | Discover event and action properties before joining to traffic (not warehouse tables)               |
+| `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/content-autopilot`                                        |
 
 ## Before you start
 
@@ -79,14 +79,42 @@ One row per prompt x engine x run, read-only in HogQL. Written only by the runne
 Claude behavior. Report it as a retrievability baseline, separately from the two web-search
 engines.
 
-### The prompt set (Postgres, not in HogQL)
+### `system.aeo_prompts` (the prompt set)
 
-The prompts themselves (`AEOPrompt`: current text, topic, `active`, `archived_at`, versions)
-live in a Postgres table that HogQL does not expose. Reach them only through the
-`aeo-prompts-*` tools. The check rows snapshot `prompt_text`, `prompt_topic` and `prompt_id`
-at run time, so most analyses need no join. When you need the prompt's current state (is it
-still active, has its text changed, is it archived), call `aeo-prompts-list` or
-`aeo-prompts-get` with the `prompt_id` from the query.
+One row per tracked prompt with its current text and state, read-only in HogQL. Written only
+by the `aeo-prompts-*` tools and the Prompts tab.
+
+| Column                                     | Meaning                                                                                   |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `id`                                       | The prompt id. `prompt_id` on `system.aeo_citation_checks` joins to it                    |
+| `prompt`, `prompt_hash`, `current_version` | The current text, its hash, and the version number the checks' `prompt_version` refers to |
+| `topic`, `prompt_source`                   | Theme (empty when none) and origin: `imported` or `manual`                                |
+| `active` (Boolean), `archived_at`          | Whether the runner still executes the prompt; archived prompts keep their check history   |
+| `rank`, `last_checked_at`                  | Seeding score (higher runs first within a topic) and when the runner last ran the prompt  |
+| `created_at`, `updated_at`                 | When the prompt was added and when its row last changed                                   |
+| `evidence` (JSON object)                   | Why the prompt made the set, such as the CSV it was imported from                         |
+
+The check rows snapshot `prompt_text`, `prompt_topic` and `prompt_id` at run time, so most
+analyses need no join. Join when you need the prompt's current state, for example to keep
+only active prompts in a citation-gap list:
+
+```sql
+SELECT c.prompt_id,
+       p.prompt,
+       countIf(c.check_failed = 0) AS answered,
+       countIf(c.cited = 1) AS cited_checks
+FROM system.aeo_citation_checks AS c
+JOIN system.aeo_prompts AS p ON c.prompt_id = p.id
+WHERE c.created_at >= now() - INTERVAL 14 DAY
+  AND p.active = 1
+  AND p.archived_at IS NULL
+GROUP BY c.prompt_id, p.prompt
+HAVING answered > 0 AND cited_checks = 0
+ORDER BY answered DESC
+```
+
+Prompt text versions (`aeo-prompts-versions-list`) are not in HogQL; `prompt_version` on
+each check says which wording ran.
 
 ### Google Search Console (data warehouse)
 
@@ -156,9 +184,9 @@ for a daily trend. Both recipes are in [citation-queries](./references/citation-
 ## Workflow: which prompts never cite us?
 
 Group by `prompt_id` over the last N days and keep prompts with answered checks and no cited
-check (recipe in [citation-queries](./references/citation-queries.md)). Then confirm each
-prompt is still active with `aeo-prompts-list` (filter by topic) before presenting it as a
-content gap. For a single prompt, `aeo-prompts-stats-get` gives per-engine rates and the
+check (recipe in [citation-queries](./references/citation-queries.md)). Join
+`system.aeo_prompts` on `prompt_id = id`, or check `aeo-prompts-list`, to confirm each prompt
+is still active before presenting it as a content gap. For a single prompt, `aeo-prompts-stats-get` gives per-engine rates and the
 domains the engines cite instead; `aeo-prompts-checks-list` gives the answers themselves.
 
 Large prompt sets rotate: a run takes at most a capped number of prompts, so a prompt may not

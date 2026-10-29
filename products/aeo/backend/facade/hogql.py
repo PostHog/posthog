@@ -1,8 +1,8 @@
-"""HogQL surface for the AEO citation record.
+"""HogQL surface for the AEO citation record and the prompt set.
 
-Exposed as `system.aeo_citation_checks` so insights, the SQL editor, the query
-API, and MCP can all read the record, while the only write path stays the
-backend runner.
+Exposed as `system.aeo_citation_checks` and `system.aeo_prompts` so insights,
+the SQL editor, the query API, and MCP can all read them, while the only write
+paths stay the backend runner and the prompts API.
 """
 
 from posthog.hogql.database.models import (
@@ -105,6 +105,51 @@ aeo_citation_checks: PostgresTable = PostgresTable(
             name="gateway_trace_id",
             nullable=True,
             description="Joins to the gateway's $ai_generation event, which carries token and web-search cost.",
+        ),
+    },
+)
+
+aeo_prompts: PostgresTable = PostgresTable(
+    name="aeo_prompts",
+    postgres_table_name="posthog_aeo_prompt",
+    # No access_scope, for the same reason as aeo_citation_checks: AEO has no RBAC
+    # resource, so team isolation comes only from the team_id predicate.
+    access_scope=None,
+    description=(
+        "AEO prompts: the questions the citation runner asks the answer engines, one row per prompt with its "
+        "current text and state. system.aeo_citation_checks.prompt_id joins to id here."
+    ),
+    fields={
+        "id": UUIDDatabaseField(name="id", description="Prompt id. system.aeo_citation_checks.prompt_id joins here."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the prompt was added."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the prompt row last changed."),
+        "prompt": StringDatabaseField(name="prompt", description="The current question text, normalized."),
+        "prompt_hash": StringDatabaseField(
+            name="prompt_hash",
+            description="SHA-256 of the normalized current text. Changes when the text is edited; join on id instead.",
+        ),
+        "prompt_source": StringDatabaseField(
+            name="prompt_source", description="Where the prompt came from: 'imported' or 'manual'."
+        ),
+        "topic": StringDatabaseField(name="topic", description="Theme the prompt belongs to; empty when it has none."),
+        "rank": FloatDatabaseField(name="rank", description="Seeding score; higher runs first within a topic."),
+        "active": BooleanDatabaseField(name="active", description="Only active prompts run."),
+        "last_checked_at": DateTimeDatabaseField(
+            name="last_checked_at", nullable=True, description="When the runner last ran the prompt; null if never."
+        ),
+        "archived_at": DateTimeDatabaseField(
+            name="archived_at",
+            nullable=True,
+            description="When the prompt was archived; null while it is in the set. Archived prompts keep their checks.",
+        ),
+        "current_version": IntegerDatabaseField(
+            name="current_version",
+            description="Version of the text in use. Matches prompt_version on the checks that ran this wording.",
+        ),
+        "evidence": StringJSONDatabaseField(
+            name="evidence",
+            description="JSON object: why the prompt made the set, such as the CSV it was imported from.",
         ),
     },
 )

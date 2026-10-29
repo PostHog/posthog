@@ -6,11 +6,20 @@ from posthog.models.team import Team
 from products.aeo.backend.models import AEOCitationCheck, AEOPrompt
 
 
+def _create_prompt(team: Team, label: str) -> AEOPrompt:
+    return AEOPrompt.objects.create(
+        team=team, prompt=f"is {label} cited?", prompt_hash=label, prompt_source=AEOPrompt.Source.MANUAL
+    )
+
+
+def create_prompt(team: Team, label: str) -> uuid.UUID:
+    with team_scope(team.pk):
+        return _create_prompt(team, label).pk
+
+
 def create_citation_check(team: Team, label: str) -> uuid.UUID:
     with team_scope(team.pk):
-        prompt = AEOPrompt.objects.create(
-            team=team, prompt=f"is {label} cited?", prompt_hash=label, prompt_source=AEOPrompt.Source.MANUAL
-        )
+        prompt = _create_prompt(team, label)
         check = AEOCitationCheck.objects.create(
             team=team,
             prompt=prompt,

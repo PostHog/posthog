@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from products.aeo.backend.facade.hogql import aeo_citation_checks
+from products.aeo.backend.facade.hogql import aeo_citation_checks, aeo_prompts
 from products.customer_analytics.backend.facade.customer_tasks_hogql import customer_tasks
 from products.customer_analytics.backend.facade.hogql import (
     account_channel_summaries,
@@ -3819,6 +3819,7 @@ class SystemTables(TableNode):
     children: dict[str, TableNode] = {
         "accounts": TableNode(name="accounts", table=accounts),
         "aeo_citation_checks": TableNode(name="aeo_citation_checks", table=aeo_citation_checks),
+        "aeo_prompts": TableNode(name="aeo_prompts", table=aeo_prompts),
         "_account_tagged_items": TableNode(name="_account_tagged_items", table=account_tagged_items, hidden=True),
         "_account_resource_notebooks": TableNode(
             name="_account_resource_notebooks", table=account_resource_notebooks, hidden=True
