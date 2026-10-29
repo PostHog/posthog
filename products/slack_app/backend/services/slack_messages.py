@@ -754,7 +754,7 @@ def _project_name(team_id: int, *, integration_id: int | None, created_by_id: in
         user = User.objects.filter(pk=created_by_id).first()
         if user is None:
             return None
-        if not multiple_accessible_projects(slack_team_id=integration.integration_id, user=user):
+        if not multiple_accessible_projects(slack_team_id=integration.integration_id or "", user=user):
             return None
         team = Team.objects.filter(pk=team_id).only("name").first()
     except Exception:
