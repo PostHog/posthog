@@ -76,6 +76,18 @@ It takes the same `series` as `PieChart` and sizes each part the same way as a p
 - A `tooltip` render prop receives the hovered part as `seriesData[0]`, with its raw `value` and its `fraction` of the visible parts, as on `PieChart`.
 - `barHeight` sets the bar thickness. The chart takes its height from the bar and the legend, so it does not need a parent with a fixed height. It does not grow to fill a flex parent either, so the legend stays next to the bar; center the pair in the parent if you want it in the middle.
 
+## Gauge
+
+One gauge per item in `items: { key, label?, value, color? }[]`, each reading a single value against `min`..`max` (default 0..100).
+Reduce a series to that value before you pass it in.
+
+- `variant: 'radial'` (default) draws a 240° arc open at the bottom, laid out in a wrapping grid. `'bar'` draws a bar on a neutral track: rows for `orientation: 'horizontal'` (default), columns for `'vertical'`.
+- `thresholds: { value, color }[]` colors the fill and the value text with the highest threshold at or below the value. Below every threshold the gauge uses the item's `color`, then `theme.colors` by index.
+- A radial gauge draws each threshold's range as a band outside its arc. `showThresholdMarkers: false` hides them.
+- A `null` value draws an empty gauge that reads "No data".
+- Each gauge is a `role="meter"` element with its value, range, and label for assistive technology.
+- It renders SVG and DOM, not canvas, so it needs no fixed-height parent for a bar layout; a radial or vertical layout fills the height it is given.
+
 ## BarList
 
 Ranked rows: a label, a bar on a neutral track, and a value, one row per series.
