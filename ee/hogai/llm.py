@@ -344,15 +344,37 @@ class MaxChatMixin(BaseModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> Iterator[ChatGenerationChunk]:
-        # Sync calls stay direct: only `agenerate` adds the gateway headers.
-        if self.ai_gateway_fallback is not None:
-            return self.ai_gateway_fallback._stream(
-                messages,
-                stop=stop,
-                run_manager=run_manager,
-                **_without_ai_gateway_headers(kwargs),
-            )
-        return cast(BaseChatModel, super())._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+        fallback = self.ai_gateway_fallback
+        if fallback is None:
+            yield from cast(BaseChatModel, super())._stream(messages, stop=stop, run_manager=run_manager, **kwargs)
+            return
+
+        direct_kwargs = _without_ai_gateway_headers(kwargs)
+        if _has_ai_gateway_headers(kwargs):
+            served = False
+            held: list[ChatGenerationChunk] = []
+            try:
+                for chunk in cast(BaseChatModel, super())._stream(
+                    messages, stop=stop, run_manager=run_manager, **kwargs
+                ):
+                    if served:
+                        yield chunk
+                        continue
+                    held.append(chunk)
+                    if not _carries_output(chunk):
+                        continue
+                    served = True
+                    yield from _marked_as_gateway_served(held)
+                if not served and held:
+                    yield from _marked_as_gateway_served(held)
+                return
+            except Exception as error:
+                reason = _ai_gateway_fallback_reason(error)
+                if served or reason is None:
+                    raise
+                self._record_ai_gateway_fallback(reason, error)
+
+        yield from fallback._stream(messages, stop=stop, run_manager=run_manager, **direct_kwargs)
 
     def _generate(
         self,
@@ -361,11 +383,25 @@ class MaxChatMixin(BaseModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        if self.ai_gateway_fallback is not None:
-            return self.ai_gateway_fallback._generate(
-                messages, stop=stop, run_manager=run_manager, **_without_ai_gateway_headers(kwargs)
-            )
-        return cast(BaseChatModel, super())._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+        fallback = self.ai_gateway_fallback
+        if fallback is None or self.streaming:
+            return cast(BaseChatModel, super())._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+
+        direct_kwargs = _without_ai_gateway_headers(kwargs)
+        if _has_ai_gateway_headers(kwargs):
+            try:
+                result = cast(BaseChatModel, super())._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
+            except Exception as error:
+                reason = _ai_gateway_fallback_reason(error)
+                if reason is None:
+                    raise
+                self._record_ai_gateway_fallback(reason, error)
+            else:
+                for generation in result.generations:
+                    generation.generation_info = {**(generation.generation_info or {}), AI_GATEWAY_SERVED_KEY: True}
+                return result
+
+        return fallback._generate(messages, stop=stop, run_manager=run_manager, **direct_kwargs)
 
     async def _astream(
         self,
@@ -472,6 +508,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             **data,
             "base_url": ai_gateway.url,
             "api_key": ai_gateway.api_key,
+            "http_client": httpx.Client(trust_env=False, verify=_ai_gateway_ssl_context()),
             "http_async_client": httpx.AsyncClient(trust_env=False, verify=_ai_gateway_ssl_context()),
             "timeout": AI_GATEWAY_TIMEOUT,
             "max_retries": 0,
@@ -515,6 +552,8 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
                 messages = self._enrich_messages(messages, project_org_user_variables)
 
         kwargs = self._with_posthog_properties(kwargs)
+        if self._routes_via_ai_gateway():
+            kwargs = self._with_ai_gateway_headers(kwargs)
 
         return super().generate(messages, *args, **kwargs)
 

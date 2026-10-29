@@ -12,6 +12,7 @@ from django.test import SimpleTestCase
 import httpx
 import openai
 import anthropic
+from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, Generation, LLMResult
@@ -1142,14 +1143,35 @@ class TestMaxChatOpenAIAIGateway(BaseTest):
 
     @parameterized.expand(
         [
-            ("routed_chat", "posthog_ai", False, 200, ["ai-gateway.test"], "gateway", True),
-            ("routed_responses", "posthog_ai", True, 200, ["ai-gateway.test"], "gateway", True),
-            ("other_product", "mcp", False, 200, ["api.openai.com"], "direct", False),
-            ("fallback_chat", "posthog_ai", False, 503, ["ai-gateway.test", "api.openai.com"], "direct", False),
-            ("fallback_responses", "posthog_ai", True, 503, ["ai-gateway.test", "api.openai.com"], "direct", False),
+            ("routed_chat", "posthog_ai", False, 200, ["ai-gateway.test"], "gateway", True, False),
+            ("routed_responses", "posthog_ai", True, 200, ["ai-gateway.test"], "gateway", True, False),
+            ("other_product", "mcp", False, 200, ["api.openai.com"], "direct", False, False),
+            ("fallback_chat", "posthog_ai", False, 503, ["ai-gateway.test", "api.openai.com"], "direct", False, False),
+            (
+                "fallback_responses",
+                "posthog_ai",
+                True,
+                503,
+                ["ai-gateway.test", "api.openai.com"],
+                "direct",
+                False,
+                False,
+            ),
+            ("sync_routed_responses", "posthog_ai", True, 200, ["ai-gateway.test"], "gateway", True, True),
+            ("sync_other_product", "mcp", False, 200, ["api.openai.com"], "direct", False, True),
+            (
+                "sync_fallback_chat",
+                "posthog_ai",
+                False,
+                503,
+                ["ai-gateway.test", "api.openai.com"],
+                "direct",
+                False,
+                True,
+            ),
         ]
     )
-    async def test_agenerate_routing(self, _name, ai_product, responses_api, gateway_status, hosts, text, served):
+    async def test_generate_routing(self, _name, ai_product, responses_api, gateway_status, hosts, text, served, sync):
         requests: list[httpx.Request] = []
 
         def respond(request: httpx.Request) -> httpx.Response:
@@ -1166,9 +1188,16 @@ class TestMaxChatOpenAIAIGateway(BaseTest):
                 http_client=httpx.AsyncClient(transport=httpx.MockTransport(respond)), max_retries=0
             )
             target.async_client = target.root_async_client.chat.completions
+            target.root_client = target.root_client.with_options(
+                http_client=httpx.Client(transport=httpx.MockTransport(respond)), max_retries=0
+            )
+            target.client = target.root_client.chat.completions
 
         with patch("ee.hogai.llm.ensure_config", return_value=self._config(ai_product)):
-            result = await model.agenerate([[HumanMessage(content="hello")]])
+            if sync:
+                result = await sync_to_async(model.generate)([[HumanMessage(content="hello")]])
+            else:
+                result = await model.agenerate([[HumanMessage(content="hello")]])
 
         self.assertEqual([request.url.host for request in requests], hosts)
         self.assertEqual(result.generations[0][0].text, text)
