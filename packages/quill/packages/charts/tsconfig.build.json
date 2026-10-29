@@ -10,7 +10,6 @@
         "src/**/*.test.tsx",
         "src/**/*.stories.ts",
         "src/**/*.stories.tsx",
-        "src/testing",
         "src/story-helpers.tsx"
     ]
 }

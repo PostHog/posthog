@@ -1140,6 +1140,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     "It requires a Postgres heap table or materialized view on PostgreSQL 13+."
                 )
 
+        # A webhook-mode table that no webhook event feeds never receives a row (e.g. Stripe
+        # BalanceTransaction), so a request must not move a table into that state.
+        if self._webhook_support_check_applies():
+            webhook_support_error = self._webhook_support_error_cached(instance)
+            if webhook_support_error is not None:
+                raise ValidationError(webhook_support_error)
+
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
         # no API list endpoint, so anything other than webhook produces an empty sync).
         if self._webhook_only_check_applies():
@@ -1768,18 +1775,56 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return False
         return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
 
-    def warm_webhook_only_check(self, instance: ExternalDataSchema) -> None:
-        """Pre-run the webhook-only validation that reaches the external source, caching the result.
+    def _webhook_support_error(self, schema: ExternalDataSchema) -> str | None:
+        """Why this table can't move to webhook sync, or None when the source advertises webhook
+        support for it. Runs discovery so a raw PATCH can't move a table that no webhook event feeds
+        into webhook sync."""
+        unsupported = f"{schema.name} doesn't support webhook sync. Pick another sync method."
+        source = schema.source
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return f"Couldn't check whether {schema.name} supports webhook sync. {UNREADABLE_SOURCE_CONFIG_ERROR}"
+        if not source_inputs:
+            return unsupported
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        except Exception:
+            return unsupported
+        if not isinstance(source_impl, WebhookSource):
+            return unsupported
+        try:
+            config = source_impl.parse_config(source_inputs)
+            source_schemas = source_impl.get_schemas(
+                config,
+                schema.team_id,
+                names=[schema.name],
+                api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
+            )
+        except Exception as e:
+            message, is_expected_source_error = source_helpers._classify_refresh_schemas_error(source_impl, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source.source_type, "schema_id": str(schema.id)})
+            return f"Couldn't check whether {schema.name} supports webhook sync. {message} Try again."
+        if any(s.name == schema.name and s.supports_webhooks for s in source_schemas):
+            return None
+        return unsupported
 
-        `_is_webhook_only_schema` calls the source's `get_schemas`, which is a network round-trip (e.g.
-        Google Ads OAuth refresh + field query). update() runs this same check, but bulk_update_schemas
-        wraps each update() in a transaction — making the call there held the DB connection idle-in-
-        transaction long enough for the server to close it ("the connection is closed"). Calling this
-        first (outside the transaction) does the network work up front; update() then reads the cached
-        result and still raises per-schema, so failures stay isolated to one schema.
+    def warm_webhook_only_check(self, instance: ExternalDataSchema) -> None:
+        """Pre-run the webhook validations that reach the external source, caching the results.
+
+        `_is_webhook_only_schema` and `_webhook_support_error` call the source's `get_schemas`,
+        which is a network round-trip (e.g. Google Ads OAuth refresh + field query). update() runs these
+        same checks, but bulk_update_schemas wraps each update() in a transaction — making the call there
+        held the DB connection idle-in-transaction long enough for the server to close it ("the
+        connection is closed"). Calling this first (outside the transaction) does the network work up
+        front; update() then reads the cached results and still raises per-schema, so failures stay
+        isolated to one schema.
         """
         if self._webhook_only_check_applies():
             self._is_webhook_only_schema_cached(instance)
+        if self._webhook_support_check_applies():
+            self._webhook_support_error_cached(instance)
 
     def seed_webhook_only_check(self, webhook_only: bool) -> None:
         """Pre-fill the webhook-only cache when the caller already discovered this table (e.g.
@@ -1797,6 +1842,21 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if "_webhook_only_result" not in self.__dict__:
             self.__dict__["_webhook_only_result"] = self._is_webhook_only_schema(schema)
         return self.__dict__["_webhook_only_result"]
+
+    def _webhook_support_check_applies(self) -> bool:
+        # The frontend re-sends the current sync_type on every save. Checking only a change keeps an
+        # unrelated edit (e.g. pausing the table) working when the lookup fails on expired credentials.
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        return (
+            data.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
+            and self.instance is not None
+            and self.instance.sync_type != ExternalDataSchema.SyncType.WEBHOOK
+        )
+
+    def _webhook_support_error_cached(self, schema: ExternalDataSchema) -> str | None:
+        if "_webhook_support_error_result" not in self.__dict__:
+            self.__dict__["_webhook_support_error_result"] = self._webhook_support_error(schema)
+        return self.__dict__["_webhook_support_error_result"]
 
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
@@ -1906,8 +1966,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         changes made in the meantime would never reach it.
         """
         adapter = get_cdc_adapter(source)
-        cdc_config = adapter.parse_cdc_config(source)
-        if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
+        if not adapter.manages_capture_set(source):
             return None
 
         _, db_schema, source_table_name = get_postgres_source_location(

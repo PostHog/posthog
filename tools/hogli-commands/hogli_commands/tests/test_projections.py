@@ -1,11 +1,22 @@
 from __future__ import annotations
 
+import sys
+import importlib.metadata
 from pathlib import Path
 
 import pytest
 
 import click
-from hogli_commands.projections import OutputFormatter, Projection, ProjectionRunner
+from hogli_commands.projections import (
+    BIOME,
+    OXFMT,
+    RUFF,
+    Formatter,
+    OutputFormatter,
+    Projection,
+    ProjectionRunner,
+    formatter_for,
+)
 
 RENDERER = """
 def render():
@@ -88,3 +99,38 @@ class TestProjectionRunner:
 
         with pytest.raises(click.ClickException, match="Keep the two in step"):
             runner.stale(PROJECTION)
+
+
+def _uv_lock(tmp_path: Path, version: str) -> None:
+    (tmp_path / "uv.lock").write_text(f'version = 1\n\n[[package]]\nname = "ruff"\nversion = "{version}"\n')
+
+
+class TestRuffFormatter:
+    @pytest.mark.parametrize(
+        "path,expected",
+        [
+            ("posthog/integrations/kinds_generated.py", RUFF),
+            ("products/desktop/scripts/tool.py", RUFF),
+            ("frontend/src/lib/oauthScopes.generated.ts", OXFMT),
+            ("products/desktop/packages/core/src/a.generated.ts", BIOME),
+        ],
+    )
+    def test_formatter_for_picks_ruff_for_python(self, path: str, expected: Formatter) -> None:
+        assert formatter_for(path) == expected
+
+    @pytest.mark.parametrize(
+        "locked_matches,expected_prefix",
+        [(True, [sys.executable, "-m", "ruff"]), (False, ["uvx", "ruff==0.0.1"])],
+        ids=["installed-version-matches-the-lock", "falls-back-to-the-locked-version"],
+    )
+    def test_ruff_runs_from_the_environment_only_at_the_locked_version(
+        self, tmp_path: Path, locked_matches: bool, expected_prefix: list[str]
+    ) -> None:
+        _uv_lock(tmp_path, importlib.metadata.version("ruff") if locked_matches else "0.0.1")
+
+        assert OutputFormatter(tmp_path)._command(RUFF) == expected_prefix
+
+    def test_formats_python_output(self, tmp_path: Path) -> None:
+        _uv_lock(tmp_path, importlib.metadata.version("ruff"))
+
+        assert OutputFormatter(tmp_path).format("out/kinds.py", "x={ 'a':1 }") == 'x = {"a": 1}\n'

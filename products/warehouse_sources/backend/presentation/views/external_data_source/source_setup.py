@@ -14,8 +14,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 import temporalio
+from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from openai import APIConnectionError
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -1369,6 +1369,25 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 data={
                     "message": f"Unknown sync type: {', '.join(invalid_sync_types)}. "
                     f"Use one of: {', '.join(valid_sync_types)}."
+                },
+            )
+
+        # A webhook-mode table that no webhook event feeds never receives a row.
+        webhook_unsupported = sorted(
+            {
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
+                and not source_schemas_by_name[schema["name"]].supports_webhooks
+            }
+        )
+        if webhook_unsupported:
+            new_source_model.delete()
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={
+                    "message": f"Webhook sync isn't available for: {', '.join(webhook_unsupported)}. "
+                    "Pick another sync method."
                 },
             )
 

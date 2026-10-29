@@ -31,6 +31,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.con
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.deltalite_handles import (
     DeltaLiteHandleCache,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
     GovernorConfig,
@@ -39,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     DELTA_TABLE_PROPERTIES,
+    ObjectStorePermissionDeniedError,
     ensure_table_properties,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.rss_sampler import RssPeakSampler
@@ -188,6 +192,39 @@ class TestHasCommitWithMetadata:
 
         mock_delta.history.assert_called_once_with(limit=123)
 
+    @parameterized.expand(
+        [
+            (
+                # A bare transient OSError/DeltaError from `history()` must not reach the caller
+                # unclassified: idempotency.py's `is_batch_already_processed` only skips
+                # `capture_exception` for a `NonReportableError`, so an unwrapped blip here mints a
+                # fresh error-tracking issue per retry.
+                "transient_connection_timeout",
+                OSError("Connection timed out (os error 110)"),
+                TransientObjectStoreError,
+            ),
+            (
+                # The transient matcher's "Generic S3 error" needle also prefixes a permanent
+                # privilege refusal - checking it before the permission-denied check would wrap a
+                # reportable bug as a silently-retried blip instead.
+                "permission_denied_prefixed_like_a_generic_s3_error",
+                OSError("Generic S3 error: The operation lacked the necessary privileges to complete"),
+                ObjectStorePermissionDeniedError,
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_history_read_error_is_classified_not_raised_raw(
+        self, _name: str, error: OSError, expected_type: type[Exception]
+    ):
+        writer = _make_writer()
+        mock_delta = MagicMock()
+        mock_delta.history = MagicMock(side_effect=error)
+
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=mock_delta)):
+            with pytest.raises(expected_type):
+                await writer.has_commit_with_metadata({"k": "v"})
+
 
 class TestHasBatchBeenCommitted:
     @parameterized.expand(
@@ -233,6 +270,34 @@ class TestHasBatchBeenCommitted:
         with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
             assert await writer.has_batch_been_committed("run-1", 5) is expected
         assert table.history.call_count <= 3
+
+    @pytest.mark.asyncio
+    async def test_transient_history_read_error_is_wrapped_not_raised_raw(self):
+        # Same guard as has_commit_with_metadata's equivalent test: this is the exact call path the
+        # idempotency crash-recovery check (`is_batch_already_processed`) drives on a Redis miss, so a
+        # raw transient blip here reaches error tracking as a bug instead of being retried silently.
+        writer = _make_writer()
+        table = MagicMock()
+        table.history = MagicMock(side_effect=OSError("Connection timed out (os error 110)"))
+
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
+            with pytest.raises(TransientObjectStoreError):
+                await writer.has_batch_been_committed("run-1", 5)
+
+    @pytest.mark.asyncio
+    async def test_permission_denied_history_read_error_is_not_classified_as_transient(self):
+        # Same ordering guard as has_commit_with_metadata's equivalent case: a permanent privilege
+        # refusal happens to share the "Generic S3 error" prefix the transient matcher accepts, so the
+        # permission check must run first or this becomes a silently-retried blip.
+        writer = _make_writer()
+        table = MagicMock()
+        table.history = MagicMock(
+            side_effect=OSError("Generic S3 error: The operation lacked the necessary privileges to complete")
+        )
+
+        with patch.object(writer._table, "get_delta_table", AsyncMock(return_value=table)):
+            with pytest.raises(ObjectStorePermissionDeniedError):
+                await writer.has_batch_been_committed("run-1", 5)
 
 
 class TestWriteToDeltalakeCommitMetadataPassThrough:

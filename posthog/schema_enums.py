@@ -661,6 +661,11 @@ class BIAggregation(StrEnum):
     CUSTOM = "custom"
 
 
+class BICatalogMetricStatus(StrEnum):
+    APPROVED = "approved"
+    PROPOSED = "proposed"
+
+
 class Operator1(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
@@ -1523,6 +1528,11 @@ class ExperimentStatsValidationFailure(StrEnum):
     NOT_ENOUGH_EXPOSURES = "not-enough-exposures"
     BASELINE_MEAN_IS_ZERO = "baseline-mean-is-zero"
     NOT_ENOUGH_METRIC_DATA = "not-enough-metric-data"
+
+
+class ExperimentWarehouseNativeMathType(StrEnum):
+    TOTAL = "total"
+    SUM = "sum"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2424,10 +2434,12 @@ class NodeKind(StrEnum):
     EXPERIMENT_QUERY = "ExperimentQuery"
     EXPERIMENT_EXPOSURE_QUERY = "ExperimentExposureQuery"
     EXPERIMENT_EVENT_EXPOSURE_CONFIG = "ExperimentEventExposureConfig"
+    EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG = "ExperimentWarehouseNativeExposureConfig"
     EXPERIMENT_ACTORS_QUERY = "ExperimentActorsQuery"
     EXPERIMENT_TRENDS_QUERY = "ExperimentTrendsQuery"
     EXPERIMENT_FUNNELS_QUERY = "ExperimentFunnelsQuery"
     EXPERIMENT_DATA_WAREHOUSE_NODE = "ExperimentDataWarehouseNode"
+    EXPERIMENT_WAREHOUSE_NATIVE_NODE = "ExperimentWarehouseNativeNode"
     EXPERIMENT_EXPOSURE_NODE = "ExperimentExposureNode"
     DATABASE_SCHEMA_QUERY = "DatabaseSchemaQuery"
     SUGGESTED_QUESTIONS_QUERY = "SuggestedQuestionsQuery"

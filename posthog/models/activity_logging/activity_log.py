@@ -75,6 +75,7 @@ ActivityScope = Literal[
     "EarlyAccessFeature",
     "SessionRecordingPlaylist",
     "ReplayScanner",
+    "ReplayObservation",
     "VisionAlertConfiguration",
     "Comment",
     "Team",
@@ -458,6 +459,8 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
     # directly, keyed by the comment's own scope.
     "Ticket": ["content"],
     cast(AuditableScope, "conversations_ticket"): ["content"],
+    # Observation notes are gated on observation access, which activity_log:read does not imply.
+    "ReplayObservation": ["content"],
     # The rubric API is limited to staff, so saved criteria and generated suggestions must not be
     # readable through activity_log:read. Record that the rubrics changed, never their contents.
     "SignalScoutConfig": ["rubrics"],
@@ -556,10 +559,6 @@ replay_scanner_machine_fields = [
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
-    "search_suggestions",
-    "search_suggestions_watermark",
-    "search_suggestions_generated_at",
-    "search_last_viewed_at",
     "prompt_question",
     "prompt_question_source",
     "prompt_valence",
@@ -1008,6 +1007,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "lease_id",
         "backoff_attempt",
         "backoff_until",
+        "pending_commit",
     ],
     "Integration": [
         "sensitive_config",
@@ -1213,7 +1213,8 @@ def safely_get_field_value(instance: models.Model | None, field: str):
             if hasattr(field_id, "pk"):
                 field_id = field_id.pk
             # Only fetch the actual object if we have a valid ID
-            related_model = field_obj.related_model
+            # Widen the stub type to keep the guard against an unresolved lazy "app.Model" reference.
+            related_model: type[models.Model] | str = field_obj.related_model
             if isinstance(related_model, type) and issubclass(related_model, models.Model):
                 return related_model.objects.get(pk=field_id)  # type: ignore[attr-defined]
             else:

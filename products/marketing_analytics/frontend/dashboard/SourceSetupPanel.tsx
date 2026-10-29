@@ -14,9 +14,14 @@ import { nativeSourceDisplayLabel } from 'scenes/web-analytics/tabs/marketing-an
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
-import { sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
+import { expandedSourceTypes, sourceConnectionGroupsLogic } from './sourceConnectionGroupsLogic'
 
 const HedgehogMoney = pngHoggie(moneyPng)
+
+type SourceConnectionStatus = 'Connected' | 'Syncing' | 'Needs attention' | 'Sync failed'
+
+const needsAction = (status: SourceConnectionStatus): boolean =>
+    status === 'Needs attention' || status === 'Sync failed'
 
 export interface SourceSetupPanelProps {
     state: 'checking' | 'scanning' | 'suggestions' | 'empty' | 'error' | 'waiting' | 'dismissed'
@@ -25,7 +30,7 @@ export interface SourceSetupPanelProps {
         id: string
         name: string
         sourceType: string
-        status: 'Connected' | 'Syncing' | 'Needs attention'
+        status: SourceConnectionStatus
         detail: string
         manageUrl?: string
         action?: ReactNode
@@ -64,8 +69,19 @@ export function SourceSetupPanel({
     onRestore,
 }: SourceSetupPanelProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { expandedSourceTypes } = useValues(sourceConnectionGroupsLogic({ expansionKey }))
-    const { setExpandedSourceTypes } = useActions(sourceConnectionGroupsLogic({ expansionKey }))
+    const sourceTypes = Array.from(new Set(connections.map((connection) => connection.sourceType)))
+    const sourceTypesNeedingAction = Array.from(
+        new Set(
+            connections
+                .filter((connection) => needsAction(connection.status))
+                .map((connection) => connection.sourceType)
+        )
+    )
+    const groupsLogic = sourceConnectionGroupsLogic({ expansionKey })
+    const { expansion } = useValues(groupsLogic)
+    const expandedGroups = expandedSourceTypes(expansion, sourceTypes, sourceTypesNeedingAction)
+    const { setExpandedSourceTypes } = useActions(groupsLogic)
+    const hasConnectionsToFix = connections.some((connection) => needsAction(connection.status))
     const busy = state === 'checking' || state === 'scanning'
     const title =
         titleOverride ??
@@ -80,7 +96,7 @@ export function SourceSetupPanel({
                   : state === 'error'
                     ? 'Could not check your events'
                     : state === 'waiting'
-                      ? connections.some((connection) => connection.status === 'Needs attention')
+                      ? hasConnectionsToFix
                           ? 'Some connections need attention'
                           : 'Your connections are getting ready'
                       : 'Connect your ad platforms')
@@ -97,7 +113,7 @@ export function SourceSetupPanel({
                   : state === 'error'
                     ? 'Try checking your events again, or choose an integration manually.'
                     : state === 'waiting'
-                      ? connections.some((connection) => connection.status === 'Needs attention')
+                      ? hasConnectionsToFix
                           ? 'Check the connections below to finish setting up your spend data.'
                           : 'Spend and ad performance will appear after the first sync finishes. You can connect other platforms while you wait.'
                       : `We found campaign tracking from ${suggestions.length} ${suggestions.length === 1 ? 'platform' : 'platforms'} in your latest event scan.`)
@@ -161,72 +177,72 @@ export function SourceSetupPanel({
                     <LemonCollapse
                         embedded
                         multiple
-                        activeKeys={expandedSourceTypes ?? [connections[0].sourceType]}
-                        onChange={setExpandedSourceTypes}
-                        panels={Array.from(new Set(connections.map((connection) => connection.sourceType))).map(
-                            (sourceType) => {
-                                const group = connections.filter((connection) => connection.sourceType === sourceType)
-                                return {
-                                    key: sourceType,
-                                    header: {
-                                        className: 'focus-visible:-outline-offset-2',
-                                        children: (
-                                            <span className="flex flex-wrap items-center gap-2 min-w-0">
-                                                <SourceIcon type={sourceType} size="small" disableTooltip />
-                                                <strong>{nativeSourceDisplayLabel(sourceType)}</strong>
-                                                <span className="text-secondary">{`${group.length} ${group.length === 1 ? 'connection' : 'connections'}`}</span>
-                                            </span>
-                                        ),
-                                    },
-                                    content: (
-                                        <div className="divide-y">
-                                            {group.map((connection) => (
-                                                <div
-                                                    key={connection.id}
-                                                    className="flex flex-wrap items-start justify-between gap-3 py-3"
-                                                >
-                                                    <div className="min-w-0 flex-1 basis-64 space-y-2 break-words">
-                                                        <div className="flex items-center flex-wrap gap-2">
-                                                            <strong className="break-all">{connection.name}</strong>
-                                                            <LemonTag
-                                                                type={
-                                                                    connection.status === 'Needs attention'
-                                                                        ? 'warning'
-                                                                        : 'info'
-                                                                }
-                                                            >
-                                                                {connection.status}
-                                                            </LemonTag>
-                                                        </div>
-                                                        <p className="text-secondary text-sm mb-0 whitespace-pre-line">
-                                                            {connection.detail}
-                                                        </p>
-                                                    </div>
-                                                    {connection.action ? (
-                                                        <div className="shrink-0 ml-auto">{connection.action}</div>
-                                                    ) : connection.status === 'Needs attention' ? (
-                                                        <div className="shrink-0 ml-auto">
-                                                            <LemonButton
-                                                                type="secondary"
-                                                                size="small"
-                                                                to={
-                                                                    connection.manageUrl ??
-                                                                    urls.dataWarehouseSource(`managed-${connection.id}`)
-                                                                }
-                                                                targetBlank
-                                                                data-attr={manageSourceDataAttr}
-                                                            >
-                                                                Manage source
-                                                            </LemonButton>
-                                                        </div>
-                                                    ) : null}
-                                                </div>
-                                            ))}
-                                        </div>
+                        activeKeys={expandedGroups}
+                        onChange={(expanded) => setExpandedSourceTypes(expanded, sourceTypes)}
+                        panels={sourceTypes.map((sourceType) => {
+                            const group = connections.filter((connection) => connection.sourceType === sourceType)
+                            return {
+                                key: sourceType,
+                                header: {
+                                    className: 'focus-visible:-outline-offset-2',
+                                    children: (
+                                        <span className="flex flex-wrap items-center gap-2 min-w-0">
+                                            <SourceIcon type={sourceType} size="small" disableTooltip />
+                                            <strong>{nativeSourceDisplayLabel(sourceType)}</strong>
+                                            <span className="text-secondary">{`${group.length} ${group.length === 1 ? 'connection' : 'connections'}`}</span>
+                                        </span>
                                     ),
-                                }
+                                },
+                                content: (
+                                    <div className="divide-y">
+                                        {group.map((connection) => (
+                                            <div
+                                                key={connection.id}
+                                                className="flex flex-wrap items-start justify-between gap-3 py-3"
+                                            >
+                                                <div className="min-w-0 flex-1 basis-64 space-y-2 break-words">
+                                                    <div className="flex items-center flex-wrap gap-2">
+                                                        <strong className="break-all">{connection.name}</strong>
+                                                        <LemonTag
+                                                            type={
+                                                                connection.status === 'Sync failed'
+                                                                    ? 'danger'
+                                                                    : connection.status === 'Needs attention'
+                                                                      ? 'warning'
+                                                                      : 'info'
+                                                            }
+                                                        >
+                                                            {connection.status}
+                                                        </LemonTag>
+                                                    </div>
+                                                    <p className="text-secondary text-sm mb-0 whitespace-pre-line">
+                                                        {connection.detail}
+                                                    </p>
+                                                </div>
+                                                {connection.action ? (
+                                                    <div className="shrink-0 ml-auto">{connection.action}</div>
+                                                ) : needsAction(connection.status) ? (
+                                                    <div className="shrink-0 ml-auto">
+                                                        <LemonButton
+                                                            type="secondary"
+                                                            size="small"
+                                                            to={
+                                                                connection.manageUrl ??
+                                                                urls.dataWarehouseSource(`managed-${connection.id}`)
+                                                            }
+                                                            targetBlank
+                                                            data-attr={manageSourceDataAttr}
+                                                        >
+                                                            Manage source
+                                                        </LemonButton>
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ))}
+                                    </div>
+                                ),
                             }
-                        )}
+                        })}
                     />
                 )}
                 {suggestions.length > 0 && !busy && (
@@ -311,7 +327,7 @@ export function SourceSetupPanel({
                         <span>Spend data appears after the first sync finishes.</span>
                     </div>
                 )}
-                {state === 'waiting' && connections.some((connection) => connection.status !== 'Needs attention') && (
+                {state === 'waiting' && connections.some((connection) => !needsAction(connection.status)) && (
                     <div className="flex items-start gap-2 text-secondary text-sm">
                         <IconCheckCircle className="shrink-0 mt-0.5" />
                         <span>You can leave this page. Your import will continue in the background.</span>

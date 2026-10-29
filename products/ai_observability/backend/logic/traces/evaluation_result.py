@@ -1,6 +1,6 @@
 import json
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Self
 
 from posthog.dataclasses import frozen
@@ -54,6 +54,18 @@ def _format_score(score: float) -> str:
 
 def _result_type(raw: str | None) -> OutputType | None:
     return OutputType(raw) if raw in OutputType.values else None
+
+
+def _produced_at(start_time: str | None, timestamp: datetime) -> datetime:
+    # A live verdict's event time is its run's start time, but a backfilled verdict takes the time of the step it
+    # grades, so only the start time orders runs. Results from outside PostHog may not send one.
+    try:
+        parsed = datetime.fromisoformat(start_time) if start_time else None
+    except ValueError:
+        parsed = None
+    if parsed is None:
+        return timestamp
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _parse_categories(raw: str | None, applicable: str | None) -> list[str] | None:
@@ -147,8 +159,10 @@ class EvaluationResult:
     target_node_id: str
     outcome: EvaluationOutcome
     label: str
+    score: float | None
     reasoning: str | None
     timestamp: datetime
+    produced_at: datetime
     is_backfill: bool
 
     @classmethod
@@ -162,7 +176,9 @@ class EvaluationResult:
             target_node_id=read_text(row.target_event_id) or trace_id,
             outcome=display.outcome,
             label=display.label,
+            score=raw.score,
             reasoning=read_text(row.reasoning),
             timestamp=row.timestamp,
+            produced_at=_produced_at(read_text(row.start_time), row.timestamp),
             is_backfill=bool(read_text(row.backfill_id)),
         )

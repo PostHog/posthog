@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import typing
@@ -211,7 +212,8 @@ class MetaAdsSchema:
     single_object: bool = False
     # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
     hoisted_columns: tuple[HoistedColumn, ...] = ()
-    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`).
+    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`), or
+    # heavy fields that can make even the smallest page too much data. Both read them back per row.
     refusable_fields: tuple[str, ...] = ()
 
 
@@ -606,7 +608,14 @@ def _is_permanent_auth_error(response: Response) -> bool:
 
 
 def _is_rate_limit_error(response: Response) -> bool:
-    """Return True for Meta errors that mean "too many requests", which only waiting fixes."""
+    """Return True for Meta errors that mean "too many requests", which only waiting fixes.
+
+    A fronting proxy in front of the Graph API has been observed to answer throttling with a
+    bare HTTP 429 and an HTML error page instead of Meta's own JSON error body, so the status
+    code alone is also treated as the signal — ``_meta_error_code`` has nothing to parse there.
+    """
+    if response.status_code == 429:
+        return True
     return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
@@ -910,9 +919,10 @@ def _iter_simple_pagination(
     then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
 
     When Meta refuses a page for one row's ``refusable_fields`` (see
-    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), the same page is fetched
-    again without those fields, and the fields are read back per row from
-    ``node_lookup_url``. The next page asks for every field again.
+    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), or the smallest page is still
+    too much data, the same page is fetched again without those fields, and
+    the fields are read back per row from ``node_lookup_url``. The next page
+    asks for every field again.
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
@@ -966,6 +976,12 @@ def _iter_simple_pagination(
                 smaller = _next_smaller_limit(current_limit)
                 if smaller is not None:
                     current_limit = smaller
+                    response = _issue()
+                    continue
+                # A Meta refusal that persists at the smallest page is the same request every time, so
+                # backoff alone never clears it when a few rows carry very large heavy fields.
+                if refusable_fields and node_lookup_url is not None and not without_refusable_fields:
+                    without_refusable_fields = True
                     response = _issue()
                     continue
                 if smallest_limit_retries < SMALLEST_PAGE_LIMIT_MAX_RETRIES:
@@ -1279,6 +1295,67 @@ def _make_paginated_api_request(
         yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
 
+# The values Meta's Insights API accepts for `action_attribution_windows`, as its code 100 error
+# lists them. The setting is free text, so a value outside this set would fail every stats sync.
+META_ATTRIBUTION_WINDOWS = frozenset(
+    {
+        "1d_view",
+        "7d_view",
+        "28d_view",
+        "1d_click",
+        "7d_click",
+        "28d_click",
+        "1d_ev",
+        "dda",
+        "default",
+        "7d_view_first_conversion",
+        "28d_view_first_conversion",
+        "7d_view_all_conversions",
+        "28d_view_all_conversions",
+        "skan_view",
+        "skan_click",
+        "skan_click_second_postback",
+        "skan_view_second_postback",
+        "skan_click_third_postback",
+        "skan_view_third_postback",
+        "incrementality",
+        "incrementality_first_conversion",
+        "incrementality_all_conversions",
+        "custom",
+        "1d_sequenced",
+        "7d_sequenced",
+        "28d_sequenced",
+    }
+)
+
+# Spelled-out day windows such as "7 day click" or "28-days view".
+_SPELLED_DAY_WINDOW = re.compile(r"\b(\d+)[\s_-]*(?:days?|d)[\s_-]*(click|view)s?\b")
+
+# Every accepted window is made of these characters, so any other character separates two values.
+_ATTRIBUTION_WINDOW_SEPARATOR = re.compile(r"[^a-z0-9_]+")
+
+
+def _normalize_attribution_windows(raw: str) -> list[str]:
+    """Parse the free-text windows setting into the values Meta accepts, in order and without repeats.
+
+    Values Meta does not accept are dropped, because Meta rejects the whole Insights request for
+    one of them, and that would stop every stats sync on the source.
+    """
+    text = _SPELLED_DAY_WINDOW.sub(r"\1d_\2", raw.lower())
+    windows: list[str] = []
+    dropped: list[str] = []
+    for token in _ATTRIBUTION_WINDOW_SEPARATOR.split(text):
+        if not token:
+            continue
+        if token not in META_ATTRIBUTION_WINDOWS:
+            dropped.append(token)
+        elif token not in windows:
+            windows.append(token)
+    if dropped:
+        logger.warning("meta_ads_dropped_invalid_attribution_windows", dropped=dropped)
+    return windows
+
+
 def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
     """Attribution settings to add to an Insights request, only when the source configures them.
 
@@ -1287,7 +1364,8 @@ def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
     PostHog's spend and conversion numbers with what Ads Manager shows.
 
     - ``action_attribution_windows``: a comma-separated list in config (e.g. ``7d_click,1d_view``),
-      sent JSON-encoded the way Meta's Graph API accepts a list parameter.
+      normalized by ``_normalize_attribution_windows`` and sent JSON-encoded the way Meta's Graph
+      API accepts a list parameter. Omitted when no configured value is one Meta accepts.
     - ``use_unified_attribution_setting``: a string flag (``"true"``/``"false"``) sent verbatim;
       any other value (including the "use Meta's default" empty option) leaves it unset.
     """
@@ -1295,7 +1373,7 @@ def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
 
     windows_raw = getattr(config, "action_attribution_windows", None)
     if windows_raw:
-        windows = [window.strip() for window in windows_raw.split(",") if window.strip()]
+        windows = _normalize_attribution_windows(windows_raw)
         if windows:
             params["action_attribution_windows"] = json.dumps(windows)
 
