@@ -253,6 +253,12 @@ describe('hog-charts scales', () => {
             expect(scale.domain()).toEqual([0, 40])
         })
 
+        it('keeps a log scale when both ends are positive', () => {
+            const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
+            const scale = createYScale(series, dimensions, { scaleType: 'log', valueDomain: { min: 1, max: 100 } })
+            expect(scale(10)).toBeCloseTo((scale(1) + scale(100)) / 2)
+        })
+
         it('takes precedence over percent stack mode', () => {
             const series = [makeSeries({ key: 's1', data: [10, 20, 30] })]
             const scale = createYScale(series, dimensions, { percentStack: true, valueDomain: { min: 0, max: 200 } })

@@ -224,6 +224,16 @@ describe('combo-scales', () => {
             }
         })
 
+        it('keeps each axis its own bounds when the primary axis has no visible series', () => {
+            const line = makeSeries({ key: 'line', data: [800, 1000], type: 'line', yAxisId: 'right' })
+            const scales = createComboScales([line], ['a', 'b'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('line'),
+                valueBounds: { min: 0, max: 10 },
+                axes: [{ id: DEFAULT_Y_AXIS_ID }, { id: 'right', valueDomain: { min: 500, max: 2000 } }],
+            })
+            expect(scales.yAxes.right.scale.domain()).toEqual([500, 2000])
+        })
+
         it('points combo.y at the default axis when present', () => {
             const leftLine = makeSeries({ key: 'l', data: [10] })
             const rightBar = makeSeries({ key: 'r', data: [1000], type: 'bar', yAxisId: 'y1' })

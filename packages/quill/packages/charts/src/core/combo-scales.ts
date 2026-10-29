@@ -110,6 +110,14 @@ export function createComboScales(
         ? DEFAULT_Y_AXIS_ID
         : axisPositions[0].axisId
 
+    // `valueBounds` and `floatBaseline` belong to the configured primary axis (the default id, else
+    // the first configured axis), which keeps them when legend toggling hides its series.
+    const boundsAxisId = axes?.length
+        ? axisOverrides.has(DEFAULT_Y_AXIS_ID)
+            ? DEFAULT_Y_AXIS_ID
+            : axes[0].id
+        : primaryAxisId
+
     const seriesByAxis = groupVisibleSeriesByAxis(series)
     const yAxes: ComboScaleSet['yAxes'] = {}
     for (const { axisId, position } of axisPositions) {
@@ -138,12 +146,15 @@ export function createComboScales(
         // apply to axes without bars.
         const hasBarSeries = axisSeries.some((s) => seriesTypeOf(s) === 'bar')
         const override = axisOverrides.get(axisId)
-        const isPrimary = axisId === primaryAxisId
-        let axisDomain = isPrimary ? valueDomain : undefined
+        const isBoundsAxis = axisId === boundsAxisId
+        let axisDomain = axisId === primaryAxisId ? valueDomain : undefined
         if (!hasBarSeries) {
-            axisDomain = mergeValueDomains(axisDomain, isPrimary ? valueBounds : override?.valueDomain)
+            axisDomain = mergeValueDomains(
+                axisDomain,
+                mergeValueDomains(override?.valueDomain, isBoundsAxis ? valueBounds : undefined)
+            )
         }
-        const startAtZero = override?.startAtZero ?? (isPrimary ? !floatBaseline : true)
+        const startAtZero = override?.startAtZero ?? (isBoundsAxis ? !floatBaseline : true)
         const scale = createYScale(axisValueSeries, dimensions, {
             scaleType: override?.scaleType ?? scaleType,
             percentStack: barLayout === 'percent' && hasBarSeries,

@@ -244,9 +244,12 @@ export function createYScale(
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
 
     if (fixed) {
-        return scaleLinear()
-            .domain(sanitizeFixedDomain(fixed))
-            .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+        const range = [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop]
+        // A log axis keeps its scale when both bounds are positive; a log domain can't hold zero.
+        if (scaleType === 'log' && fixed[0] > 0 && fixed[1] > 0) {
+            return scaleLog().domain(fixed).range(range).clamp(true)
+        }
+        return scaleLinear().domain(sanitizeFixedDomain(fixed)).range(range)
     }
 
     if (percentStack) {
