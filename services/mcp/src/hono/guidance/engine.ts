@@ -4,7 +4,7 @@ import { resolveScopePreset } from '@/lib/scope-preset'
 
 import type { RedisLike } from '../cache/RedisCache'
 import { resolveSessionKey } from '../mcp-context'
-import { guidanceNoticesTotal } from '../metrics'
+import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
 import { GUIDANCE_RULES, type GuidanceRule } from './rules'
 
@@ -81,7 +81,7 @@ function isGuidanceAudience(state: ResolvedState): boolean {
 function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): boolean {
     return (
         rule.trigger.presets.includes(preset as GuidanceRule['trigger']['presets'][number]) &&
-        rule.requiresTool.some((name) => state.allTools.some((tool) => tool.name === name))
+        rule.requiresTool.every((name) => state.allTools.some((tool) => tool.name === name))
     )
 }
 
@@ -161,7 +161,9 @@ export class GuidanceEngine {
                 guidanceNoticesTotal.inc({ rule: winner.ruleId, outcome: winner.outcome })
             }
             return winner
-        } catch {
+        } catch (error) {
+            guidanceEvaluationErrorsTotal.inc()
+            console.warn('[Guidance] evaluation failed:', error instanceof Error ? error.message : String(error))
             return undefined
         }
     }

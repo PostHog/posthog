@@ -24,7 +24,7 @@ const guidanceRuleSchema = z.object({
     maxPerSession: z.number().int().min(1),
     /** Once the session has called any of these (same `*` prefix syntax), the rule stays silent. */
     suppressIfCalled: z.array(z.string().min(1)),
-    /** The notice names these tools, so at least one must be in the caller's roster. */
+    /** Every tool the notice names, so it never points at one the caller's roster lacks. */
     requiresTool: z.array(z.string().min(1)).min(1),
     text: z.string().min(1).max(2000),
 })
@@ -49,7 +49,12 @@ const RULES: GuidanceRule[] = [
         threshold: 2,
         maxPerSession: 1,
         suppressIfCalled: ['vision-*', 'inline-scan'],
-        requiresTool: ['vision-scanners-inline-scan', 'vision-requests-create'],
+        requiresTool: [
+            'vision-scanners-inline-scan',
+            'vision-requests-create',
+            'vision-requests-get',
+            'vision-observations-search',
+        ],
         text: [
             'SQL over session replay tables returns recording metadata (duration, event counts, URLs), not what happened in the session.',
             'To answer a question about what users did or saw, Replay Vision can watch the recordings for you:',

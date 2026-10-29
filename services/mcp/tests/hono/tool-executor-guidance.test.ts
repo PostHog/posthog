@@ -62,10 +62,16 @@ describe('ToolExecutor guidance notices', () => {
         capture: MockInstance<ReturnType<typeof getPostHogClient>['captureToolCall']>
     } {
         const sql = makeTool('execute-sql', sqlHandler)
-        const vision = makeTool('vision-scanners-inline-scan', () => ({}))
+        const visionTools = [
+            'vision-scanners-inline-scan',
+            'vision-requests-create',
+            'vision-requests-get',
+            'vision-observations-search',
+        ].map((name) => makeTool(name, () => ({})))
         const schema = makeTool('read-data-schema', () => ({}))
+        const tools = [sql, ...visionTools, schema]
         vi.spyOn(catalog, 'getToolByName').mockImplementation((name) => {
-            const tool = [sql, vision, schema].find((t) => t.name === name)
+            const tool = tools.find((t) => t.name === name)
             return tool
                 ? { build: () => tool, meta: undefined, rawInputSchema: undefined, definition: undefined }
                 : undefined
@@ -76,7 +82,7 @@ describe('ToolExecutor guidance notices', () => {
             undefined,
             new GuidanceEngine(makeGuidanceRedis())
         )
-        const state = makeToolExecutorState([sql, vision, schema], {
+        const state = makeToolExecutorState(tools, {
             useSingleExec: mode === 'exec',
             suppressAnalytics: false,
             toolFeatureFlags: { [flag]: true },

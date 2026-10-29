@@ -225,4 +225,9 @@ export const guidanceNoticesTotal = new Counter({
     labelNames: ['rule', 'outcome'] as const,
 })
 
+export const guidanceEvaluationErrorsTotal = new Counter({
+    name: 'mcp_guidance_evaluation_errors_total',
+    help: 'Guidance evaluations that failed (Redis errors or timeouts) and yielded no notice.',
+})
+
 export { register }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
 import { GUIDANCE_RULES, type GuidanceRule } from '@/hono/guidance/rules'
@@ -20,7 +20,7 @@ const rule: GuidanceRule = {
     threshold: 2,
     maxPerSession: 1,
     suppressIfCalled: ['vision-*'],
-    requiresTool: ['vision-scanners-inline-scan'],
+    requiresTool: ['vision-scanners-inline-scan', 'vision-requests-get'],
     text: 'Try Replay Vision.',
 }
 
@@ -33,11 +33,14 @@ const otherQuery: GuidanceCall = { toolName: 'execute-sql', args: { query: 'sele
 const visionCall: GuidanceCall = { toolName: 'vision-scanners-inline-scan', args: {}, isError: false }
 
 function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
-    return makeToolExecutorState([{ name: 'execute-sql' }, { name: 'vision-scanners-inline-scan' }], {
-        toolFeatureFlags: { [rule.flag]: true },
-        suppressAnalytics: false,
-        ...overrides,
-    })
+    return makeToolExecutorState(
+        [{ name: 'execute-sql' }, { name: 'vision-scanners-inline-scan' }, { name: 'vision-requests-get' }],
+        {
+            toolFeatureFlags: { [rule.flag]: true },
+            suppressAnalytics: false,
+            ...overrides,
+        }
+    )
 }
 
 async function run(
@@ -125,6 +128,15 @@ describe('GuidanceEngine', () => {
         ['sandbox token', { apiKeyScopes: ['internal_run:read'] }],
         ['scout token', { apiKeyScopes: ['signal_scout_internal:write'] }],
         ['suggested tool not in roster', { allTools: [{ name: 'execute-sql' }] as ResolvedState['allTools'] }],
+        [
+            'one named tool missing from roster',
+            {
+                allTools: [
+                    { name: 'execute-sql' },
+                    { name: 'vision-scanners-inline-scan' },
+                ] as ResolvedState['allTools'],
+            },
+        ],
     ])('shows nothing for %s', async (_label, overrides) => {
         const engine = new GuidanceEngine(makeGuidanceRedis(), [rule])
         await expect(run(engine, makeState(overrides), [replayQuery, replayQuery])).resolves.toEqual([
@@ -149,9 +161,12 @@ describe('GuidanceEngine', () => {
         ])
     })
 
-    it('shows nothing when Redis fails', async () => {
+    it('shows nothing and logs when Redis fails', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         const engine = new GuidanceEngine(makeGuidanceRedis(true), [{ ...rule, threshold: 1 }])
         await expect(engine.evaluate(makeState(), replayQuery)).resolves.toBeUndefined()
+        expect(warn).toHaveBeenCalledWith('[Guidance] evaluation failed:', expect.any(String))
+        warn.mockRestore()
     })
 
     it.each([
