@@ -60,7 +60,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Dialog (Trigger, Content, Header, Title, Description, Body, Footer, Close, Overlay, Portal)
 - Dot
 - Drawer (Trigger, Content, Header, Title, Description, Footer, Close, Handle, Backdrop, Portal)
-- DropdownMenu (Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, SelectAll, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal; useDropdownMenuSelectAll)
+- DropdownMenu (Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, SelectAll, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal, FilterProvider, Input, List, Empty; useDropdownMenuSelectAll)
 - Empty (Header, Media, Title, Description, Content)
 - IconStack (Item)
 - Field (Label, Description, Error, Group, Set, Legend, Separator, Content, Title)
@@ -70,7 +70,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Item (Media, Content, Title, Description, Header, Footer, Actions, Group, Separator, Checkbox, Radio, MenuItem)
 - Kbd (Group, Text)
 - Label
-- MenuLabel (section label for custom menu-like lists only)
+- MenuLabel (section label for custom menu-like lists only), MenuEmpty (an inert status row in a menu-like list: "Searching…", "No results")
 - Menubar (Menu, Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal)
 - NumberFieldRoot (NumberFieldGroup, NumberFieldInput, NumberFieldIncrement, NumberFieldDecrement, NumberFieldScrubArea, NumberFieldScrubAreaCursor)
 - Pagination (Content, Item, Button, Previous, Next, Ellipsis; getPaginationRange)
@@ -204,6 +204,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Never Select for actions; never restyle Buttons into menu rows (use `Item variant="menuItem"`)
   - A menu sizes to its longest row, never narrower than its trigger. Don't set a width on `DropdownMenuContent` unless the content needs a fixed one
   - A row with a second line takes `description` on `DropdownMenuItem` or `DropdownMenuSubTrigger`. Never stack the text yourself: the row has a fixed height until `description` tells it to grow
+  - A long list of actions the user narrows by typing (a property picker, a "move to" folder list) is a filterable DropdownMenu: `DropdownMenuFilterProvider` around the menu, `DropdownMenuInput` as the content's `header`, the rows inside `DropdownMenuList`, and `DropdownMenuEmpty` for no match. The query hides every row that does not match, so pass `filter={null}` and filter the rows yourself when one must always show. It stays a menu, so rows run actions; to pick a form value use Combobox
   - A menu item that navigates calls the router in `onClick`. Never pass a Link through the item's `render`: the item already uses `render` for its row styling
   - Icon-only menu trigger: `aria-label` and a tooltip with the same string, as for any icon-only button
 - A list of clickable rows (tickets, programs, recent items) → `CardGroup` of `Card size="sm"`, each holding one full-width `<button>` or `<a>`. Item has no clickable variant. `Item tone` is for callouts only, such as a warning or an incident notice

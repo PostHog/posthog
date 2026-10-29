@@ -65,6 +65,43 @@
         overflow: hidden;
     }
 
+    /*
+     * The search row of a filterable menu. It sits above the scroller as a sibling, so the list's
+     * edge fade never touches it and it stays put while the list scrolls.
+     */
+    .quill-menu__input-wrapper {
+        display: flex;
+        gap: 0.5rem;
+        align-items: center;
+        height: 2rem;
+        padding-inline: 0.625rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .quill-menu__input-wrapper > svg {
+        flex-shrink: 0;
+        width: 0.875rem;
+        height: 0.875rem;
+        color: var(--muted-foreground);
+    }
+
+    .quill-menu__input {
+        flex: 1 1 auto;
+        min-width: 0;
+        padding: 0;
+        font-size: var(--text-ui, 0.8125rem);
+        line-height: 1.625;
+        color: var(--foreground);
+        background: transparent;
+        border: none;
+        outline: none;
+        box-shadow: none;
+    }
+
+    .quill-menu__input::placeholder {
+        color: var(--muted-foreground);
+    }
+
     .quill-menu__separator {
         height: 1px;
         margin-block: 0.25rem;

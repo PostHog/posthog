@@ -6,6 +6,7 @@ import { IconCalendar } from '@posthog/icons'
 import { LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { FilterBar } from 'lib/components/FilterBar/FilterBar'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -26,7 +27,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { groupsModel } from '~/models/groupsModel'
 import { VariablesForDashboard } from '~/queries/nodes/DataVisualization/Components/Variables/Variables'
 import { BreakdownFilter, NodeKind } from '~/queries/schema/schema-general'
-import { InsightLogicProps, IntervalType } from '~/types'
+import { AnyPropertyFilter, InsightLogicProps, IntervalType } from '~/types'
 
 import { DashboardMetricVariables } from 'products/metrics/frontend/components/dashboardVariables/DashboardMetricVariables'
 import { TaxonomicBreakdownFilter } from 'products/product_analytics/frontend/insights/editor/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -99,9 +100,17 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
     const { dashboard, dashboardEditing, hasVariables, effectiveEditBarFilters } = useValues(dashboardLogic)
     const { setDates, setProperties, setBreakdownFilter, setDashboardEditing } = useActions(dashboardLogic)
     const controlsEnabled = useFeatureFlag('METRICS_DASHBOARD_CONTROLS')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
+
+    const onPropertiesChange = (properties: AnyPropertyFilter[]): void => {
+        if (!dashboardEditing?.filters) {
+            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+        }
+        setProperties(properties)
+    }
 
     const insightProps: InsightLogicProps = {
         dashboardItemId: 'new',
@@ -182,31 +191,34 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 hasValue={(effectiveEditBarFilters.properties?.length ?? 0) > 0}
                 className={clsx('content-end', { 'h-[61px]': hasVariables })}
             >
-                <PropertyFilters
-                    onChange={(properties) => {
-                        if (!dashboardEditing?.filters) {
-                            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
-                        }
-                        setProperties(properties)
-                    }}
-                    pageKey={'dashboard_' + dashboard?.id}
-                    propertyFilters={effectiveEditBarFilters.properties}
-                    taxonomicGroupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                        TaxonomicFilterGroupType.EventMetadata,
-                        ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
-                        ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
-                        TaxonomicFilterGroupType.EmailAddresses,
-                        ...groupsTaxonomicTypes,
-                        TaxonomicFilterGroupType.Cohorts,
-                        TaxonomicFilterGroupType.Elements,
-                        TaxonomicFilterGroupType.SessionProperties,
-                        TaxonomicFilterGroupType.HogQLExpression,
-                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
-                    ]}
-                />
+                {todayRailNav ? (
+                    <FilterBar
+                        pageKey={'dashboard_' + dashboard?.id}
+                        filters={effectiveEditBarFilters.properties ?? []}
+                        onChange={onPropertiesChange}
+                    />
+                ) : (
+                    <PropertyFilters
+                        onChange={onPropertiesChange}
+                        pageKey={'dashboard_' + dashboard?.id}
+                        propertyFilters={effectiveEditBarFilters.properties}
+                        taxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.PersonProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
+                            TaxonomicFilterGroupType.EventMetadata,
+                            ...(hasPageview ? [TaxonomicFilterGroupType.PageviewUrls] : []),
+                            ...(hasScreen ? [TaxonomicFilterGroupType.Screens] : []),
+                            TaxonomicFilterGroupType.EmailAddresses,
+                            ...groupsTaxonomicTypes,
+                            TaxonomicFilterGroupType.Cohorts,
+                            TaxonomicFilterGroupType.Elements,
+                            TaxonomicFilterGroupType.SessionProperties,
+                            TaxonomicFilterGroupType.HogQLExpression,
+                            TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                        ]}
+                    />
+                )}
             </DashboardControlSlot>
             <DashboardControlSlot
                 control="breakdown"
