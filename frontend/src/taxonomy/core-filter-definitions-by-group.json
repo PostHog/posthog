@@ -234,6 +234,11 @@
             "examples": [true, false],
             "label": "AI Evaluation Applicable (LLM)"
         },
+        "$ai_evaluation_attachments": {
+            "description": "The number of images from the evaluated generation that the LLM judge received.",
+            "examples": [1, 3],
+            "label": "AI Evaluation Attachments (LLM)"
+        },
         "$ai_evaluation_categorical_result": {
             "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",
             "examples": ["[\"resolved\"]", "[\"fast\", \"reliable\"]", "[]"],
@@ -4186,6 +4191,11 @@
             "description": "Whether the evaluation criteria was applicable to this generation (only present when N/A is allowed).",
             "examples": [true, false],
             "label": "AI Evaluation Applicable (LLM)"
+        },
+        "$ai_evaluation_attachments": {
+            "description": "The number of images from the evaluated generation that the LLM judge received.",
+            "examples": [1, 3],
+            "label": "AI Evaluation Attachments (LLM)"
         },
         "$ai_evaluation_categorical_result": {
             "description": "The category keys returned by an online evaluation. An empty list is an applicable result with no matching categories.",

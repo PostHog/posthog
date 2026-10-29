@@ -25,7 +25,7 @@ class EvaluationActivityResult(TypedDict, total=False):
     - `applicable` is set only when `allows_na=True`.
     - `skipped` and `skip_reason` are set only on the skip path (e.g. errored source trace).
     - `model`, `provider`, `key_id`, `is_byok`, and the `*_tokens` fields come from the LLM
-      judge success path. The skip path omits `model`/`provider` so downstream cost
+      judge success path. `attachments` counts the images the judge received, when any. The skip path omits `model`/`provider` so downstream cost
       attribution doesn't credit phantom calls, and `execute_hog_eval_activity` (whose
       output also flows into `emit_evaluation_event_activity`) omits model and token fields.
     - `sentiment_*` fields are set for successful sentiment evaluations (the skip path
@@ -47,6 +47,7 @@ class EvaluationActivityResult(TypedDict, total=False):
     total_tokens: NotRequired[int]
     is_byok: NotRequired[bool]
     key_id: NotRequired[str | None]
+    attachments: NotRequired[int]
     model: NotRequired[str]
     provider: NotRequired[str]
     applicable: NotRequired[bool]
