@@ -369,13 +369,20 @@ function lowerSections(
     if (!appendInOrder(REMOTE_SOURCES.filter((source) => source !== 'results' && !TRAILING_SOURCES.includes(source)))) {
         return loadingMore()
     }
-    if (input.askAiQuestion) {
+    const hasItems = shown.size > 0 || loaded().some((section) => section.rows.some((row) => row.kind === 'item'))
+    if (input.askAiQuestion && !hasItems) {
         sections.push({
             ...readySection('ask-ai', [{ kind: 'ask-ai', key: 'ask-ai/ask', question: input.askAiQuestion }]),
             state,
         })
     }
-    return appendInOrder(TRAILING_SOURCES) ? loaded() : loadingMore()
+    if (!appendInOrder(TRAILING_SOURCES)) {
+        return loadingMore()
+    }
+    const all = loaded()
+    return all.some((section) => section.key !== 'ask-ai' && section.rows.some((row) => row.kind === 'item'))
+        ? all.filter((section) => section.key !== 'ask-ai')
+        : all
 }
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
