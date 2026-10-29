@@ -5,7 +5,7 @@ import re
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 from uuid import UUID
 
 from django.db import transaction
@@ -348,8 +348,26 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
         raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
 
 
-def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
-    template = MessageTemplate.objects.get(team_id=team_id, id=template_id, deleted=False)
+class TransactionalTemplate(Protocol):
+    """The template fields a send reads. A caller that already loaded the template passes it in."""
+
+    @property
+    def id(self) -> UUID: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def content(self) -> dict[str, Any]: ...
+
+    @property
+    def message_category_id(self) -> UUID | None: ...
+
+    @property
+    def transactional_hog_flow_id(self) -> UUID | None: ...
+
+
+def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     # A category's type can change after the template was made transactional.
@@ -370,7 +388,7 @@ def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
 
 def send_transactional_email(
     team: Team,
-    template_id: UUID,
+    template: UUID | TransactionalTemplate,
     *,
     to: str,
     distinct_id: str | None,
@@ -387,7 +405,11 @@ def send_transactional_email(
         raise InvalidRecipient("The recipient address can't contain { or }.")
 
     with transactional_email_stage("workflow_lookup"):
-        hog_flow_id = _transactional_workflow_id(team.id, template_id)
+        # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
+        if isinstance(template, UUID):
+            template = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
+        hog_flow_id = _transactional_workflow_id(team.id, template)
+    template_id = template.id
     payload = {
         "to": to,
         # The recipient is the person the send is tracked against. Without a distinct_id, the address is one.

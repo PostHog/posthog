@@ -65,7 +65,8 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
 def find_project_secret_api_key(token: str) -> Optional["ProjectSecretAPIKey"]:
     secure_value = hash_key_value(token)
     try:
-        return ProjectSecretAPIKey.objects.select_related("team").get(secure_value=secure_value)
+        # The organization comes along so a view that resolves this team needs no second query for it.
+        return ProjectSecretAPIKey.objects.select_related("team__organization").get(secure_value=secure_value)
     except ProjectSecretAPIKey.DoesNotExist:
         return None
 
