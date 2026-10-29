@@ -208,6 +208,19 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
             "countIf(ifNull(equals(CAST(events.properties.value, 'Nullable(String)'), %(hogql_val_0)s), 0))" in native
         )
 
+    def test_boolean_text_comparison_keeps_user_written_cast(self) -> None:
+        context = self._context(use_new_events_schema=True, event_properties={"opted_in": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(
+                parse_select("SELECT toBool(toString(properties.opted_in)) = 'pending' FROM events"),
+                context,
+                "clickhouse",
+            )
+        assert "CAST(events.properties.opted_in, 'Nullable(String)')" not in printed
+        assert (
+            "accurateCastOrNull(toString(accurateCastOrNull(transform(toString(events.properties.opted_in)" in printed
+        )
+
     @parameterized.expand([("$active_feature_flags",), ("$exception_types",)])
     def test_property_comparison_planner_does_not_depend_on_json_storage_type(self, property_name: str) -> None:
         plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = 'TypeError'")
@@ -789,6 +802,53 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"step":"5"}',
                     "{}",
                     '{"step":"nan"}',
+                ],
+            },
+        )
+        assert [row[0] for row in rows] == expected
+
+    @parameterized.expand(
+        [
+            ("text_equals", "properties.opted_in = 'pending'", [1, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.opted_in != 'pending'", [0, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.opted_in IN ('pending', 'declined')", [1, 1, 0, 0, None, 0]),
+            ("text_and_boolean_in", "properties.opted_in IN ('pending', 'true')", [1, 0, 1, 1, None, 0]),
+            ("boolean_text_equals", "properties.opted_in = 'true'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_digit_equals", "properties.opted_in = '1'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_yes_equals", "properties.opted_in = 'YeS'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_no_equals", "properties.opted_in = 'No'", [0, 0, 0, 0, 0, 1]),
+            ("boolean_t_equals", "properties.opted_in = 'T'", [0, 0, 1, 1, 0, 0]),
+            ("boolean_f_equals", "properties.opted_in = 'F'", [0, 0, 0, 0, 0, 1]),
+            (
+                "boolean_true_aliases_in",
+                "countIf(properties.opted_in IN ('true', '1', 'T', 'Y', 'YeS', 'ON', 'Enable', 'Enabled'))",
+                [2],
+            ),
+            (
+                "boolean_false_aliases_in",
+                "countIf(properties.opted_in IN ('false', '0', 'F', 'N', 'No', 'OFF', 'Disable', 'Disabled'))",
+                [1],
+            ),
+        ]
+    )
+    def test_boolean_property_compared_to_text_matches_text(
+        self, _name: str, predicate: str, expected: list[int | None]
+    ) -> None:
+        context = self._context(event_properties={"opted_in": {"type": "Boolean"}})
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            printed, _ = prepare_and_print_ast(parse_select(f"SELECT {predicate} FROM events"), context, "clickhouse")
+        rows = sync_execute(
+            "WITH events_json AS (SELECT 1 AS team_id, CAST(arrayJoin(%(documents)s), 'JSON') AS properties) "
+            + printed,
+            {
+                **context.values,
+                "documents": [
+                    '{"opted_in":"pending"}',
+                    '{"opted_in":"declined"}',
+                    '{"opted_in":true}',
+                    '{"opted_in":"true"}',
+                    "{}",
+                    '{"opted_in":false}',
                 ],
             },
         )
