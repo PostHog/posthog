@@ -50,6 +50,7 @@ from products.experiments.backend.health.checks.srm import (
     reads_flag_history,
     reads_segments,
     sample_ratio_test,
+    segments_first_exposed_after,
 )
 from products.experiments.backend.health.checks.zero_exposures import reads_exposed_without_test_account_filter
 from products.experiments.backend.health.context import (
@@ -356,7 +357,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if not self._runs_health_queries():
             return evaluate_health(context, EXPOSURE_HEALTH_CHECKS)
         if reads_segments(context):
-            exposures = replace(exposures, segments=self._segments(exposure_params))
+            segments = self._segments(exposure_params, segments_first_exposed_after(context))
+            exposures = replace(exposures, segments=segments)
             context = replace(context, exposures=exposures)
         # Without test account filters on the project, the count without the filter is the same zero.
         if (
@@ -368,17 +370,26 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             context = replace(context, exposures=replace(exposures, exposed_without_test_account_filter=exposed))
         return evaluate_health(context, EXPOSURE_HEALTH_CHECKS)
 
-    def _segments(self, exposure_params: ExposureQueryParams) -> tuple[ExposureSegment, ...] | None:
-        query = self._query_builder(exposure_params).get_exposure_segments_query(TOP_SEGMENT_VALUES)
+    def _segments(
+        self, exposure_params: ExposureQueryParams, first_exposed_after: date | None
+    ) -> tuple[ExposureSegment, ...] | None:
+        query = self._query_builder(exposure_params).get_exposure_segments_query(
+            TOP_SEGMENT_VALUES, first_exposed_after
+        )
         rows = self._run_health_query("ExperimentExposureSegmentsQuery", query)
         if rows is None:
             return None
-        exposed: dict[tuple[str, str], dict[str, int]] = {}
-        for dimension, segment, variant, count in rows:
-            exposed.setdefault((dimension, segment), {})[variant] = int(count)
+        exposed: dict[tuple[str, str, str], dict[str, int]] = {}
+        for dimension, library, segment, variant, count in rows:
+            exposed.setdefault((dimension, library, segment), {})[variant] = int(count)
         return tuple(
-            ExposureSegment(dimension=ExposureSegmentDimension(dimension), value=segment, exposed_by_variant=counts)
-            for (dimension, segment), counts in exposed.items()
+            ExposureSegment(
+                dimension=ExposureSegmentDimension(dimension),
+                value=segment,
+                exposed_by_variant=counts,
+                library=library or None,
+            )
+            for (dimension, library, segment), counts in exposed.items()
         )
 
     def _exposed_without_test_account_filter(self, exposure_params: ExposureQueryParams) -> int | None:

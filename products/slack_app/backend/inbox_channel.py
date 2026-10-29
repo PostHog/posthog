@@ -7,8 +7,10 @@ from django.core.cache import cache
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import channel_id_from_target
+
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -26,7 +28,7 @@ _CHANNEL_CLAIM_TTL_SECONDS = 60
 _MAX_CHANNEL_LIST_PAGES = 50
 
 
-def has_inbox_scopes(integration: Integration) -> bool:
+def has_inbox_scopes(integration: WorkspaceIntegration) -> bool:
     """Whether the install granted the onboarding scopes. Gated on this rather than a feature flag."""
     return not SlackIntegration(integration).missing_scopes(INBOX_ONBOARDING_REQUIRED_SCOPES)
 
@@ -99,7 +101,8 @@ def _claim_channel_creation(slack_team_id: str) -> bool:
     )
 
 
-def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
+# nosemgrep: tuple-return-prefer-dataclass -- existing shape, only the record type changed
+def ensure_inbox_channel(integration: WorkspaceIntegration) -> tuple[str, str] | None:
     """Find-or-create #posthog-inbox, persist it as the team's default notification channel,
     and return (channel_id, "#name"). Returns None when the channel must be created but the
     install lacks ``channels:manage`` — callers fall back to manual instructions.
@@ -152,7 +155,7 @@ def ensure_inbox_channel(integration: Integration) -> tuple[str, str] | None:
     return result
 
 
-def invite_user_to_inbox(integration: Integration, channel_id: str, slack_user_id: str) -> bool:
+def invite_user_to_inbox(integration: WorkspaceIntegration, channel_id: str, slack_user_id: str) -> bool:
     """Invite a Slack user into the inbox channel; existing membership counts as success.
 
     A bot isn't auto-added to a channel it creates and can't invite others to one it's not in, so on
@@ -183,7 +186,7 @@ def invite_user_to_inbox(integration: Integration, channel_id: str, slack_user_i
     return False
 
 
-def is_inbox_channel(integration: Integration, channel_id: str) -> bool:
+def is_inbox_channel(integration: WorkspaceIntegration, channel_id: str) -> bool:
     """True when ``channel_id`` is this team's inbox channel — by configured id, else by name
     (the name fallback covers the window before the team default is written)."""
     configured = _get_team_channel(integration.team_id)
