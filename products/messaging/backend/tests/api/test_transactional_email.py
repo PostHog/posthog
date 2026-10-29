@@ -464,11 +464,12 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["attr"] == attr
         mock_post.assert_not_called()
 
-    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture):
-        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, "subject": "Hi"})
+    @parameterized.expand([("subject", "Hi"), ("capture_engagement", False)])
+    def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value):
+        response = self._send(self._psak_client(["hog_flow:write"]), "send_email", {**self.body, field: value})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["attr"] == "subject"
+        assert response.json()["attr"] == field
         mock_post.assert_not_called()
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
