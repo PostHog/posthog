@@ -545,7 +545,7 @@ jobs:
         # 8-core depot: 18% avg / 30% peak memory observed on 16-core runs (#46853 noted
         # the workload "is not resource constrained" even after sharding was removed).
         # Talk to #team-devex before changing.
-        runs-on: depot-ubuntu-24.04-8
+        runs-on: depot-ubuntu-24.04-16
         timeout-minutes: 45
         permissions:
             contents: read
@@ -565,8 +565,8 @@ jobs:
             AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
             # Tuned together for this runner: more Playwright workers without more Granian workers
             # added test failures and no speedup. Talk to #team-devex before changing either.
-            GRANIAN_WORKERS: 4
-            PLAYWRIGHT_WORKERS: 6
+            GRANIAN_WORKERS: 8
+            PLAYWRIGHT_WORKERS: 12
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
