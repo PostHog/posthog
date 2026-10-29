@@ -192,6 +192,26 @@ class LLMSkillBodyFetchQuerySerializer(LLMSkillFetchQuerySerializer):
     )
 
 
+class LLMSkillFileFetchQuerySerializer(LLMSkillFetchQuerySerializer):
+    """Fetch-by-name query params plus optional content paging for a single bundled file."""
+
+    content_offset = serializers.IntegerField(
+        min_value=0,
+        required=False,
+        help_text="Zero-based character offset to start the returned content from. Use with content_length to page "
+        "through a large file that a client would otherwise truncate. Compare the returned content length against "
+        "content_total_length to detect truncation, then re-fetch from content_next_offset. Defaults to 0 (start of "
+        "file).",
+    )
+    content_length = serializers.IntegerField(
+        min_value=1,
+        required=False,
+        help_text="Maximum number of characters of the content to return starting at content_offset. Omit to return "
+        "the whole file from the offset onwards. When the slice stops before the end, content_next_offset is the "
+        "offset to request next.",
+    )
+
+
 class LLMSkillListQuerySerializer(serializers.Serializer):
     search = serializers.CharField(
         required=False,
@@ -310,9 +330,47 @@ class LLMSkillSpecProblemSerializer(serializers.Serializer):
 
 
 class LLMSkillFileSerializer(serializers.ModelSerializer):
+    content_total_length = serializers.SerializerMethodField(
+        help_text="Total length of the full file content in characters, independent of any "
+        "content_offset/content_length paging. Compare against the length of the returned content to detect a "
+        "truncated response.",
+    )
+    content_next_offset = serializers.SerializerMethodField(
+        help_text="When content_length paging stops before the end of the file, the character offset to request "
+        "next (pass as content_offset). Null when the returned content reaches the end.",
+    )
+
     class Meta:
         model = LLMSkillFile
-        fields = ["path", "content", "content_type"]
+        # Paging metadata is ordered before `content` so it survives a client that truncates the
+        # tail of a large response.
+        fields = ["path", "content_type", "content_total_length", "content_next_offset", "content"]
+
+    def _content_offset(self) -> int:
+        return self.context.get("content_offset") or 0
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_content_total_length(self, instance: LLMSkillFile) -> int:
+        return len(instance.content or "")
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_content_next_offset(self, instance: LLMSkillFile) -> int | None:
+        content_length = self.context.get("content_length")
+        if content_length is None:
+            return None
+        end = self._content_offset() + content_length
+        return end if end < len(instance.content or "") else None
+
+    def to_representation(self, instance: LLMSkillFile) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        content = data.get("content")
+        if content is not None:
+            offset = self._content_offset()
+            content_length = self.context.get("content_length")
+            if offset or content_length is not None:
+                end = None if content_length is None else offset + content_length
+                data["content"] = content[offset:end]
+        return data
 
 
 class LLMSkillFileManifestSerializer(serializers.ModelSerializer):

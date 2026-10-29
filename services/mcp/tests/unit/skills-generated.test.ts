@@ -83,6 +83,20 @@ describe('Generated skill-* tools', () => {
         )
     })
 
+    it('caps skill-file-get content to a first page when the caller does not page', async () => {
+        const { context, requestMock } = createContext({ path: 'references/limits.md' })
+        const tool = getToolByName(GENERATED_TOOLS, 'skill-file-get')
+
+        await tool.handler(
+            context,
+            tool.schema.parse({ skill_name: 'skills-store', file_path: 'references/limits.md' })
+        )
+
+        expect(requestMock).toHaveBeenCalledWith(
+            expect.objectContaining({ query: expect.objectContaining({ content_length: 8000 }) })
+        )
+    })
+
     it('deprecated llma-skill-* alias forwards to the renamed handler and annotates the response', async () => {
         const { context, requestMock } = createContext({ name: 'skills-store' })
         const alias = SKILL_DEPRECATED_ALIASES['llma-skill-get']!()

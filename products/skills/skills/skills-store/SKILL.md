@@ -78,6 +78,8 @@ posthog:skill-file-get
 { "skill_name": "make-fractals", "file_path": "scripts/mandelbrot.py" }
 ```
 
+A long file comes back in pages. If `content_next_offset` is not null, call `skill-file-get` again with the same `version` and `content_offset` set to `content_next_offset`, and append the returned `content`. Repeat until `content_next_offset` is null. `content_total_length` is the full file length.
+
 Only fetch files you actually need. If the body's decision tree points at one script, don't preload the others.
 
 ## Creating a skill

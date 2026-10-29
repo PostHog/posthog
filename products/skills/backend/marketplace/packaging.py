@@ -167,7 +167,7 @@ Before you act on it:
 1. Run `call skill-get {{"skill_name": "{name}"}}` with the PostHog MCP `exec` tool. Note the `version` in the response and pass it to every later call for this skill, so a publish in the meantime cannot mix two versions.
 2. If the response has a non-null `body_next_offset`, call `skill-get` again with `"version"` set to that version and `"body_offset"` set to `body_next_offset`, and append the returned `body`. Repeat until `body_next_offset` is null.
 3. Follow the complete `body` as the instructions for this skill.
-4. If the body references bundled files, fetch each one with `call skill-file-get {{"skill_name": "{name}", "file_path": "<path>", "version": <version>}}` and write it into this directory before you use it.
+4. If the body references bundled files, fetch each one with `call skill-file-get {{"skill_name": "{name}", "file_path": "<path>", "version": <version>}}`. If a response has a non-null `content_next_offset`, call `skill-file-get` again with `"content_offset"` set to `content_next_offset` and append the returned `content`, until `content_next_offset` is null. Write the complete file into this directory before you use it.
 """
 
 

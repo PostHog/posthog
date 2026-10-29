@@ -13745,7 +13745,7 @@
         }
     },
     "skill-file-get": {
-        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront.",
+        "description": "Fetch a single bundled file from an agent skill by its path. Use the file manifest from skill-get to discover available files. Supports progressive disclosure — only load files when needed rather than fetching all content upfront. Content is returned in pages of at most content_length characters (8000 by default). The response always includes content_total_length (the full file length in characters). If content_next_offset is not null, call skill-file-get again with the same version and content_offset set to content_next_offset, and append the returned content. Repeat until content_next_offset is null.",
         "category": "Skills",
         "feature": "skills",
         "summary": "Get skill file",
