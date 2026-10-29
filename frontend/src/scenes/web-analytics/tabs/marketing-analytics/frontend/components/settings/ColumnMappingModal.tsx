@@ -6,6 +6,7 @@ import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { CURRENCY_SYMBOL_TO_NAME_MAP, IMPORTANT_CURRENCIES, OTHER_CURRENCIES } from 'lib/utils/currency'
+import { useMarketingAnalyticsEditDisabledReason } from 'scenes/marketing-analytics/useMarketingAnalyticsEditDisabledReason'
 
 import {
     MARKETING_ANALYTICS_SCHEMA,
@@ -184,6 +185,7 @@ function buildColumnOptions(
 
 export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModalProps): JSX.Element {
     const { updateSourceMapping, testMapping } = useActions(marketingAnalyticsSettingsLogic)
+    const editDisabledReason = useMarketingAnalyticsEditDisabledReason()
     const { sources_map, testMappingResults } = useValues(marketingAnalyticsSettingsLogic)
 
     const requiredFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
@@ -262,9 +264,10 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
                             onClick={handleTestMapping}
                             tooltip="Test the mapping by running the adapter query"
                             disabledReason={
-                                requiredFieldsConfigured < requiredFields.length
+                                editDisabledReason ??
+                                (requiredFieldsConfigured < requiredFields.length
                                     ? 'Configure all required fields first'
-                                    : undefined
+                                    : undefined)
                             }
                         >
                             {testResult?.status === 'loading' ? (

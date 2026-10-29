@@ -4,7 +4,7 @@ import { capitalizeFirstLetter } from 'kea-forms'
 import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
-import { pluralizeResource } from 'lib/utils/accessControlUtils'
+import { resourceLabel } from 'lib/utils/accessControlUtils'
 import { fullName } from 'lib/utils/strings'
 
 import { APIScopeObject } from '~/types'
@@ -143,10 +143,8 @@ function AccessSummary({
         <div className="flex gap-2 flex-wrap items-center">
             {visibleTags.map(({ resource, level }) => (
                 <LemonTag key={resource} type="default">
-                    {resource === 'project'
-                        ? 'Project'
-                        : capitalizeFirstLetter(pluralizeResource(resource as APIScopeObject))}
-                    : {capitalizeFirstLetter(level)}
+                    {resource === 'project' ? 'Project' : resourceLabel(resource as APIScopeObject)}:{' '}
+                    {capitalizeFirstLetter(level)}
                 </LemonTag>
             ))}
             {hiddenCount > 0 && <span className="text-warning text-xs">+{hiddenCount} more</span>}

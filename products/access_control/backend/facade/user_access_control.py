@@ -216,8 +216,11 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         # Product name: a proper noun, and it does not take a plural
         return "Stamphog"
 
-    # Default: replace underscores and add 's' for plural
-    return f"{resource.replace('_', ' ')}s"
+    name = resource.replace("_", " ")
+    # Names such as "marketing analytics", "logs" and "metrics" are already plural
+    if name.endswith("s"):
+        return name
+    return f"{name}s"
 
 
 def ordered_access_levels(resource: APIScopeObject) -> list[AccessControlLevel]:

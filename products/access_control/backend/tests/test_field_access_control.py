@@ -4,14 +4,20 @@ import pytest
 from posthog.test.base import BaseTest
 
 from django.db import models
+from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
 from posthog.rbac.decorators import field_access_control
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, get_field_access_control_map
+from products.access_control.backend.facade.user_access_control import (
+    UserAccessControl,
+    get_field_access_control_map,
+    resource_to_display_name,
+)
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 
@@ -141,3 +147,15 @@ class TestFieldAccessControlDecorator(BaseTest):
 
         detail = exc_info.value.detail
         assert "session_recording_opt_in" in detail
+
+
+class TestResourceToDisplayName(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("feature_flag", "feature flags"),
+            ("marketing_analytics", "marketing analytics"),
+            ("logs", "logs"),
+        ]
+    )
+    def test_resource_to_display_name(self, resource: Any, expected: str) -> None:
+        assert resource_to_display_name(resource) == expected

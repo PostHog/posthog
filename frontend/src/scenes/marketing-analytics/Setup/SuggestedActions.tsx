@@ -5,6 +5,7 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
+import { useMarketingAnalyticsEditDisabledReason } from '../useMarketingAnalyticsEditDisabledReason'
 import { CAPABILITY_COPY, ReadinessHeader } from './ReadinessHeader'
 import { SuggestionRow } from './SuggestionRow'
 
@@ -55,6 +56,8 @@ export function SuggestedActions(): JSX.Element {
         restoreAllDismissed,
     } = useActions(setupPlanLogic)
 
+    const editDisabledReason = useMarketingAnalyticsEditDisabledReason()
+
     const isBatchApplying = safeBatch.some((s) => applyingIds.includes(s.id))
 
     return (
@@ -73,6 +76,7 @@ export function SuggestedActions(): JSX.Element {
                             type="secondary"
                             size="small"
                             loading={isBatchApplying}
+                            disabledReason={editDisabledReason}
                             onClick={reviewSafeBatch}
                             // "Safe" is about what can go in one batch, not a verdict on
                             // the rest — say so, because the label alone reads as one.

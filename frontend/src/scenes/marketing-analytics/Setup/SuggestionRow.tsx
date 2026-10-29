@@ -10,6 +10,7 @@ import {
 import type { ApplyOp, Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
+import { useMarketingAnalyticsEditDisabledReason } from '../useMarketingAnalyticsEditDisabledReason'
 import { CAPABILITY_COPY } from './ReadinessHeader'
 import { SECTION_BY_KIND, SECTION_LABEL } from './sectionRouting'
 import { SuggestionIcon } from './SuggestionIcon'
@@ -77,6 +78,7 @@ export function SuggestionRow({
     isDismissed?: boolean
 }): JSX.Element {
     const { applyingIds } = useValues(setupPlanLogic)
+    const editDisabledReason = useMarketingAnalyticsEditDisabledReason()
     const { dismissSuggestion, restoreSuggestion } = useActions(setupPlanLogic)
     const { setSetupSection } = useActions(marketingAnalyticsLogic)
 
@@ -129,7 +131,13 @@ export function SuggestionRow({
 
             <div className="flex items-center gap-1 shrink-0">
                 {ctaLabel && (
-                    <LemonButton type="primary" size="small" loading={isApplying} onClick={() => onReview(suggestion)}>
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        loading={isApplying}
+                        disabledReason={editDisabledReason}
+                        onClick={() => onReview(suggestion)}
+                    >
                         {ctaLabel}
                     </LemonButton>
                 )}
