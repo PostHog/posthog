@@ -36,9 +36,9 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 from products.access_control.backend.models.access_control import AccessControl
 from products.experiments.backend.models.experiment import Experiment
 from products.replay_vision.backend.api.scanners import (
-    WATCH_FEED_PICKS_BUCKET_S,
+    HIGHLIGHT_FEED_PICKS_BUCKET_S,
+    HighlightFeedQuerySerializer,
     ReplayScannerSerializer,
-    WatchFeedQuerySerializer,
 )
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
@@ -4764,7 +4764,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         start_workflow.assert_not_called()
 
 
-class TestWatchFeedQueryValidation(SimpleTestCase):
+class TestHighlightFeedQueryValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("empty_scanner_ids", {"scanner_ids": ""}),
@@ -4777,20 +4777,20 @@ class TestWatchFeedQueryValidation(SimpleTestCase):
         ]
     )
     def test_rejects_invalid_query(self, _name: str, params: dict[str, str]) -> None:
-        serializer = WatchFeedQuerySerializer(data=params)
+        serializer = HighlightFeedQuerySerializer(data=params)
         assert not serializer.is_valid()
 
     def test_defaults_apply(self) -> None:
-        serializer = WatchFeedQuerySerializer(data={})
+        serializer = HighlightFeedQuerySerializer(data={})
         assert serializer.is_valid()
         assert serializer.validated_data["date_from"] == "-7d"
         assert serializer.validated_data["limit"] == 20
 
 
-class TestWatchFeedAPI(_VisionAPITestCase):
+class TestHighlightFeedAPI(_VisionAPITestCase):
     @property
     def feed_url(self) -> str:
-        return f"{self.scanners_url}watch_feed/"
+        return f"{self.scanners_url}highlight_feed/"
 
     def _succeeded_observation(
         self,
@@ -4882,7 +4882,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
     def test_a_later_loads_cached_picks_do_not_serve_an_earlier_loads_pages(self) -> None:
         scanner = self._create_scanner(name="m")
         bucket_start = datetime.fromtimestamp(
-            (int(timezone.now().timestamp()) // WATCH_FEED_PICKS_BUCKET_S - 1) * WATCH_FEED_PICKS_BUCKET_S, tz=UTC
+            (int(timezone.now().timestamp()) // HIGHLIGHT_FEED_PICKS_BUCKET_S - 1) * HIGHLIGHT_FEED_PICKS_BUCKET_S,
+            tz=UTC,
         )
         earlier, later = bucket_start + timedelta(minutes=1), bucket_start + timedelta(minutes=5)
         for index in range(12):
@@ -4951,7 +4952,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
                     }
                 )
 
-        with patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", 2):
+        with patch("products.replay_vision.backend.api.scanners.HIGHLIGHT_FEED_CANDIDATE_CAP", 2):
             items = self.client.get(self.feed_url).json()["results"]
         picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
         self.assertEqual(picked, {"busy-0", "quiet-0"})
@@ -4980,8 +4981,8 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             root_id = root_id or str(obs.id)
 
         with (
-            patch("products.replay_vision.backend.api.scanners.WATCH_FEED_CANDIDATE_CAP", cap),
-            patch("products.replay_vision.backend.watch_rank.WATCH_PICK_GROUP_CANDIDATES", group_candidates),
+            patch("products.replay_vision.backend.api.scanners.HIGHLIGHT_FEED_CANDIDATE_CAP", cap),
+            patch("products.replay_vision.backend.watch_rank.HIGHLIGHT_PICK_GROUP_CANDIDATES", group_candidates),
         ):
             items = self.client.get(self.feed_url).json()["results"]
         picked = {item["observation"]["session_id"] for item in items if item["reason"]["kind"] == "embedding_pick"}
@@ -5033,7 +5034,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         for _ in range(2):
             # The same load reporting twice, as a tab hidden and shown again does, counts once.
             resp = self.client.post(
-                f"{self.scanners_url}watch_feed_impressions/",
+                f"{self.scanners_url}highlight_feed_impressions/",
                 {"feed_load_id": str(load), "observation_ids": [str(rows["s-0"].id), str(foreign.id)]},
                 format="json",
             )
@@ -5278,7 +5279,7 @@ class TestWatchFeedAPI(_VisionAPITestCase):
             cache,
             "get",
             side_effect=lambda key, *args, **kwargs: (
-                None if key.startswith("replay_vision:watch_picks:") else real_get(key, *args, **kwargs)
+                None if key.startswith("replay_vision:highlight_picks:") else real_get(key, *args, **kwargs)
             ),
         )
         with uncached_picks, CaptureQueriesContext(connection) as one:
