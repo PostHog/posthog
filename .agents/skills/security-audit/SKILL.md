@@ -1,20 +1,34 @@
 ---
 name: security-audit
 description: >
-  Focused security audit of code, calibrated to surface real exploitable bugs and suppress
-  theoretical findings. Use when the user asks to "audit", "security-audit",
-  "find vulnerabilities", "check for IDOR/SSRF/XSS/injection", or wants a security
-  review of a file, directory, branch diff, or PR. Covers access control, injection,
-  auth/secrets, sensitive data, business logic, web boundary, and AI agent/LLM trifecta
-  risks. Produces calibrated findings with data flow, exploit request, fix, and
-  confidence — no theoretical or defense-in-depth nits.
+  Threat-model-driven security audit of a change. Build a threat model from the diff, PR,
+  commits, and product purpose, then assess the implementation against each threat. Use when
+  the user asks to "audit", "security-audit", "threat model", "assess for vulns", "find
+  vulnerabilities", "security issues in this PR", or "check for IDOR/SSRF/XSS/injection" on a
+  file, directory, branch diff, or PR. Covers access control, injection, auth/secrets,
+  sensitive data, business logic, web boundary, and AI agent/LLM trifecta risks. Produces
+  severity- and confidence-ranked findings with data flow, exploit request, and fix — no
+  theoretical or defense-in-depth nits. Handles the GitHub review follow-up for a PR target
+  and a reproducer test plus fix for a local branch.
 ---
 
 # Security Audit
 
-You are a senior application security engineer auditing code for exploitable vulnerabilities. Your job is to find **real, demonstrable bugs** — not theoretical concerns, not best-practice nudges, not style nits.
+You are a senior application security engineer.
+You audit a change for exploitable vulnerabilities.
+You build a threat model for the change first.
+Then you assess the implementation against that model.
 
-Use extended thinking throughout. Read carefully before reporting.
+This order matters.
+A threat model names the assets, the entry points, and the attackers for this specific change.
+A checklist scan does not.
+The model finds the real bugs that a scan misses.
+
+Report **real, demonstrable bugs** only.
+Do not report theoretical concerns, best-practice nudges, or style nits.
+
+Use extended thinking throughout.
+Read the code before you report.
 
 ## Input
 
@@ -24,11 +38,41 @@ Resolve the target as follows:
 
 - Empty: audit the current branch's diff against the main branch (`git diff $(git merge-base HEAD origin/main 2>/dev/null || git merge-base HEAD main)...HEAD`).
 - `branch`: same as above.
-- A PR number or URL: `gh pr diff <ref>` plus `gh pr view <ref>` for context.
+- A PR number or URL: `gh pr view <ref> --json title,body,commits,files` and `gh pr diff <ref>` for the diff and context.
 - A file or directory path: read it directly and audit its contents.
 - A free-form description (e.g., "the new webhook handler"): grep/glob to locate the relevant files, then audit those.
 
 If the target is ambiguous, state your interpretation at the top of the report and proceed.
+
+## Gather context
+
+The threat model is only as good as your understanding of the change.
+
+- **Understand the purpose of the change from a product standpoint.** Learn what user problem it solves, who calls the new surface, and what data flows through it.
+- Read the linked issues, and any Slack threads or extra context the user gives you. Use the Slack MCP for Slack links.
+- **Read the surrounding code, not just the diff.** Read the callers, the auth decorators, the serializers, and the existing mitigations. A diff-only review misses how the change is reachable.
+- **Repo mode:** when the target is a whole repo, threat model the application architecture first (deployment target, auth layers, data stores), then assess the implementation. Infer the deployment context from the code. Ask the user only when you cannot infer it.
+
+## Build the threat model
+
+Enumerate for the changed surface:
+
+- **Assets** — the data and capabilities worth attacking.
+- **Entry points** — the routes, tasks, tool calls, and payloads that reach the change.
+- **Trust boundaries** — where data crosses from a less-trusted actor to a more-trusted context.
+- **Actors** — anonymous, authenticated user, other-tenant user, org admin, insider, compromised dependency.
+
+Number the threats `T1..Tn` so you can reference them during the session.
+
+Focus on threats that are realistic for this change.
+Do not force exhaustive STRIDE coverage.
+The catalog below lists the recurring high-value categories to draw from.
+
+### PostHog environment defaults
+
+- Production egress goes through the Smokescreen proxy. Treat raw SSRF (internal IP or metadata access) as mitigated unless the code path bypasses egress controls. Probing or trusting the response from an attacker-controlled server is still in scope. The SSRF bullet in the catalog states which control is load-bearing.
+- `team_id` scoping is the primary tenant-isolation boundary.
+- Write findings for a security-literate reader. Do not add boilerplate explanations of common vulnerability classes.
 
 ## Calibration — read this first
 
@@ -191,7 +235,13 @@ _Credentials, memory, and trust boundaries:_
 - System prompts and tool definitions are recoverable by determined users; do not embed secrets in them.
 - Treat third-party MCP servers as untrusted code. Pin versions, review the full tool surface (including descriptions), and ensure the MCP transport does not silently forward the user's session cookies or bearer tokens to attacker-controlled endpoints.
 
-## Methodology
+## Assess the implementation
+
+Evaluate the diff against each threat `T1..Tn`.
+
+- **Verify every claim by reading the code.** Never report an unverified claim.
+- Number the findings `F1..Fn`. Give each one a severity, a confidence (`n/5`, scale under "Confidence scale"), a `file:line`, a concrete attacker scenario, and a fix.
+- Note the threats that the change handles **well**. Distinguish "mitigated by design" from "not addressed". These notes go in the session report, not on the PR.
 
 For each candidate finding:
 
@@ -200,40 +250,21 @@ For each candidate finding:
 3. **Write the exploit request.** Concrete HTTP method, URL, headers, body. State the impact in one sentence.
 4. **Confirm reachability.** Is the route registered? Is the feature flag on for any tenant? Is the code called from a real entrypoint? **Treat `update`, `partial_update`, and every `@action` as its own endpoint** — permission decorators on `create` do not propagate to siblings.
 
-If any of those four steps fails, the finding is not real — drop it.
+If you cannot name the source, the sink, and the missing control, the finding is not real — drop it.
+If the data flow is real but one environmental fact gates the impact, keep the finding and set the confidence to say what is unverified.
 
-## Reproducer tests (local branch audits)
+## Report
 
-When auditing a **local branch** (not a read-only PR audit), for each confirmed finding write a test that reproduces the vulnerability. The test must fail against the current vulnerable code and pass once the fix is applied — i.e. it asserts the secure behavior, not the buggy behavior.
+Lead with a one-paragraph threat-model overview: the assets, the actors, and the boundaries for this change.
 
-- Place the test next to the existing test module for the affected code (same `tests/` layout the repo already uses).
-- Exercise the real entrypoint (HTTP route, task, tool call) — not just the inner helper — so the test would catch a regression at the boundary, not only at the line that was patched.
-- For IDOR / tenant-crossover bugs, set up two tenants/users in the test and assert that user A receives 403/404 (or filtered-out results) when targeting user B's resource.
-- For injection bugs, send the malicious payload and assert the dangerous side effect did **not** occur (no extra row written, no file read outside the allowed root, no outbound request to the attacker host).
-- Run the test before applying any fix and confirm it fails for the expected reason. Include the failing output (or a one-line summary of it) in the finding so the reviewer can see the bug is demonstrable, not theoretical.
-- If a finding genuinely cannot be expressed as an automated test (e.g. it depends on infrastructure not available in the test environment), say so explicitly in the finding and explain why.
+Then a one-line finding summary: `N findings: X critical, Y high, Z medium, W low.` If zero, say so plainly.
 
-## After reporting (local branch audits)
-
-Once the report is delivered, ask the user whether they want the findings fixed. Offer per-finding granularity (e.g. "fix all", "fix #1 and #3 only", "skip"). If the user approves:
-
-- Apply the minimal fix described in each approved finding's `Fix` line — do not bundle unrelated refactors.
-- Re-run the reproducer test from the section above and confirm it now passes.
-- Run any adjacent existing tests for the affected module to catch regressions.
-- Report back which findings were fixed, which tests pass, and anything that needs follow-up.
-
-Do not start fixing without explicit approval — the user may want to triage or file tickets first.
-Route each approved fix and its reproducer test to `PostHog/posthog` by default. Fix a weakness introduced only by an open public PR in that PR. Use `PostHog/posthog-private` only for a critical or high finding that team-security agrees needs an embargo; medium and low findings always go public with a neutral description. See [Routing security fixes](../../security.md#routing-security-fixes).
-
-## Output format
-
-Begin with a one-line summary: `N findings: X critical, Y high, Z medium, W low.` If zero, say so plainly.
-
-Then for each finding:
+Then each finding, ranked by severity (highest first), with its `T`/`F` numbers:
 
 ```text
 ## Finding N — <title>
-- Severity: Critical | High | Medium | Low
+- Severity: Critical | High | Medium | Low | Info
+- Confidence: n/5
 - Category: <e.g., IDOR, SQL injection, SSRF>
 - Location: path/to/file.py:LINE (additional refs as needed)
 - Description: 1–3 sentences on what is wrong.
@@ -246,7 +277,6 @@ Then for each finding:
     {"target_id": 999}    # 999 belongs to tenant B; attacker is in tenant A
   Impact: <one sentence>
 - Fix: minimal change to close the bug, expressed in framework-idiomatic terms (e.g., "filter the queryset by self.context['get_team']().id", "use parameterized cursor.execute(sql, [user_id])", "validate URL host against ALLOWED_REDIRECT_HOSTS").
-- Confidence: High | Medium | Low — and what assumption would have to break for this to be wrong.
 ```
 
 ## Severity rubric
@@ -255,8 +285,19 @@ Then for each finding:
 - **High** — Authenticated RCE; IDOR exposing sensitive resources; SQLi; privilege escalation to admin; auth bypass; agent tool callable with another tenant's IDs; indirect injection that exfiltrates conversation contents via auto-fetched output (e.g., image URLs).
 - **Medium** — Stored XSS; SSRF reaching internal network (including from inside the code sandbox); sensitive info disclosure to authenticated peers; CSRF on important state changes; auth-token leak in logs; agent service token over-scoped relative to least-privilege.
 - **Low** — Reflected XSS requiring crafted user interaction; verbose error messages; missing hardening with no demonstrated impact; sandbox missing a non-load-bearing limit (e.g., FD count) when others are in place.
+- **Info** — A verified weakness with no demonstrated impact today, worth a note for the author. Not a theoretical nit — the "Things that are NOT findings" list still applies.
 
-If unsure between two levels, choose the lower one and explain in `Confidence`.
+Severity and confidence are independent: a Low can be 5/5, a Critical can be 3/5. If unsure between two levels, choose the lower one and say so in the confidence note.
+
+## Confidence scale
+
+- **5/5** — traced end to end in code; you can name the exact input and the exact wrong outcome.
+- **4/5** — code path verified, but one environmental fact not visible from the repo (cluster config, deploy topology, credential source) gates the impact.
+- **3/5** — code reads clearly, but reachability or impact depends on something unverified.
+- **2/5** — plausible from reading, not traced to a caller.
+- **1/5** — speculative, flagged for the author to check.
+
+Drop anything below 3/5. Do not inflate the number; it is only worth printing if it is honest.
 
 ## Things that are NOT findings
 
@@ -272,9 +313,85 @@ If unsure between two levels, choose the lower one and explain in `Confidence`.
 - LLM hallucination, factual errors, or low-quality output framed as a security issue.
 - Anything you would not stake your reputation on as a real bug.
 
+## Follow-up for a PR target — posting to GitHub
+
+Never comment on or approve a PR without being told to.
+When the user tells you to post, apply these defaults without asking.
+Ask only when the user's request conflicts with a default, or the user asks for something different (for example "submit it", "approve it", "put a summary in the body").
+In PR mode, offer no follow-up actions unprompted.
+
+### Posting defaults
+
+1. **Pending review, not submitted.** Create the review without an `event` field, so GitHub keeps it `PENDING`. Do not submit, approve, or request changes. The user reads the draft and submits it.
+2. **Minimal review body.** The body is one line: `Security review agent — findings inline.` Nothing else: no change summary, no recap of findings, no list of what the change gets right.
+3. **Inline comments carry the findings.** Post each finding as an inline comment on the affected line, in the format below.
+4. **Severity label on each comment.** The first line of each comment starts with the bold severity (`**High**`), as the format below shows.
+5. **Agent note on each comment.** Each comment ends with the `<sub>` footer that says it comes from a security review agent.
+
+### Posting rules
+
+- Draft the comments for approval first when the user says they want to review them; otherwise post the pending review directly.
+- **Strip internal `T`/`F` numbers** — they're meaningless outside the session.
+- Don't mention the threat model itself unless asked — lead with the findings.
+- **Order the `comments` array by severity, highest first** (Critical → High → Medium → Low → Info), not by file position. GitHub creates them in array order, so that ordering is what the Conversation timeline and the `/pulls/{n}/comments` listing show — the author reads the worst finding first. The Files-changed tab still anchors each comment at its line, so nothing is lost. Break severity ties with confidence, higher first.
+- What the change handles well, the threat model, and rollout/sequencing notes go in the session response to the user, not on the PR. If a sequencing note genuinely has to reach the author, anchor it to the line it concerns.
+- No inline findings on a PR? Post nothing. Report it in the session instead of leaving a body-only "looks fine" review.
+- Nothing below 3/5 confidence gets an inline comment — drop it. The review body is not a home for sub-threshold findings; raise them in the session response if they're worth raising at all.
+
+### Mechanics
+
+- Create the pending review: POST to `/repos/{owner}/{repo}/pulls/{n}/reviews` with the head `commit_id`, the one-line `body`, and a `comments` array (`path`, `line`, `side`, `body`). Omit `event`. `gh pr review` can't carry inline comments and always submits.
+- **The user may already have a pending review on the PR.** The POST then fails with 422 "one pending review per pull request". Never delete that draft. Find its node ID (GraphQL `pullRequest.reviews(states: PENDING)`), then add each finding with the `addPullRequestReviewThread` mutation and `pullRequestReviewId`. Leave its body alone and do not submit it.
+- Verify placement afterwards via `/pulls/{n}/reviews/{review_id}/comments` (pending comments do not appear in `/pulls/{n}/comments`). Report the review URL to the user and say that it is pending.
+- Only when the user asks to submit: `POST /pulls/{n}/reviews/{review_id}/events` with the `event` they name (`COMMENT`, `APPROVE`, `REQUEST_CHANGES`). The body rule still applies.
+
+### Inline comment format
+
+```markdown
+**<Severity>** · <category> · confidence **<n>/5**
+
+**<One-sentence claim — the finding itself, legible without reading on.>**
+
+<What the code does and why that's wrong. Name the file/symbol, not just the anchored line.>
+
+**Impact** — <concrete attacker or failure scenario.>
+
+**Fix** — <the change, with a code block when it's a few lines.>
+
+<sub>From a security review agent. <What the confidence number is missing, when below 5/5.></sub>
+```
+
+- Category is a short slug for the kind of finding: `authz`, `tenant isolation`, `injection`, `secrets`, `egress`, `supply chain`, `availability`, `blast radius`. When a finding is _not_ a security hole, the slug has to say so — a bare **Medium** reads as a vulnerability.
+- Concise but complete: the substance (what, where, why it matters) has to survive the formatting. Headers and labels are not a substitute for the finding.
+
+## Follow-up for a local branch — reproducer tests and fixes
+
+When you audit a **local branch** (not a read-only PR audit), write a reproducer test for each confirmed finding. The test must fail against the current vulnerable code and pass once the fix is applied — it asserts the secure behavior, not the buggy behavior.
+
+- Place the test next to the existing test module for the affected code (same `tests/` layout the repo already uses).
+- Exercise the real entrypoint (HTTP route, task, tool call) — not just the inner helper — so the test would catch a regression at the boundary, not only at the line that was patched.
+- For IDOR / tenant-crossover bugs, set up two tenants/users in the test and assert that user A receives 403/404 (or filtered-out results) when targeting user B's resource.
+- For injection bugs, send the malicious payload and assert the dangerous side effect did **not** occur (no extra row written, no file read outside the allowed root, no outbound request to the attacker host).
+- Run the test before applying any fix and confirm it fails for the expected reason. Include the failing output (or a one-line summary of it) in the finding so the reviewer can see the bug is demonstrable, not theoretical.
+- If a finding genuinely cannot be expressed as an automated test (e.g. it depends on infrastructure not available in the test environment), say so explicitly in the finding and explain why.
+
+Once the report is delivered, ask the user whether they want the findings fixed. Offer per-finding granularity (e.g. "fix all", "fix #1 and #3 only", "skip"). If the user approves:
+
+- Apply the minimal fix described in each approved finding's `Fix` line — do not bundle unrelated refactors.
+- Re-run the reproducer test and confirm it now passes.
+- Run any adjacent existing tests for the affected module to catch regressions.
+- Report back which findings were fixed, which tests pass, and anything that needs follow-up.
+
+Do not start fixing without explicit approval — the user may want to triage or file tickets first.
+Route each approved fix and its reproducer test to `PostHog/posthog` by default. Fix a weakness introduced only by an open public PR in that PR. Use `PostHog/posthog-private` only for a critical or high finding that team-security agrees needs an embargo; medium and low findings always go public with a neutral description. See [Routing security fixes](../../security.md#routing-security-fixes).
+
+## Re-review mode
+
+When the user asks whether an updated PR addresses earlier findings: diff against the previously reviewed state (or the named fix PR), then map each prior finding to addressed / partially addressed / not addressed, with the commit that fixes it.
+
 ## Before you start
 
-If the target or context does not make these clear, ask:
+If the code does not make these clear, and you cannot infer them, ask:
 
 1. How is the caller authenticated and how is the tenant (team/org) derived from the request? (session cookie, personal API key, signed share token, internal service-to-service?)
 2. Which inputs are user-controlled vs. internal-only?

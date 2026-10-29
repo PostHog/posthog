@@ -12,6 +12,7 @@ import {
     SlopeChart,
     TimeSeriesBarChart,
     TimeSeriesLineChart,
+    type TimeInterval,
     type TooltipContext,
 } from '@posthog/quill-charts'
 
@@ -60,9 +61,9 @@ const TOOLTIP_CONFIG = { pinnable: true, placement: 'cursor' as const }
 const LEGEND_CONFIG = { show: true, position: 'bottom' } as const
 
 // DefaultTooltip shows the raw x label; format it like the axis.
-const renderDateTooltip = (ctx: TooltipContext): ReactElement => (
-    <DefaultTooltip {...ctx} label={formatTooltipDate(ctx.label)} />
-)
+const dateTooltip =
+    (interval: string | undefined) =>
+    (ctx: TooltipContext): ReactElement => <DefaultTooltip {...ctx} label={formatTooltipDate(ctx.label, interval)} />
 
 function calculateTotal(results: TrendsResultItem[]): number {
     return results.reduce((sum, item) => {
@@ -182,6 +183,12 @@ export function TrendsVisualizer({
     }
 
     const labels = results[0]?.days ?? results[0]?.labels ?? []
+    // Trends returns each day as wall-clock time with no offset, so reading it as UTC keeps it as written.
+    const xAxisDates = {
+        interval: (query?.interval ?? 'day') as TimeInterval,
+        timezone: 'UTC',
+        allDays: labels.map(String),
+    }
     const trendResults = results.map((item, i) => ({
         id: i,
         label: getSeriesLabel(item, i),
@@ -234,7 +241,7 @@ export function TrendsVisualizer({
                 isPercentStackView,
                 isGrouped: effectiveType === 'bar',
                 valueLabels,
-                xAxisTickFormatter: (value) => formatDate(value),
+                ...xAxisDates,
                 tooltip: TOOLTIP_CONFIG,
             })
             return (
@@ -243,7 +250,7 @@ export function TrendsVisualizer({
                     labels={labels}
                     theme={theme}
                     config={showLegend ? { ...config, legend: LEGEND_CONFIG } : config}
-                    tooltip={renderDateTooltip}
+                    tooltip={dateTooltip(xAxisDates.interval)}
                 >
                     {overlay}
                 </TimeSeriesBarChart>
@@ -263,7 +270,7 @@ export function TrendsVisualizer({
             ciRanges,
             valueLabels,
             showCrosshair: true,
-            xAxisTickFormatter: (value) => formatDate(value),
+            ...xAxisDates,
             tooltip: TOOLTIP_CONFIG,
         })
         return (
@@ -272,7 +279,7 @@ export function TrendsVisualizer({
                 labels={labels}
                 theme={theme}
                 config={showLegend ? { ...config, legend: LEGEND_CONFIG } : config}
-                tooltip={renderDateTooltip}
+                tooltip={dateTooltip(xAxisDates.interval)}
             >
                 {overlay}
             </TimeSeriesLineChart>

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
-use super::dom::{DomInspector, RemoteUrls, UrlLimit};
+use super::dom::{DomInspector, RemoteUrls, Srcset, UrlLimit};
 use super::events::{fields, number, Activity, EventCounter};
 use super::rrweb::{
     is_click, CUSTOM, FULL_SNAPSHOT, INCREMENTAL_SNAPSHOT, META, MOUSE_INTERACTION, MUTATION,
@@ -62,15 +62,18 @@ pub struct Inspected {
     pub remote_urls: Vec<String>,
     /// Set when `remote_urls` stops short, so that the block must not be stored.
     pub url_limit: Option<UrlLimit>,
+    /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
+    pub srcsets: Vec<Srcset>,
 }
 
 impl BlockInspection {
-    pub fn finish(self) -> Inspected {
+    pub fn finish(mut self) -> Inspected {
         Inspected {
             stats: self.counter.finish(),
             moments: self.moments,
             image_urls: self.image_urls,
             url_limit: self.remote_urls.limit,
+            srcsets: self.remote_urls.take_srcsets(),
             remote_urls: self.remote_urls.into_urls(),
         }
     }

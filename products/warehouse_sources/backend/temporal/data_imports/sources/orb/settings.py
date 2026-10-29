@@ -37,7 +37,9 @@ class OrbEndpointConfig:
     partition_key: Optional[str] = None
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     page_size: int = DEFAULT_PAGE_SIZE
-    # Set for per-customer child endpoints, which fan out over the Customers listing.
+    # False for endpoints that return their whole result in one response and take no `limit`.
+    paginated: bool = True
+    # Set for per-customer and per-subscription child endpoints, which fan out over the parent listing.
     fanout: Optional[DependentEndpointConfig] = None
 
     @property
@@ -49,23 +51,36 @@ class OrbEndpointConfig:
         return self.incremental_field
 
 
-def _customer_fanout() -> DependentEndpointConfig:
+def _fanout(
+    parent_name: str, resolve_param: str, child_params: Optional[dict[str, str]] = None
+) -> DependentEndpointConfig:
     return DependentEndpointConfig(
-        parent_name="Customers",
-        resolve_param="customer_id",
+        parent_name=parent_name,
+        resolve_param=resolve_param,
         resolve_field="id",
         include_from_parent=["id"],
-        parent_field_renames={"id": "customer_id"},
-        # A customer deleted between the parent listing and its child fetch 404s; skip it rather
+        parent_field_renames={"id": resolve_param},
+        # Set here as well as through page_size_param, because unpaginated children send no page size.
+        parent_params={"limit": DEFAULT_PAGE_SIZE},
+        child_params=child_params or {},
+        # A parent deleted between the parent listing and its child fetch 404s; skip it rather
         # than failing the whole fan-out.
         child_response_actions=[{"status_code": 404, "action": "ignore"}],
     )
 
 
+def _customer_fanout(child_params: Optional[dict[str, str]] = None) -> DependentEndpointConfig:
+    return _fanout("Customers", "customer_id", child_params)
+
+
+def _subscription_fanout() -> DependentEndpointConfig:
+    return _fanout("Subscriptions", "subscription_id")
+
+
 # Orb list endpoints. All return `{"data": [...], "pagination_metadata": {...}}`, are
 # cursor-paginated, and sort newest-first by creation time. Incremental endpoints expose a
 # server-side `<field>[gt]` timestamp filter; the rest are full-refresh only. Endpoints with a
-# `fanout` are per-customer and run once for every row of the Customers listing.
+# `fanout` are per-customer or per-subscription and run once for every row of the parent listing.
 #
 # Invoices is the odd one out: it has no `created_at` filter, only `invoice_date[gt]`, so its
 # incremental cursor is `invoice_date` while it still partitions on the stable `created_at`.
@@ -153,6 +168,47 @@ ORB_ENDPOINTS: dict[str, OrbEndpointConfig] = {
         partition_key="created_at",
         primary_keys=["customer_id", "id"],
         fanout=_customer_fanout(),
+    ),
+    # Credit balances change as usage draws them down, so this is full refresh. Without
+    # include_all_blocks Orb returns only unexpired, non-zero blocks. Like CreditLedgerEntries, this
+    # reads Orb's default `credits` ledger: Orb has no endpoint that lists a customer's other ledger
+    # currencies to fan out over.
+    "CreditBlocks": OrbEndpointConfig(
+        name="CreditBlocks",
+        path="/customers/{customer_id}/credits",
+        table_name="credit_blocks",
+        primary_keys=["customer_id", "id"],
+        fanout=_customer_fanout({"include_all_blocks": "true"}),
+    ),
+    # Costs are a cumulative day-by-day series over the current billing period (or the last active
+    # one), returned in one unpaginated response. Each timeframe_end is one daily data point.
+    "CustomerCosts": OrbEndpointConfig(
+        name="CustomerCosts",
+        path="/customers/{customer_id}/costs",
+        table_name="customer_costs",
+        partition_key="timeframe_start",
+        primary_keys=["customer_id", "timeframe_start", "timeframe_end"],
+        paginated=False,
+        fanout=_customer_fanout(),
+    ),
+    "SubscriptionCosts": OrbEndpointConfig(
+        name="SubscriptionCosts",
+        path="/subscriptions/{subscription_id}/costs",
+        table_name="subscription_costs",
+        partition_key="timeframe_start",
+        primary_keys=["subscription_id", "timeframe_start", "timeframe_end"],
+        paginated=False,
+        fanout=_subscription_fanout(),
+    ),
+    # Schedule entries carry no id. Full refresh, because a scheduled plan change sets the
+    # end_date of the entry before it.
+    "SubscriptionSchedules": OrbEndpointConfig(
+        name="SubscriptionSchedules",
+        path="/subscriptions/{subscription_id}/schedule",
+        table_name="subscription_schedules",
+        partition_key="created_at",
+        primary_keys=["subscription_id", "start_date"],
+        fanout=_subscription_fanout(),
     ),
 }
 

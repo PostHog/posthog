@@ -144,7 +144,7 @@ SOURCE_EVENTS = [
     # Twelve hours before now is always after the start of yesterday, even when UTC midnight passes
     # between seeding and the run. A row from exactly one day ago would move into the window then.
     flag_called("half_a_day_ago", TEAM_ONE, timedelta(hours=12)),
-    flag_called("past_retention", TEAM_ONE, timedelta(days=91)),
+    flag_called("past_retention", TEAM_ONE, timedelta(days=93)),
 ]
 
 # The job stops unless each Kafka partition in flag_evaluations delivered a row within the
@@ -581,7 +581,7 @@ def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
     assert totals == ShardBackfillTotals(days=1, rows=5)
 
 
-# The earliest day the TTL keeps is 2025-12-11 on 2026-03-10, and 2025-12-12 on 2026-03-11.
+# The earliest day the TTL keeps is 2025-12-09 on 2026-03-10, and 2025-12-10 on 2026-03-11.
 @pytest.mark.parametrize(
     "start, step, step_day, effect",
     [
@@ -595,21 +595,21 @@ def test_backfill_ignores_a_blocking_run_that_finished_while_it_waited_for_disk(
         pytest.param(
             datetime(2026, 3, 10, 23, tzinfo=UTC),
             "wait_for_parts_to_merge",
-            date(2025, 12, 11),
+            date(2025, 12, 9),
             "pass_midnight",
             id="midnight_passes_during_the_waits_before_the_copy",
         ),
         pytest.param(
             datetime(2026, 3, 11, 1, tzinfo=UTC),
             "wait_for_parts_to_merge",
-            date(2025, 12, 11),
+            date(2025, 12, 9),
             "fail",
             id="day_expired_before_its_waits",
         ),
     ],
 )
 def test_backfill_stops_at_the_first_expired_day(start: datetime, step: str, step_day: date, effect: str) -> None:
-    days = [date(2026, 3, 9), date(2025, 12, 12), date(2025, 12, 11)]
+    days = [date(2026, 3, 9), date(2025, 12, 10), date(2025, 12, 9)]
 
     with time_machine.travel(start, tick=False) as traveller:
 
@@ -803,7 +803,7 @@ def test_backfill_waits_while_clickhouse_moves_parts_off_a_full_disk(
     [
         pytest.param({"end_date": "2026-03-10"}, id="end_date_after_yesterday"),
         pytest.param({"start_date": "2026-03-01", "end_date": "2026-03-01"}, id="empty_window"),
-        pytest.param({"start_date": "2025-12-10"}, id="start_date_already_expired"),
+        pytest.param({"start_date": "2025-12-08"}, id="start_date_already_expired"),
     ],
 )
 def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any]) -> None:
@@ -817,7 +817,7 @@ def test_resolve_backfill_days_rejects_an_unsafe_window(overrides: dict[str, Any
         pytest.param(
             {"start_date": "2026-03-06", "end_date": "2026-03-09"}, date(2026, 3, 8), date(2026, 3, 6), 3, id="explicit"
         ),
-        pytest.param({}, date(2026, 3, 8), date(2025, 12, 11), 88, id="default"),
+        pytest.param({}, date(2026, 3, 8), date(2025, 12, 9), 90, id="default"),
     ],
 )
 def test_resolve_backfill_days_lists_each_day_newest_first(

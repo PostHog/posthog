@@ -127,9 +127,14 @@ class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
         activity = metrics[0]
         self.assertEqual((activity.this_week, activity.daily[-1]), (1.0, (date(2026, 3, 1), 1.0)))
 
-    def test_an_uncached_query_returns_nothing_and_calculates_in_the_background(self) -> None:
+    @parameterized.expand([("activity_event", "opened_file", 2), ("signup_event", "signed_up", 1)])
+    def test_uncached_queries_start_together_without_waiting_for_another_load(
+        self, metric: str, event: str, queries: int
+    ) -> None:
         config = self.team.customer_analytics_config
-        config.activity_event = {"kind": "EventsNode", "event": "opened_file"}
+        for key in key_metrics_logic.KEY_METRICS:
+            setattr(config, key, {})
+        setattr(config, metric, {"kind": "EventsNode", "event": event})
         config.save()
 
         with (
@@ -138,7 +143,7 @@ class TestKeyMetrics(ClickhouseTestMixin, BaseTest):
         ):
             metrics = get_key_metrics(team=self.team, user=self.user)
 
-        self.assertEqual((metrics, enqueue.call_count), (None, 1))
+        self.assertEqual((metrics, enqueue.call_count), (None, queries))
 
     @parameterized.expand(
         [
