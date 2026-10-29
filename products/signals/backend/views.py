@@ -1813,9 +1813,9 @@ class SignalReportViewSet(
         if self.action in {"list", "section_counts"}:
             qs = self._apply_signal_report_ranking_filters(qs)
         qs = self._prefetch_signal_report_priority_artefacts(qs)
-        if self.action not in {"bulk_state", "section_counts"}:
-            # `bulk_state` answers with one outcome per id, never a serialized report, and the list
-            # ordering that reads this value does not apply to it either.
+        if self.action not in {"bulk_state", "bulk_claim", "section_counts"}:
+            # `bulk_state` and `bulk_claim` answer with one outcome per id, never a serialized report, and
+            # the list ordering that reads this value does not apply to them either.
             qs = self._annotate_is_suggested_reviewer(qs)
             qs = self._prefetch_signal_report_ranking_score(qs)
         if self.action not in self._MULTI_REPORT_ACTIONS:
@@ -1879,7 +1879,7 @@ class SignalReportViewSet(
     }
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "section_counts"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "bulk_claim", "section_counts"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:

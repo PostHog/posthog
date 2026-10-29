@@ -12,6 +12,7 @@ import {
     signalsReportsReviewersMeDestroy,
 } from 'products/signals/frontend/generated/api'
 import type { ReviewerRemovalReasonEnumApi } from 'products/signals/frontend/generated/api.schemas'
+import { signalsReportsBulkClaimBodyIdsMax } from 'products/signals/frontend/generated/api.zod'
 
 import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { captureInboxReportAction } from '../inboxAnalytics'
@@ -476,16 +477,24 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
                 isBulk: true,
                 bulkSize: reportIds.length,
             })
-            let claimedCount: number
+            // The endpoint takes a limited number of ids per call, and a selection across loaded pages can be
+            // larger, so the ids go in consecutive batches.
+            let claimedCount = 0
             try {
-                const result = await signalsReportsBulkClaim(String(values.currentTeamId), {
-                    ids: reportIds,
-                    takeover_agent_claims: true,
-                })
-                claimedCount = result.claimed_count
+                for (let start = 0; start < reportIds.length; start += signalsReportsBulkClaimBodyIdsMax) {
+                    const result = await signalsReportsBulkClaim(String(values.currentTeamId), {
+                        ids: reportIds.slice(start, start + signalsReportsBulkClaimBodyIdsMax),
+                        takeover_agent_claims: true,
+                    })
+                    claimedCount += result.claimed_count
+                }
             } catch {
                 // The selection stays, so the person can try again once the lists show the server's state.
-                lemonToast.error(`Couldn't claim ${pluralize(reportIds.length, 'report')}. Try again.`)
+                lemonToast.error(
+                    claimedCount > 0
+                        ? `Claimed ${pluralize(claimedCount, 'report')}, but couldn't claim the rest. Try again.`
+                        : `Couldn't claim ${pluralize(reportIds.length, 'report')}. Try again.`
+                )
                 actions.bulkClaimFailure()
                 return
             }
