@@ -61,7 +61,6 @@ export interface modelsLineageLogicValues {
     hiddenNodeBridging: HiddenNodeBridging
     graphNodes: LineageGraphNode[]
     visibleEdges: LineageEdge[]
-    hiddenDownstreamCounts: Map<string, number>
     isFiltered: boolean
     nodePositions: Record<string, XYPosition>
 }
@@ -381,11 +380,6 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
         visibleEdges: [
             (s) => [s.hiddenNodeBridging],
             (hiddenNodeBridging: HiddenNodeBridging): LineageEdge[] => hiddenNodeBridging.edges,
-        ],
-
-        hiddenDownstreamCounts: [
-            (s) => [s.hiddenNodeBridging],
-            (hiddenNodeBridging: HiddenNodeBridging): Map<string, number> => hiddenNodeBridging.hiddenDownstreamCounts,
         ],
 
         isFiltered: [

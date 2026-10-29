@@ -35,7 +35,6 @@ export function ModelsLineageTab(): JSX.Element {
         visibleNodes,
         graphNodes,
         visibleEdges,
-        hiddenDownstreamCounts,
         isFiltered,
         nodePositions,
     } = useValues(modelsLineageLogic)
@@ -157,7 +156,6 @@ export function ModelsLineageTab(): JSX.Element {
                         isHighlighted: highlightedNodeIds.has(node.id),
                         isSelected: selectedSearchResult?.id === node.id,
                         isRunning: node.last_run_status === 'Running',
-                        hiddenDownstreamCount: hiddenDownstreamCounts.get(node.id),
                     })}
                     panels={<NodeTypeLegend collapsed={legendCollapsed} onToggleCollapse={toggleLegendCollapsed} />}
                 />

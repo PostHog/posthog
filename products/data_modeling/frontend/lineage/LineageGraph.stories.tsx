@@ -206,9 +206,6 @@ export const Canvas: Story = {
     ),
 }
 
-const MANY_HIDDEN_METRICS = Array.from({ length: 120 }, (_, index) =>
-    mockNode({ id: `metric-${index}`, name: `metric_${index}`, type: 'metric', metric_id: `metric-${index}` })
-)
 const HIDDEN_TYPES_NODES: DataModelingNode[] = [
     mockNode({ id: 'orders', name: 'orders', type: 'table' }),
     mockNode({ id: 'customers', name: 'customers', type: 'table' }),
@@ -221,7 +218,6 @@ const HIDDEN_TYPES_NODES: DataModelingNode[] = [
     mockNode({ id: 'revenue_summary', name: 'revenue_summary', type: 'view', user_tag: 'finance' }),
     mockNode({ id: 'monthly_report', name: 'monthly_report', type: 'matview' }),
     mockNode({ id: 'forecast_api', name: 'forecast_api', type: 'endpoint' }),
-    ...MANY_HIDDEN_METRICS,
 ]
 const HIDDEN_TYPES_EDGES: DataModelingEdge[] = [
     ...['orders', 'customers', 'payments'].map((source) => mockEdge(`${source}-hub`, source, 'enriched_orders')),
@@ -231,7 +227,6 @@ const HIDDEN_TYPES_EDGES: DataModelingEdge[] = [
     mockEdge('orders-summary', 'orders', 'revenue_summary'),
     mockEdge('summary-report', 'revenue_summary', 'monthly_report'),
     mockEdge('report-forecast', 'monthly_report', 'forecast_api'),
-    ...MANY_HIDDEN_METRICS.map((metric) => mockEdge(`summary-${metric.id}`, 'revenue_summary', metric.id)),
 ]
 const HIDDEN_TYPES_VISIBLE_IDS = new Set(
     HIDDEN_TYPES_NODES.filter((node) => ['table', 'view', 'endpoint'].includes(node.type)).map((node) => node.id)
@@ -248,7 +243,6 @@ export const HiddenNodeTypes: Story = {
             nodes={nodesWithHubs(HIDDEN_TYPES_NODES, HIDDEN_TYPES_VISIBLE_IDS, HIDDEN_TYPES_BRIDGING.hubNodeIds)}
             edges={HIDDEN_TYPES_BRIDGING.edges}
             variant="canvas"
-            nodeState={(node) => ({ hiddenDownstreamCount: HIDDEN_TYPES_BRIDGING.hiddenDownstreamCounts.get(node.id) })}
         />
     ),
 }

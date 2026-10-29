@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 
 import { IconExpand45, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
@@ -11,7 +11,6 @@ import { DataModelingJobStatus, DataModelingNode } from '~/types'
 
 import { LineageGraph } from '../lineage/LineageGraph'
 import { LineageGraphNode, nodesWithHubs } from '../lineage/lineageHiddenNodes'
-import { LineageNodeState } from '../lineage/LineageNode'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
 import { LineageTypeFilter } from '../lineage/LineageTypeFilter'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
@@ -63,12 +62,6 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         )
     }, [lineageGraph, lineageVisibleNodeIds, lineageHiddenNodeBridging, effectiveLastRunAt, effectiveLastRunStatus])
     const edges = lineageHiddenNodeBridging?.edges ?? []
-    const nodeState = useCallback(
-        (node: DataModelingNode): LineageNodeState => ({
-            hiddenDownstreamCount: lineageHiddenNodeBridging?.hiddenDownstreamCounts.get(node.id),
-        }),
-        [lineageHiddenNodeBridging]
-    )
 
     if (!lineageGraphLoading && lineageGraphError) {
         return (
@@ -106,7 +99,6 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                 <LineageGraph
                     nodes={nodes}
                     edges={edges}
-                    nodeState={nodeState}
                     currentNodeId={lineageGraph?.currentNodeId}
                     loading={lineageGraphLoading}
                     loadingCenter={lineageGraphLoading && node ? { name: node.name, type: node.type } : undefined}
@@ -151,7 +143,6 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                     <LineageGraph
                         nodes={nodes}
                         edges={edges}
-                        nodeState={nodeState}
                         currentNodeId={lineageGraph?.currentNodeId}
                         variant="full"
                         interactive

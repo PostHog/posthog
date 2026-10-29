@@ -199,7 +199,6 @@ describe('nodeDetailSceneLogic', () => {
         logic.actions.setLineageTypeFilter(['table'])
 
         expect(logic.values.lineageVisibleNodeIds).toEqual(new Set(['source', NODE_ID]))
-        expect(logic.values.lineageHiddenNodeBridging?.hiddenDownstreamCounts).toEqual(new Map([[NODE_ID, 1]]))
     })
 
     it('replaces a backing-resource URL with the canonical node URL', async () => {

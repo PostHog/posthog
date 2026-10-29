@@ -2,8 +2,6 @@ import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { AdjacencyMaps, buildAdjacencyMaps, edgesWithinNodes } from './lineageSearch'
 
-export const HIDDEN_DOWNSTREAM_COUNT_CAP = 99
-
 const PATH_COUNT_CEILING = 1_000_000
 const CACHED_REACH_LIMIT = 2
 const EMPTY_NODE_IDS: ReadonlySet<string> = new Set()
@@ -19,7 +17,6 @@ export interface LineageGraphNode extends DataModelingNode {
 export interface HiddenNodeBridging {
     edges: LineageEdge[]
     hubNodeIds: Set<string>
-    hiddenDownstreamCounts: Map<string, number>
 }
 
 function childrenFirstOrder(
@@ -59,7 +56,6 @@ class HiddenSubgraph {
     private readonly maps: AdjacencyMaps
     private readonly downstreamPaths: Map<string, number>
     private readonly cachedReach = new Map<string, ReadonlySet<string>>()
-    private readonly deadEndsBelow = new Map<string, ReadonlySet<string>>()
 
     constructor(
         scopedEdges: DataModelingEdge[],
@@ -100,14 +96,6 @@ class HiddenSubgraph {
         return reached
     }
 
-    deadEndCountBelow(sourceId: string): number {
-        const deadEnds = new Set<string>()
-        for (const childId of this.hiddenChildren(sourceId)) {
-            addCapped(deadEnds, this.deadEndsBelow.get(childId) ?? EMPTY_NODE_IDS)
-        }
-        return deadEnds.size
-    }
-
     private isHidden = (nodeId: string): boolean => !this.visibleNodeIds.has(nodeId)
 
     private isHiddenNonTerminal = (nodeId: string): boolean => !this.terminals.has(nodeId)
@@ -140,15 +128,9 @@ class HiddenSubgraph {
 
     private walkHiddenNodes(): void {
         for (const nodeId of childrenFirstOrder(this.scopeNodeIds, this.maps.downstream, this.isHiddenNonTerminal)) {
-            const downstreamPaths = this.downstreamPaths.get(nodeId) ?? 0
-            if (downstreamPaths <= CACHED_REACH_LIMIT) {
+            if ((this.downstreamPaths.get(nodeId) ?? 0) <= CACHED_REACH_LIMIT) {
                 this.cachedReach.set(nodeId, this.reachFromCachedChildren(nodeId))
             }
-            const deadEnds = new Set<string>(downstreamPaths === 0 ? [nodeId] : [])
-            for (const childId of this.hiddenChildren(nodeId)) {
-                addCapped(deadEnds, this.deadEndsBelow.get(childId) ?? EMPTY_NODE_IDS)
-            }
-            this.deadEndsBelow.set(nodeId, deadEnds)
         }
     }
 
@@ -162,15 +144,6 @@ class HiddenSubgraph {
             }
         }
         return reached.size === 0 ? EMPTY_NODE_IDS : reached
-    }
-}
-
-function addCapped(target: Set<string>, source: ReadonlySet<string>): void {
-    for (const nodeId of source) {
-        if (target.size > HIDDEN_DOWNSTREAM_COUNT_CAP) {
-            return
-        }
-        target.add(nodeId)
     }
 }
 
@@ -195,7 +168,6 @@ export function bridgeHiddenNodes(
         return {
             edges: edgesWithinNodes(edges, visibleNodeIds),
             hubNodeIds: new Set(),
-            hiddenDownstreamCounts: new Map(),
         }
     }
 
@@ -203,7 +175,6 @@ export function bridgeHiddenNodes(
     const realEdges = edgesWithinNodes(edges, subgraph.terminals)
     const realEdgeKeys = new Set(realEdges.map((edge) => edgeKey(edge.source_id, edge.target_id)))
     const bridgedEdges: LineageEdge[] = []
-    const hiddenDownstreamCounts = new Map<string, number>()
 
     for (const sourceId of subgraph.terminals) {
         for (const targetId of subgraph.terminalsReachedFrom(sourceId)) {
@@ -218,12 +189,5 @@ export function bridgeHiddenNodes(
         }
     }
 
-    for (const sourceId of subgraph.terminals) {
-        const deadEndCount = subgraph.deadEndCountBelow(sourceId)
-        if (deadEndCount > 0) {
-            hiddenDownstreamCounts.set(sourceId, deadEndCount)
-        }
-    }
-
-    return { edges: [...realEdges, ...bridgedEdges], hubNodeIds: subgraph.hubNodeIds, hiddenDownstreamCounts }
+    return { edges: [...realEdges, ...bridgedEdges], hubNodeIds: subgraph.hubNodeIds }
 }
