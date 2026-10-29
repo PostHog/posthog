@@ -99,7 +99,7 @@ describe('signalSourcesLogic', () => {
 
     beforeEach(() => {
         warehouseSources = []
-        onboardingState = { draft: null, completed_at: null, variant: null }
+        onboardingState = { draft: null, completed_at: null }
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/onboarding/': () => [200, onboardingState],
@@ -359,7 +359,6 @@ describe('signalSourcesLogic', () => {
         logic.actions.loadOnboardingStateSuccess({
             draft: declinedJiraDraft,
             completed_at: '2024-03-10T00:00:00Z',
-            variant: 'test-ui',
         })
         sourcesDataLogic.actions.loadSourcesSuccess({
             results: [
@@ -417,17 +416,16 @@ describe('signalSourcesLogic', () => {
     })
 
     it.each([
-        { name: 'control completion', variant: 'control' as const, draft: null, expected: ['jira'] },
+        { name: 'completion without a draft', draft: null, expected: ['jira'] },
         {
             name: 'completion without a source choice',
-            variant: 'test-ui' as const,
             draft: { ...declinedJiraDraft, sources: [] },
             expected: ['jira'],
         },
-        { name: 'an explicit source rejection', variant: 'test-ui' as const, draft: declinedJiraDraft, expected: [] },
+        { name: 'an explicit source rejection', draft: declinedJiraDraft, expected: [] },
     ])('refreshes recommendations after $name', async (state) => {
         warehouseSources = [{ ...githubSource, source_type: 'Jira', created_at: '2024-03-01T00:00:00Z' }]
-        onboardingState = { variant: state.variant, draft: state.draft, completed_at: null }
+        onboardingState = { draft: state.draft, completed_at: null }
         sourcesDataLogic.actions.loadSourcesSuccess({ results: warehouseSources, next: null, previous: null })
         await expectLogic(logic, () => logic.actions.loadSourceConfigs()).toFinishAllListeners()
         expect(logic.values.visibleSourceRecommendations.map(({ agent }) => agent.source)).toEqual(['jira'])

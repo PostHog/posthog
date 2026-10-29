@@ -2283,6 +2283,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             props.onData?.(response as Record<string, unknown> | null | undefined)
             actions.collectionNodeLoadDataSuccess(props.key, {
                 isCached: !!response && typeof response === 'object' && 'is_cached' in response && !!response.is_cached,
+                lastRefresh: values.lastRefresh,
             })
             if ('query' in props.query) {
                 cache.localResults[JSON.stringify(props.query.query)] = response

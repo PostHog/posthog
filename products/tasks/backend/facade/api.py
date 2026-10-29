@@ -104,7 +104,7 @@ from products.tasks.backend.constants import (
 )
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
-from products.tasks.backend.facade.profiles import TaskProfile, resolve_task_origin
+from products.tasks.backend.facade.profiles import TaskProfile, TaskRunOptions, TaskSource, resolve_task_origin
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
@@ -200,6 +200,7 @@ from products.tasks.backend.repository_config_analytics import (
     capture_space_context_changed,
     repositories_differ,
 )
+from products.tasks.backend.task_sources import apply_task_source
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
     TEAM_READABLE_ORIGIN_PRODUCTS,
@@ -2030,6 +2031,7 @@ def create_and_run_task(
     internal: bool | None = None,
     sandbox_environment_id: str | None = None,
     channel_id: str | UUID | None = None,
+    source: TaskSource | None = None,
     **extra,
 ) -> contracts.CreatedTaskDTO:
     """Create a task and (optionally) kick off its processing workflow.
@@ -2053,6 +2055,10 @@ def create_and_run_task(
     origin = resolve_task_origin(profile=profile, origin_product=origin_product, internal=internal)
     origin_product = cast("Task.OriginProduct", origin.origin_product)
     internal = origin.internal
+    columns = apply_task_source(source, signal_report_id=signal_report_id, hog_flow_id=extra.get("hog_flow_id"))
+    signal_report_id = columns.signal_report_id
+    if columns.hog_flow_id is not None:
+        extra["hog_flow_id"] = columns.hog_flow_id
     # create_pr=False sessions (research, repo selection, custom agents) can never open the
     # billable PR, so the quota gate must not block them.
     if origin_product == Task.OriginProduct.SIGNAL_REPORT and create_pr:
@@ -2265,6 +2271,8 @@ def create_task_without_run(
     repository: str | None = None,
     mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
     channel: Channel | None = None,
+    options: TaskRunOptions | None = None,
+    source: TaskSource | None = None,
 ) -> UUID:
     """Create a Task row with no initial run, returning its id.
 
@@ -2288,6 +2296,8 @@ def create_task_without_run(
         repository=repository,
         channel=channel,
         mcp_builtin_agent_key=mcp_builtin_agent_key,
+        options=options,
+        source=source,
     )
     return task.id
 

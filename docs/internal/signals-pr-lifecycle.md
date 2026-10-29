@@ -69,6 +69,9 @@ Qualitative findings can omit metrics.
 Research presentation drops invalid observation metrics individually and keeps the report prose and valid metrics.
 A snapshot series without a paired value and measurement time is cleared while its live query remains available.
 
+Each structured research follow-up gets one JSON correction turn in the same session if its reply cannot be parsed or fails schema validation.
+The correction uses the same schema and validation context. A second invalid reply propagates to the caller's existing failure handling; execution failures and cancellation propagate without a JSON retry.
+
 Observation metrics support HogQL filters that compare direct event fields or event properties with literal values.
 Boolean operations, arithmetic, and literal lists are supported; other function calls and subqueries remain unreadable.
 Report reads, research selection, and snapshot refresh use the same filter check.
@@ -129,6 +132,10 @@ Insufficient and unsupported results settle this evaluator's work. Final queries
 Interim query exhaustion and schedule expiry do not consume the final budget: frozen members remain eligible for final verification without changing their check status, window, or error history.
 State, flag, definition, and attempt guards apply before querying and again when saving.
 Final results leave reports in Monitoring; authored-agent checks, report outcome aggregation, assessment, and follow-up research have separate execution paths.
+
+The **Closed** report state (`closed`) means an implementation attempt ended without proving resolution. It is distinct from processing failure and from Resolved. It preserves the original Monitoring timestamp and attempt evidence. Closed reports remain readable, manually resolvable, reopenable, and archivable, but have no dedicated section in the inbox UI. Restoring an archived Closed report returns it to Closed. A Closed child does not count as successful completion of its parent plan, and child updates do not overwrite a parent's Closed outcome.
+
+Closed reports still count as acted-on work for scout engagement and organization adoption. A new matching signal follows the existing recurrence path into a fresh linked report; the Closed attempt stays unchanged and supplies context for that report's research. That context preserves the unproven Closed outcome rather than describing the attempt as fixed. Closed reports are excluded from unclaimed-work selection, and child rollup preserves an archived parent's saved Closed outcome.
 
 With `signals-report-metrics` enabled, research gathers short-window baselines before verification and prefers metric-based follow-up checks. It aims for practical 70-80% confidence in improvement, without claiming a calculated confidence score. Observed volume, recurrence, ingestion delay, and deployment timing justify the shortest useful query and wait. Frequent or high-volume checks can use 4-8 hours, allowing for several hours of deployment delay before the fix reaches users. Around 24 hours or several days require the corresponding activity or rollout evidence. Agent checks remain available when interpretation or unsupported measurements prevent a useful metric check. Missing activity is not success. These prompt preferences do not change execution, schema defaults, or final outcomes.
 

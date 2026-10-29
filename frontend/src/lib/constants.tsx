@@ -186,7 +186,6 @@ export const FEATURE_FLAGS = {
     EXPERIMENT_ACTIVATION_EVENT: 'experiment-activation-event', // owner: #team-experiments, offers an activation event on top of the default exposure instead of legacy custom exposure events
     EXPERIMENT_EXPOSURE_EVENT: 'experiment-exposure-event', // owner: #team-experiments, switches new experiments to the dedicated exposure event
     FUNNEL_BAR_LIST: 'funnel-bar-list', // owner: @sampennington #team-product-analytics, top-to-bottom funnel as a bar list
-    FUNNEL_STEPS_BAR_LABELS: 'funnel-steps-bar-labels', // owner: @sampennington #team-product-analytics, left-to-right funnel with value labels on the bars, a name-only step legend and steps that shrink to fit
     GAME_CENTER: 'game-center', // owner: everybody, this is just internal for now
     HEDGEHOG_SKIN_SPIDERHOG: 'hedgehog-skin-spiderhog', // owner: #team-web-analytics, used to reward beta users for web analytics
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: #team-batch-exports, allow batch exports to be run every 5min/15min
@@ -360,7 +359,6 @@ export const FEATURE_FLAGS = {
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_TIME_WINDOW: 'inbox-time-window', // owner: #team-self-driving, gates the created-in window filter on the inbox report list
-    INBOX_UI_ONBOARDING: 'inbox-ui-onboarding', // owner: #team-self-driving, multivariate control/test-ui/test-github
     INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT: 'insight-alerts-empty-state',
     INSIGHT_DATA_CHECKS: 'insight-data-checks', // owner: @sampennington #team-product-analytics, checks the events behind an insight and shows the result on the insight page
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
@@ -540,7 +538,6 @@ export const FEATURE_FLAGS = {
     TASK_SUMMARIES: 'task-summaries', // owner: #team-ai-observability
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-ai-observability
-    TAXONOMIC_FILTER_EVENT_MATCH: 'taxonomic-filter-event-match', // owner: @pauldambra multivariate=control,test, experiment: test asks the decision model which core events an events search with no results describes, then suggests them or says why there are none; control asks nothing
     TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH: 'taxonomic-filter-fuzzy-event-search', // owner: @pauldambra multivariate=control,test, experiment: test makes Events and Custom events searches with no match ask the API for similar event names
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. control changes nothing, banner suggests the right tab, promote moves the predicted group to the top of the All tab
     TAXONOMIC_FILTER_VALUE_SEARCH_GATING: 'taxonomic-filter-value-search-gating', // owner: @pauldambra
@@ -575,7 +572,6 @@ export const FEATURE_FLAGS = {
     UX_REMOVE_SIDEPANEL: 'ux-remove-sidepanel', // owner: #team-surveys
     VISION_ENTRYPOINT_REPLAY_FILTERS: 'vision-entrypoint-replay-filters', // owner: #team-replay, cross-sell entry point from the replay filters panel
     VISION_EXPERIMENT_SCANNER: 'experiment-scanner', // owner: #team-replay, experiment scanners overall: the type in the scanner editor, creating one from experiments, and the variants tab
-    VISION_WATCH_FEED_RANKER: 'vision-watch-feed-ranker', // owner: #team-replay multivariate=control,jev-shadow,jev,embedding. Project-aggregated; compare the variant string
     VISUAL_REVIEW: 'visual-review', // owner: #team-devex
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
@@ -618,6 +614,8 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows
     WORKFLOWS_BROADCAST_AUDIENCE_SUGGESTIONS: 'workflows-broadcast-audience-suggestions', // owner: @dmarchuk #team-workflows, AI audience ideas on the Broadcasts tab
     WORKFLOWS_COHORT_CONDITIONS: 'workflows-cohort-conditions', // owner: @meikelmosby #team-workflows
+    WORKFLOWS_CUSTOMERIO_IMPORT: 'workflows-customerio-import', // owner: @dmarchuk #team-workflows, import Customer.io automations as draft workflows
+    WORKFLOWS_DESTINATION_SUGGESTION: 'workflows-destination-suggestion', // owner: #team-workflows, offers workflows instead of a new email tool destination
     WORKFLOWS_EMAIL_DOMAIN_AGENT_SETUP: 'workflows-email-domain-agent-setup', // owner: @silthus #team-workflows
     WORKFLOWS_EMAIL_DOMAIN_WIZARD: 'workflows-email-domain-wizard', // owner: @silthus #team-workflows
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows

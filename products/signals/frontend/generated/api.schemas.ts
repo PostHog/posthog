@@ -878,6 +878,18 @@ export const InboxOnboardingStepEnumApi = {
 } as const
 
 /**
+ * * `quick` - Quick
+ * * `guided` - Guided
+ */
+export type InboxOnboardingSetupModeEnumApi =
+    (typeof InboxOnboardingSetupModeEnumApi)[keyof typeof InboxOnboardingSetupModeEnumApi]
+
+export const InboxOnboardingSetupModeEnumApi = {
+    Quick: 'quick',
+    Guided: 'guided',
+} as const
+
+/**
  * * `session_replay` - Session replay
  * * `llm_analytics` - LLM analytics
  * * `github` - GitHub
@@ -1382,6 +1394,11 @@ export interface InboxOnboardingDraftApi {
      * * `scouts` - Scouts
      * * `github` - GitHub */
     step: InboxOnboardingStepEnumApi
+    /** How setup was chosen: quick activation from the welcome screen, or the guided steps.
+     *
+     * * `quick` - Quick
+     * * `guided` - Guided */
+    setup_mode?: InboxOnboardingSetupModeEnumApi
     /** Staged signal source choices. */
     sources: InboxOnboardingSourceApi[]
     /**
@@ -1409,20 +1426,6 @@ export interface InboxOnboardingDraftApi {
     implementation_priority: AutonomyPriorityEnumApi
 }
 
-/**
- * * `control` - Control
- * * `test-ui` - Focused steps
- * * `test-github` - Activate and explore
- */
-export type InboxOnboardingVariantEnumApi =
-    (typeof InboxOnboardingVariantEnumApi)[keyof typeof InboxOnboardingVariantEnumApi]
-
-export const InboxOnboardingVariantEnumApi = {
-    Control: 'control',
-    TestUi: 'test-ui',
-    TestGithub: 'test-github',
-} as const
-
 export interface InboxOnboardingStateApi {
     /** Whether this project can activate Self-driving without connecting GitHub. */
     github_optional_available?: boolean
@@ -1444,21 +1447,6 @@ export interface InboxOnboardingStateApi {
      * @nullable
      */
     completed_at: string | null
-    /** Variant recorded at the first eligible impression.
-     *
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore */
-    variant: InboxOnboardingVariantEnumApi | null
-}
-
-export interface InboxOnboardingExposureApi {
-    /** Assigned experiment variant at the eligible Inbox impression.
-     *
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore */
-    variant: InboxOnboardingVariantEnumApi
 }
 
 export interface PauseStateResponseApi {
@@ -1526,6 +1514,7 @@ export interface ReviewerControlResponseApi {
  * * `ready` - Ready
  * * `monitoring` - Monitoring
  * * `resolved` - Resolved
+ * * `closed` - Closed
  * * `failed` - Failed
  * * `deleted` - Deleted
  * * `suppressed` - Suppressed
@@ -1540,6 +1529,7 @@ export const SignalReportStatusEnumApi = {
     Ready: 'ready',
     Monitoring: 'monitoring',
     Resolved: 'resolved',
+    Closed: 'closed',
     Failed: 'failed',
     Deleted: 'deleted',
     Suppressed: 'suppressed',
@@ -2230,6 +2220,7 @@ export interface ReportPlanStepApi {
      * * `ready` - Ready
      * * `monitoring` - Monitoring
      * * `resolved` - Resolved
+     * * `closed` - Closed
      * * `failed` - Failed
      * * `deleted` - Deleted
      * * `suppressed` - Suppressed */
@@ -2270,6 +2261,7 @@ export interface ReportPlanApi {
      * * `ready` - Ready
      * * `monitoring` - Monitoring
      * * `resolved` - Resolved
+     * * `closed` - Closed
      * * `failed` - Failed
      * * `deleted` - Deleted
      * * `suppressed` - Suppressed */
@@ -5196,7 +5188,7 @@ export const DismissalReasonEnumApi = {
 } as const
 
 export interface SignalReportStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential
@@ -5833,7 +5825,7 @@ export interface SignalReportCheckReplacementApi {
 }
 
 export interface SignalReportBulkStateRequestApi {
-    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
+    /** Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.
      *
      * * `suppressed` - suppressed
      * * `potential` - potential

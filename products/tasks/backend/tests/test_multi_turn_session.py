@@ -1,5 +1,6 @@
 import json
 import asyncio
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -12,7 +13,7 @@ from django.db import OperationalError, transaction
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
-from pydantic import BaseModel, Field, JsonValue
+from pydantic import BaseModel, Field, JsonValue, ValidationInfo, field_validator
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models import Integration, Organization, Team
@@ -66,6 +67,15 @@ class _Resp(BaseModel):
 
 class _DefaultedResp(BaseModel):
     values: list[str] = Field(default_factory=list)
+
+
+class _ContextResp(_Resp):
+    @field_validator("value")
+    @classmethod
+    def value_matches_context(cls, value: str, info: ValidationInfo) -> str:
+        if info.context is None or value != info.context["expected_value"]:
+            raise ValueError("value must match the validation context")
+        return value
 
 
 class TestPollForTurnEmptyEndTurn:
@@ -1367,8 +1377,73 @@ class TestMultiTurnSessionRetry:
         return session
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("first_reply", ["private-reply-text", '{"value":', '{"value": "private-value"}'])
+    @pytest.mark.parametrize("retry_reply", [None, '{"value": "ok"}', '{"value": "still-invalid"}'])
+    async def test_json_retry_preserves_schema_and_context(
+        self, first_reply: str, retry_reply: str | None, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        session = self._make_session()
+        replies = [first_reply] + ([retry_reply] if retry_reply is not None else [])
+        poll = AsyncMock(
+            side_effect=[
+                TurnPollResult(last_message=reply, full_log=None, total_lines=index * 10, printed_lines=index * 5)
+                for index, reply in enumerate(replies, start=1)
+            ]
+        )
+        with (
+            caplog.at_level(logging.WARNING),
+            patch("products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn", new=poll),
+        ):
+            validation_context: dict[str, object] = {"expected_value": "ok"}
+            if retry_reply == '{"value": "ok"}':
+                result = await session.send_followup(
+                    "question",
+                    _ContextResp,
+                    json_retry_prompt="Return valid JSON",
+                    validation_context=validation_context,
+                )
+                assert result.value == "ok"
+            else:
+                with pytest.raises(ValueError):
+                    await session.send_followup(
+                        "question",
+                        _ContextResp,
+                        json_retry_prompt="Return valid JSON" if retry_reply is not None else None,
+                        validation_context=validation_context,
+                    )
+
+        assert poll.await_count == len(replies)
+        if retry_reply is not None:
+            assert poll.await_args_list[1].kwargs["skip_lines"] == 10
+            assert cast(AsyncMock, session._workflow_handle).signal.await_args_list[1].args[1] == "Return valid JSON"
+            assert "asking for JSON once" in caplog.text
+        assert "private-reply-text" not in caplog.text
+        assert "private-value" not in caplog.text
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("during_retry", [False, True])
+    @pytest.mark.parametrize(
+        "failure", [RuntimeError("poll failed"), ValueError("poll failed"), asyncio.CancelledError()]
+    )
+    async def test_json_retry_propagates_execution_failures(self, during_retry: bool, failure: BaseException) -> None:
+        session = self._make_session()
+        responses = (
+            [TurnPollResult(last_message="prose", full_log=None, total_lines=10, printed_lines=5), failure]
+            if during_retry
+            else [failure]
+        )
+        poll = AsyncMock(side_effect=responses)
+        with patch("products.tasks.backend.logic.services.custom_prompt_multi_turn_runner.poll_for_turn", new=poll):
+            with pytest.raises(type(failure)) as raised:
+                await session.send_followup("question", _Resp, json_retry_prompt="Return valid JSON")
+
+        assert raised.value is failure
+        assert poll.await_count == len(responses)
+
+    @pytest.mark.asyncio
     @pytest.mark.parametrize("deadline,turns", [(None, 1), (float("inf"), 2), (0.0, 1)])
-    async def test_happy_path_no_retry(self, deadline: float | None, turns: int) -> None:
+    @pytest.mark.parametrize("json_retry_prompt", [None, "Return valid JSON"])
+    async def test_happy_path_no_retry(self, deadline: float | None, turns: int, json_retry_prompt: str | None) -> None:
         session = self._make_session()
         session.poll_deadline = deadline
         agent_response = json.dumps({"value": "ok"})
@@ -1381,12 +1456,12 @@ class TestMultiTurnSessionRetry:
         ) as poll:
             if deadline == 0.0:
                 with pytest.raises(TimeoutError):
-                    await session.send_followup("hello", _Resp, label="unit")
+                    await session.send_followup("hello", _Resp, label="unit", json_retry_prompt=json_retry_prompt)
                 cast(AsyncMock, session._workflow_handle).signal.assert_not_awaited()
                 poll.assert_not_awaited()
                 return
             for _ in range(turns):
-                result = await session.send_followup("hello", _Resp, label="unit")
+                result = await session.send_followup("hello", _Resp, label="unit", json_retry_prompt=json_retry_prompt)
                 assert result == _Resp(value="ok")
 
         assert all(call.kwargs["poll_deadline"] == deadline for call in poll.await_args_list)
