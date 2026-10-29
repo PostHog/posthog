@@ -434,13 +434,20 @@ class TestWarehouseAlerts(APIBaseTest):
         destinations_url = f"/api/projects/{self.team.id}/warehouse_alerts/{alert['id']}/destinations/"
         added = self.client.post(
             destinations_url,
-            {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "data"},
+            {
+                "type": "slack",
+                "slack_workspace_id": 42,
+                "slack_channel_id": "C123",
+                "slack_channel_name": "data",
+                "pagerduty_routing_key": PAGERDUTY_ROUTING_KEY,
+            },
             format="json",
         )
         assert added.status_code == status.HTTP_201_CREATED, added.json()
         (listed,) = self.client.get(destinations_url).json()
         assert listed == added.json()
-        assert "pagerduty_severity" not in listed
+        # A Slack row keeps no PagerDuty setting, neither the defaults nor a key sent alongside.
+        assert not {key for key in listed if key.startswith("pagerduty_")}
         assert (listed["type"], listed["slack_channel_id"], listed["event_kinds"]) == (
             "slack",
             "C123",

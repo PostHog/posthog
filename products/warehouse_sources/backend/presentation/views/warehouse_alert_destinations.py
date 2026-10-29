@@ -80,15 +80,22 @@ _EVENT_KINDS_HELP = (
 )
 
 
-_PAGERDUTY_FIELDS: Final = frozenset({"pagerduty_severity", "pagerduty_region"})
+_WEBHOOK_FIELDS: Final = ("webhook_url",)
+# The settings each type keeps. The serializer accepts every type's fields and fills the PagerDuty
+# defaults for all of them, and a field of another type can hold a credential that its redaction misses.
+_FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id", "slack_channel_name"),
+    DestinationType.WEBHOOK: _WEBHOOK_FIELDS,
+    DestinationType.TEAMS: _WEBHOOK_FIELDS,
+    DestinationType.DISCORD: _WEBHOOK_FIELDS,
+    DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+}
 
 
 def _split(attrs: dict[str, Any]) -> tuple[AlertDestinationData, tuple[AlertEventKind, ...]]:
     """A create request's destination settings, apart from the kinds it asks to hear about."""
     destination_type = DestinationType(attrs["type"])
-    # The serializer fills the PagerDuty defaults for every type, and only a PagerDuty row keeps them.
-    dropped = {"event_kinds"} | (set() if destination_type == DestinationType.PAGERDUTY else _PAGERDUTY_FIELDS)
-    data = {key: value for key, value in attrs.items() if key not in dropped}
+    data: dict[str, Any] = {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs}
     data["type"] = destination_type
     return cast(AlertDestinationData, data), tuple(AlertEventKind(kind) for kind in attrs["event_kinds"])
 
