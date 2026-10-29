@@ -9,8 +9,8 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
-import { isActorsQuery, isDataTableNode } from '~/queries/utils'
-import { ChartDisplayType, ReplayTabs } from '~/types'
+import { isActorsQuery } from '~/queries/utils'
+import { ReplayTabs } from '~/types'
 
 import { dashboardInsightResultMenuLogic } from './dashboardInsightResultMenuLogic'
 
@@ -51,9 +51,7 @@ export function DashboardInsightResultMenuPopover({
     const sqlUrl = resolvedResult?.sql
         ? urls.sqlEditor({ query: resolvedResult.sql })
         : sqlQuery
-          ? urls.sqlEditor({
-                query: isDataTableNode(sqlQuery) ? sqlQuery : { ...sqlQuery, display: ChartDisplayType.ActionsTable },
-            })
+          ? urls.sqlEditor({ query: sqlQuery })
           : undefined
     const resultUnavailableReason = resultLoading
         ? 'Loading the selected result…'

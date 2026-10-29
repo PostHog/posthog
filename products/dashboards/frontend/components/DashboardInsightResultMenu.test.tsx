@@ -9,7 +9,7 @@ import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-m
 
 import * as queryRunner from '~/queries/query'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind, ActorsQueryResponse, HogQLQuery } from '~/queries/schema/schema-general'
+import { NodeKind, ActorsQueryResponse, DataVisualizationNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { insightOnDashboard } from '~/scenes/dashboard/dashboardLogic.testHelpers'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, GroupMathType } from '~/types'
@@ -114,6 +114,24 @@ describe('dashboard result menu', () => {
             })
         }
         expect(queryRunner.performQuery).not.toHaveBeenCalled()
+    })
+
+    it('opens a SQL chart in the SQL editor with its chart display and its rows as a table', () => {
+        const query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'SELECT day, count() FROM events GROUP BY day' },
+            display: ChartDisplayType.ActionsLineGraph,
+        }
+        render(
+            <DashboardInsightResultMenu insight={{ ...insightOnDashboard(1, [1]), query }}>
+                <div>SQL chart</div>
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.contextMenu(screen.getByText('SQL chart'))
+        const openQuery = (label: string): unknown =>
+            JSON.parse(new URL(screen.getByText(label).closest('a')!.href).searchParams.get('open_query')!)
+        expect(openQuery('Open in SQL editor')).toEqual(query)
+        expect(openQuery('View underlying rows')).toEqual({ ...query, display: ChartDisplayType.ActionsTable })
     })
 
     it.each([undefined, 0] as const)(
