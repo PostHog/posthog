@@ -8640,16 +8640,16 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
 
-    @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
-        return_value=(True, None),
-    )
     @parameterized.expand(
         [
             ("canonical_auth", "auth", {"type": "password"}),
             # Migration 0807 wrote the auth under `auth_type`, keyed by `selection`, with blank unused secrets.
             ("legacy_auth_type", "auth_type", {"selection": "password", "passphrase": "", "private_key": ""}),
         ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
     )
     def test_update_source_with_ssh_tunnel_host_change_and_auth_succeeds(
         self, _name: str, stored_auth_key: str, stored_auth: dict, mock_validate_credentials
@@ -8750,12 +8750,11 @@ class TestExternalDataSource(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
             data={
                 "job_inputs": {
-                    # Changing any SSH tunnel field forces re-entry of the database password.
-                    "password": "db_password",
+                    "database": "renamed_db",
                     "ssh_tunnel": {
                         "enabled": True,
                         "host": "ssh.example.com",
-                        "port": 2222,
+                        "port": 22,
                     },
                 },
             },
