@@ -1048,6 +1048,9 @@ class WorkflowsWebhookError(Exception):
 def _routes_to_workflows(user: User) -> bool:
     if not settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL or not settings.WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET:
         return False
+    # The webhook refuses a post without a distinct id, and the flag needs one to bucket the recipient.
+    if not user.distinct_id:
+        return False
     # The same flag and person properties as the other transactional emails, so one flag condition ramps the digest.
     person_properties = {"email": user.email, "transactional_email_template": DIGEST_TEMPLATE_NAME}
     if region := get_instance_region():
