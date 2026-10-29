@@ -415,6 +415,61 @@ describe("ClaudeAcpAgent session creation", () => {
     },
   );
 
+  it("reads the model list from the gateway for an own-subscription session", async () => {
+    vi.mocked(fetchGatewayModels).mockImplementationOnce(async (options) =>
+      options?.gatewayUrl === "http://gateway.test"
+        ? [
+            {
+              id: "claude-opus-5-5",
+              owned_by: "anthropic",
+              context_window: 1_000_000,
+              supports_streaming: true,
+              supports_vision: true,
+              allowed: true,
+            },
+            {
+              id: "zai-org/glm-5.3",
+              owned_by: "zai",
+              context_window: 200_000,
+              supports_streaming: true,
+              supports_vision: false,
+              allowed: true,
+              api_shapes: ["anthropic-messages"],
+            },
+          ]
+        : [],
+    );
+    const client = {
+      sessionUpdate: vi.fn().mockResolvedValue(undefined),
+      extNotification: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AgentSideConnection;
+    const agent = new ClaudeAcpAgent(client, {
+      machineAuth: { oauthToken: "subscription-token" },
+      modelsGatewayUrl: "http://gateway.test",
+    });
+
+    const response = await agent.newSession({
+      cwd,
+      mcpServers: [],
+      _meta: { taskRunId: "run-subscription", model: "claude-opus-5-5" },
+    });
+
+    expect(fetchGatewayModels).toHaveBeenCalledWith({
+      gatewayUrl: "http://gateway.test",
+      authToken: undefined,
+      projectId: undefined,
+    });
+    expect(getModelConfigOption(response)).toMatchObject({
+      currentValue: "claude-opus-5-5",
+      options: [
+        expect.objectContaining({
+          value: "claude-opus-5-5",
+          description: "Context: 1,000,000 tokens",
+        }),
+      ],
+    });
+  });
+
   // The shared claude settings file is cross-session state: the session's own
   // pick must win over it, with the file only as a fallback.
   it.each([

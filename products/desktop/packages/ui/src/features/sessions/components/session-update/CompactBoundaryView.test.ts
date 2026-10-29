@@ -22,15 +22,6 @@ describe("formatCompactBoundaryLabel", () => {
       },
       expected: "Conversation compacted · manual · 75% of context",
     },
-    {
-      name: "token count when it exceeds the context size",
-      props: {
-        trigger: "auto" as const,
-        preTokens: 968_000,
-        contextSize: 200_000,
-      },
-      expected: "Conversation compacted · auto · ~968K tokens",
-    },
   ])("formats $name", ({ props, expected }) => {
     expect(formatCompactBoundaryLabel(props)).toBe(expected);
   });

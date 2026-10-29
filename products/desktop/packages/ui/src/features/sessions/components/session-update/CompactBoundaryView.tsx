@@ -17,7 +17,7 @@ function getCompactBoundaryMetadata({
   if (preTokens === undefined) return metadata;
 
   metadata.tokensK = Math.round(preTokens / 1000);
-  if (contextSize && preTokens <= contextSize)
+  if (contextSize)
     metadata.percent = Math.round((preTokens / contextSize) * 100);
 
   return metadata;

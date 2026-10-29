@@ -443,6 +443,7 @@ export interface ClaudeAcpAgentOptions {
   /** Explicit gateway config — avoids global process.env mutation across concurrent sessions. */
   gatewayEnv?: GatewayEnv;
   machineAuth?: MachineClaudeAuth;
+  modelsGatewayUrl?: string;
   /** Per-session context wiki mount — avoids global process.env mutation across concurrent sessions. */
   contextWiki?: ContextWikiEnv;
 }
@@ -3478,7 +3479,8 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     const [rawModelOptions] = await Promise.all([
       this.getModelConfigOptions(
         requestedModel,
-        this.options?.gatewayEnv?.anthropicBaseUrl,
+        this.options?.gatewayEnv?.anthropicBaseUrl ??
+          this.options?.modelsGatewayUrl,
         this.options?.gatewayEnv?.anthropicAuthToken,
         Number(this.options?.gatewayEnv?.posthogProjectId) || undefined,
       ),
