@@ -25,8 +25,9 @@ from posthog.caching.calculate_results import calculate_cache_key, calculate_for
 from posthog.caching.insight_result import InsightResult, NothingInCacheResult
 from posthog.models import Team, User
 from posthog.models.utils import strip_null_bytes
-from posthog.query_creator_access import CreatorLeftOrganizationError, creator_access_revoked
+from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_view, creator_access_revoked
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
@@ -180,6 +181,14 @@ def _has_comparison_enabled(query_json: Any) -> bool:
     return bool(isinstance(compare_filter, dict) and compare_filter.get("compare"))
 
 
+def _owner_query_error(error: Exception) -> dict[str, Any]:
+    return {
+        "query_results": None,
+        "cache_key": None,
+        "query_error": {"type": type(error).__name__, "message": str(error), "human_readable_error": str(error)},
+    }
+
+
 def _execute_and_serialize_insight_query(
     *,
     insight: Insight,
@@ -189,14 +198,13 @@ def _execute_and_serialize_insight_query(
     query_json: Any,
 ) -> dict[str, Any]:
     """Run cache/calculate path and return snapshot fields to merge (``query_*`` / ``cache_key`` only)."""
-    # Same rule as the export: no query runs for an owner who left.
+    # Same rule as the export: no query runs for an owner who left or who cannot view the insight.
     if creator_access_revoked(user, team):
-        error = CreatorLeftOrganizationError()
-        return {
-            "query_results": None,
-            "cache_key": None,
-            "query_error": {"type": type(error).__name__, "message": str(error), "human_readable_error": str(error)},
-        }
+        return _owner_query_error(CreatorLeftOrganizationError())
+    try:
+        assert_creator_can_view(user, team, dashboard, insight)
+    except UserAccessControlError as error:
+        return _owner_query_error(error)
     try:
         insight_result = calculate_for_query_based_insight(
             insight,

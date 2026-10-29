@@ -77,6 +77,7 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.evaluation.contract import (
     CREATOR_LEFT_DISABLE_REASON,
     CREATOR_LOST_ACCESS_DISABLE_REASON,
@@ -1281,6 +1282,7 @@ class TestEvaluateAlert:
         [
             ("left_organization", CREATOR_LEFT_DISABLE_REASON),
             ("lost_table_access", CREATOR_LOST_ACCESS_DISABLE_REASON),
+            ("lost_insight_access", CREATOR_LOST_ACCESS_DISABLE_REASON),
         ],
     )
     async def test_evaluate_auto_disables_when_the_owner_can_no_longer_run_the_query(
@@ -1293,6 +1295,18 @@ class TestEvaluateAlert:
             await sync_to_async(
                 OrganizationMembership.objects.filter(organization_id=aorganization.id, user=owner).delete
             )()
+        if owner_change == "lost_insight_access":
+            # The owner is a plain member, so a no-access rule on the insight applies to them.
+            aorganization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            await sync_to_async(aorganization.save)()
+            await sync_to_async(AccessControl.objects.create)(
+                team=alert_with_user.team,
+                resource="insight",
+                resource_id=str(alert_with_user.insight_id),
+                access_level="none",
+            )
 
         with (
             # Patched under the real `check_alert_for_insight`, which turns the denial into the owner reason.

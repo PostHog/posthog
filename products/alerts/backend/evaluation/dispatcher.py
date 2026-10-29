@@ -13,11 +13,12 @@ from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.hogql_queries.validation.validate_query import rule_violation_message
-from posthog.query_creator_access import creator_access_revoked
+from posthog.query_creator_access import assert_creator_can_view, creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, AlertEvaluationResult
 from posthog.utils import get_from_dict_or_attr
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.alerts.backend.evaluation.comparator import evaluate_threshold
 from products.alerts.backend.evaluation.contract import (
     CREATOR_LEFT_DISABLE_REASON,
@@ -311,8 +312,10 @@ def check_alert_for_insight(
         # Checked before the query, because a query that reads no restricted table still succeeds.
         raise AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)
     try:
+        # Object access first, because the query itself only checks tables and runner resources.
+        assert_creator_can_view(alert.created_by, alert.team, alert.insight)
         return _check_alert_for_insight(alert, evaluation_id=evaluation_id, query_slot=query_slot)
-    except TableAccessDeniedError as err:
+    except (TableAccessDeniedError, UserAccessControlError) as err:
         raise AlertOwnerAccessError(CREATOR_LOST_ACCESS_DISABLE_REASON) from err
     except DelayedEvaluationUnavailable as err:
         if is_llm_detector_config(alert.detector_config):
