@@ -138,7 +138,9 @@ def trigger_ad_hoc_sync(
             removes.append("cdc_last_log_position")
             extra_model_fields["initial_sync_complete"] = False
     workflow_id = f"{schema.id}-{workflow_id_prefix}-{int(time.time())}"
-    if paused_now:
+    # A schedule that an earlier ad-hoc run paused carries its marker, so this run takes it over.
+    # Otherwise only the earlier run could resume the schedule, and that run already ended.
+    if paused_now or config_before.get("admin_unpause_schedule_after_run"):
         updates["admin_unpause_schedule_after_run"] = workflow_id
     staged = bool(updates or removes or extra_model_fields)
     if staged:

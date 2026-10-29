@@ -103,7 +103,21 @@ def test_resume_schedule_after_ad_hoc_run(schema, marker, unpause_error, expect_
     assert schema.sync_type_config["reset_pipeline"] is True
 
 
-def test_a_schedule_already_paused_is_left_paused(schema):
+@pytest.mark.parametrize(
+    "previous_marker",
+    [
+        # Auto-unpausing would undo an operator's own manual pause.
+        None,
+        # A failed ad-hoc run left the pause, and only the retry can still complete to resume it.
+        "wf-failed-ad-hoc",
+    ],
+    ids=["paused_by_hand", "paused_by_earlier_ad_hoc_run"],
+)
+def test_a_schedule_already_paused_is_left_paused(schema, previous_marker):
+    if previous_marker:
+        schema.sync_type_config = {"admin_unpause_schedule_after_run": previous_marker}
+        schema.save()
+
     with (
         patch(f"{MODULE}.is_schedule_paused", return_value=True),
         patch(f"{MODULE}.pause_external_data_schedule") as mock_pause,
@@ -113,11 +127,11 @@ def test_a_schedule_already_paused_is_left_paused(schema):
             MagicMock(), schema, billable=False, reset_pipeline=False, workflow_id_prefix="test"
         )
 
-    # Auto-unpausing would undo an operator's own manual pause.
     mock_pause.assert_not_called()
     assert trigger.schedule_paused_now is False
     schema.refresh_from_db()
-    assert "admin_unpause_schedule_after_run" not in schema.sync_type_config
+    expected_marker = trigger.workflow_id if previous_marker else None
+    assert schema.sync_type_config.get("admin_unpause_schedule_after_run") == expected_marker
 
 
 def test_failed_start_restores_staged_reset_state(schema, no_sync_to_wait_for):

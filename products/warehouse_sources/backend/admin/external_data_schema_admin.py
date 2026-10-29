@@ -313,7 +313,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         if reset_pipeline:
             schema.sync_type_config["reset_pipeline"] = True
         workflow_id = f"{schema.id}-admin-{workflow_kind}-{int(time.time())}"
-        if admin_paused_now:
+        previous_marker = schema.sync_type_config.get("admin_unpause_schedule_after_run")
+        if admin_paused_now or previous_marker:
             schema.sync_type_config["admin_unpause_schedule_after_run"] = workflow_id
         schema.save(update_fields=["sync_type_config"])
 
@@ -335,6 +336,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 try:
                     unpause_external_data_schedule(str(schema.id))
                     schema.sync_type_config.pop("admin_unpause_schedule_after_run", None)
+                    schema.save(update_fields=["sync_type_config"])
+                except Exception:
+                    pass
+            elif previous_marker:
+                try:
+                    schema.sync_type_config["admin_unpause_schedule_after_run"] = previous_marker
                     schema.save(update_fields=["sync_type_config"])
                 except Exception:
                     pass
