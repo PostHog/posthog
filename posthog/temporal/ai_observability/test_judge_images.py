@@ -32,7 +32,6 @@ class TestJudgeImagesMarkers:
                 "[image: https://example.com/a.png]",
                 id="customer_link",
             ),
-            pytest.param(_pointer("a", size=4_000_000), OVER_LIMIT_MARKER, id="too_large"),
             pytest.param(
                 parse_media_block({"file_data": {"mime_type": "image/png", "file_uri": "gs://bucket/a.png"}}),
                 "[image]",
@@ -100,6 +99,36 @@ class TestJudgeImagesContent:
             content = images.content(prompt, provider, model)
 
         assert content[1] == {"type": "text", "text": "Image 1: could not be attached."}
+
+    @pytest.mark.parametrize(
+        ("provider", "second_image"),
+        [
+            pytest.param(
+                "openai",
+                [{"type": "text", "text": "Image 2:"}, ImagePart(mime_type="image/jpeg", url="https://signed")],
+                id="links_have_no_byte_cap",
+            ),
+            pytest.param(
+                "together_ai",
+                [{"type": "text", "text": "Image 2: not attached, too large."}],
+                id="inline_bytes_stop_at_the_budget",
+            ),
+        ],
+    )
+    def test_caps_only_the_bytes_sent_inline(self, provider: str, second_image: list):
+        images = JudgeImages(team_id=7)
+        prompt = (
+            f"user: {images.marker(_pointer('a', size=10_000_000))} {images.marker(_pointer('b', size=10_000_000))}"
+        )
+
+        with (
+            patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed"),
+            patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"hi") as read,
+        ):
+            content = images.content(prompt, provider, "any")
+
+        assert content[3:-1] == second_image
+        assert read.call_count == (1 if provider == "together_ai" else 0)
 
     def test_skips_images_whose_marker_was_sampled_out_of_the_prompt(self):
         images = JudgeImages(team_id=7)

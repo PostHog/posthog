@@ -1,7 +1,7 @@
 """Images an LLM judge sees next to the transcript that refers to them as `[image N]`."""
 
 import base64
-from typing import Any
+from typing import Any, Literal
 
 from posthog.dataclasses import frozen
 
@@ -9,11 +9,10 @@ from products.ai_observability.backend.ai_blobs import BlobPointer
 from products.ai_observability.backend.llm.images import IMAGE_MIME_TYPES, ImagePart, image_transport
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
 
-# Above 20 images Anthropic lowers its per-image size limit.
+# Each image costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image size limit.
 MAX_IMAGES = 20
-# Inline base64 grows bytes by a third, so these fit 5 MB per image and Gemini's 20 MB per request.
-MAX_IMAGE_BYTES = 3_500_000
-MAX_TOTAL_BYTES = 15_000_000
+# Bytes sent inline in one judge request. A link has no cap here: the provider downloads it and applies its own limits.
+MAX_INLINE_BYTES = 15_000_000
 # Covers the judge call and its retries. Sign right before the call: a link signed with temporary
 # AWS credentials stops working when the credentials expire.
 PRESIGNED_URL_SECONDS = 15 * 60
@@ -25,6 +24,7 @@ OVER_LIMIT_MARKER = "[image: not attached, over the judge's image limit]"
 class _Image:
     number: int
     mime_type: str
+    size: int
     # An offloaded image has a pointer, a small one stays inline as base64.
     pointer: BlobPointer | None
     base64_data: str | None
@@ -37,7 +37,6 @@ class JudgeImages:
         self._team_id = team_id
         self._images: list[_Image] = []
         self._numbers: dict[str, int] = {}
-        self._total_bytes = 0
 
     def marker(self, media: MediaBlock) -> str:
         pointer = BlobPointer.parse(media.url) if media.url else None
@@ -49,13 +48,14 @@ class JudgeImages:
         if (number := self._numbers.get(key)) is not None:
             return f"[image {number}]"
 
-        size = (pointer.size if pointer else None) or len(media.base64_data or "") * 3 // 4
-        if len(self._images) >= MAX_IMAGES or size > MAX_IMAGE_BYTES or self._total_bytes + size > MAX_TOTAL_BYTES:
+        if len(self._images) >= MAX_IMAGES:
             return OVER_LIMIT_MARKER
-        self._total_bytes += size
         number = len(self._images) + 1
+        size = (pointer.size if pointer else None) or len(media.base64_data or "") * 3 // 4
         self._numbers[key] = number
-        self._images.append(_Image(number=number, mime_type=mime_type, pointer=pointer, base64_data=media.base64_data))
+        self._images.append(
+            _Image(number=number, mime_type=mime_type, size=size, pointer=pointer, base64_data=media.base64_data)
+        )
         return f"[image {number}]"
 
     def content(self, user_prompt: str, provider: str, model: str) -> str | list[Any]:
@@ -66,8 +66,15 @@ class JudgeImages:
             return user_prompt
 
         parts: list[Any] = [{"type": "text", "text": "The transcript refers to these images as [image N]."}]
+        inline_bytes = 0
         for image in images:
-            part = self._image_part(image, provider, model)
+            transport = image_transport(provider, model, image.mime_type)
+            if transport is not None and (transport == "inline" or image.pointer is None):
+                if inline_bytes + image.size > MAX_INLINE_BYTES:
+                    parts.append({"type": "text", "text": f"Image {image.number}: not attached, too large."})
+                    continue
+                inline_bytes += image.size
+            part = self._image_part(image, transport)
             if part is None:
                 parts.append({"type": "text", "text": f"Image {image.number}: could not be attached."})
             else:
@@ -75,8 +82,7 @@ class JudgeImages:
         parts.append({"type": "text", "text": user_prompt})
         return parts
 
-    def _image_part(self, image: _Image, provider: str, model: str) -> ImagePart | None:
-        transport = image_transport(provider, model, image.mime_type)
+    def _image_part(self, image: _Image, transport: Literal["url", "inline"] | None) -> ImagePart | None:
         if transport is None:
             return None
         if image.pointer is None:
