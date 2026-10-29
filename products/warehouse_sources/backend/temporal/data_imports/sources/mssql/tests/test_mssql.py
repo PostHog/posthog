@@ -33,8 +33,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     retry_on_transient_connection_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
+    _CONNECTION_DROPPED_ERROR,
     _FIREWALL_BLOCKED_ERROR,
-    _GENERIC_CONNECTION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -719,7 +719,7 @@ class TestMSSQLSourceValidateCredentials:
         assert error == _FIREWALL_BLOCKED_ERROR
         capture.assert_not_called()
 
-    def test_adaptive_server_connection_failed_returns_generic_message_without_capturing(self, source, mocker):
+    def test_adaptive_server_connection_failed_names_likely_causes_without_capturing(self, source, mocker):
         capture = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
         )
@@ -736,7 +736,7 @@ class TestMSSQLSourceValidateCredentials:
         valid, error = source.validate_credentials(_make_config(), team_id=1)
 
         assert valid is False
-        assert error == _GENERIC_CONNECTION_ERROR
+        assert error == _CONNECTION_DROPPED_ERROR
         capture.assert_not_called()
 
     @pytest.mark.parametrize(
