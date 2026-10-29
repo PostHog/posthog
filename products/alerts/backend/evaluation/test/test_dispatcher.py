@@ -37,7 +37,14 @@ class _Extractor:
     def __init__(self, outcome: Exception | ExtractionResult) -> None:
         self._outcome = outcome
 
-    def extract(self, alert: Any, insight: Any, query: Any, execution_mode: ExecutionMode) -> ExtractionResult:
+    def extract(
+        self,
+        alert: Any,
+        insight: Any,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
+    ) -> ExtractionResult:
         if isinstance(self._outcome, Exception):
             raise self._outcome
         return self._outcome

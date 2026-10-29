@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -20,9 +22,9 @@ from posthog.schema import (
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
 
-from products.alerts.backend.evaluation.contract import execution_mode_for_alert
+from products.alerts.backend.evaluation.contract import cache_age_seconds_for_alert, execution_mode_for_alert
 from products.alerts.backend.evaluation.detector import extract_detector_series
-from products.alerts.backend.evaluation.dispatcher import _resolve_execution_mode
+from products.alerts.backend.evaluation.dispatcher import _resolve_cache_age_seconds, _resolve_execution_mode
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
@@ -111,27 +113,36 @@ def test_resolve_execution_mode(kind, interval, high_frequency, expected):
     assert _resolve_execution_mode(alert, kind, query) == expected
 
 
-def _trends_forward(mode):
-    TrendsExtractor().extract(_trends_alert(high_frequency=False), MagicMock(spec=Insight), _day_query(), mode)
+def _trends_forward(mode, cache_age_seconds):
+    TrendsExtractor().extract(
+        _trends_alert(high_frequency=False), MagicMock(spec=Insight), _day_query(), mode, cache_age_seconds
+    )
 
 
-def _detector_forward(mode):
-    extract_detector_series(MagicMock(spec=Insight), MagicMock(), _day_query(), ZSCORE_DETECTOR_CONFIG, mode)
+def _detector_forward(mode, cache_age_seconds):
+    extract_detector_series(
+        MagicMock(spec=Insight),
+        MagicMock(),
+        _day_query(),
+        ZSCORE_DETECTOR_CONFIG,
+        mode,
+        cache_age_seconds=cache_age_seconds,
+    )
 
 
-def _funnels_forward(mode):
+def _funnels_forward(mode, cache_age_seconds):
     alert = MagicMock()
     alert.config = {"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None}
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     query = {"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "step_a"}]}
-    FunnelsExtractor().extract(alert, MagicMock(), query, mode)
+    FunnelsExtractor().extract(alert, MagicMock(), query, mode, cache_age_seconds)
 
 
-def _hogql_forward(mode):
+def _hogql_forward(mode, cache_age_seconds):
     alert = MagicMock()
     alert.condition = {"type": AlertConditionType.ABSOLUTE_VALUE}
     alert.config = {"type": "HogQLAlertConfig", "evaluation": "last_row"}
-    HogQLExtractor().extract(alert, MagicMock(), MagicMock(), mode)
+    HogQLExtractor().extract(alert, MagicMock(), MagicMock(), mode, cache_age_seconds)
 
 
 # (calc-path to patch, the result that path returns, a thunk that drives the extractor for one kind).
@@ -163,11 +174,89 @@ EXTRACTOR_FORWARDING_CASES = [
 ]
 
 
-# Every extractor forwards the mode it's handed (the dispatcher decides it) straight to the query layer.
+# Every extractor forwards the freshness it's handed (the dispatcher decides both) straight to the
+# query layer. cache_age_seconds matters as much as the mode: a cache-consulting mode with no age
+# limit falls back to the shared staleness rule, which calls a result from the previous bucket fresh.
 @pytest.mark.parametrize("mode", [ALWAYS, IF_STALE])
 @pytest.mark.parametrize("calc_path,calc_result,forward", EXTRACTOR_FORWARDING_CASES)
 def test_extractor_forwards_execution_mode(calc_path, calc_result, forward, mode):
     with patch(calc_path) as mock_calc:
         mock_calc.return_value = calc_result
-        forward(mode)
+        forward(mode, 73)
         assert mock_calc.call_args.kwargs["execution_mode"] == mode
+        assert mock_calc.call_args.kwargs["cache_age_seconds"] == 73
+
+
+def _team(timezone: str) -> MagicMock:
+    team = MagicMock()
+    team.timezone = timezone
+    team.week_start_day = None
+    return team
+
+
+# A check scores the bucket that just closed, so a result computed in an earlier bucket answers the
+# wrong question however recently it was computed. These are the two ways consecutive checks land
+# less than a bucket apart: scheduler lag either side of the boundary, and a quiet window that snaps
+# a check to its end. Both reused the previous bucket's value under the shared one-interval rule.
+@pytest.mark.parametrize(
+    "previous_check,current_check,reusable",
+    [
+        pytest.param(
+            datetime(2026, 10, 28, 21, 1, 20, tzinfo=UTC),
+            datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC),
+            False,
+            id="gap-just-under-an-hour",
+        ),
+        pytest.param(
+            datetime(2026, 10, 28, 4, 50, 5, tzinfo=UTC),
+            datetime(2026, 10, 28, 5, 0, 30, tzinfo=UTC),
+            False,
+            id="gap-compressed-by-a-quiet-window",
+        ),
+        pytest.param(
+            datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC),
+            datetime(2026, 10, 28, 22, 1, 40, tzinfo=UTC),
+            True,
+            id="retry-inside-the-same-bucket",
+        ),
+    ],
+)
+def test_hourly_cache_age_tracks_the_bucket_not_the_gap(previous_check, current_check, reusable):
+    limit = cache_age_seconds_for_alert(IntervalType.HOUR, now=current_check, team=_team("UTC"))
+    assert limit is not None
+    assert ((current_check - previous_check).total_seconds() <= limit) is reusable
+
+
+@pytest.mark.parametrize(
+    "interval,timezone,now,expected",
+    [
+        (IntervalType.HOUR, "UTC", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), 73),
+        # Half-hour offset: these hour buckets open at :30 past the UTC hour, so aligning in UTC
+        # would report 73 seconds here and reject a result the bucket can still answer with.
+        (IntervalType.HOUR, "Asia/Kolkata", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), 1873),
+        (IntervalType.HOUR, "Asia/Kolkata", datetime(2026, 10, 28, 22, 31, 13, tzinfo=UTC), 73),
+        (IntervalType.DAY, "Asia/Bangkok", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), 18073),
+        (None, "UTC", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), None),
+    ],
+)
+def test_cache_age_seconds_for_alert(interval, timezone, now, expected):
+    assert cache_age_seconds_for_alert(interval, now=now, team=_team(timezone)) == expected
+
+
+# The dispatcher reads the interval for every kind here, unlike _resolve_execution_mode, which reads
+# it only for trends — that gate is why an hourly funnel alert kept answering with the previous hour.
+@pytest.mark.parametrize(
+    "kind,interval,execution_mode,expects_limit",
+    [
+        (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, True),
+        (NodeKind.TRENDS_QUERY, "day", IF_STALE, True),
+        (NodeKind.METRICS_QUERY, "hour", IF_STALE, True),
+        (NodeKind.HOG_QL_QUERY, None, IF_STALE, False),
+        (NodeKind.FUNNELS_QUERY, "hour", ALWAYS, False),
+    ],
+)
+def test_resolve_cache_age_seconds(kind, interval, execution_mode, expects_limit):
+    alert = MagicMock()
+    alert.team = _team("UTC")
+    query = {"kind": kind, "interval": interval} if interval is not None else {"kind": kind}
+    assert (_resolve_cache_age_seconds(alert, query, execution_mode) is not None) is expects_limit

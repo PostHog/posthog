@@ -1,6 +1,7 @@
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -24,6 +25,7 @@ from products.alerts.backend.evaluation.contract import (
     DetectorExtractor,
     ExtractionResult,
     Extractor,
+    cache_age_seconds_for_alert,
     execution_mode_for_alert,
 )
 from products.alerts.backend.evaluation.delay import (
@@ -68,6 +70,24 @@ def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: ob
     return execution_mode_for_alert(interval, high_frequency=alert.is_high_frequency_interval)
 
 
+def _query_interval(query: object) -> IntervalType | None:
+    """The insight's time bucket, or None for a kind with no time axis (SQL, a funnel steps snapshot)."""
+    try:
+        raw_interval = get_from_dict_or_attr(query, "interval")
+    except AttributeError:
+        return None
+    return IntervalType(raw_interval) if raw_interval is not None else None
+
+
+def _resolve_cache_age_seconds(alert: AlertConfiguration, query: object, execution_mode: ExecutionMode) -> int | None:
+    # Read for every kind, unlike _resolve_execution_mode: a bucketed insight the execution mode
+    # leaves on the cache (a funnel, a non-hourly trend) still has to reject a result computed in an
+    # earlier bucket. A mode that skips the cache has nothing to age, so it needs no limit.
+    if execution_mode == ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
+        return None
+    return cache_age_seconds_for_alert(_query_interval(query), now=datetime.now(UTC), team=alert.team)
+
+
 @contextmanager
 def owner_sql_errors(query: object) -> Iterator[None]:
     """Raise a user-safe failure of a SQL insight's own query as an ``AlertExtractionError``.
@@ -96,6 +116,7 @@ def run_extractor(
     insight: Insight,
     query: object,
     execution_mode: ExecutionMode,
+    cache_age_seconds: int | None = None,
     query_slot: QuerySlot = nullcontext,
 ) -> ExtractionResult:
     """Run an extractor, routing a query the runner refuses to the auto-disable path.
@@ -116,7 +137,7 @@ def run_extractor(
     """
     try:
         with query_slot(), owner_sql_errors(query):
-            return extractor.extract(alert, insight, query, execution_mode)
+            return extractor.extract(alert, insight, query, execution_mode, cache_age_seconds)
     except DRFValidationError as err:
         if getattr(err, "served_from_query_failure_cache", False):
             raise
@@ -143,8 +164,15 @@ def check_detector_alert(
     detector_extractor = DETECTOR_EXTRACTORS.get(kind)
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
+    execution_mode = _resolve_execution_mode(alert, kind, query)
     result = run_extractor(
-        detector_extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query), query_slot
+        detector_extractor,
+        alert,
+        insight,
+        query,
+        execution_mode,
+        _resolve_cache_age_seconds(alert, query, execution_mode),
+        query_slot,
     )
     return describe_delayed_evaluation(
         evaluate_with_detector(result, detector_config, insight=insight, alert=alert, evaluation_id=evaluation_id),
@@ -229,7 +257,16 @@ def _extract_for_threshold(
         return None
 
     condition = AlertCondition.model_validate(alert.condition)
-    result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query), query_slot)
+    execution_mode = _resolve_execution_mode(alert, kind, query)
+    result = run_extractor(
+        extractor,
+        alert,
+        insight,
+        query,
+        execution_mode,
+        _resolve_cache_age_seconds(alert, query, execution_mode),
+        query_slot,
+    )
     return _ThresholdExtraction(result=result, condition=condition, threshold=threshold)
 
 

@@ -89,6 +89,7 @@ def _calculate_rows_and_columns(
     *,
     user: Any,
     execution_mode: ExecutionMode,
+    cache_age_seconds: int | None = None,
     evaluation: HogQLAlertEvaluation,
 ) -> _FetchedRows:
     """Run a SQL insight — the fetch-and-validate prologue shared by the threshold and detector
@@ -101,6 +102,7 @@ def _calculate_rows_and_columns(
         insight,
         team=team,
         execution_mode=execution_mode,
+        cache_age_seconds=cache_age_seconds,
         user=user,
         analytics_props={"source": EventSource.ALERT},
         limit_context=LimitContext.SQL_ALERT,
@@ -192,7 +194,12 @@ class HogQLExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         # ``query`` is unused (Protocol signature): the extractor recomputes via the insight.
         condition = AlertCondition.model_validate(alert.condition)
@@ -204,6 +211,7 @@ class HogQLExtractor:
             alert.team,
             user=alert.created_by,
             execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
             evaluation=evaluation,
         )
         rows = fetched.rows
@@ -278,6 +286,7 @@ def extract_hogql_detector_series(
     detector_config: dict[str, Any],
     *,
     execution_mode: ExecutionMode,
+    cache_age_seconds: int | None = None,
     user: Any = None,
 ) -> ExtractionResult:
     """Extract SQL history for checks and simulation. Invalid limits disable checks; short uncapped
@@ -303,6 +312,7 @@ def extract_hogql_detector_series(
         team,
         user=user,
         execution_mode=execution_mode,
+        cache_age_seconds=cache_age_seconds,
         evaluation=config.evaluation,
     )
     rows = fetched.rows
@@ -373,14 +383,25 @@ class HogQLDetectorExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
             raise ValueError("HogQLDetectorExtractor requires detector_config — dispatcher invariant violated")
         config = hogql_config_or_default(alert.config)
         return extract_hogql_detector_series(
-            insight, alert.team, config, detector_config, execution_mode=execution_mode, user=alert.created_by
+            insight,
+            alert.team,
+            config,
+            detector_config,
+            execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
+            user=alert.created_by,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:
