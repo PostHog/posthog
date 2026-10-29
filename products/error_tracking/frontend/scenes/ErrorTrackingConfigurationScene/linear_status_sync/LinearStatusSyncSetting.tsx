@@ -29,7 +29,7 @@ export function LinearStatusSyncSetting(): JSX.Element {
             <LemonSwitch
                 id="error-tracking-linear-status-sync-switch"
                 data-attr="error-tracking-linear-status-sync-switch"
-                label="Sync issue status from Linear"
+                label="Sync error tracking issue status from Linear"
                 checked={linearStatusSyncEnabled}
                 onChange={setLinearStatusSyncEnabled}
                 loading={settingsLoading || integrations === null}
@@ -37,8 +37,8 @@ export function LinearStatusSyncSetting(): JSX.Element {
                 bordered
             />
             <p className="m-0 text-xs text-secondary">
-                Resolves an issue when all of its linked Linear tickets are closed and at least one of them is done.
-                Reopens the issue when a linked ticket is reopened.
+                Resolves an error tracking issue when all of its linked Linear tickets are closed and at least one of
+                them is done. Reopens the issue when a linked ticket is reopened.
             </p>
         </div>
     )
