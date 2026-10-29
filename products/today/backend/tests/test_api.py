@@ -254,7 +254,14 @@ class TestTodayAPI(TodayTeamScopedTestMixin, APIBaseTest):
         [
             ("the page with only today", "get", f"reports/{REPORT_ID}/page", ["today:read"], status.HTTP_403_FORBIDDEN),
             (
-                "the page with today and signals",
+                "the page with today and inbox",
+                "get",
+                f"reports/{REPORT_ID}/page",
+                ["today:read", "inbox:read"],
+                status.HTTP_200_OK,
+            ),
+            (
+                "the page with today and the legacy task scope",
                 "get",
                 f"reports/{REPORT_ID}/page",
                 ["today:read", "task:read"],

@@ -322,7 +322,7 @@ tools:
         scopes:
             - replay_scanner:read
             - session_recording:read
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -927,7 +927,7 @@ tools:
         scopes:
             - replay_scanner:read
             - session_recording:read
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -942,7 +942,7 @@ tools:
         scopes:
             - replay_scanner:read
             - session_recording:read
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -985,7 +985,7 @@ tools:
         enabled: true
         scopes:
             - replay_scanner:read
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false

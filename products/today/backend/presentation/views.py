@@ -154,7 +154,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         methods=["get"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX}|sample-[a-z]+)/page",
-        required_scopes=["today:read", "task:read"],
+        required_scopes=["today:read", "inbox:read"],
     )
     def report_page(self, request: Request, report_id: str, **kwargs) -> Response:
         user = cast(User, request.user)
@@ -179,7 +179,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         methods=["get"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX})/key_clauses",
-        required_scopes=["today:read", "task:read"],
+        required_scopes=["today:read", "inbox:read"],
         throttle_classes=JEV_THROTTLES,
     )
     def key_clauses(self, request: Request, report_id: str, **kwargs) -> Response:
@@ -203,7 +203,7 @@ class TodayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         methods=["get"],
         url_path=rf"reports/(?P<report_id>{UUID_REGEX})/figure_marks",
-        required_scopes=["today:read", "task:read"],
+        required_scopes=["today:read", "inbox:read"],
         throttle_classes=JEV_THROTTLES,
     )
     def figure_marks(self, request: Request, report_id: str, **kwargs) -> Response:

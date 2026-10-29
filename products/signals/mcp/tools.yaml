@@ -82,7 +82,7 @@ tools:
         operation: signals_reports_ranking_outcomes_list
         enabled: true
         scopes:
-            - task:read
+            - inbox:read
         annotations:
             readOnly: true
             destructive: false
@@ -335,7 +335,7 @@ tools:
         operation: signals_reports_reviewers_update
         enabled: true
         scopes:
-            - task:write
+            - inbox:write
         annotations:
             readOnly: false
             destructive: false

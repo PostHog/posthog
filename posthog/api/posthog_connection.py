@@ -43,6 +43,7 @@ from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthI
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
+from posthog.scopes import scopes_covered_by_legacy_fallback
 
 logger = structlog.get_logger(__name__)
 
@@ -111,6 +112,8 @@ def _enforce_caller_covers_connection_scopes(request: Request, integration: Inte
             "full-access API key or a session. Reconnect it to record its scopes."
         )
     missing = granted - set(caller_scopes)
+    # A legacy `task:*` key may use a connection granted the `inbox:*` scopes split off it, as the target accepts it.
+    missing -= set(scopes_covered_by_legacy_fallback(caller_scopes, missing))
     if missing:
         raise PermissionDenied(
             "Your API key must carry the scopes this connection was granted to use it. "

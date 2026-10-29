@@ -86,7 +86,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
 from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
-from products.signals.backend.agent_instructions import STEERING_FIELDS, SignalAgentRole
+from products.signals.backend.agent_instructions import STEERING_FIELDS
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_NOTE_MAX_LENGTH,
     DISMISSAL_REASON_WRONG_ASSIGNEE,
@@ -170,6 +170,7 @@ from products.signals.backend.ranking.served_outcomes import served_outcomes
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
+from products.signals.backend.report_access import credential_may_start_tasks
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
@@ -681,13 +682,17 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     # The read returns the singleton, so the inherited limit and offset params are noise.
     pagination_class = None
 
-    # These fields start or steer implementation task runs, so an inbox-only credential must not set them.
+    # These fields start, steer, or shape the output of agent task runs, so an inbox-only credential must not set them.
     TASK_RUN_FIELDS = (
         "autostart_enabled",
         "autostart_base_branches",
         "default_autostart_priority",
         "default_open_pull_request_ready",
-        STEERING_FIELDS[SignalAgentRole.IMPLEMENTATION],
+        "issue_tracking_integration",
+        "issue_tracking_config",
+        "pull_request_label_enabled",
+        "pull_request_label",
+        *STEERING_FIELDS.values(),
     )
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
@@ -1623,7 +1628,7 @@ class SignalReportViewSet(
         detail=False,
         methods=["get"],
         url_path="ranking_outcomes",
-        required_scopes=["task:read"],
+        required_scopes=["inbox:read"],
         pagination_class=None,
     )
     def ranking_outcomes(self, request: Request, **kwargs) -> Response:
@@ -1650,7 +1655,7 @@ class SignalReportViewSet(
             "`has_implementation_pr`, `include_all_statuses` and `view`, because the counts set those."
         ),
     )
-    @action(detail=False, methods=["get"], required_scopes=["task:read"], pagination_class=None)
+    @action(detail=False, methods=["get"], required_scopes=["inbox:read"], pagination_class=None)
     @tracer.start_as_current_span("signals.reports.section_counts")
     def section_counts(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
         if trial_store_for_request(request, self.team_id) is not None:
@@ -3646,7 +3651,7 @@ class SignalReportViewSet(
         request=None,
         responses={204: None},
     )
-    # task:read, not task:write: recording that someone read a report is part of reading it.
+    # inbox:read, not inbox:write: recording that someone read a report is part of reading it.
     # Under resource-level RBAC a `:write` scope demands editor access, which would 403 the
     # viewer-level members whose reads this endpoint exists to capture. Token automation is
     # already excluded by the session-authentication gate, not by scope.
@@ -3696,7 +3701,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_refresh_metrics_create",
     )
-    # task:read, like `viewed`: refreshing a number a person is looking at is part of reading it,
+    # inbox:read, like `viewed`: refreshing a number a person is looking at is part of reading it,
     # and the write is a cache of query output rather than report content.
     @action(
         detail=False,
@@ -5500,6 +5505,7 @@ def append_suggested_reviewers(
             attribution=attribution,
             reviewer_edit=edit,
             reevaluate_autostart=edit.action not in {"remove", "confirm"}
+            and credential_may_start_tasks(request)
             and any(
                 not prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])
                 for entry in new_content
@@ -6361,6 +6367,7 @@ class SignalReportArtefactViewSet(
                         if attribution.kind == "user" and reviewer_outcome == "selected"
                         else None,
                         claim_id=str(claim_id) if claim_id else None,
+                        reevaluate_autostart=credential_may_start_tasks(request),
                     )
                     if artefact.id != previous:
                         self._schedule_suggested_reviewer_telemetry(

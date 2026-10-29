@@ -33,6 +33,7 @@ from products.signals.backend.facade.onboarding import (
 )
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutSuggestionItemSerializer
+from products.signals.backend.report_access import credential_may_start_tasks
 
 
 class InboxOnboardingStep(models.TextChoices):
@@ -229,6 +230,8 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         if any(source["source_product"] == "signals_scout" for source in serializer.validated_data["sources"]):
             self._check_scout_access(request)
+        if serializer.validated_data["automatic_implementation"] and not credential_may_start_tasks(request):
+            raise PermissionDenied("Turning on automatic implementation requires the task:write scope.")
         try:
             return Response(self._service().complete(dict(serializer.data)))
         except InboxOnboardingPermissionError as error:

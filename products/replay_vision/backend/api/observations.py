@@ -1231,7 +1231,7 @@ class ReplayObservationViewSet(
         methods=["get"],
         url_path="signal_reports",
         pagination_class=None,
-        required_scopes=["replay_scanner:read", "session_recording:read", "task:read"],
+        required_scopes=["replay_scanner:read", "session_recording:read", "inbox:read"],
     )
     def signal_reports(self, request: Request, **kwargs: Any) -> Response:
         """The inbox reports this observation's emitted signals were grouped into, newest first."""

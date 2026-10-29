@@ -7742,7 +7742,7 @@
         "feature": "signals",
         "summary": "List inbox ranking outcomes",
         "title": "List inbox ranking outcomes",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/ranking_outcomes/"],
         "annotations": {
             "destructiveHint": false,
@@ -7757,7 +7757,7 @@
         "feature": "signals",
         "summary": "List a report's agent run actions",
         "title": "List a report's agent run actions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{id}/actions/"],
         "annotations": {
             "destructiveHint": false,
@@ -7774,7 +7774,7 @@
         "feature": "signals",
         "summary": "Run a report action as an agent task",
         "title": "Run a report action as an agent task",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/actions/run/"],
         "annotations": {
             "destructiveHint": true,
@@ -7791,7 +7791,7 @@
         "feature": "signals",
         "summary": "Append an artefact to a report",
         "title": "Append an artefact to a report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{report_id}/artefacts/"],
         "annotations": {
             "destructiveHint": false,
@@ -7806,7 +7806,7 @@
         "feature": "signals",
         "summary": "Delete an artefact",
         "title": "Delete an artefact",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["DELETE /api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"],
         "annotations": {
             "destructiveHint": true,
@@ -7821,7 +7821,7 @@
         "feature": "signals",
         "summary": "List a report's artefacts",
         "title": "List a report's artefacts",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{report_id}/artefacts/"],
         "annotations": {
             "destructiveHint": false,
@@ -7836,7 +7836,7 @@
         "feature": "signals",
         "summary": "Get a single artefact",
         "title": "Get a single artefact",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -7851,7 +7851,7 @@
         "feature": "signals",
         "summary": "Replace an artefact's content",
         "title": "Replace an artefact's content",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -7881,7 +7881,7 @@
         "feature": "signals",
         "summary": "List a report's checks",
         "title": "List a report's checks",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{report_id}/checks/"],
         "annotations": {
             "destructiveHint": false,
@@ -7896,7 +7896,7 @@
         "feature": "signals",
         "summary": "Replace a metric follow-up check",
         "title": "Replace a metric follow-up check",
-        "required_scopes": ["task:write", "query:read"],
+        "required_scopes": ["inbox:write", "query:read"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{report_id}/checks/{id}/replace/"],
         "annotations": {
             "destructiveHint": true,
@@ -7913,7 +7913,7 @@
         "feature": "signals",
         "summary": "Get a single check",
         "title": "Get a single check",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{report_id}/checks/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -7928,7 +7928,7 @@
         "feature": "signals",
         "summary": "Update a report's suggested reviewers",
         "title": "Update a report's suggested reviewers",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PUT /api/projects/{project_id}/signals/reports/{id}/reviewers/"],
         "annotations": {
             "destructiveHint": false,
@@ -7943,7 +7943,7 @@
         "feature": "signals",
         "summary": "Dismiss or snooze signal reports in bulk",
         "title": "Dismiss or snooze signal reports in bulk",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/bulk-state/"],
         "annotations": {
             "destructiveHint": true,
@@ -7958,7 +7958,7 @@
         "feature": "signals",
         "summary": "Update work on a signal report",
         "title": "Update work on a signal report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/claim/"],
         "annotations": {
             "destructiveHint": true,
@@ -7973,7 +7973,7 @@
         "feature": "signals",
         "summary": "Rate a signal report",
         "title": "Rate a signal report",
-        "required_scopes": ["task:read", "signal_scout:write", "llm_skill:write"],
+        "required_scopes": ["inbox:read", "signal_scout:write", "llm_skill:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/feedback/"],
         "annotations": {
             "destructiveHint": false,
@@ -7988,7 +7988,7 @@
         "feature": "signals",
         "summary": "Step off a report's suggested reviewers",
         "title": "Step off a report's suggested reviewers",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/reviewers/me/"],
         "annotations": {
             "destructiveHint": false,
@@ -8003,7 +8003,7 @@
         "feature": "signals",
         "summary": "List signal reports",
         "title": "List signal reports",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -8018,7 +8018,7 @@
         "feature": "signals",
         "summary": "Merge duplicate reports into one",
         "title": "Merge duplicate reports into one",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/merge/"],
         "annotations": {
             "destructiveHint": true,
@@ -8033,7 +8033,7 @@
         "feature": "signals",
         "summary": "Get signal report",
         "title": "Get signal report",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reports/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8048,7 +8048,7 @@
         "feature": "signals",
         "summary": "Dismiss or snooze a signal report",
         "title": "Dismiss or snooze a signal report",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/state/"],
         "annotations": {
             "destructiveHint": true,
@@ -8063,7 +8063,7 @@
         "feature": "signals",
         "summary": "Edit a signal report's title or summary",
         "title": "Edit a signal report's title or summary",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/reports/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8078,7 +8078,7 @@
         "feature": "signals",
         "summary": "Stay off automatic reviewer selection in an area",
         "title": "Stay off automatic reviewer selection in an area",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reviewer_exclusions/"],
         "annotations": {
             "destructiveHint": false,
@@ -8094,7 +8094,7 @@
         "feature": "signals",
         "summary": "Get one of your reviewer exclusions",
         "title": "Get one of your reviewer exclusions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reviewer_exclusions/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8110,7 +8110,7 @@
         "feature": "signals",
         "summary": "List your reviewer exclusions",
         "title": "List your reviewer exclusions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/reviewer_exclusions/"],
         "annotations": {
             "destructiveHint": false,
@@ -8126,7 +8126,7 @@
         "feature": "signals",
         "summary": "Revoke one of your reviewer exclusions",
         "title": "Revoke one of your reviewer exclusions",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reviewer_exclusions/{id}/revoke/"],
         "annotations": {
             "destructiveHint": false,
@@ -8142,7 +8142,7 @@
         "feature": "signals",
         "summary": "Change one of your reviewer exclusions",
         "title": "Change one of your reviewer exclusions",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/reviewer_exclusions/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8158,7 +8158,7 @@
         "feature": "signals",
         "summary": "Create signal source config",
         "title": "Create signal source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/source_configs/"],
         "annotations": {
             "destructiveHint": false,
@@ -8173,7 +8173,7 @@
         "feature": "signals",
         "summary": "List signal source configs",
         "title": "List signal source configs",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/source_configs/"],
         "annotations": {
             "destructiveHint": false,
@@ -8188,7 +8188,7 @@
         "feature": "signals",
         "summary": "Update signal source config",
         "title": "Update signal source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/source_configs/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8203,7 +8203,7 @@
         "feature": "signals",
         "summary": "Get signal source config",
         "title": "Get signal source config",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/source_configs/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8218,7 +8218,7 @@
         "feature": "signals",
         "summary": "Replace signal source config",
         "title": "Replace signal source config",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["PUT /api/projects/{project_id}/signals/source_configs/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8233,7 +8233,7 @@
         "feature": "signals",
         "summary": "Get Self-driving steering instructions",
         "title": "Get Self-driving steering instructions",
-        "required_scopes": ["task:read"],
+        "required_scopes": ["inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/config/"],
         "annotations": {
             "destructiveHint": false,
@@ -8248,7 +8248,7 @@
         "feature": "signals",
         "summary": "Update Self-driving steering instructions",
         "title": "Update Self-driving steering instructions",
-        "required_scopes": ["task:write"],
+        "required_scopes": ["inbox:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/config/"],
         "annotations": {
             "destructiveHint": false,
@@ -13014,12 +13014,12 @@
         }
     },
     "scout-runs-emission-reports": {
-        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
+        "description": "For a `SignalScoutRun`, return each emitted finding paired with the inbox report its signal grouped into — the reverse lookup from a scout's emission to the `SignalReport` it actually produced. One row per emission with its `finding_id`, the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`), and the linked `report` (`id`, `title`, `status`) or `null` when the finding never matched a report (or the report was deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run surfaced (`scout-runs-emissions-list`). Requires `inbox:read` on top of `signal_scout:read` because it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List the inbox reports a scout run's findings linked to",
         "title": "List the inbox reports a scout run's findings linked to",
-        "required_scopes": ["signal_scout:read", "task:read"],
+        "required_scopes": ["signal_scout:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/scout/runs/{run_id}/emissions/reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -13555,7 +13555,7 @@
         "feature": "signals",
         "summary": "List the inbox reports a scout run's findings linked to (deprecated)",
         "title": "List the inbox reports a scout run's findings linked to (deprecated)",
-        "required_scopes": ["signal_scout:read", "task:read"],
+        "required_scopes": ["signal_scout:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/signals/scout/runs/{run_id}/emissions/reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -15429,7 +15429,7 @@
         "feature": "replay_vision",
         "summary": "List observation's inbox reports",
         "title": "List observation's inbox reports",
-        "required_scopes": ["replay_scanner:read", "session_recording:read", "task:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/observations/{id}/signal_reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -15874,7 +15874,7 @@
         "feature": "replay_vision",
         "summary": "Get scanner scout report",
         "title": "Get scanner scout report",
-        "required_scopes": ["replay_scanner:read", "session_recording:read", "task:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{scanner_id}/scout_reports/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -15889,7 +15889,7 @@
         "feature": "replay_vision",
         "summary": "List scanner scout reports",
         "title": "List scanner scout reports",
-        "required_scopes": ["replay_scanner:read", "session_recording:read", "task:read"],
+        "required_scopes": ["replay_scanner:read", "session_recording:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{scanner_id}/scout_reports/"],
         "annotations": {
             "destructiveHint": false,
@@ -15920,7 +15920,7 @@
         "feature": "replay_vision",
         "summary": "Get scanner's self-driving outcomes",
         "title": "Get scanner's self-driving outcomes",
-        "required_scopes": ["replay_scanner:read", "task:read"],
+        "required_scopes": ["replay_scanner:read", "inbox:read"],
         "api_operations": ["GET /api/projects/{project_id}/vision/scanners/{id}/self_driving_stats/"],
         "annotations": {
             "destructiveHint": false,
