@@ -3062,6 +3062,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         # Set target_age to None in that case
                         target_age=target_age,
                     )
+                if stored:
+                    self._after_result_cached(last_refresh)
                 if stored and flight is not None:
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
@@ -3526,6 +3528,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def _staleness_event_properties(self) -> dict[str, Any]:
         return {}
+
+    def _after_result_cached(self, last_refresh: datetime) -> None:
+        pass
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)

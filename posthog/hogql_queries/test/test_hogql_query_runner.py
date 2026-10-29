@@ -1,9 +1,6 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Optional, cast
+from typing import cast
 
-import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -18,7 +15,6 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
-    DateRange,
     HogQLFilters,
     HogQLPropertyFilter,
     HogQLQuery,
@@ -31,10 +27,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.filters import ReplaceFilters
-from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
 from posthog.hogql.visitor import clear_locations
@@ -591,182 +584,38 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 5)
 
 
-@contextmanager
-def api_key_request(*, flag_on: bool = True, access_method: Optional[str] = "personal_api_key") -> Iterator[None]:
-    with (
-        tags_context(access_method=access_method),
-        patch(
-            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
-            side_effect=lambda key, *args, **kwargs: flag_on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
-        ),
-    ):
-        yield
-
-
-class TestHogQLQueryRunnerApiCacheWindow(BaseTest):
-    def _runner(self, sql: str, filters: Optional[HogQLFilters] = None) -> HogQLQueryRunner:
-        return HogQLQueryRunner(team=self.team, query=HogQLQuery(query=sql, filters=filters))
-
+class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
     @parameterized.expand(
         [
-            ("api_key_flag_on", "personal_api_key", True, False),
-            ("app_flag_on", None, True, True),
-            ("api_key_flag_off", "personal_api_key", False, True),
+            ("api_key_uses_its_window", "personal_api_key", True, True, False),
+            ("app_keeps_default", None, True, True, True),
+            ("flag_off_keeps_default", "personal_api_key", False, True, True),
+            ("result_replaced_since", "personal_api_key", True, False, True),
         ]
     )
-    def test_window_age_applies_only_to_flagged_api_key_requests(
-        self, _name: str, access_method: str | None, flag_on: bool, expected_stale: bool
+    def test_stored_window_age_applies_only_to_flagged_api_key_reads(
+        self, _name: str, access_method: str | None, flag_on: bool, same_result: bool, expected_stale: bool
     ) -> None:
-        runner = self._runner("select count() from events where timestamp > now() - interval 7 day")
-        with api_key_request(flag_on=flag_on, access_method=access_method):
-            stale = runner._is_stale_for_request(last_refresh=datetime.now(UTC) - timedelta(minutes=10))
+        query = HogQLQuery(query="select count() from events where timestamp > now() - interval 7 day")
+        computed_at = datetime.now(UTC) - timedelta(minutes=10)
+        with (
+            patch(
+                "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == API_SQL_WINDOW_CACHE_AGE_FLAG,
+            ),
+            tags_context(access_method="personal_api_key"),
+        ):
+            writer = HogQLQueryRunner(team=self.team, query=query)
+            writer._computed_sql_freshness = writer._classify_sql_freshness(writer.to_query())
+            writer._after_result_cached(computed_at)
+
+        read_refresh = computed_at if same_result else computed_at + timedelta(seconds=1)
+        with (
+            patch(
+                "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: flag_on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
+            ),
+            tags_context(access_method=access_method),
+        ):
+            stale = HogQLQueryRunner(team=self.team, query=query)._is_stale_for_request(last_refresh=read_refresh)
         assert stale is expected_stale
-
-    @parameterized.expand(
-        [
-            (
-                "yesterday_cached_minutes_before_midnight_is_stale_after_midnight",
-                "select count() from events where toDate(timestamp) = yesterday()",
-                datetime(2026, 10, 29, 23, 45, tzinfo=UTC),
-                datetime(2026, 10, 30, 0, 10, tzinfo=UTC),
-                True,
-            ),
-            (
-                "yesterday_cached_after_midnight_stays_fresh_for_its_class_age",
-                "select count() from events where toDate(timestamp) = yesterday()",
-                datetime(2026, 10, 30, 0, 2, tzinfo=UTC),
-                datetime(2026, 10, 30, 0, 10, tzinfo=UTC),
-                False,
-            ),
-            (
-                "sliding_window_cached_minutes_before_midnight_is_stale_after_midnight",
-                "select count() from events where timestamp < now() - interval 2 day and timestamp >= '2026-09-01'",
-                datetime(2026, 10, 29, 23, 45, tzinfo=UTC),
-                datetime(2026, 10, 30, 0, 10, tzinfo=UTC),
-                True,
-            ),
-            (
-                "absolute_end_cached_before_it_passed",
-                "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-29'",
-                datetime(2026, 10, 28, 15, 0, tzinfo=UTC),
-                datetime(2026, 10, 29, 15, 0, tzinfo=UTC),
-                True,
-            ),
-            (
-                "past_range_cached_long_after_its_end",
-                "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-15'",
-                datetime(2026, 10, 28, 20, 0, tzinfo=UTC),
-                datetime(2026, 10, 29, 15, 0, tzinfo=UTC),
-                False,
-            ),
-        ]
-    )
-    def test_past_window_stays_fresh_only_when_cached_after_it_ended(
-        self, _name: str, sql: str, last_refresh: datetime, now: datetime, expected_stale: bool
-    ) -> None:
-        with time_machine.travel(now, tick=False), api_key_request():
-            assert self._runner(sql)._is_stale(last_refresh) is expected_stale
-
-    @parameterized.expand(
-        [
-            (
-                "cached_before_the_window_settled",
-                "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-29'",
-                datetime(2026, 10, 28, 15, 0, tzinfo=UTC),
-                "up_to_now_long",
-                3600,
-            ),
-            (
-                "cached_after_the_window_settled",
-                "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-15'",
-                datetime(2026, 10, 28, 20, 0, tzinfo=UTC),
-                "fixed_past",
-                86400,
-            ),
-            (
-                "default_policy_class_has_no_age",
-                "select count() from events",
-                datetime(2026, 10, 29, 14, 0, tzinfo=UTC),
-                "no_time_filter",
-                None,
-            ),
-        ]
-    )
-    @time_machine.travel(datetime(2026, 10, 29, 15, 0, tzinfo=UTC), tick=False)
-    def test_event_properties_report_the_class_the_staleness_check_applied(
-        self, _name: str, sql: str, last_refresh: datetime, expected_window: str, expected_age: Optional[int]
-    ) -> None:
-        runner = self._runner(sql)
-        with api_key_request():
-            runner._is_stale(last_refresh)
-            properties = runner._staleness_event_properties()
-        assert properties["sql_cache_window"] == expected_window
-        assert properties["sql_cache_window_max_age_seconds"] == expected_age
-
-    @parameterized.expand(
-        [
-            (
-                "unclassified",
-                "select count() from events where timestamp > now() - 3600 and properties.x < '2025-01-01'",
-            ),
-            ("no_time_filter", "select count() from events"),
-            ("live", "select count() from events where timestamp > now() - interval 30 minute"),
-        ]
-    )
-    def test_default_policy_classes_keep_the_runner_staleness_for_lazy_requests(self, _name: str, sql: str) -> None:
-        last_refresh = datetime.now(UTC) - timedelta(minutes=10)
-        with api_key_request():
-            flagged = self._runner(sql)
-            flagged_stale = flagged._is_stale(last_refresh), flagged._is_stale(last_refresh, lazy=True)
-        unflagged = self._runner(sql)
-        expected = unflagged._is_stale(last_refresh), unflagged._is_stale(last_refresh, lazy=True)
-        assert flagged_stale == expected
-        assert flagged_stale[1] is False
-
-    def test_event_properties_omit_the_window_when_an_age_override_replaces_it(self) -> None:
-        runner = self._runner("select count() from events where timestamp > now() - interval 7 day")
-        with api_key_request():
-            assert runner._staleness_event_properties()["sql_cache_window"] == "up_to_now_long"
-            runner._cache_age_override = 60
-            assert runner._staleness_event_properties() == {}
-
-    @parameterized.expand(
-        [
-            ("date_only_date_to_today", "-7d", "2026-10-29", False, False, True),
-            ("relative_range_ending_yesterday", "-7d", "-1d", False, False, False),
-            ("open_date_to", "-7d", None, False, False, False),
-            ("absolute_range", "2026-10-01", "2026-10-15", False, True, True),
-            ("absolute_datetime_date_to", "2026-10-01", "2026-10-15T10:00:00Z", False, True, True),
-            ("explicit_date_with_absolute_range", "2026-10-01", "2026-10-15", True, True, True),
-            ("explicit_date_with_relative_date_to", "-7d", "-1d", True, False, False),
-            ("sub_day_rolling_window", "-1h", None, False, False, False),
-        ]
-    )
-    def test_filters_window_matches_the_sql_expansion(
-        self,
-        _name: str,
-        date_from: str,
-        date_to: Optional[str],
-        explicit_date: bool,
-        expected_start_absolute: bool,
-        expected_end_absolute: bool,
-    ) -> None:
-        now = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
-        filters = HogQLFilters(dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date))
-        expanded = ReplaceFilters(filters, self.team, Database.create_for(team=self.team), now=now).visit(
-            parse_select("select count() from events where {filters}")
-        )
-        assert isinstance(expanded, ast.SelectQuery)
-        compares = expanded.where.exprs if isinstance(expanded.where, ast.And) else [expanded.where]
-        bounds = {
-            compare.op: compare.right.value
-            for compare in compares
-            if isinstance(compare, ast.CompareOperation) and isinstance(compare.right, ast.Constant)
-        }
-        window = self._runner("select 1", filters)._filters_time_window(now)
-        assert window is not None
-        assert window.start == bounds[ast.CompareOperationOp.GtEq]
-        assert window.end == bounds.get(ast.CompareOperationOp.LtEq, bounds.get(ast.CompareOperationOp.Lt))
-        assert window.end_inclusive is (ast.CompareOperationOp.LtEq in bounds)
-        assert window.start_absolute is expected_start_absolute
-        assert window.end_absolute is expected_end_absolute
