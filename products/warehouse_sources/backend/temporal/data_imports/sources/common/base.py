@@ -136,17 +136,9 @@ def nest_flat_select_containers(
 ) -> dict[str, Any]:
     """Return a copy of job_inputs with the fields of a select branch held only in the select's container.
 
-    Configs saved before a select in the source's `flat_stored_selects` existed, and API clients
-    that still send the old shape, keep that select's fields at the top level. Config parsing
-    already reads them as the select's default branch. Validation, the settings form and the update
-    merge read the container instead. Without this, a create with the old shape fails validation,
-    the form shows the fields empty, and an update either drops the stored secrets or ignores the
-    new ones.
-
-    When the container exists too, the top-level fields are the copies that `serialize_config` and
-    the API read keep for older readers. A client that edits only the copy still means it, so a
-    top-level value fills the default branch when it differs from `stored`, the already nested
-    stored job_inputs, and the container does not change that field itself.
+    A select in `flat_stored_selects` took over fields that older configs and API clients still send at
+    the top level. When the container exists too, a top-level value wins only where it differs from
+    `stored` and the container leaves that field unchanged.
     """
     nested = dict(job_inputs)
     for field, branch_names in _flat_stored_select_fields(fields, flat_stored_selects):
@@ -525,7 +517,9 @@ class _BaseSource(ABC, Generic[ConfigType]):
         raise NotImplementedError()
 
     def parse_config(self, job_inputs: dict) -> ConfigType:
-        return self._config_class.from_dict(job_inputs)
+        return self._config_class.from_dict(
+            nest_flat_select_containers(job_inputs, self.get_source_config.fields, self.flat_stored_selects)
+        )
 
     def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
         return self._config_class.validate_dict(

@@ -202,20 +202,10 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
     )
 
     expires_at: dt.datetime | None = None
-    failed_at: float | None = None
+    last_failure: tuple[float, str] | None = None
 
-    def fetch() -> dict[str, str]:
-        nonlocal expires_at, failed_at
-        # botocore tries a refresh on every signed request from 15 minutes before expiry, and keeps
-        # the current credentials if it fails before the last 10 minutes. During an STS outage that
-        # would add an STS round trip to every request, so a failed refresh waits a minute.
-        if (
-            failed_at is not None
-            and time.monotonic() - failed_at < _REFRESH_BACKOFF_SECONDS
-            and expires_at is not None
-            and expires_at - dt.datetime.now(dt.UTC) > _MANDATORY_REFRESH_WINDOW
-        ):
-            raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR)
+    def assume() -> dict[str, str]:
+        nonlocal expires_at
         try:
             assumed = async_to_sync(assume_role)()
         except ExternalRoleArnNotConfiguredError:
@@ -229,18 +219,16 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
             # is theirs to fix. A denial of PostHog's own role is a deployment problem, so it retries.
             error = e.response.get("Error", {})
             if error.get("Code") != "AccessDenied" or integration.aws_role_arn not in (error.get("Message") or ""):
-                failed_at = time.monotonic()
                 raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
             raise AwsAuthError(
                 f"{ROLE_ACCESS_DENIED_ERROR}. Check that its trust policy allows PostHog's role and requires the external ID {external_id}."
             ) from None
         except BotoCoreError as e:
             # A connection error or a timeout before STS answered.
-            failed_at = time.monotonic()
             raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
 
         assert assumed.aws_session_token and assumed.expiration
-        expires_at, failed_at = assumed.expiration, None
+        expires_at = assumed.expiration
         return {
             "access_key": assumed.aws_access_key_id,
             "secret_key": assumed.aws_secret_access_key,
@@ -248,7 +236,39 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
             "expiry_time": assumed.expiration.isoformat(),
         }
 
+    def fetch() -> dict[str, str]:
+        nonlocal last_failure
+        # botocore tries a refresh on every signed request from 15 minutes before expiry, and keeps
+        # the current credentials if it fails before the last 10 minutes. A failed refresh repeats the
+        # same failure for a minute, so that an STS outage or a changed trust policy does not add an
+        # STS round trip to every request.
+        if (
+            last_failure is not None
+            and time.monotonic() - last_failure[0] < _REFRESH_BACKOFF_SECONDS
+            and expires_at is not None
+            and expires_at - dt.datetime.now(dt.UTC) > _MANDATORY_REFRESH_WINDOW
+        ):
+            raise AwsAuthError(last_failure[1])
+        try:
+            metadata = assume()
+        except AwsAuthError as error:
+            last_failure = (time.monotonic(), str(error))
+            raise
+        last_failure = None
+        return metadata
+
     return RefreshableCredentials.create_from_metadata(fetch(), refresh_using=fetch, method="sts-assume-role")
+
+
+def aws_auth_endpoint_reasons(error: AwsAuthError, endpoints: list[str]) -> dict[str, str | None]:
+    """Per-table reasons for `get_endpoint_permissions` when the credentials could not be resolved.
+
+    Only an error the user must fix blocks the tables. A temporary one leaves them unjudged, so a brief
+    STS failure does not hide every table from the picker.
+    """
+    message = str(error)
+    reason = message if any(pattern in message for pattern in AWS_AUTH_NON_RETRYABLE_ERRORS) else None
+    return dict.fromkeys(endpoints, reason)
 
 
 def sign_aws_request(request: AWSRequest, credentials: Credentials, service: str, region: str) -> None:

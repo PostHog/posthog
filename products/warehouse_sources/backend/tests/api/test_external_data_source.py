@@ -3446,6 +3446,45 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["aws_auth"]["aws_secret_access_key"] == "example-secret"
         assert source.job_inputs["aws_secret_access_key"] == "example-secret"
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source.AwsConfigSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_switching_flat_keys_to_a_role_drops_the_stored_keys(self, _mock_validate):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="AwsConfig",
+            created_by=self.user,
+            prefix="aws",
+            job_inputs={
+                "aws_access_key_id": "AKIAEXAMPLE",
+                "aws_secret_access_key": "example-secret",
+                "aws_session_token": "example-session",
+                "region": "eu-west-1",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "aws_auth": {"selection": "role", "aws_integration_id": 5},
+                    "aws_access_key_id": "AKIAEXAMPLE",
+                    "region": "eu-west-1",
+                }
+            },
+        )
+        assert response.status_code == 200, response.json()
+
+        source.refresh_from_db()
+        assert source.job_inputs["aws_auth"]["selection"] == "role"
+        stored_keys = {"aws_access_key_id", "aws_secret_access_key", "aws_session_token"}
+        assert stored_keys.isdisjoint(source.job_inputs)
+        assert not any(source.job_inputs["aws_auth"].get(key) for key in stored_keys)
+
     def test_update_with_malformed_auth_method_returns_400(self):
         source = self._create_external_data_source()
 

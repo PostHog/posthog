@@ -18,18 +18,24 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     ExternalRoleArnNotConfiguredError,
     InvalidCredentialsError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.aws_config.source import AwsConfigSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws_auth import (
-    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_AUTH_FIELD_NAME,
     KEY_CONNECTION_FOR_ROLE_ERROR,
+    MISSING_ROLE_ERROR,
     ROLE_ACCESS_DENIED_ERROR,
     ROLE_CREDENTIALS_RETRY_ERROR,
     ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR,
     ROLE_NOT_FOUND_ERROR,
     ROLE_UNAVAILABLE_ERROR,
     AwsAuthError,
+    aws_auth_endpoint_reasons,
     resolve_aws_credentials,
     sign_aws_request,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 ROLE_ARN = "arn:aws:iam::123456789012:role/posthog-reader"
 ASSUME_ROLE = "products.batch_exports.backend.facade.destinations.s3.get_credentials_using_user_aws_role"
@@ -154,12 +160,16 @@ class TestResolveAwsCredentials(BaseTest):
             resolve_aws_credentials(Auth(aws_integration_id=integration.id), self.team.id)
 
         assert str(raised.exception) == ROLE_CREDENTIALS_RETRY_ERROR
-        assert ROLE_CREDENTIALS_RETRY_ERROR not in AWS_AUTH_NON_RETRYABLE_ERRORS
+        assert not error_message_matches(str(raised.exception), AwsConfigSource().get_non_retryable_errors())
 
     @parameterized.expand(
         [
             ("throttled", ClientError({"Error": {"Code": "Throttling", "Message": ""}}, "AssumeRole")),
             ("unreachable", EndpointConnectionError(endpoint_url="https://sts.amazonaws.com")),
+            (
+                "customer_role_denied",
+                ClientError({"Error": {"Code": "AccessDenied", "Message": f"on resource: {ROLE_ARN}"}}, "AssumeRole"),
+            ),
         ]
     )
     def test_failed_advisory_refresh_waits_before_calling_sts_again(self, _name: str, failure: Exception) -> None:
@@ -195,3 +205,27 @@ def test_sign_aws_request_signs_with_the_refreshed_role_session() -> None:
 
     assert "Credential=ASIASECOND/" in request.headers["Authorization"]
     assert request.headers["X-Amz-Security-Token"] == "t2"
+
+
+@parameterized.expand(
+    [
+        ("user_must_fix", AwsAuthError(MISSING_ROLE_ERROR), MISSING_ROLE_ERROR),
+        ("temporary", AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR), None),
+    ]
+)
+def test_endpoint_reasons_block_tables_only_for_errors_the_user_must_fix(
+    _name: str, error: AwsAuthError, reason: str | None
+) -> None:
+    assert aws_auth_endpoint_reasons(error, ["a", "b"]) == {"a": reason, "b": reason}
+
+
+def test_every_source_with_the_aws_auth_field_lifts_it_and_keeps_its_own_credential_kind() -> None:
+    problems = []
+    for source_type, source in SourceRegistry.get_all_sources().items():
+        if not any(field.name == AWS_AUTH_FIELD_NAME for field in source.get_source_config.fields):
+            continue
+        if AWS_AUTH_FIELD_NAME not in source.flat_stored_selects:
+            problems.append(f"{source_type.value} does not set flat_stored_selects")
+        if source.credential_kind == "aws-s3" and source_type != ExternalDataSourceType.AMAZONS3:
+            problems.append(f"{source_type.value} inherits the aws-s3 credential kind")
+    assert problems == []
