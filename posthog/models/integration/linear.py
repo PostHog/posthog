@@ -1,5 +1,7 @@
 """Linear integration."""
 
+import re
+from collections.abc import Sequence
 from typing import Any
 
 import requests
@@ -12,6 +14,12 @@ from . import common, model
 from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed
 
 logger = structlog.get_logger(__name__)
+
+_ISSUE_IDENTIFIER = re.compile(r"([A-Za-z0-9]+)-([0-9]+)")
+
+
+class LinearIntegrationError(Exception):
+    """A Linear read that failed, so the caller retries instead of acting on a guessed answer."""
 
 
 class LinearIntegration:
@@ -141,6 +149,52 @@ class LinearIntegration:
         body = self.query(update_query, variables={"id": issue_id, "stateId": nodes[0]["id"]})
         if body.get("errors") or not common.dot_get(body, "data.issueUpdate.success"):
             raise ValidationError(f"Failed to move the Linear issue to a {state_type} state")
+
+    def issue_state_types(self, identifiers: Sequence[str]) -> dict[str, str]:
+        """The workflow state category of each issue, keyed by identifier.
+
+        An identifier that Linear does not return is absent from the result: the issue was
+        deleted, the token cannot read it, or it moved to another team and has a new identifier.
+        The issues connection answers those cases with no node, where `issue(id:)` answers with
+        an error, so a failed request is always a failed request. Raises LinearIntegrationError.
+        """
+        filters: list[dict[str, Any]] = []
+        for identifier in identifiers:
+            match = _ISSUE_IDENTIFIER.fullmatch(identifier)
+            if match is not None:
+                filters.append({"team": {"key": {"eq": match.group(1)}}, "number": {"eq": int(match.group(2))}})
+        if not filters:
+            return {}
+
+        states_query = """
+        query IssueStates($filter: IssueFilter!, $first: Int!) {
+            issues(filter: $filter, first: $first, includeArchived: true) {
+                nodes { identifier state { type } }
+            }
+        }
+        """
+        body = self.query(states_query, variables={"filter": {"or": filters}, "first": len(filters)})
+        nodes = common.dot_get(body, "data.issues.nodes")
+        if body.get("errors") or not isinstance(nodes, list):
+            raise LinearIntegrationError("Failed to read the Linear issue states")
+        return {
+            node["identifier"]: node["state"]["type"]
+            for node in nodes
+            if isinstance(node.get("identifier"), str) and isinstance((node.get("state") or {}).get("type"), str)
+        }
+
+    def workflow_state_type(self, state_id: str) -> str | None:
+        state_query = """
+        query WorkflowStateType($id: ID!) {
+            workflowStates(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { type } }
+        }
+        """
+        body = self.query(state_query, variables={"id": state_id})
+        nodes = common.dot_get(body, "data.workflowStates.nodes")
+        if body.get("errors") or not isinstance(nodes, list):
+            raise LinearIntegrationError("Failed to read the Linear workflow state")
+        state_type = nodes[0].get("type") if nodes else None
+        return state_type if isinstance(state_type, str) else None
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Linear issues by title / identifier for the link-existing flow.

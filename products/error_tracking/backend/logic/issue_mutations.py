@@ -12,7 +12,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.tasks.email import send_error_tracking_issue_assigned
@@ -244,6 +244,57 @@ def update_issue(
         "description": description_updated,
     }
     return IssueUpdateOutcome(issue=issue, changed_fields=tuple(key for key, changed in updated.items() if changed))
+
+
+def transition_issue_status_by_automation(
+    team_id: int,
+    issue_id: UUID,
+    *,
+    expected: "ErrorTrackingIssue.Status",
+    status: "ErrorTrackingIssue.Status",
+    trigger: Trigger,
+) -> bool:
+    """Move an issue from `expected` to `status` for a change no person made.
+
+    The check runs under the issue row lock, and the function returns False without a change
+    when the issue is no longer in `expected`. So a person or ingestion that changed the status
+    after the automation decided is never overwritten.
+    """
+    operation = ChangeOperation.for_automation(team_id)
+    with transaction.atomic():
+        locked = _lock_issues(team_id, [issue_id], select_related=("team",))
+        if not locked or locked[0].status != expected:
+            return False
+        issue = locked[0]
+        issue.status = status
+        issue.state_updated_at = timezone.now()
+        issue.save(update_fields=["status", "state_updated_at"])
+        record_issue_changes(operation, [IssueChange(issue=issue, data=StatusChanged(previous=Status(expected)))])
+        log_activity(
+            organization_id=issue.team.organization_id,
+            team_id=team_id,
+            user=None,
+            was_impersonated=False,
+            item_id=str(issue.id),
+            scope="ErrorTrackingIssue",
+            activity="updated",
+            detail=Detail(
+                name=issue.name,
+                changes=[
+                    Change(type="ErrorTrackingIssue", field="status", before=expected, after=status, action="changed")
+                ],
+                trigger=trigger,
+            ),
+        )
+        produce_issue_lifecycle_event_on_commit(
+            event=STATUS_CHANGE_EVENTS[status],
+            issue=issue,
+            user=None,
+            extra_properties={"previous_status": status_label(expected)},
+        )
+
+    sync_issues_to_clickhouse(issue_ids=[issue_id], team_id=team_id)
+    return True
 
 
 def merge_issues(
