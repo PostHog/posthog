@@ -514,6 +514,7 @@ class TestStamphogHandoffTask(BaseTest):
     @parameterized.expand(
         [
             ("repository_not_added", "repository_not_added"),
+            ("integration_missing", "integration_missing"),
             ("no_run_user", "no_run_user"),
             ("head_pending", "head_already_reviewed"),
             ("head_completed", "head_already_reviewed"),
@@ -523,6 +524,9 @@ class TestStamphogHandoffTask(BaseTest):
         queued = self._queued_handoff("stranger")
         if change == "repository_not_added":
             self.repository.delete()
+        elif change == "integration_missing":
+            self.integration.team = Team.objects.create(organization=self.organization)
+            self.integration.save(update_fields=["team"])
         elif change == "no_run_user":
             self.integration.created_by = None
             self.integration.save(update_fields=["created_by"])

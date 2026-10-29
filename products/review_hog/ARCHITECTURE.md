@@ -959,7 +959,7 @@ The turn rechecks ownership and the rules before starting. Flash publishes every
 The same `review_hog_authored_prs` consumer (the name is the dedup key, so it stays) routes through `facade/github.py::accept_pull_request_event` (`backend/pull_request_events.py`), and a `labeled` delivery starts nothing.
 The Stamphog handoff queues `process_stamphog_handoff`, which finds the project that owns the repository (it can differ from the Stamphog project).
 The review runs as the PR owner, else as the user who connected the installation (`Integration.created_by`) with default settings and no resolution; a running resolution drops the handoff.
-Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_label_review_total`, keyed by outcome.
+Counters: `posthog_review_hog_authored_pr_review_total` and `posthog_review_hog_stamphog_handoff_total`, keyed by outcome.
 `facade/github.py::owning_team_id(installation_id, repository)` answers the same ownership question for other products, for example a PR comment command dispatcher.
 The UI and MCP paths are one surface: the viewset carries the grantable `review_hog` scope (`review_hog:read` for list /
 retrieve / perspective_stats, `review_hog:write` for trigger). Both require the `review-hog` feature flag,
