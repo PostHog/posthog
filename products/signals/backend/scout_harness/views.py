@@ -646,7 +646,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def get_serializer_context(self) -> dict[str, object]:
         context = super().get_serializer_context()
-        context["may_read_reports"] = _may_read_reports(self.request, self.team.parent_team or self.team)
+        context["may_read_reports"] = _may_read_reports(self.request, self, self.team.parent_team or self.team)
         return context
 
     def initial(self, request: Request, *args: object, **kwargs: object) -> None:
