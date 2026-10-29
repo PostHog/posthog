@@ -1,7 +1,6 @@
-import posthog from 'posthog-js'
+import type { PostHog } from 'posthog-js'
 
 import type { ConversationTicket } from '../../types'
-import { clearSharedTickets, loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
 const START = 1_000_000
 const MAX_AGE_MS = 10_000
@@ -11,13 +10,20 @@ const ticket = (id: string): ConversationTicket => ({ id }) as ConversationTicke
 
 describe('loadTicketsAcrossTabs', () => {
     let now: number
+    let posthog: PostHog
+    let loadTicketsAcrossTabs: typeof import('./ticketsAcrossTabs').loadTicketsAcrossTabs
+    let clearSharedTickets: typeof import('./ticketsAcrossTabs').clearSharedTickets
 
     const fetchingTickets = (...ids: string[]): jest.Mock => jest.fn().mockResolvedValue(ids.map(ticket))
 
-    beforeEach(() => {
+    beforeEach(async () => {
         now = START
         jest.spyOn(Date, 'now').mockImplementation(() => now)
         localStorage.clear()
+        // A logout stops the module for the life of the page, so each test needs a fresh copy
+        jest.resetModules()
+        posthog = (await import('posthog-js')).default
+        ;({ loadTicketsAcrossTabs, clearSharedTickets } = await import('./ticketsAcrossTabs'))
     })
 
     afterEach(() => {
@@ -69,6 +75,33 @@ describe('loadTicketsAcrossTabs', () => {
         clearSharedTickets()
         await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
 
+        expect(fetchTickets).toHaveBeenCalledTimes(2)
+    })
+
+    test.each([
+        { name: 'in this tab', logOut: (): void => clearSharedTickets() },
+        {
+            name: 'in another tab',
+            logOut: (): void => {
+                localStorage.clear()
+                window.dispatchEvent(new StorageEvent('storage', { key: 'posthog-conversations-tickets' }))
+            },
+        },
+    ])('stops storing tickets after a logout $name', async ({ logOut }) => {
+        const fetchTickets = fetchingTickets('fetched')
+        let finishFetch = (): void => {}
+        const inFlight = loadTicketsAcrossTabs(
+            () => new Promise((resolve) => (finishFetch = () => resolve([ticket('in-flight')]))),
+            OPTIONS
+        )
+
+        logOut()
+        finishFetch()
+        await inFlight
+        await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
+        await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
+
+        expect(localStorage.length).toBe(0)
         expect(fetchTickets).toHaveBeenCalledTimes(2)
     })
 

@@ -17,6 +17,14 @@ const sharedTickets = localStorageSlot(
     })
 )
 
+// This page still fetches as the old identity after a logout, so it must not store that person's tickets again.
+let loggedOut = false
+window.addEventListener('storage', (event) => {
+    if (event.key === STORAGE_KEY && event.newValue === null) {
+        loggedOut = true
+    }
+})
+
 export async function loadTicketsAcrossTabs(
     fetchTickets: () => Promise<ConversationTicket[] | null>,
     options: { force?: boolean; maxAgeMs: number }
@@ -31,13 +39,14 @@ export async function loadTicketsAcrossTabs(
     }
 
     const tickets = await fetchTickets()
-    if (tickets) {
+    if (tickets && !loggedOut) {
         sharedTickets.set({ identity, fetchedAt: Date.now(), tickets })
     }
     return tickets
 }
 
 export function clearSharedTickets(): void {
+    loggedOut = true
     try {
         localStorage.removeItem(STORAGE_KEY)
     } catch {
