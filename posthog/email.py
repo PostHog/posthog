@@ -108,7 +108,8 @@ EMAIL_TASK_KWARGS = {
     "ignore_result": True,
     "autoretry_for": (Exception,),
     "max_retries": 3,
-    # Retries wait 5s, 10s and 20s. Without jitter the last attempt cannot come within a second of the first.
+    # SMTP retries wait 5s, 10s and 20s. Without jitter the last attempt cannot come within a second of the first.
+    # HTTP retries use HTTP_SEND_RETRY_COUNTDOWNS_SECONDS instead.
     "retry_backoff": 5,
     "retry_jitter": False,
 }
@@ -281,6 +282,12 @@ class WorkflowsEmailError(Exception):
         self.code = code
         self.status_code = status_code
 
+
+# Waits between worker attempts of an HTTP send that failed with one of the errors below. Customer.io no longer sends
+# an email that Workflows could not take, so the retries span about 19 minutes to outlast a short Workflows outage.
+# They stop there, because a login code or a password reset link that arrives later is of no use to the recipient.
+# SMTP sends keep the shorter retries in EMAIL_TASK_KWARGS.
+HTTP_SEND_RETRY_COUNTDOWNS_SECONDS = (10, 30, 60, 120, 300, 600)
 
 # Errors that a later attempt can fix. A database error can come before the send, when the record is read, or after
 # it, when the record is marked sent. A Workflows send is pinned before that write, so its retry replays under the
@@ -868,14 +875,20 @@ def sanitize_email_properties(properties: dict[str, Any] | None) -> dict[str, An
     return {k: sanitize_value(v, key=k) for k, v in properties.items()}
 
 
+def _worker_send_task() -> Any:
+    """The `_send_email` task that a worker runs this send in, or None for an inline or eager send."""
+    task = current_task
+    if not task or task.name != "posthog.email._send_email" or task.request.is_eager:
+        return None
+    return task
+
+
 def _send_will_retry(retry_in_worker: bool) -> bool:
     """Whether a retryable failure of this send gets another attempt."""
     if retry_in_worker:
         return True
-    task = current_task
-    if not task or task.name != "posthog.email._send_email" or task.request.is_eager:
-        return False
-    return task.request.retries < task.max_retries
+    task = _worker_send_task()
+    return task is not None and task.request.retries < len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS)
 
 
 def _send_email_now(
@@ -900,8 +913,17 @@ def _send_email_now(
                 properties=properties or {},
                 will_retry=_send_will_retry(retry_in_worker),
             )
-        except RETRYABLE_HTTP_SEND_ERRORS:
+        except RETRYABLE_HTTP_SEND_ERRORS as err:
             if not retry_in_worker:
+                task = _worker_send_task()
+                if task is not None:
+                    # After the last wait, Celery raises `err` instead of scheduling another attempt.
+                    countdowns = HTTP_SEND_RETRY_COUNTDOWNS_SECONDS
+                    raise task.retry(
+                        exc=err,
+                        countdown=countdowns[min(task.request.retries, len(countdowns) - 1)],
+                        max_retries=len(countdowns),
+                    )
                 raise
             # The retry sends the same idempotency key, so Workflows does not send the email twice.
             _send_email.apply_async(

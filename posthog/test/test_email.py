@@ -22,11 +22,13 @@ from django.utils import timezone
 
 import urllib3
 import requests
+from celery.exceptions import Retry
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.email import (
     CUSTOMER_IO_TEMPLATE_ID_MAP,
+    HTTP_SEND_RETRY_COUNTDOWNS_SECONDS,
     WORKFLOWS_TEMPLATE_ID_MAP,
     EmailMessage,
     WorkflowsEmailError,
@@ -911,6 +913,60 @@ class TestEmail(BaseTest):
         self.assertEqual(retry_kwargs["campaign_key"], "inline_campaign")
         # A worker still on the previous release rejects an argument it does not know.
         self.assertNotIn("retry_in_worker", retry_kwargs)
+
+    @parameterized.expand(
+        [
+            ("first_attempt_waits_10s", 0, 10, True),
+            ("last_attempt_gives_up", len(HTTP_SEND_RETRY_COUNTDOWNS_SECONDS), None, False),
+        ]
+    )
+    @patch.object(_send_email, "apply_async")
+    @patch("posthog.email.ph_scoped_capture")
+    @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.email.requests.post", side_effect=requests.ReadTimeout("no response"))
+    def test_worker_retries_a_workflows_failure_on_the_http_schedule(
+        self,
+        _name: str,
+        retries: int,
+        expected_countdown: int | None,
+        expected_retrying: bool,
+        _mock_post: MagicMock,
+        _mock_feature_enabled: MagicMock,
+        mock_scoped_capture: MagicMock,
+        mock_apply_async: MagicMock,
+    ) -> None:
+        _send_email.push_request(id="worker-task", retries=retries, is_eager=False, called_directly=False)
+        try:
+            with (
+                patch("posthog.email.current_task", _send_email),
+                override_instance_config("EMAIL_HOST", "localhost"),
+                self.settings(
+                    CUSTOMER_IO_API_KEY="cio-key",
+                    POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+                    POSTHOG_HOST="https://us.posthog.com",
+                ),
+                patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"password_reset": "tmpl-1"}),
+            ):
+                with self.assertRaises(Retry if expected_countdown else WorkflowsEmailError):
+                    _send_email.run(
+                        campaign_key="worker_campaign",
+                        to=[{"raw_email": "test@posthog.com", "recipient": "test@posthog.com"}],
+                        subject="Test subject",
+                        headers={},
+                        template_name="password_reset",
+                        use_http=True,
+                        properties={},
+                    )
+        finally:
+            _send_email.pop_request()
+
+        if expected_countdown is None:
+            mock_apply_async.assert_not_called()
+        else:
+            self.assertEqual(mock_apply_async.call_args.kwargs["countdown"], expected_countdown)
+        capture = mock_scoped_capture.return_value.__enter__.return_value
+        failed = [c.kwargs for c in capture.call_args_list if c.kwargs.get("event") == "transactional email failed"]
+        self.assertEqual([f["properties"]["retrying"] for f in failed], [expected_retrying])
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
