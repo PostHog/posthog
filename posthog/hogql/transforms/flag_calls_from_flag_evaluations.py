@@ -822,9 +822,10 @@ class _EventsScanSwapper(ScanVisitor):
         self.swapped = True
 
     def swap_scans_found_by_type(self, resolved: ast.AST, sources: JoinSources, clones: "_JoinClones") -> str | None:
-        """Swap each scan of the clone that `resolved`, the resolved original, shows reads only flag calls, such as
-        a scan joined after another table. `sources` holds the original join of each resolved join, and `clones`
-        holds the clone of each original join. Returns why one of them cannot swap, or None.
+        """Swap each events scan in the clone whose counterpart in `resolved`, the resolved original, has a WHERE or
+        PREWHERE that pins `event` to flag calls, such as a scan joined after another table. `sources` holds the
+        original join of each resolved join, and `clones` holds the clone of each original join. Returns why one of
+        them cannot swap, or None.
 
         A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading events.
         Any other scan without a clone cannot swap.
@@ -846,6 +847,7 @@ class _EventsScanSwapper(ScanVisitor):
             events_scan = EventsScan(
                 join=clone_join,
                 alias=clone_join.alias or "events",
+                # The clone is unresolved, so only a name qualified with this scan's alias can count as a read of it.
                 has_other_sources=True,
                 flag_key_compares_as_string=self.flag_key_compares_as_string,
             )

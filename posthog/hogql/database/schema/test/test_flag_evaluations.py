@@ -90,6 +90,8 @@ def _create_flag_calls_view(team: Team) -> str:
         query={"kind": "HogQLQuery", "query": UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN},
         columns={"count()": "UInt64"},
     )
+    # The transform runs only when the query text names $feature_flag_called. The view body is not part of that text.
+    # Without this filter, the transform skips the query. The tests would then pass even if record_added stopped working.
     return "SELECT * FROM flag_calls_view WHERE '$feature_flag_called' != ''"
 
 
@@ -97,6 +99,7 @@ def _create_flag_calls_expression(team: Team) -> str:
     DataWarehouseExpression.objects.for_team(team.pk).create(
         team=team, table_name="events", field_name="flag_calls", expression=f"({UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN})"
     )
+    # The $feature_flag_called filter lets the transform run, as in _create_flag_calls_view.
     return "SELECT flag_calls FROM events WHERE event != '$feature_flag_called' AND timestamp >= now() - INTERVAL 7 DAY"
 
 
@@ -260,7 +263,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     def _query_events(
         self,
-        query: str | ast.SelectQuery,
+        query: str | ast.SelectQuery | ast.SelectSetQuery,
         *,
         rewrite: bool = True,
         filters: HogQLFilters | None = None,
@@ -805,6 +808,17 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                 [(1,)],
             ),
             (
+                "union_of_one_parsed_template_twice",
+                ast.SelectSetQuery.create_from_queries(
+                    [
+                        parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN),
+                        parse_select(UNQUALIFIED_FLAG_CALLS_NEXT_TO_A_JOIN),
+                    ],
+                    "UNION ALL",
+                ),
+                [(1,), (1,)],
+            ),
+            (
                 "events_after_another_table",
                 f"SELECT count() FROM {PROBE_DISTINCT_IDS} JOIN events AS e ON e.distinct_id = d.id "
                 "WHERE e.event = '$feature_flag_called' AND e.properties.$feature_flag = 'probe-flag' "
@@ -848,7 +862,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_scan_that_only_resolution_shows_reads_flag_calls_swaps_once_events_gets_no_flag_calls(
-        self, _name: str, query: str | ast.SelectQuery, expected: list[tuple]
+        self, _name: str, query: str | ast.SelectQuery | ast.SelectSetQuery, expected: list[tuple]
     ):
         mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
         assert (
