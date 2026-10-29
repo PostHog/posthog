@@ -141,10 +141,10 @@ jobs:
                       desktop:
                         - 'products/desktop/**'
                         - '.github/workflows/ci-security.yaml'
-                      # A change to the rules or the scan setup can change findings in
-                      # unchanged code, so the jobs that pass local rules scan the whole tree.
+                      # A change to the scan setup can change findings in unchanged code, so
+                      # the jobs that pass local rules scan the whole tree with every rule.
+                      # The semgrep-ci action scans a changed rule file over the whole tree.
                       scan-setup:
-                        - '.semgrep/rules/security/**'
                         - '.github/workflows/ci-security.yaml'
 
     semgrep-python:
