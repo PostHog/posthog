@@ -42,7 +42,7 @@ Facts:
 - First seen: {first_seen}, first release: {first_release}
 - Latest release: {latest_release}
 - Trend: {trend_direction} ({previous_occurrences} -> {current_occurrences} occurrences)
-- Impact in range: {occurrences} occurrences, {users} users, {sessions} sessions
+- {impact}
 </issue>"""
 
 

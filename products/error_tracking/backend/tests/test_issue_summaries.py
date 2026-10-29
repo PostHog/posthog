@@ -824,12 +824,10 @@ class TestIssueSummaryInputs(ClickhouseTestMixin, BaseTest):
         assert isinstance(from_clickhouse, IssueSummaryInputs)
         assert isinstance(from_event, IssueSummaryInputs)
         assert from_event.input_hash == from_clickhouse.input_hash
-        assert "Impact in range: 1 occurrences, 1 users, 1 sessions" in from_event.prompt
-
-        without_session = {key: value for key, value in properties.items() if key != "$session_id"}
-        from_sessionless_event = build_issue_summary_inputs_from_event(self.team, issue.id, without_session)
-        assert isinstance(from_sessionless_event, IssueSummaryInputs)
-        assert "Impact in range: 1 occurrences, 1 users, 0 sessions" in from_sessionless_event.prompt
+        assert "Impact in range: 1 occurrences, 1 users, 1 sessions" in from_clickhouse.prompt
+        assert "- Impact: not known yet" in from_event.prompt
+        assert "users" not in from_event.prompt
+        assert "sessions" not in from_event.prompt
 
     def test_issue_without_exception_events_has_no_inputs(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
