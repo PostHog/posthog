@@ -41,6 +41,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.experiments.backend.facade.enums import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
@@ -64,7 +65,6 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     ensure_exposures_precomputed,
     team_precompute_skip_reason,
 )
-from products.experiments.backend.hogql_queries.types import PrecomputeSkipReason
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
@@ -74,7 +74,10 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
-from products.experiments.backend.metric_resolution import metric_reads_data_warehouse
+from products.experiments.backend.metric_resolution import (
+    metric_reads_data_warehouse,
+    metric_uses_warehouse_native_source,
+)
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -573,8 +576,17 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         return sorted_results, response.columns or []
 
+    def _refuse_warehouse_sources(self) -> None:
+        exposure_config = (self.experiment.exposure_criteria or {}).get("exposure_config") or {}
+        if (
+            metric_uses_warehouse_native_source(self.metric)
+            or exposure_config.get("kind") == "ExperimentWarehouseNativeExposureConfig"
+        ):
+            raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
+
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
+        self._refuse_warehouse_sources()
         variant_results = self._prepare_variant_results()
 
         if self._has_breakdown(variant_results):

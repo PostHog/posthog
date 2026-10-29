@@ -13,8 +13,10 @@ export function BIDrilldownMenu({
     logicProps: BIDrilldownProps
     triggerRef?: RefObject<HTMLDivElement>
 }): JSX.Element | null {
-    const { selection, queries, interaction, showRows } = useValues(biDrilldownLogic(logicProps))
-    const { close, viewRows, openSqlEditor } = useActions(biDrilldownLogic(logicProps))
+    const { selection, queries, interaction, showRows, record, dashboardFilterDisabledReason } = useValues(
+        biDrilldownLogic(logicProps)
+    )
+    const { close, viewRows, openSqlEditor, filterDashboard } = useActions(biDrilldownLogic(logicProps))
     if (!selection || !interaction || showRows) {
         return null
     }
@@ -37,6 +39,20 @@ export function BIDrilldownMenu({
             to: queries ? urls.sqlEditor({ query: queries.rows }) : undefined,
         },
     ]
+
+    if (logicProps.onFilterDashboard) {
+        actions.push({
+            name:
+                record && logicProps.isDashboardFilterSelected?.(record)
+                    ? 'Remove filter'
+                    : 'Filter dashboard by this result',
+            className: 'ResultMenu__filter',
+            disabledReason: dashboardFilterDisabledReason,
+            onClick: filterDashboard,
+            to: record && !dashboardFilterDisabledReason ? logicProps.getDashboardFilterUrl?.(record) : undefined,
+            inPlace: true,
+        })
+    }
 
     return (
         <ResultMenu

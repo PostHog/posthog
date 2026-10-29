@@ -665,7 +665,8 @@ describe('RecipientPreferencesService', () => {
         let persons: { getCyclotronPerson: jest.Mock }
 
         const emailAction = (
-            categoryType?: 'marketing' | 'transactional'
+            categoryType?: 'marketing' | 'transactional',
+            skipFrequencyCap?: boolean
         ): Extract<HogFlowAction, { type: 'function_email' }> => ({
             id: 'email',
             name: 'Send email',
@@ -675,6 +676,7 @@ describe('RecipientPreferencesService', () => {
             config: {
                 template_id: 'template-email',
                 message_category_type: categoryType,
+                skip_frequency_cap: skipFrequencyCap,
                 inputs: { email: { value: { to: { email: 'capped@example.com' } } } },
             },
             created_at: Date.now(),
@@ -768,6 +770,7 @@ describe('RecipientPreferencesService', () => {
 
         it.each([
             ['transactional sends', emailAction('transactional'), { max_messages: 0, window_days: 7 }],
+            ['marketing sends that skip the cap', emailAction('marketing', true), { max_messages: 1, window_days: 7 }],
             ['teams with no cap', emailAction(), { max_messages: null, window_days: null }],
         ])('never caps %s', async (_, action, cap) => {
             frequencyCap = cap

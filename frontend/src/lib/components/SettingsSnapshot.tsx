@@ -11,6 +11,7 @@ type Props = {
     title?: string
     showHeader?: boolean
     className?: string
+    layout?: 'list' | 'grid'
 }
 
 export function SettingsSnapshot({
@@ -19,6 +20,7 @@ export function SettingsSnapshot({
     title = 'Settings at the time of the event',
     showHeader = true,
     className,
+    layout = 'list',
 }: Props): JSX.Element | null {
     const { loadSettingsAsOf } = useActions(settingsSnapshotLogic)
     const { settingsSnapshot, settingsSnapshotLoading } = useValues(settingsSnapshotLogic)
@@ -75,7 +77,11 @@ export function SettingsSnapshot({
                     <div className="text-muted text-xs">No settings to display.</div>
                 ) : null
             ) : (
-                <div className="flex flex-col gap-2">
+                <div
+                    className={
+                        layout === 'grid' ? 'grid grid-cols-3 gap-2 items-start [&>*]:min-w-0' : 'flex flex-col gap-2'
+                    }
+                >
                     {keysToRender.map((key) => {
                         const label = key
                             .replaceAll('_', ' ')

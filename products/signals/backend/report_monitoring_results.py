@@ -18,6 +18,19 @@ MONITORING_RESULT_ELIGIBLE_STATUSES = (
     SignalReportCheck.Status.ERRORED,
     SignalReportCheck.Status.EXPIRED,
 )
+LEGACY_MONITORING_TERMINAL_STATUSES = (
+    SignalReportCheck.Status.PASSED,
+    SignalReportCheck.Status.FAILED,
+    SignalReportCheck.Status.INCONCLUSIVE,
+)
+
+
+def monitoring_result_check_eligible(check: SignalReportCheck, attempt_id: UUID) -> bool:
+    return check.status in MONITORING_RESULT_ELIGIBLE_STATUSES or (
+        check.kind == SignalReportCheck.Kind.AGENT
+        and check.status in LEGACY_MONITORING_TERMINAL_STATUSES
+        and check.legacy_monitoring_attempt_id == attempt_id
+    )
 
 
 class InvalidMonitoringResult(ValueError):
@@ -117,7 +130,7 @@ def save_monitoring_result(evaluation: MonitoringEvaluation) -> SignalReportMoni
         now = timezone.now()
         if not team_report_monitoring_enabled(evaluation.team_id):
             raise InvalidMonitoringResult("Monitoring is disabled.")
-        if check is None or check.status not in MONITORING_RESULT_ELIGIBLE_STATUSES:
+        if check is None or not monitoring_result_check_eligible(check, attempt.id):
             raise InvalidMonitoringResult("The check was cancelled or already completed.")
         if check_definition_version(check) != evaluation.definition_version:
             raise InvalidMonitoringResult("The authored definition changed.")

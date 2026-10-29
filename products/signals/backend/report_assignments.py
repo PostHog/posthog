@@ -352,6 +352,7 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
     # close. Suppressing on it would undo the resolution moments after the person made it.
     if target == SignalReport.Status.SUPPRESSED and report.status in {
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
         SignalReport.Status.MONITORING,
     }:
         return

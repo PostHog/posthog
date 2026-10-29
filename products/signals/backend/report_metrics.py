@@ -622,7 +622,8 @@ class ReportMetric(BaseModel):
             raise ValueError("value and value_at must be provided together")
         self._drop_a_snapshot_measured_in_the_future()
         if self.series is not None and self.value_at is None:
-            raise ValueError("series is part of the snapshot and needs value and value_at")
+            logger.warning("report metric %s dropped a series without a snapshot", self.metric_id)
+            self.series = None
         if self.kind == "affected_users":
             if self.value_format != "count":
                 raise ValueError("an affected_users metric must use count formatting")

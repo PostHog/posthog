@@ -79,23 +79,31 @@ export function applyVolumeSpikeHighlights(
     }
 
     const binSizeMs = data[1].date.getTime() - data[0].date.getTime()
-    const spikes = spikeEvents.map((s) => ({
-        time: new Date(s.detected_at).getTime(),
-        multiplier: s.computed_baseline > 0 ? s.current_bucket_value / s.computed_baseline : undefined,
-    }))
+    const spikes = spikeEvents
+        .map((s) => ({
+            time: new Date(s.detected_at).getTime(),
+            multiplier: s.computed_baseline > 0 ? s.current_bucket_value / s.computed_baseline : undefined,
+        }))
+        .sort((a, b) => a.time - b.time)
 
+    let firstSpikeIndex = 0
     return data.map((datum) => {
         const datumTime = datum.date.getTime()
-        const spikesInBin = spikes.filter((spike) => spike.time >= datumTime && spike.time < datumTime + binSizeMs)
-        if (spikesInBin.length === 0) {
+        while (firstSpikeIndex < spikes.length && spikes[firstSpikeIndex].time < datumTime) {
+            firstSpikeIndex++
+        }
+        let hasSpike = false
+        let maxMultiplier: number | undefined
+        for (let i = firstSpikeIndex; i < spikes.length && spikes[i].time < datumTime + binSizeMs; i++) {
+            hasSpike = true
+            const { multiplier } = spikes[i]
+            if (multiplier !== undefined && (maxMultiplier === undefined || multiplier > maxMultiplier)) {
+                maxMultiplier = multiplier
+            }
+        }
+        if (!hasSpike) {
             return datum
         }
-        const multipliers = spikesInBin.flatMap((spike) => (spike.multiplier === undefined ? [] : [spike.multiplier]))
-        return {
-            ...datum,
-            color: spikeStripeColor,
-            isSpike: true,
-            spikeMultiplier: multipliers.length > 0 ? Math.max(...multipliers) : undefined,
-        }
+        return { ...datum, color: spikeStripeColor, isSpike: true, spikeMultiplier: maxMultiplier }
     })
 }

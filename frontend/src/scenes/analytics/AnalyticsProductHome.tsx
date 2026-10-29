@@ -24,13 +24,19 @@ export function AnalyticsProductHome(): JSX.Element {
     }
     return (
         <SceneContent>
-            <SceneTitleSection
-                name="Product analytics"
-                description="How people use your product, ready-made by PostHog."
-                resourceType={{ type: 'analytics', forceIcon: <AnalyticsTypeIcon type="insight" /> }}
-                actions={<HomeDashboardMenu />}
+            <HomeTab
+                page={{
+                    title: (
+                        <SceneTitleSection
+                            name="Product analytics"
+                            description="How people use your product, ready-made by PostHog."
+                            resourceType={{ type: 'analytics', forceIcon: <AnalyticsTypeIcon type="insight" /> }}
+                            actions={<HomeDashboardMenu />}
+                        />
+                    ),
+                    dashboardHeaderActions: <HomeDashboardMenu inDashboardHeader />,
+                }}
             />
-            <HomeTab />
             <HomeDashboardModals />
             <AnalyticsCreateModals />
         </SceneContent>
