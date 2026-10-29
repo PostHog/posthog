@@ -126,6 +126,7 @@ jobs:
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
             schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
+            hogql_parser_changed: ${{ steps.changes.outputs.hogqlParser }}
         steps:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
@@ -213,6 +214,8 @@ jobs:
                         - '!posthog/**/conftest.py'
                         - '!ee/**/test_*.py'
                         - '!ee/**/conftest.py'
+                      hogqlParser:
+                        - 'common/hogql_parser/**'
 
             # Visual Review auto-commits a snapshot baseline after human review and CI
             # approval. Re-running the full E2E stack for that bot push is pure waste;
@@ -640,17 +643,6 @@ jobs:
                   cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
-            - name: Determine if hogql-parser has changed compared to master
-              shell: bash
-              id: hogql-parser-diff
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')" \
-                      fetch --no-tags --prune --depth=1 origin master
-                  changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
-                  echo "changed=$changed" >> $GITHUB_OUTPUT
-
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
               shell: bash
@@ -701,7 +693,11 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install the working version of hogql-parser
-              if: needs.changes.outputs.shouldRun == 'true' && steps.hogql-parser-diff.outputs.changed == 'true'
+              # The paths filter runs on pull requests only. A dispatched branch always builds its own parser,
+              # so that a forced run of a draft that edits the parser tests that edit and not the published version.
+              if: |
+                  needs.changes.outputs.hogql_parser_changed == 'true'
+                  || (github.event_name == 'workflow_dispatch' && github.ref != 'refs/heads/master')
               shell: bash
               # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
