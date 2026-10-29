@@ -11,7 +11,12 @@ import { initKeaTests } from '~/test/init'
 import { AnalyticsProductHome } from './AnalyticsProductHome'
 
 jest.mock('products/product_analytics/frontend/insights/home/HomeTab', () => ({
-    HomeTab: () => <div>Product analytics dashboard</div>,
+    HomeTab: ({ page }: { page: { title: JSX.Element } }) => (
+        <>
+            {page.title}
+            <div>Product analytics dashboard</div>
+        </>
+    ),
 }))
 
 jest.mock('products/product_analytics/frontend/insights/home/HomeDashboardModals', () => ({

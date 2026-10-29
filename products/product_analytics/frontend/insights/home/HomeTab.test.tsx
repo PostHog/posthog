@@ -17,16 +17,45 @@ jest.mock('./HomeTabDefault', () => ({
     HomeTabDefault: () => <div>PostHog Home</div>,
 }))
 jest.mock('scenes/dashboard/Dashboard', () => ({
-    Dashboard: ({ id }: { id: string }) => <div>Home dashboard {id}</div>,
+    Dashboard: ({
+        id,
+        placement,
+        readOnly,
+        headerActions,
+    }: {
+        id: string
+        placement: string
+        readOnly?: boolean
+        headerActions?: JSX.Element
+    }) => (
+        <>
+            <div>Home dashboard {id}</div>
+            <div>{`placement: ${placement}, read-only: ${!!readOnly}`}</div>
+            {headerActions}
+        </>
+    ),
 }))
+
+const PAGE = { title: <div>Page title</div>, dashboardHeaderActions: <div>Customize menu</div> }
 
 describe('HomeTab', () => {
     afterEach(cleanup)
 
     it.each([
-        ['the opinionated Home dashboard', null, 'PostHog Home'],
-        ['a selected Home dashboard', 42, 'Home dashboard 42'],
-    ])('renders %s', (_scenario, existingDashboardId, expectedContent) => {
+        ['the opinionated Home dashboard', null, undefined, ['PostHog Home']],
+        [
+            'a selected dashboard inside the Insights tab',
+            42,
+            undefined,
+            ['Home dashboard 42', 'placement: builtin, read-only: true'],
+        ],
+        [
+            'a selected dashboard as the whole page, with its own header',
+            42,
+            PAGE,
+            ['Home dashboard 42', 'placement: dashboard, read-only: false', 'Customize menu'],
+        ],
+    ])('renders %s', (_scenario, existingDashboardId, page, expectedContents) => {
         initKeaTests()
         teamLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({
@@ -34,8 +63,11 @@ describe('HomeTab', () => {
             home_tab_dashboard: existingDashboardId,
         })
 
-        render(<HomeTab />)
-        expect(screen.getByText(expectedContent)).toBeInTheDocument()
+        render(<HomeTab page={page} />)
+        for (const expectedContent of expectedContents) {
+            expect(screen.getByText(expectedContent)).toBeInTheDocument()
+        }
+        expect(screen.queryByText('Page title')).not.toBeInTheDocument()
     })
 
     it.each([

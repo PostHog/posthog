@@ -66,6 +66,8 @@ interface DashboardProps {
     showCreateAnomalyAlertButton?: boolean
     /** Shows the dashboard without tile menus or drag-to-edit controls. */
     readOnly?: boolean
+    /** Extra controls for the dashboard header, when a page shows the dashboard as its main content. */
+    headerActions?: JSX.Element
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -98,12 +100,17 @@ export function Dashboard({
     backTo,
     showCreateAnomalyAlertButton,
     readOnly,
+    headerActions,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseDashboardId(id), placement, dashboard, readOnly }}>
-            <DashboardScene backTo={backTo} showCreateAnomalyAlertButton={showCreateAnomalyAlertButton} />
+            <DashboardScene
+                backTo={backTo}
+                showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
+                headerActions={headerActions}
+            />
         </BindLogic>
     )
 }
@@ -111,9 +118,11 @@ export function Dashboard({
 function DashboardScene({
     backTo,
     showCreateAnomalyAlertButton,
+    headerActions,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
+    headerActions?: JSX.Element
 }): JSX.Element {
     const {
         placement,
@@ -184,7 +193,7 @@ function DashboardScene({
     return (
         <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && (
-                <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} />
+                <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} extraActions={headerActions} />
             )}
             {placement == DashboardPlacement.Dashboard && !!dashboard?.id && (
                 <DashboardSubscribeNudgeTrigger dashboardId={dashboard.id} />

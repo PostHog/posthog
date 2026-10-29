@@ -27,7 +27,13 @@ export function insightIsAddedToDashboard(input: Record<string, unknown> | null,
     return Array.isArray(input?.dashboards) && input.dashboards.some((id) => Number(id) === dashboardId)
 }
 
-export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX.Element | null {
+export function DashboardHeader({
+    loading = false,
+    extraActions,
+}: {
+    loading?: boolean
+    extraActions?: JSX.Element
+}): JSX.Element | null {
     const { dashboard, dashboardLoading, dashboardMode, dashboardEditing, canEditDashboard } = useValues(dashboardLogic)
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
@@ -116,7 +122,12 @@ export function DashboardHeader({ loading = false }: { loading?: boolean }): JSX
                           }
                         : undefined
                 }
-                actions={todayRailNav && dashboard ? <QuillDashboardHeaderActions /> : actions}
+                actions={
+                    <>
+                        {extraActions}
+                        {todayRailNav && dashboard ? <QuillDashboardHeaderActions /> : actions}
+                    </>
+                }
             />
         </>
     )
