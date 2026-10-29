@@ -2943,11 +2943,21 @@ describe('runStreamLogic', () => {
             expect(logic.values.isThinking).toEqual(true)
         })
 
-        it('stays off after turn_complete on an update that does not mean the agent is generating', () => {
+        it.each([
+            ['a mode change', { sessionUpdate: 'current_mode_update', currentModeId: 'auto' }],
+            [
+                'an empty message chunk',
+                { sessionUpdate: 'agent_message_chunk', messageId: 'm1', content: { type: 'text', text: '' } },
+            ],
+            [
+                'an empty thought chunk',
+                { sessionUpdate: 'agent_thought_chunk', messageId: 't1', content: { type: 'text', text: '' } },
+            ],
+        ])('stays off after turn_complete on %s, which does not mean the agent is generating', (_case, update) => {
             logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
             logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
 
-            logic.actions.ingestAcpFrame(sessionUpdate({ sessionUpdate: 'current_mode_update', currentModeId: 'auto' }))
+            logic.actions.ingestAcpFrame(sessionUpdate(update))
             expect(logic.values.isThinking).toEqual(false)
         })
 

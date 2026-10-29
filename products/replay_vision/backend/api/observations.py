@@ -198,7 +198,7 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
 
 
 class ObservationFeedDismissalSerializer(serializers.Serializer):
-    """Why the calling user marked an observation not useful in What to watch."""
+    """Why the calling user marked an observation not useful in the Highlights feed."""
 
     reason = serializers.ChoiceField(
         choices=FeedDismissalReason.choices,
@@ -776,8 +776,17 @@ class ReplayObservationFilter(django_filters.FilterSet):
     watch_group = django_filters.UUIDFilter(
         method="_filter_watch_group",
         help_text=(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. "
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. "
             "Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
+    )
+    watch_category = MultiChoiceFilter(
+        field_name="watch_rank__category",
+        valid_choices=frozenset(ISSUE_CATEGORIES),
+        error_key="watch_category",
+        help_text=(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: "
+            "failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
         ),
     )
     date_from = django_filters.CharFilter(
@@ -1269,7 +1278,7 @@ class ReplayObservationViewSet(
         request=ObservationFeedDismissalSerializer,
         responses={204: None},
         description=(
-            "Mark this observation not useful for the calling user, with an optional reason. What to watch stops "
+            "Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops "
             "showing it to that user. Sending it again replaces the reason."
         ),
     )
@@ -1277,7 +1286,7 @@ class ReplayObservationViewSet(
         methods=["DELETE"],
         request=None,
         responses={204: None},
-        description="Undo the calling user's not-useful mark, so What to watch can show the observation again.",
+        description="Undo the calling user's not-useful mark, so the Highlights feed can show the observation again.",
     )
     @action(
         detail=True,

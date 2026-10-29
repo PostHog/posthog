@@ -18,8 +18,8 @@ const skipped = (
 ): HealthPanelCheck => ({ key, name, status, reason })
 
 const FLAG_SETUP_CHECKS = [
-    passed('flag_state', 'Feature flag rollout'),
-    passed('flag_variants_mismatch', 'Feature flag variants'),
+    passed('flag_state', "Flag state that doesn't match the experiment"),
+    passed('flag_variants_mismatch', 'Flag variants not set up'),
     passed('forced_variant_release_condition', 'Release conditions that force a variant'),
 ]
 
@@ -30,6 +30,7 @@ const meta: Meta<typeof HealthChecksOverview> = {
         layout: 'centered',
         testOptions: { snapshotBrowsers: ['chromium'] },
     },
+    args: { onFindingActedOn: () => {} },
 }
 export default meta
 
@@ -39,16 +40,15 @@ export const Draft: Story = {
     args: {
         checks: [
             ...FLAG_SETUP_CHECKS,
-            skipped('flag_history', 'Feature flag history', 'not_applicable', 'Runs after launch'),
             skipped(
                 'split_changed_mid_run',
                 'Variant split changes since launch',
                 'not_applicable',
                 'Runs after launch'
             ),
-            skipped('no_metric', 'Metrics', 'not_applicable', 'Runs after launch'),
+            skipped('no_metric', 'Metrics not set up', 'not_applicable', 'Runs after launch'),
         ],
-        notes: [
+        findings: [
             {
                 code: 'new_flag_no_traffic',
                 subcode: null,
@@ -75,11 +75,11 @@ export const DraftWithEventsNotReceived: Story = {
     args: {
         checks: [
             ...FLAG_SETUP_CHECKS,
-            skipped('no_metric', 'Metrics', 'not_applicable', 'Runs after launch'),
-            found('metric_event_not_ingested', 'Metric events'),
-            found('exposure_criteria_cannot_match', 'Exposure criteria'),
+            skipped('no_metric', 'Metrics not set up', 'not_applicable', 'Runs after launch'),
+            found('metric_event_not_ingested', 'Metric events not received yet'),
+            found('exposure_criteria_cannot_match', "Exposure criteria that can't match"),
         ],
-        notes: [
+        findings: [
             {
                 code: 'metric_event_not_ingested',
                 subcode: null,
@@ -112,10 +112,10 @@ export const RunningWithSignificanceOnASmallSample: Story = {
     args: {
         checks: [
             ...FLAG_SETUP_CHECKS,
-            passed('no_metric', 'Metrics'),
-            found('early_significance', 'Sample size behind significant results'),
+            passed('no_metric', 'Metrics not set up'),
+            found('early_significance', 'Significance on a small sample'),
         ],
-        notes: [
+        findings: [
             {
                 code: 'early_significance',
                 subcode: 'below_detectable_effect',
@@ -148,10 +148,33 @@ export const ChecksThatCouldNotRun: Story = {
                 'not_checked',
                 "Couldn't check because you can't view the linked feature flag's history"
             ),
-            passed('no_metric', 'Metrics'),
+            passed('no_metric', 'Metrics not set up'),
         ],
-        notes: [],
+        findings: [],
         isDraft: false,
         exposureChecksMissing: true,
+    },
+}
+
+export const RunningWithAnIssue: Story = {
+    args: {
+        checks: [
+            ...FLAG_SETUP_CHECKS,
+            passed('no_metric', 'Metrics not set up'),
+            found('srm', 'Split of users across variants'),
+        ],
+        findings: [
+            {
+                code: 'srm',
+                subcode: null,
+                severity: 'warning',
+                title: 'Users are not split across variants as configured',
+                detail: "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection.",
+                evidence: { p_value: 0.0002 },
+                actions: [],
+            },
+        ],
+        isDraft: false,
+        exposureChecksMissing: false,
     },
 }

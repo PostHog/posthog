@@ -636,7 +636,7 @@ const trendDays = [
 const observationsTrend = {
     results: [
         {
-            action: { id: '$recording_observed', type: 'events', order: 0, name: '$recording_observed' },
+            order: 0,
             label: 'Observations',
             count: 142,
             data: [8, 11, 9, 14, 10, 12, 7, 13, 9, 11, 10, 8, 12, 8],
@@ -916,8 +916,8 @@ const meta: Meta = {
                 '/api/projects/:team_id/vision/scanners/': scanners,
                 '/api/projects/:team_id/vision/scanners/stats/': scannerStats,
                 '/api/projects/:team_id/vision/scanners/creators/': { creators: [alice, bob] },
-                // One card per reason kind. Only the first carries a key moment, so the rest show no time on the tile.
-                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                // Two picks, then each filler kind. Only the first carries a key moment, so the rest show no time on the tile.
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
                     results: [
                         {
                             observation: observation({
@@ -950,7 +950,7 @@ const meta: Meta = {
                                 },
                                 viewed: false,
                             }),
-                            reason: { kind: 'signal_emitted', signals_count: 2 },
+                            reason: { kind: 'embedding_pick', watch_category: 'failure', similar_count: 0 },
                         },
                         {
                             observation: observation({
@@ -982,7 +982,7 @@ const meta: Meta = {
                                 },
                                 viewed: false,
                             }),
-                            reason: { kind: 'outlier_score', score: 9.5, window_mean: 5.1 },
+                            reason: { kind: 'embedding_pick', watch_category: 'revenue', similar_count: 0 },
                         },
                         {
                             observation: observation({
@@ -1131,107 +1131,7 @@ export const UsageTab: StoryObj = {
     parameters: { pageUrl: `${urls.replayVision()}?tab=usage` },
 }
 
-// The home page lands on the What to watch feed. The viewer created one scanner, so the feed offers the scope tabs.
-export const HomeWatchFeed: StoryObj = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/vision/scanners/': {
-                    ...scanners,
-                    results: scanners.results.map((item, index) =>
-                        index === 0
-                            ? { ...item, created_by: { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id } }
-                            : item
-                    ),
-                },
-            },
-        }),
-    ],
-}
-
-// The jev ranker arm: the same rows as the default arm, plus the reason Jev picked each finding. The
-// first row leads with the scan's notability sentence, the second falls back to the derived headline,
-// and the filler row reads muted with no finding claim or reason.
-export const HomeWatchFeedJevArm: StoryObj = {
-    decorators: [
-        mswDecorator({
-            get: {
-                '/api/projects/:team_id/vision/scanners/watch_feed/': {
-                    ranker: 'jev',
-                    results: [
-                        {
-                            observation: observation({
-                                id: '00000000-0000-0000-0000-0000000000e1',
-                                prompt_question: 'Did the user hesitate at checkout?',
-                                scanner_id: scanners.results[0].id,
-                                scanner_snapshot: {
-                                    name: 'Confused checkout',
-                                    scanner_type: 'monitor',
-                                    scanner_version: 1,
-                                    model: 'gemini-3.8-flash',
-                                    provider: 'google',
-                                    emits_signals: true,
-                                    scanner_config: { prompt: 'Did the user hesitate at checkout?' },
-                                },
-                                scanner_result: {
-                                    model_output: {
-                                        scanner_type: 'monitor',
-                                        verdict: 'yes',
-                                        confidence: 0.92,
-                                        reasoning: 'Retried the payment form twice before completing.',
-                                        key_moment_ms: 154000,
-                                    },
-                                    signals_count: 0,
-                                },
-                                viewed: false,
-                            }),
-                            reason: {
-                                kind: 'jev_watchable',
-                                jev_probability: 0.91,
-                                notability_reason:
-                                    'The card form rejected a valid card three times before the user abandoned the checkout.',
-                                watch_reason: 'visible_error',
-                            },
-                        },
-                        {
-                            observation: observation({
-                                id: '00000000-0000-0000-0000-0000000000e2',
-                                prompt_question: 'How strong is the buying intent in this session?',
-                                scanner_id: scanners.results[3].id,
-                                scanner_snapshot: {
-                                    name: 'Intent score',
-                                    scanner_type: 'scorer',
-                                    scanner_version: 1,
-                                    model: 'gemini-3.8-flash',
-                                    provider: 'google',
-                                    emits_signals: false,
-                                    scanner_config: { prompt: 'Score this session.', scale: { min: 0, max: 10 } },
-                                },
-                                scanner_result: {
-                                    model_output: {
-                                        scanner_type: 'scorer',
-                                        score: 9.5,
-                                        confidence: 0.88,
-                                        reasoning: 'Compared plans, opened billing, invited a teammate.',
-                                    },
-                                    signals_count: 0,
-                                },
-                                viewed: true,
-                            }),
-                            reason: { kind: 'jev_watchable', jev_probability: 0.48, watch_reason: 'success' },
-                        },
-                        {
-                            observation: observation({ id: '00000000-0000-0000-0000-0000000000e3' }),
-                            reason: { kind: 'unviewed_recent' },
-                        },
-                    ],
-                },
-            },
-        }),
-    ],
-}
-
-// The other sessions in the first embedding card's duplicate group, as the scanner's observation list returns them.
+// The other sessions in the first embedding card's feed group, as the scanner's observation list returns them.
 const checkoutGroupMembers = [
     {
         email: 'bob@example.com',
@@ -1283,11 +1183,20 @@ const checkoutGroupMembers = [
     })
 )
 
-// The embedding ranker arm: each pick names its category, and the first stands for seven similar sessions.
-export const HomeWatchFeedEmbeddingArm: StoryObj = {
+// The home page lands on the Highlights feed. Each pick names its category, and the first stands for seven similar
+// sessions. The viewer created one scanner, so the feed offers the scope tabs.
+export const HomeHighlightFeed: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:team_id/vision/scanners/': {
+                    ...scanners,
+                    results: scanners.results.map((item, index) =>
+                        index === 0
+                            ? { ...item, created_by: { ...MOCK_DEFAULT_BASIC_USER, id: MOCK_DEFAULT_USER.id } }
+                            : item
+                    ),
+                },
                 '/api/projects/:team_id/vision/scanners/:id/observations/': {
                     // The group holds seven other sessions, so the preview of five ends with a link to the rest.
                     count: 7,
@@ -1295,8 +1204,7 @@ export const HomeWatchFeedEmbeddingArm: StoryObj = {
                     previous: null,
                     results: checkoutGroupMembers,
                 },
-                '/api/projects/:team_id/vision/scanners/watch_feed/': {
-                    ranker: 'embedding',
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
                     has_more: false,
                     results: [
                         {
@@ -1355,16 +1263,15 @@ export const HomeWatchFeedEmbeddingArm: StoryObj = {
             },
         }),
     ],
-    parameters: { featureFlags: { [FEATURE_FLAGS.VISION_WATCH_FEED_RANKER]: 'embedding' } },
 }
 
 // A quiet window: nothing scored on any source, so the feed pads to three newest clips and says so
 // rather than filling the page with them.
-export const HomeWatchFeedOnlyNewest: StoryObj = {
+export const HomeHighlightFeedOnlyNewest: StoryObj = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/vision/scanners/watch_feed/': {
+                '/api/projects/:team_id/vision/scanners/highlight_feed/': {
                     results: [0, 1, 2].map((i) => ({
                         observation: observation({ id: `00000000-0000-0000-0000-0000000000f${i}` }),
                         reason: { kind: 'unviewed_recent' },
@@ -1375,10 +1282,10 @@ export const HomeWatchFeedOnlyNewest: StoryObj = {
     ],
 }
 
-export const HomeWatchFeedEmpty: StoryObj = {
+export const HomeHighlightFeedEmpty: StoryObj = {
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:team_id/vision/scanners/watch_feed/': { results: [] } },
+            get: { '/api/projects/:team_id/vision/scanners/highlight_feed/': { results: [] } },
         }),
     ],
 }
@@ -2077,7 +1984,7 @@ export const StartupProgramCap: StoryObj = {
     ],
 }
 
-// The goal step: a typed goal and budget on the left, one-click starting points on the right.
+// The goal step: one goal box with starters that fill it, a budget, and a single draft button.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerGoal('new'),
@@ -2401,21 +2308,19 @@ export const ScannerEditorGoalFlowBudget: StoryObj = {
     ],
 }
 
-// "Track an experiment" opened and an experiment picked: the starter lists running experiments and drafts an
-// experiment scanner on the one picked.
+// An experiment picked from the "Track an experiment" chip: the pick fills the goal box, links the experiment
+// to the draft, and the chip shows its name.
 export const ScannerEditorGoalFlowExperimentPicker: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerGoal('new'),
     },
     play: async ({ canvasElement }) => {
-        const canvas = within(canvasElement)
-        await userEvent.click(await canvas.findByText('Track an experiment'))
-        const picker = await waitFor(() => {
-            const button = canvasElement.querySelector('[data-attr="vision-goal-starter-experiment-picker"]')
+        const chip = await waitFor(() => {
+            const button = canvasElement.querySelector('[data-attr="vision-goal-starter-experiment"]')
             expect(button).not.toHaveClass('LemonButton--loading')
             return button as HTMLElement
         })
-        await userEvent.click(picker)
+        await userEvent.click(chip)
         await userEvent.click(await within(document.body).findByText('AI creation flow'))
     },
 }

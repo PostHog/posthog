@@ -486,6 +486,8 @@ Fetched images are partitioned by the key month of their reference.
 | `rrweb-v4`  | `blocks/dt={day}/`                            | One object per recorder flush: sealed blocks, each found by byte range          |
 | `rrweb-v4`  | `index/blocks/dt={day}/`                      | Parquet, one row per block                                                      |
 | `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
+| `rrweb-v4`  | `index/blocks/_watermarks/`                   | JSON, one object per Kafka partition: how far the block index is complete       |
+| `rrweb-v4`  | `index/images/_watermarks/`                   | JSON, one object per Kafka partition: how far the image index is complete       |
 | `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
 | `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
 
@@ -496,7 +498,7 @@ The recorder does not write the two index prefixes itself, as in v3:
 - After a flush stores its packs and blocks, the recorder sends one JSON record per index row to `ai_research_v4_index`. The record's keys are the Parquet column names.
 - The recorder commits without waiting for delivery. A row that is not delivered leaves its block or image stored but not in the index.
 - The v4 Parquet sink reads the topic, groups the rows by index and write day, and writes one file per group and flush as `{ms}-{random}.parquet`. A flush runs every 10 minutes, or at 128 MiB of rows or 1,000,000 rows. The sink commits its offsets only after the files are stored.
-- Index files use four column types: `INT32`, `INT64`, `UTF8` and `BOOLEAN`. Integers are signed. The recorder caps an `INT32` value at the type's range and an `INT64` value at ±(2^53 − 1), so every value is a safe JavaScript integer. It ignores an event timestamp outside the JavaScript date range. Byte counts, offsets and times are `INT64`, the other counts `INT32`. `moments` is a repeated group whose item is named `moments`; an Arrow reader sees a list of structs. `url_fingerprints` and `window_ids` are lists of `UTF8` with no null items. Row groups hold 131072 rows, and every column is snappy-compressed. The sink writes no statistics for `urls`, because a sealed value has no useful order.
+- Index files use four column types: `INT32`, `INT64`, `UTF8` and `BOOLEAN`. Integers are signed. The recorder caps an `INT32` value at the type's range and an `INT64` value at ±(2^53 − 1), so every value is a safe JavaScript integer. It ignores an event timestamp outside the JavaScript date range. Byte counts, offsets and times are `INT64`, the other counts `INT32`. `moments` is a 3-level `LIST` (`moments`, then the repeated group `list`, then the struct `element`), so Athena, Arrow readers and DuckDB see a non-null list of structs. Files written before the sink used that layout hold `moments` as a bare repeated group whose item is named `moments`. Arrow readers and DuckDB read those as the same list of structs, but Athena reads the column as null, because Trino reads a bare repeated group of more than one field as a missing column. Those files expire with the bucket's lifecycle. `url_fingerprints` and `window_ids` are lists of `UTF8` with no null items. Row groups hold 131072 rows, and every column is zstd-compressed at level 9. Older files can still be snappy-compressed and in arrival order until they expire; Parquet records the codec per column chunk, so a reader handles both. The sink writes no statistics for `urls`, because a sealed value has no useful order.
 - The sink can write a row twice after a restart. The copies have the same `flush_id`, so the rule below does not remove them: readers first drop rows that repeat within one `flush_id`.
 
 ### Block index
@@ -515,6 +517,9 @@ Readers drop duplicates with one rule per (`topic`, `partition`), applied to all
 4. Then walk the incomplete flushes in the same order, with the same overlap check. A kept incomplete flush is best effort: some of its blocks are missing from the index, but the blocks it lists are valid.
 
 A flush keeps or loses its whole range. When two flushes overlap, the reader keeps only the one it reaches first, even when their ranges differ in size, so it never merges parts of two flushes.
+
+Each file holds its rows in (`team_id`, `session_id`, `first_ts_ms`) order, with a null `first_ts_ms` last, so the blocks of a session in one file are adjacent and in time order.
+The order holds only within a file. The blocks of a session spread over many files and write days, and a file is usually one row group, so its min and max statistics do not narrow a lookup.
 
 A reader that needs whole sessions selects them by the start time in the session UUIDv7, not by write day:
 
@@ -563,6 +568,46 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - `url_fingerprints` holds up to 10 distinct page URLs of the block as the first 16 hexadecimal characters of an HMAC-SHA256 of the URL. The key is derived from the session key with HKDF-SHA256, empty salt and info `ml-url-fingerprint-key`, so fingerprints can be compared only within one session. They count distinct URLs, where `navigations` counts URL changes.
 - `cold_start` is true when the recorder first sees a session after it started, for example after a partition rebalance, or after it dropped the session's DOM state to stay within its memory budget. Its playability columns then describe only the part of the session the recorder saw.
 
+#### Watermark files
+
+After a flush, the sink writes one JSON file per index and Kafka partition of `ai_research_v4_index`, so a reader can learn from the bucket how far the index is complete:
+
+- `index/blocks/_watermarks/partition={NNNN}.json` for block rows.
+- `index/images/_watermarks/partition={NNNN}.json` for image rows.
+
+`{NNNN}` is the partition number with four digits, for example `partition=0007.json`.
+Each file holds one object:
+
+| Field                       | Meaning                                                                                                                                                                                                                                                                                  |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `partition`                 | The Kafka partition.                                                                                                                                                                                                                                                                     |
+| `complete_up_to_capture_ms` | Every row that the sink read from the partition with an earlier capture time is in an index file in S3. It is the value of `ml_replay_capture_watermark_timestamp_seconds` for the partition, in milliseconds: `data="event_metadata"` for blocks and `data="inline_images"` for images. |
+| `committed_offset`          | The next offset to read on the partition. The sink stored it for commit after it wrote every row below it.                                                                                                                                                                               |
+| `written_at_ms`             | When the sink wrote the file.                                                                                                                                                                                                                                                            |
+
+The capture time of a row is the Kafka timestamp of the replay record that it came from, which the recorder sends in the `capture-timestamp-ms` header.
+The sink writes a file only for a partition that it still owns, and only after a flush wrote the partition's rows and stored its offset.
+A row that the sink holds but has not written keeps the value at or below its capture time.
+The sink rewrites its files once every `WATERMARK_FILE_INTERVAL_MS` (`index-watermark-files.ts`), on the first flush or poll after the interval, also when no rows arrive.
+A value can rise without new rows, because the watermark also counts the rows that it finished in the last `FINISHED_WINDOW_MS` (`capture-watermark.ts`).
+Each write is a plain PUT that replaces the file.
+A failed write does not fail the flush. The sink counts it in `ai_research_v4_parquet_sink_watermark_writes_total`, logs it, and writes the file again after the next interval. A write that the sink aborts because it lost the partition counts as `outcome="cancelled"`.
+S3 expires a file 30 days after its last write, as it does every object in the bucket.
+
+To learn how far an index is complete, a reader:
+
+1. Reads every file under that index's `_watermarks/`.
+2. Takes the minimum `complete_up_to_capture_ms` across the partitions.
+3. Treats a file whose `written_at_ms` is more than about 15 minutes old as a partition that is not progressing: no sink writes it. Its value is still true, but it does not move. A running sink keeps each file it owns at most the rewrite interval plus one poll old.
+
+Some limits apply:
+
+- A partition that delivers no records keeps its last value, as the gauge does, and the sink keeps rewriting its file. So a quiet partition holds the minimum down.
+- When the sink loses a partition, it aborts the partition's watermark writes that are still in flight, retries included. A write that S3 already received can still land. The new owner writes its first file only after its first flush, so the two overlap only if S3 takes longer to apply that write than the new owner takes to flush. The file then holds an older value until the new owner writes again. That value is still true. A full fence is not possible, because the bucket does not let the sink read the file that it replaces.
+- A partition that the sink has not flushed since it started to write these files has no file. A reader that needs every partition compares the number of files with the partition count of the topic.
+- The value covers only the rows that reached the sink. The recorder sends a row only after its own flush stores the block or image, so a row with an earlier capture time can still be in the recorder. A sink that has read all of its topic does not make the index complete.
+- A reader that lists `index/blocks/` or `index/images/` for Parquet files must skip `_watermarks/`. Hive-style readers such as Spark, Athena and pyarrow datasets ignore paths that start with `_`, and a `*.parquet` glob does not match the JSON files.
+
 ### Image index
 
 `index/images/` has one row per inline image in a pack: `team_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
@@ -570,6 +615,7 @@ This holds for the blocks that one recorder process inspected. After a rebalance
 - Each frame in a pack is sealed under the team month key of the write month, as a fetched image is. A session deletion therefore does not make inline images unreadable (see [Deletion](#deletion)).
 - `image_ref` uses the team month image content key, so the same image has the same reference in every session of the team month. A pack holds one frame per distinct reference, so an image that two sessions show in one flush is stored once. A later flush stores it again.
 - A reader resolves an image of a block by (`team_id`, `image_ref`) and opens it with the team month key of `key_month`.
+- The sink writes [watermark files](#watermark-files) for this index too, under `index/images/_watermarks/`.
 
 ### Remote images
 

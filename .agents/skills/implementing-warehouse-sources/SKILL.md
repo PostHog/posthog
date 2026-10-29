@@ -401,19 +401,37 @@ Rules:
 - When you are not sure, keep the default (connection). A setting stored as a connection field still works. A credential marked as a sync setting stays in plain source config.
 - A field in `connection_host_fields` must stay a connection field. The invariant test fails otherwise.
 - Never set `sync_setting=True` on a field that is `secret=True`, a password or a file upload. The invariant test fails otherwise.
-- Every new source and every field change needs the audit CSV regenerated (step 6 of the workflow). The command also rewrites `facade/credential_kinds.py`.
+- Every new source and every field change needs the audit CSV regenerated (step 6 of the workflow). The command also rewrites `facade/credential_kinds.py` and `facade/credential_auth_types.py`.
 - A source that has an OAuth field and an account id field must mark the account id field `account_selector=True`. A test flags the unmarked ones by name.
 
 #### Credential kind
 
-Each source has a credential kind: the `Integration` kind that holds its typed-in credentials. It is at most 32 characters. `sources/common/credential_kind.py` derives it in this order:
+Each source has a credential kind: the `Integration` kind that holds its typed-in credentials. It is at most 32 characters. The source gives it with the `credential_kind` property on its own class. The default on `BaseSource` is:
 
 1. The kind of the source's OAuth field (`SourceFieldOauthConfig.kind`), at any depth.
-2. `EXISTING_KIND_OVERRIDES`, for sources that share the shape of an existing kind (`Postgres` is `postgresql`, `AmazonS3` is `aws-s3`).
-3. `BRAND_CASING_OVERRIDES`, for one-word brands that kebab-case splits (`MySQL` is `mysql`, not `my-sql`).
-4. The kebab-case source type (`AwsCloudTrail` is `aws-cloud-trail`).
+2. Else the kebab-case source type (`AwsCloudTrail` is `aws-cloud-trail`).
 
-The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind. Add an override when a new source needs one of the cases above. The Custom source has no credential kind.
+Override `credential_kind` in your `source.py` when the default is wrong:
+
+- The source has the credential shape of an existing `Integration` kind (`PostgresSource` returns `postgresql`, `AmazonS3Source` returns `aws-s3`).
+- Kebab-case splits a one-word brand name (`MySQLSource` returns `mysql`, not `my-sql`).
+- The source has no credential kind. Return `None` (`CustomSource` does this).
+
+A subclass inherits the override of its parent, so a subclass of an overriding source sets its own kind (`NeonSource` returns `neon`, not the `postgresql` of `PostgresSource`).
+
+The result is frozen in the generated file `facade/credential_kinds.py` (`CREDENTIAL_KINDS`), because a kind is stored data. Never change the kind of a released source. A test fails when the file is out of date, when a kind is longer than 32 characters, or when two source types share a kind.
+
+Each credential kind also has a default auth type: the `credential_auth_type` property on the source class. The default on `BaseSource` (`derive_credential_auth_type` in `sources/common/credential_auth_type.py`) reads the connection fields:
+
+- `oauth`: the source has an OAuth field and no typed-in connection field.
+- `token`: the source has exactly one typed-in field, and it is a secret.
+- `credentials`: every other source.
+
+Override `credential_auth_type` in your `source.py` only when this rule gives the wrong type for the source.
+
+The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `posthog.integrations`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
+
+Both generated files are append-only. A new source adds its entry. A removed source keeps its entry, because rows of its kind can exist. When a change to a source would change a committed kind or default auth type, `generate_source_field_classification` fails and writes nothing. Keep the old value with an override in the source class. If the change is necessary, write a data migration for the stored rows first, then rerun the command with `--allow-changed-defaults`.
 
 #### Reading and writing `job_inputs`
 
@@ -809,6 +827,9 @@ If new:
 
 2. **Integration kind**.
    - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
+   - Add the kind to `KINDS` in `posthog/integrations/catalogue.py`, with `default=_OAUTH`, then run `hogli build:projections --only integration-kinds`.
+     Read and write its rows through the integrations SDK, for example `IntegrationManager.your_source.oauth.get(team_id, integration_id)`.
+     See `posthog/integrations/README.md`.
    - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
    - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
@@ -887,7 +908,7 @@ client where the driver allows it (see `pinned_host_kwargs` in `common/mixins.py
 From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mixins.py`:
 
 - `SSHTunnelMixin` — `with_ssh_tunnel()` context plus `make_ssh_tunnel_func()` for deferred tunnel opening. Both re-check the SSH host and the database host on every open.
-- `OAuthMixin` — `get_oauth_integration()` to pull `Integration` from the DB.
+- `OAuthMixin` — `get_oauth_integration()` to pull the `Integration` row from the DB. It raises `ValueError("Integration not found: <id>")` when the row is gone or is not an OAuth row. Code that reads a row directly uses `IntegrationManager` from `posthog.integrations`, for example `IntegrationManager.google_ads.oauth.get(team_id, integration_id)`, and catches `IntegrationNotFound`. Never use `Integration.objects`.
 - `ValidateDatabaseHostMixin` — `is_database_host_valid()` to block internal VPC IPs (unless SSH tunnel is used).
 
 ## Icons

@@ -59,6 +59,10 @@ class CosmosDBSource(
         return ExternalDataSourceType.COSMOSDB
 
     @property
+    def credential_kind(self) -> str | None:
+        return "cosmosdb"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # The stored key signs every request to this endpoint, so retargeting it must re-require the key.
         return ["account_endpoint"]

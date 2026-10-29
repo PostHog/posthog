@@ -93,6 +93,17 @@ describe('Hog Inputs', () => {
         await closeHub(hub)
     })
 
+    const insertWarehouseIntegration = async (config: unknown): Promise<number> => {
+        const id = team.id + 3
+        await insertIntegration(hub.postgres, team.id, {
+            id,
+            kind: 'postgresql' as any,
+            config: (typeof config === 'string' ? JSON.stringify(config) : config) as any,
+            sensitive_config: { password: hub.encryptedFields.encrypt('secret-password') },
+        })
+        return id
+    }
+
     describe('formatInput', () => {
         it('can handle null values in input objects', async () => {
             const globals = {
@@ -360,6 +371,86 @@ describe('Hog Inputs', () => {
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
             expect(inputs.connection).toBeNull()
+        })
+
+        it.each([
+            ['a marker with a string value', { warehouse_source_type: 'Postgres', host: 'db.example.com' }],
+            ['a marker with an empty string', { warehouse_source_type: '', host: 'db.example.com' }],
+            ['a marker with a null value', { warehouse_source_type: null, host: 'db.example.com' }],
+            ['a config that is a string', 'host=db.example.com'],
+            ['a config that is an array', ['db.example.com']],
+        ])('blocks an integration with %s', async (_name, config) => {
+            const warehouseId = await insertWarehouseIntegration(config)
+            hogFunction.inputs = { connection: { value: warehouseId } }
+            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+
+            const error = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+
+            expect(error.message).toContain("The integration for input 'connection' can't be used as a function input.")
+            expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
+            const loaded = await hogInputsService.loadIntegrationInputs(hogFunction)
+            expect(loaded.connection.value).toBeNull()
+        })
+
+        it.each([
+            ['integration', "The integration for input 'connection' no longer exists."],
+            ['integration_multi', null],
+        ])("treats another team's warehouse row like a missing row for an %s input", async (type, message) => {
+            const otherTeam = (await createTestTeamFixture(hub.postgres)).team
+            const foreignId = 100000000 + otherTeam.id
+            const missingId = foreignId + 1
+            await insertIntegration(hub.postgres, otherTeam.id, {
+                id: foreignId,
+                kind: 'postgresql' as any,
+                config: { warehouse_source_type: 'Postgres', host: 'db.example.com' },
+                sensitive_config: { password: hub.encryptedFields.encrypt('secret-password') },
+            })
+            const run = async (id: number): Promise<any> => {
+                hogFunction.inputs = { connection: { value: type === 'integration' ? id : [integrationId1, id] } }
+                hogFunction.inputs_schema = [{ key: 'connection', type: type as any, required: true }]
+                return hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+            }
+
+            const foreign = await run(foreignId)
+            const missing = await run(missingId)
+
+            if (message) {
+                expect(missing.message).toContain(message)
+                expect(foreign.message).toBe(missing.message)
+            } else {
+                expect(missing).not.toBeInstanceOf(Error)
+                expect(foreign).toEqual(missing)
+            }
+            expect(foreign.message ?? '').not.toContain("can't be used as a function input")
+        })
+
+        it.each([
+            ['no marker', { team: 'foobar' }],
+            ['a null config', null],
+        ])('loads an integration with %s', async (_name, config) => {
+            const warehouseId = await insertWarehouseIntegration({ team: 'foobar' })
+            if (config === null) {
+                const row = (await hub.integrationManager.getMany([warehouseId]))[warehouseId]
+                jest.spyOn(hub.integrationManager, 'getMany').mockResolvedValue({
+                    [warehouseId]: { ...row!, config: null as any },
+                })
+            }
+            hogFunction.inputs = { connection: { value: warehouseId } }
+            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.connection).toMatchObject({ $integration_id: warehouseId, password: 'secret-password' })
+        })
+
+        it('fails an integration_multi input that holds a marked row', async () => {
+            const warehouseId = await insertWarehouseIntegration({ warehouse_source_type: 'Postgres' })
+            hogFunction.inputs = { channels: { value: [integrationId1, warehouseId] } }
+            hogFunction.inputs_schema = [{ key: 'channels', type: 'integration_multi', required: true }]
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toThrow(
+                "The integration for input 'channels' can't be used as a function input."
+            )
         })
 
         it.each([

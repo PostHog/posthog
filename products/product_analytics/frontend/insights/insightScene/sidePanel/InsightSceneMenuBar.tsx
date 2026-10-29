@@ -31,7 +31,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -72,6 +71,10 @@ import {
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+import {
+    INSIGHT_GRAPH_SELECTOR,
+    INSIGHT_SCREENSHOT_KEY,
+} from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
 import { insightModalsLogic } from '../insightModalsLogic'
