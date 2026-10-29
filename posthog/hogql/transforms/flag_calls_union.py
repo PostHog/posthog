@@ -153,10 +153,10 @@ def _typed_materialized_property(union: Table, chains: list[list[str | int]], co
     from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns_by_table  # noqa: PLC0415
 
     materialized = get_enabled_materialized_columns_by_table().get("events", {})
-    for column, key in sorted(reads):
-        backing = materialized.get((key, cast(TableColumn, column)))
+    for read in sorted(reads, key=lambda read: (read.column, read.key)):
+        backing = materialized.get((read.key, cast(TableColumn, read.column)))
         if backing is not None and parse_sql_runtime_type(backing.type).family != "string":
-            return f"it reads {key}, which events stores in a {backing.type} column"
+            return f"it reads {read.key}, which events stores in a {backing.type} column"
     return None
 
 

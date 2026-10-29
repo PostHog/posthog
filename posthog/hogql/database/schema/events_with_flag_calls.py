@@ -20,6 +20,8 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import GetFieldsTraverser
 
+from posthog.dataclasses import frozen
+
 EVENTS_WITH_FLAG_CALLS_TABLE = "events_with_flag_calls"
 EVENTS_WITH_FLAG_CALLS_CHAIN: list[str] = ["posthog", EVENTS_WITH_FLAG_CALLS_TABLE]
 
@@ -52,13 +54,21 @@ def _is_expression(table: Table, chain: list[str | int]) -> bool:
     return isinstance(_field(table, chain)[0], ExpressionField)
 
 
-def property_read(table: Table, chain: list[str | int]) -> tuple[str, str] | None:
-    """The stored JSON column and the top-level key that `chain` reads on `table`, or None when it reads no property."""
+@frozen
+class PropertyRead:
+    """A property that a chain reads: the stored JSON column, and the top-level key in it."""
+
+    column: str
+    key: str
+
+
+def property_read(table: Table, chain: list[str | int]) -> PropertyRead | None:
+    """The property that `chain` reads on `table`, or None when it reads no property."""
     field, rest = _field(table, chain)
     column = _column_name(field)
     if not isinstance(field, StringJSONDatabaseField) or column is None or not rest:
         return None
-    return column, str(rest[0])
+    return PropertyRead(column=column, key=str(rest[0]))
 
 
 def column_chains(table: Table, chain: list[str | int]) -> list[list[str | int]]:
