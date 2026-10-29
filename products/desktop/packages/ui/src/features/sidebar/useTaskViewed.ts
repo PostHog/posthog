@@ -73,10 +73,10 @@ export function useTaskViewed() {
     }) => hostClient.workspace.markUnread.mutate({ taskId, activityAt }),
     onMutate: async ({ taskId, activityAt }) => {
       await queryClient.cancelQueries({ queryKey: timestampsQueryKey });
-      const previous =
+      const previousLastViewedAt =
         queryClient.getQueryData<Record<string, RawTaskTimestamp>>(
           timestampsQueryKey,
-        );
+        )?.[taskId]?.lastViewedAt ?? null;
       const lastViewedAt = new Date(activityAt - 1).toISOString();
       queryClient.setQueryData<Record<string, RawTaskTimestamp>>(
         timestampsQueryKey,
@@ -89,12 +89,25 @@ export function useTaskViewed() {
           },
         }),
       );
-      return { previous };
+      return { previousLastViewedAt, lastViewedAt };
     },
-    onError: (_, __, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(timestampsQueryKey, context.previous);
-      }
+    // Roll back only this task's field. Other tasks' updates and a newer view of
+    // this task can land while the request is in flight, and must survive.
+    onError: (_, { taskId }, context) => {
+      if (!context) return;
+      queryClient.setQueryData<Record<string, RawTaskTimestamp>>(
+        timestampsQueryKey,
+        (current) => {
+          const entry = current?.[taskId];
+          if (!current || entry?.lastViewedAt !== context.lastViewedAt) {
+            return current;
+          }
+          return {
+            ...current,
+            [taskId]: { ...entry, lastViewedAt: context.previousLastViewedAt },
+          };
+        },
+      );
     },
   });
 
