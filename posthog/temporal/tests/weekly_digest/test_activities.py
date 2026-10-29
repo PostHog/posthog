@@ -672,13 +672,14 @@ WEBHOOK_SETTINGS = {
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "dry_run,already_sent,flag_enabled,webhook_configured,expected_route",
+    "dry_run,already_sent,flag_enabled,webhook_configured,has_distinct_id,expected_route",
     [
-        (False, False, False, True, "customer_io"),
-        (False, False, True, True, "workflows"),
-        (False, False, True, False, "customer_io"),
-        (True, False, True, True, None),
-        (False, True, True, True, None),
+        (False, False, False, True, True, "customer_io"),
+        (False, False, True, True, True, "workflows"),
+        (False, False, True, True, False, "workflows"),
+        (False, False, True, False, True, "customer_io"),
+        (True, False, True, True, True, None),
+        (False, True, True, True, True, None),
     ],
 )
 def test_send_weekly_digest_batch_emails_subscribed_members_once(
@@ -686,6 +687,7 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
     already_sent,
     flag_enabled,
     webhook_configured,
+    has_distinct_id,
     expected_route,
     organization,
     team,
@@ -694,6 +696,9 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
     digest,
 ):
     subscribed = create_user(organization, "subscribed@example.com")
+    if not has_distinct_id:
+        User.objects.filter(id=subscribed.id).update(distinct_id=None)
+        subscribed.refresh_from_db()
     create_user(organization, "unsubscribed@example.com")
     redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
     redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
@@ -745,7 +750,7 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
             "Idempotency-Key": f"{digest.key}:{subscribed.id}",
         }
         assert post.kwargs["json"]["event"] == "weekly digest ready"
-        assert post.kwargs["json"]["distinct_id"] == subscribed.distinct_id
+        assert post.kwargs["json"]["distinct_id"] == (subscribed.distinct_id or subscribed.email)
         properties = post.kwargs["json"]["properties"]
         assert properties["to"] == subscribed.email
     (team_payload,) = properties["teams"]
