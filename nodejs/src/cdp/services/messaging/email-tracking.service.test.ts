@@ -23,6 +23,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
+import { EmailSuppressionService } from './email-suppression.service'
 import {
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
@@ -857,6 +858,38 @@ describe('EmailTrackingService', () => {
                 },
             ])
         })
+
+        // The webhook write and the pre-send read are covered separately. This joins them end to end:
+        // a real SES envelope over the HTTP route, then the check every email step runs before sending.
+        // It fails if a Permanent bounce stops marking the row, which would keep sending transactional
+        // email to a dead address, or if a soft bounce or complaint starts marking it, which would drop
+        // invoices and password resets for a working address.
+        it.each([
+            ['a transient bounce', postTransientBounce, false],
+            ['a complaint', postComplaint, false],
+            ['a permanent bounce', postPermanentBounce, true],
+        ] as const)(
+            '%s suppresses marketing email, and blocks transactional email only for a hard bounce',
+            async (_label, postWebhook, blocksTransactional) => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                )
+                const email = 'send-decision@example.com'
+
+                const res = await postWebhook(hogFlow.id, email)
+                expect(res.status).toBe(200)
+
+                const suppression = new EmailSuppressionService(hub.postgres, {
+                    transientBounceThreshold: hub.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
+                })
+
+                expect(await suppression.isSuppressed(team.id, email)).toBe(true)
+                expect(await suppression.isSuppressed(team.id, email, { transactional: true })).toBe(
+                    blocksTransactional
+                )
+            }
+        )
     })
 
     describe('resolveEmailEngagementDistinctId', () => {
