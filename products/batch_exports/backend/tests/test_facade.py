@@ -10,6 +10,7 @@ from temporalio.client import Client
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.integrations import IntegrationNotFound
 from posthog.models import Integration, User
 from posthog.temporal.common.client import sync_connect
 
@@ -427,7 +428,7 @@ def test_destination_test_step_refuses_an_integration_from_another_team(team, or
 
     with (
         mock.patch("products.batch_exports.backend.destination_tests.get_destination_test"),
-        pytest.raises(Integration.DoesNotExist),
+        pytest.raises(IntegrationNotFound),
     ):
         api.run_destination_test_step(
             team.pk,
