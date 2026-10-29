@@ -237,9 +237,13 @@ class ExposureSegment:
 
     dimension: ExposureSegmentDimension
     # The property's value on the first exposure. BREAKDOWN_NULL_STRING_LABEL when the event has none, and
-    # BREAKDOWN_OTHER_STRING_LABEL for the values outside the largest segments of the dimension.
+    # BREAKDOWN_OTHER_STRING_LABEL for the values outside the largest segments of the dimension. The version in the
+    # library version dimension.
     value: str
     exposed_by_variant: Mapping[str, int]
+    # The library of a library version segment, also BREAKDOWN_NULL_STRING_LABEL when the event has none. None in the
+    # other dimensions and in the BREAKDOWN_OTHER_STRING_LABEL segment.
+    library: str | None = None
 
 
 @frozen

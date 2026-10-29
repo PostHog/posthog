@@ -736,10 +736,12 @@ export function ControlledDefinitionPopover({
     highlightedItemElement,
     definitionPopoverRenderer,
 }: ControlledDefinitionPopoverContentsProps): JSX.Element | null {
-    const { state, singularType, definition } = useValues(definitionPopoverLogic)
+    const { state, singularType } = useValues(definitionPopoverLogic)
     const { setDefinition } = useActions(definitionPopoverLogic)
 
-    const icon = group.getIcon?.(definition || item)
+    // Not definition: the effect below syncs it after render, so for one render it can hold another group's
+    // row, and a getIcon that reads its own row shape ("On this page" reads option.icon) then crashes.
+    const icon = group.getIcon?.(item)
 
     // Supports all types specified in selectedItemHasPopover
     // Pinned items store minimal data ({ name }) so the source group's getValue may not
