@@ -23,7 +23,8 @@ class ConfigIncomplete(Exception):
     pass
 
 
-def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id: int | None) -> dict[str, Any]:
+def resolve_app_api_key(team_id: int, app_api_key: str | None) -> str:
+    """The App API key to import with: the one sent, or the stored one when none is sent."""
     integration = Integration.objects.filter(team_id=team_id, kind="customerio-app").first()
     api_key = app_api_key or (integration.sensitive_config.get("app_api_key") if integration else None)
 
@@ -33,6 +34,12 @@ def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id:
     if integration and app_api_key:
         raise ConfigConflict("Integration already exists. Delete it first to use a different key.")
 
+    return api_key
+
+
+def save_app_integration(team_id: int, api_key: str, created_by_id: int | None) -> Integration:
+    """Store the App API key on first use and link it to the sync config. Returns the stored integration."""
+    integration = Integration.objects.filter(team_id=team_id, kind="customerio-app").first()
     if not integration:
         integration = Integration.objects.create(
             team_id=team_id,
@@ -45,6 +52,18 @@ def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id:
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
     config.app_integration = integration
     config.save(update_fields=["app_integration"])
+    return integration
+
+
+def stored_app_api_key(team_id: int, integration_id: int) -> str | None:
+    integration = Integration.objects.filter(team_id=team_id, kind="customerio-app", id=integration_id).first()
+    return integration.sensitive_config.get("app_api_key") if integration else None
+
+
+def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id: int | None) -> dict[str, Any]:
+    api_key = resolve_app_api_key(team_id, app_api_key)
+    save_app_integration(team_id, api_key, created_by_id)
+    config = OptOutSyncConfig.objects.get(team_id=team_id)
 
     # Run import synchronously
     result = CustomerIOImportService(team_id=team_id, api_key=api_key, created_by_id=created_by_id).import_api_data()
@@ -56,6 +75,8 @@ def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id:
             "imported_at": timezone.now().isoformat(),
             "categories_created": result.get("categories_created", 0),
             "globally_unsubscribed_count": result.get("globally_unsubscribed_count", 0),
+            "suppressions_imported": result.get("suppressions_imported", 0),
+            "errors": result.get("errors", []),
         }
     else:
         errors = result.get("errors", [])

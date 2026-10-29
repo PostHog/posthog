@@ -271,6 +271,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     pinnedRecordings={pinnedRecordings ?? []}
                     updateSearchParams={true}
                     type={playlist.type === 'filters' ? 'filters' : 'collection'}
+                    watchLayout
                     isSynthetic={playlist.is_synthetic}
                     description={playlist.description}
                 />

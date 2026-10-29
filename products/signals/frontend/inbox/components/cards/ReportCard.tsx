@@ -24,6 +24,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
+import { ReportClaimTag } from '../badges/ReportClaimTag'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import {
@@ -272,6 +273,7 @@ function ReportCardRaw({
                             </LemonTag>
                         </Tooltip>
                     )}
+                    {!isDismissed && !isResolved && <ReportClaimTag report={report} />}
                     <SignalReportBillingBadge report={report} />
                     {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
                     {!showImpactColumn && (

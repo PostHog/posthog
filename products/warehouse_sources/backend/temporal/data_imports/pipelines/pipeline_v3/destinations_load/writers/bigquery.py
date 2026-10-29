@@ -119,7 +119,9 @@ def _ddl_type(field: bigquery.SchemaField) -> str:
     base = (
         f"STRUCT<{', '.join(f'{_backtick(sub.name)} {_ddl_type(sub)}' for sub in field.fields)}>"
         if field.field_type in ("RECORD", "STRUCT")
-        else field.field_type
+        # DDL only accepts the standard SQL type names: FLOAT has no DDL alias, unlike INTEGER
+        # (INT64) and BOOLEAN (BOOL), so an unmapped FLOAT fails the ALTER TABLE outright.
+        else _STANDARD_BIGQUERY_TYPE.get(field.field_type, field.field_type)
     )
     return f"ARRAY<{base}>" if field.mode == "REPEATED" else base
 
@@ -208,9 +210,11 @@ class BigQueryDestinationWriter:
         if self._ctx.integration_id is None:
             raise ValueError(f"Destination {self._ctx.destination_name} has no integration to connect with")
 
-        from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
+        from posthog.integrations import IntegrationManager  # noqa: PLC0415 — avoids a model import cycle
 
-        integration = Integration.objects.get(id=self._ctx.integration_id, team_id=self._ctx.team_id)
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(
+            self._ctx.team_id, self._ctx.integration_id
+        )
         google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
         if not google_cloud_integration.has_key():
             # Keyless means PostHog impersonates the team's service account instead of holding

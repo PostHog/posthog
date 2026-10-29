@@ -22,10 +22,11 @@ class TestModelUsageValidation(SimpleTestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn(field, serializer.errors)
 
-    def test_rejects_unknown_engine(self) -> None:
-        serializer = ModelUsageQuerySerializer(data={"engine": "duckgres"})
+    @parameterized.expand([("engine", "duckgres"), ("sort_by", "saved_query__team_id"), ("sort_direction", "up")])
+    def test_rejects_unknown_choice(self, field: str, value: str) -> None:
+        serializer = ModelUsageQuerySerializer(data={field: value})
         self.assertFalse(serializer.is_valid())
-        self.assertIn("engine", serializer.errors)
+        self.assertIn(field, serializer.errors)
 
     @parameterized.expand(
         [
@@ -272,6 +273,63 @@ class TestModelUsage(WarehouseAccessControlTestMixin):
         self.assertTrue(results[0]["models"][0]["deleted"])
         self.assertEqual([data["overview"]["read_bytes"] for data in results], [2000] * 4)
         self.assertEqual([data["count"] for data in results], [4] * 4)
+
+    def test_sorts_all_columns_before_pagination(self) -> None:
+        finished = datetime(2026, 10, 15, 20, tzinfo=UTC)
+        for index, name in enumerate(["zebra", "Alpha", "beta", ""]):
+            model = DataWarehouseSavedQuery.objects.create(team=self.team, name=name)
+            for engine, read_bytes in [
+                ("clickhouse", [10, 30, 20, None][index]),
+                ("managed_warehouse", [60, 10, 25, None][index]),
+            ]:
+                DataModelingJob.objects.create(
+                    team=self.team,
+                    saved_query=model,
+                    engine=engine,
+                    status="Completed",
+                    last_run_at=finished,
+                    read_bytes=read_bytes,
+                    cpu_microseconds=[200, 100, 300, None][index],
+                    usage_updated_at=finished if read_bytes is not None else None,
+                )
+            for _ in range(index):
+                DataModelingJob.objects.create(team=self.team, saved_query=model, status="Failed", last_run_at=finished)
+
+        ascending = {
+            "name": ["Alpha", "beta", "Deleted model", "zebra"],
+            "read_bytes": ["Alpha", "beta", "zebra", "Deleted model"],
+            "clickhouse_read_bytes": ["zebra", "beta", "Alpha", "Deleted model"],
+            "managed_warehouse_read_bytes": ["Alpha", "beta", "zebra", "Deleted model"],
+            "cpu_microseconds": ["Alpha", "zebra", "beta", "Deleted model"],
+            "runs": ["zebra", "Alpha", "beta", "Deleted model"],
+        }
+        for sort_by, names in ascending.items():
+            for direction in ["asc", "desc"]:
+                expected = (
+                    names
+                    if direction == "asc"
+                    else (
+                        list(reversed(names))
+                        if sort_by in ["name", "runs"]
+                        else [*reversed(names[:-1]), "Deleted model"]
+                    )
+                )
+                with self.subTest(sort_by=sort_by, direction=direction):
+                    results = [
+                        self.client.get(
+                            f"/api/projects/{self.team.id}/data_modeling_usage/",
+                            {
+                                "engine": "all",
+                                "sort_by": sort_by,
+                                "sort_direction": direction,
+                                "page_size": 2,
+                                "page": page,
+                            },
+                        ).json()
+                        for page in [1, 2]
+                    ]
+                    self.assertEqual([row["name"] for data in results for row in data["models"]], expected)
+                    self.assertEqual(results[0]["overview"], results[1]["overview"])
 
     def test_custom_date_range_is_inclusive_and_excludes_today(self) -> None:
         model = DataWarehouseSavedQuery.objects.create(team=self.team, name="custom_range")

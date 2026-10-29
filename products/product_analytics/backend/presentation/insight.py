@@ -1,6 +1,8 @@
 import json
 import builtins
+from collections import defaultdict
 from collections.abc import Sequence
+from copy import deepcopy
 from datetime import datetime, timedelta
 from functools import lru_cache
 from typing import Any, Union, cast
@@ -83,6 +85,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.hogql_queries.query_runner import ExecutionMode, enforce_api_queries_budget
 from posthog.hogql_queries.refresh_policy import ComputeSurface, resolve_execution_mode
+from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
@@ -100,6 +103,7 @@ from posthog.models.activity_logging.activity_page import (
     activity_page_response,
     parse_activity_page_params,
 )
+from posthog.models.file_system.file_system import delete_files
 from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
@@ -604,6 +608,11 @@ class InsightSerializer(InsightBasicSerializer):
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
+    action_names = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The name of each action the insight's series reference, keyed by action id. A series saved without "
+        "a name displays this name.",
+    )
     query_scan = serializers.SerializerMethodField(
         read_only=True,
         help_text="What ClickHouse read for this insight's last slow run, with the findings of its query scan.",
@@ -660,6 +669,7 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "resolved_date_range",
+            "action_names",
             "query_scan",
             "warnings",
             "_create_in_folder",
@@ -1121,6 +1131,10 @@ class InsightSerializer(InsightBasicSerializer):
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
 
+    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
+    def get_action_names(self, insight: Insight):
+        return self.insight_result(insight).action_names
+
     @extend_schema_field(OpenApiTypes.ANY)
     def get_query_scan(self, insight: Insight):
         # A shared insight is read from outside the project, and the scan describes the
@@ -1305,6 +1319,11 @@ class InsightSerializer(InsightBasicSerializer):
             entry = QueryCache(team_id=insight.team_id, cache_key=expected_cache_key).lookup().entry
             cached_response = entry.as_full_response() if entry else None
             if cached_response:
+                action_names = cached_response.get("action_names")
+                if action_names is None and isinstance(insight.query, dict):
+                    # An entry cached before responses carried `action_names` lacks the field, and this shortcut
+                    # skips the runner that fills it on a cache hit.
+                    action_names = get_response_action_names(insight.team, upgrade(deepcopy(insight.query)))
                 return InsightResult(
                     result=cached_response.get("results"),
                     has_more=cached_response.get("hasMore"),
@@ -1319,6 +1338,7 @@ class InsightSerializer(InsightBasicSerializer):
                     query_status=cached_response.get("query_status"),
                     hogql=cached_response.get("hogql"),
                     types=cached_response.get("types"),
+                    action_names=action_names,
                     query_scan=cached_response.get("query_scan"),
                     warnings=cached_response.get("warnings"),
                 )
@@ -2754,7 +2774,7 @@ When set, the specified dashboard's filters and date range override will be appl
         insights = list(
             Insight.objects_including_soft_deleted.filter(
                 id__in=ids, team__project_id=self.team.project_id, deleted=deleted
-            )
+            ).select_related("team")
         )
         found_ids = {insight.id for insight in insights}
         skipped: list[dict[str, Any]] = [
@@ -2813,6 +2833,13 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=True, last_modified_at=now(), last_modified_by=current_user)
+                refs_by_team: dict[int, list[str]] = defaultdict(list)
+                teams = {}
+                for insight in insights:
+                    teams[insight.team_id] = insight.team
+                    refs_by_team[insight.team_id].append(insight.short_id)
+                for team_id, refs in refs_by_team.items():
+                    delete_files(team=teams[team_id], file_type="insight", refs=refs)
                 # Match InsightSerializer.update: hide the insights' tiles and remove linked alerts.
                 hide_tiles_for_insights(insight_ids)
                 delete_insight_alerts(insight_ids)
@@ -2865,6 +2892,11 @@ When set, the specified dashboard's filters and date range override will be appl
                 Insight.objects_including_soft_deleted.filter(
                     id__in=insight_ids, team__project_id=self.team.project_id
                 ).update(deleted=False, last_modified_at=now(), last_modified_by=current_user)
+                restored_insights = Insight.objects.filter(
+                    id__in=insight_ids, team__project_id=self.team.project_id
+                ).select_related("team")
+                for insight in restored_insights:
+                    insight.sync_file_system()
                 restore_tiles_for_insights(insight_ids, user_access_control=self.user_access_control)
 
                 activity_log_entries: list[LogActivityEntry] = []

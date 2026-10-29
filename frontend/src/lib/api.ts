@@ -1898,10 +1898,6 @@ export class ApiRequest {
         return this.teamProjectDetail().addPathComponent('messaging_categories')
     }
 
-    public messagingCategoriesImportFromCustomerIO(): ApiRequest {
-        return this.messagingCategories().addPathComponent('import_from_customerio')
-    }
-
     public messagingCategoriesOptOutSyncConfig(): ApiRequest {
         return this.messagingCategories().addPathComponent('optout_sync_config')
     }

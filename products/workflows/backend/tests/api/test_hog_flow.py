@@ -39,6 +39,16 @@ from products.cdp.backend.flag_gated_templates import gated_template_enabled
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cohorts.backend.models.backfill import (
+    CohortBackfillChunk,
+    CohortBackfillChunkStatus,
+    CohortBackfillKind,
+    CohortBackfillRun,
+    CohortBackfillRunCohort,
+    CohortBackfillRunStatus,
+    CohortBackfillScope,
+    CohortBackfillTrigger,
+)
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.feature_flags.backend.user_blast_radius import BlastRadiusResult
 from products.messaging.backend.facade.categories import update_category
@@ -56,6 +66,7 @@ from products.workflows.backend.presentation.views.hog_flow import (
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
+from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
 _WIDER_AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "@", "operator": "icontains"}
@@ -192,6 +203,36 @@ class TestHogFlowAPI(APIBaseTest):
         }
 
         return hog_flow, action
+
+    @parameterized.expand(
+        [
+            ("empty list", [], 400),
+            ("empty object", {}, 400),
+            ("zero", 0, 400),
+            ("false", False, 400),
+            ("a channel", "provider", 201),
+        ]
+    )
+    def test_an_active_push_step_needs_a_channel(self, _name: str, channels: Any, expected_status: int) -> None:
+        sync_template_to_db(_push_function_template())
+        provider = Integration.objects.create(team=self.team, kind="firebase", config={})
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-native-push",
+                "inputs": {
+                    "distinctId": {"value": "{event.distinct_id}"},
+                    "channels": {"value": [provider.id] if channels == "provider" else channels},
+                    "title": {"value": "Hi"},
+                },
+            }
+        )
+        hog_flow["actions"][1]["type"] = "function_push"
+
+        active = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+
+        assert active.status_code == expected_status, active.json()
+        assert draft.status_code == 201, draft.json()
 
     @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
     def test_emits_resource_edited_on_create_and_update(self, mock_emit):
@@ -731,6 +772,37 @@ class TestHogFlowAPI(APIBaseTest):
     def test_list_filter_by_broadcast_status_rejects_unknown_values(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?broadcast_status=paused")
         assert response.status_code == 400
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_list_latest_send_first_orders_by_run_completion_not_edit_time(self, _mock_dispatch):
+        def create(name: str, finished_minutes_ago: int | None) -> None:
+            flow = HogFlow.objects.create(
+                team=self.team, name=name, created_by=self.user, origin_product="broadcasts", status="active"
+            )
+            if finished_minutes_ago is not None:
+                job = HogFlowBatchJob.objects.create(
+                    team=self.team, hog_flow=flow, status="completed", filters={}, variables={}
+                )
+                HogFlowBatchJob.objects.filter(pk=job.pk).update(
+                    updated_at=timezone.now() - timedelta(minutes=finished_minutes_ago)
+                )
+
+        # Created, and so edited, in the reverse of the order their runs finished.
+        create("Finished last", finished_minutes_ago=1)
+        create("Finished first", finished_minutes_ago=30)
+        create("Never ran", finished_minutes_ago=None)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows?broadcast_status=sent&latest_send_first=true&limit=1"
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["count"] == 2
+        assert [flow["name"] for flow in response.json()["results"]] == ["Finished last"]
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?latest_send_first=true")
+        assert [flow["name"] for flow in response.json()["results"]] == ["Finished last", "Finished first", "Never ran"]
 
     def test_list_field_filter_rejection_keeps_the_validation_code(self):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows?status=invalid-status")
@@ -2208,6 +2280,91 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert expected_error in response.json()["detail"]
+
+    def _start_cohort_history_build(self, cohort: Cohort, *, chunks_total: int, chunks_confirmed: int) -> None:
+        run = CohortBackfillRun.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            cohort=cohort,
+            backfill_kind=CohortBackfillKind.BEHAVIORAL,
+            trigger_kind=CohortBackfillTrigger.COHORT_CREATED,
+            scope=CohortBackfillScope.COHORT,
+            status=CohortBackfillRunStatus.SEEDING,
+            timezone="UTC",
+        )
+        CohortBackfillRunCohort.objects.for_team(self.team.id).create(
+            run=run, team_id=self.team.id, cohort=cohort, filters_shape_hash="shape", pinned_filters=cohort.filters
+        )
+        for index in range(chunks_total):
+            CohortBackfillChunk.objects.for_team(self.team.id).create(
+                run=run,
+                team_id=self.team.id,
+                day=timezone.now().date() - timedelta(days=index),
+                status=(
+                    CohortBackfillChunkStatus.CONFIRMED
+                    if index < chunks_confirmed
+                    else CohortBackfillChunkStatus.PENDING
+                ),
+            )
+
+    def _draft_referencing_cohort(self, reference: str, cohort_id: int) -> dict:
+        if reference == "trigger":
+            flow = self._cohort_trigger_flow({"cohort_id": cohort_id, "transition": "entered"})
+        else:
+            flow = self._hog_flow_with_condition_filters(
+                "conditional_branch", {"properties": [{"key": "id", "type": "cohort", "value": cohort_id}]}
+            )
+        return {**flow, "status": "draft"}
+
+    @parameterized.expand(
+        [
+            ("cohort_trigger", "trigger", "trigger_1"),
+            ("conditional_branch", "condition", "cond_1"),
+        ]
+    )
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_draft_saves_with_calculating_cohort_and_enable_waits_for_it(self, _name, reference, step_name, _mock_flag):
+        cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=False)
+        self._start_cohort_history_build(cohort, chunks_total=4, chunks_confirmed=1)
+
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            self._draft_referencing_cohort(reference, cohort.id),
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert created.status_code == 201, created.json()
+
+        enabled = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}", {"status": "active"}
+        )
+
+        assert enabled.status_code == 400, enabled.json()
+        assert enabled.json()["detail"] == (
+            f"Can't enable this workflow yet. Step '{step_name}': Cohort {cohort.id} is still calculating "
+            "(25% done). Workflows can use it once it finishes."
+        )
+
+    @parameterized.expand(
+        [
+            ("non_realtime_trigger", "trigger", "non_realtime"),
+            ("non_realtime_condition", "condition", "non_realtime"),
+            ("off_pipeline_trigger", "trigger", "off_pipeline"),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
+    def test_draft_rejects_cohort_that_can_never_finish(self, _name, reference, cohort_kind, _mock_flag):
+        cohort_type = None if cohort_kind == "non_realtime" else CohortType.REALTIME
+        cohort = self._create_behavioral_cohort(cohort_type, backfilled=False)
+
+        with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none" if cohort_kind == "off_pipeline" else "all"):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows",
+                self._draft_referencing_cohort(reference, cohort.id),
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "isn't ready for realtime evaluation" in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_trigger_after_flag_dial_down(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
@@ -6583,9 +6740,8 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
             ("clicks", "email_link_clicked", "click rate", 0.25),
         ]
     )
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     def test_a_suggestion_carries_what_posthog_measured_next_to_what_it_claimed(
-        self, _name, named_metric, expected_label, expected_value, _mock_flag
+        self, _name, named_metric, expected_label, expected_value
     ):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
@@ -6653,10 +6809,7 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
             ("reversed", "{end}/{start}", 157, "-7d"),
         ]
     )
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
-    def test_posthog_measures_the_window_the_suggestion_names(
-        self, _name, window, expected_sends, expected_window, _mock_flag
-    ):
+    def test_posthog_measures_the_window_the_suggestion_names(self, _name, window, expected_sends, expected_window):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )
@@ -6721,12 +6874,11 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         assert measured["target"]["n"] == expected_sends
         assert measured["window"] == expected_window.format(**bounds)
 
-    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     @patch(
         "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
         side_effect=Exception("clickhouse is down"),
     )
-    def test_a_producer_cannot_pass_off_its_own_numbers_as_posthogs(self, _mock_totals, _mock_flag):
+    def test_a_producer_cannot_pass_off_its_own_numbers_as_posthogs(self, _mock_totals):
         HogFlow.objects.filter(id=self.flow.id).update(
             actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
         )

@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-26 20:03:05 UTC
+// Generated at: 2026-10-29 10:04:42 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -110,7 +110,6 @@ export type CanonicalProvider =
     | 'google-vertex-us'
     | 'google-vertex-us-central1'
     | 'google-vertex-us-east5'
-    | 'google-vertex-us-south1'
     | 'groq'
     | 'inception'
     | 'inceptron-fp4'
@@ -126,7 +125,6 @@ export type CanonicalProvider =
     | 'io-net'
     | 'io-net-bf16'
     | 'io-net-fp16'
-    | 'io-net-fp4'
     | 'io-net-fp8'
     | 'io-net-nvfp4'
     | 'ionstream'
@@ -135,6 +133,7 @@ export type CanonicalProvider =
     | 'liquid-bf16'
     | 'liquid-fp8'
     | 'makora'
+    | 'makora-bf16'
     | 'makora-fp4'
     | 'makora-fp8'
     | 'mancer-fp4'
@@ -146,13 +145,14 @@ export type CanonicalProvider =
     | 'minimax-highspeed'
     | 'mistral'
     | 'mistral-eu'
+    | 'mistral-fp8'
     | 'mistral-nvfp4'
     | 'mistral-nvfp4-eu'
     | 'mistral-us'
     | 'mistral-zdr'
     | 'modal'
+    | 'modal-fp4'
     | 'modal-mxfp4'
-    | 'modal-nvfp4'
     | 'modelrun-fp4'
     | 'modelrun-fp8'
     | 'moonshotai'
@@ -162,6 +162,7 @@ export type CanonicalProvider =
     | 'near-ai-fp4'
     | 'near-ai-fp8'
     | 'nebius'
+    | 'nebius-bf16'
     | 'nebius-fp4'
     | 'nebius-fp8'
     | 'nex-agi-bf16'
@@ -192,6 +193,8 @@ export type CanonicalProvider =
     | 'parasail-fp8'
     | 'parasail-int4'
     | 'pareto-alpha-us'
+    | 'particle-ai'
+    | 'particle-ai-nvfp4'
     | 'perceptron'
     | 'perplexity'
     | 'perplexity-int8'

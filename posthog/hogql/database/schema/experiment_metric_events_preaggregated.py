@@ -1,6 +1,3 @@
-from pydantic import Field
-
-from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     FieldOrTable,
@@ -17,9 +14,6 @@ class ExperimentMetricEventsPreaggregatedTable(Table):
     description: str = (
         "Internal preaggregated table of experiment metric events, one row per metric-contributing event recording "
         "its numeric value and (for funnel metrics) the steps completed. Powers experiment results computation."
-    )
-    top_level_settings: HogQLQuerySettings | None = Field(
-        default_factory=lambda: HogQLQuerySettings(load_balancing="in_order")
     )
 
     fields: dict[str, FieldOrTable] = {

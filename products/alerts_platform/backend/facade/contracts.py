@@ -30,6 +30,8 @@ class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
     BILLING = "billing"
+    WAREHOUSE_SOURCE = "warehouse_source"
+    WAREHOUSE_DESTINATION = "warehouse_destination"
 
 
 @frozen
@@ -269,6 +271,12 @@ class PlatformAlertCheckInput:
     # The calendar half of the schedule, so a source can tell when its own cadence has moved.
     recurrence_unit: str | None = None
     anchor_time: str | None = None
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
 
     def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.
@@ -955,6 +963,14 @@ class PlatformAlertConfigurationView:
     created_at: datetime
     updated_at: datetime
     alerts: tuple[PlatformAlertSnapshot, ...]
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
 
 
 @frozen
@@ -973,6 +989,8 @@ class PlatformAlertConfigurationEdit:
     evaluation_periods: int
     datapoints_to_alarm: int
     cooldown_minutes: int
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 class InvalidPlatformAlertEdit(ValueError):
@@ -1382,6 +1400,38 @@ class SourceDescriber(Protocol):
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+@frozen
+class SlackMessageContent:
+    text: str
+    blocks: list[dict[str, Any]]
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+
+
+class SourceSlackRenderer(Protocol):
+    """A source's own Slack layout for a transition, or None to use the platform's.
+
+    Runs on the send path, so it reads only the transition it is given. The platform catches a
+    renderer that raises and sends its own layout instead, so a broken renderer costs the card
+    rather than the notification.
+
+    `text` is what a push notification and a screen reader read, so it is never empty, whether or
+    not the card itself lives in `attachments`. The platform adds the group-limit warning to the
+    content wherever it finds room, and adds the state line to it on a later edit; neither assumes
+    a particular block order.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        transition: AnnouncedTransition,
+        alert_name: str,
+        alert_url: str,
+        project: MessageLink | None,
+        image: MessageImage | None,
+    ) -> SlackMessageContent | None: ...
 
 
 class SourceImageResolver(Protocol):
