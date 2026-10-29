@@ -17,6 +17,7 @@ import { BubbleLogo } from '../shared/logos/BubbleLogo'
 import djangoImage from '../shared/logos/django.svg'
 import docusaurusImage from '../shared/logos/docusaurus.svg'
 import dotnetImage from '../shared/logos/dotnet.svg'
+import { EdenAILogo } from '../shared/logos/EdenAILogo'
 import elixirImage from '../shared/logos/elixir.svg'
 import flutterImage from '../shared/logos/flutter.svg'
 import { FramerLogo } from '../shared/logos/FramerLogo'
@@ -463,6 +464,13 @@ export const ALL_SDKS: SDK[] = [
         tags: [SDKTag.GATEWAY],
         image: 'https://res.cloudinary.com/dmukukwp6/image/upload/portkey_15a83f0395.svg',
         docsLink: 'https://posthog.com/docs/ai-observability/installation/portkey',
+    },
+    {
+        name: 'Eden AI',
+        key: SDKKey.EDEN_AI,
+        tags: [SDKTag.GATEWAY],
+        image: <EdenAILogo />,
+        docsLink: 'https://posthog.com/docs/ai-observability/installation/eden-ai',
     },
     {
         name: 'Helicone',
