@@ -56,6 +56,7 @@ from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
 )
+from posthog.temporal.health_checks.rollups.schedule import create_daily_rollup_schedule
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.logs_alerting.schedule import create_logs_alert_check_schedule
@@ -995,6 +996,7 @@ schedules = [
     create_ingestion_acceptance_test_schedule,
     create_warehouse_sources_queue_partition_management_schedule,
     create_health_check_schedules,
+    create_daily_rollup_schedule,
     create_conversations_signals_coordinator_schedule,
     create_business_knowledge_learning_coordinator_schedule,
     create_business_knowledge_refresh_coordinator_schedule,

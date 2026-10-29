@@ -145,6 +145,12 @@ On each check run, for every team in the batch:
 1. **Upsert** — Issues returned by the detector are written (or updated) as `status=active`.
 2. **Resolve** — Active issues for checked teams that were _not_ returned by the detector are marked `status=resolved`.
 
+A detector that cannot judge a batch, for example because its input data is stale, raises `HealthCheckBatchSkipped`.
+The framework then counts every team in the batch as skipped and writes nothing, so each team keeps its current issues.
+Skipped teams count toward `not_processed_threshold`, so a run that skips most of its teams fails visibly instead of passing in silence.
+
+In dry run the framework compares the detected issues with the active ones and logs `would_fire` and `would_resolve` counts with sample team ids.
+
 ## Execution policies
 
 | Preset                              | `batch_size` | `max_concurrent` | Use case                |
@@ -224,6 +230,56 @@ rows = execute_clickhouse_health_team_query(
 | `settings`      | `Mapping[str, Any] \| None` | `None`  | ClickHouse settings overrides                                        |
 
 Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
+
+## Daily rollups
+
+Checks that would scan days or weeks of raw `events` read a daily rollup on Postgres instead.
+The `daily-rollup-workflow` (`rollups/`) reads one UTC day from ClickHouse and replaces that day in a small Postgres table in one transaction.
+Readers sum days from the read replica.
+
+| Table                               | Product       | Kept    | Read by                                                                                                      |
+| ----------------------------------- | ------------- | ------- | ------------------------------------------------------------------------------------------------------------ |
+| `growth_sdk_versions_daily`         | growth        | 10 days | `sdk_outdated`, the SDK Health page, `resolve_stale_sdk_issues`                                              |
+| `web_analytics_events_health_daily` | web analytics | 35 days | `no_pageleave_events`, `no_live_events`, `scroll_depth`, `web_vitals`, `missing_session_id`, `reverse_proxy` |
+| `web_analytics_host_proxy_daily`    | web analytics | 35 days | `partial_proxy`                                                                                              |
+
+### How a day is published
+
+The schedule runs at 01:00 UTC. It publishes yesterday, then refills the day before and replaces it only if its rows or events moved by more than 1%, which picks up late events.
+A plan activity decides which days to fill, so this policy can change without a Temporal patch marker.
+
+A filled day is refused, and the published day stays as it was, when:
+
+- it has no rows, which is what a ClickHouse outage looks like
+- it has more than 2M rows
+- it has fewer than half the rows of the median of the last 7 published days, unless the run is forced
+
+Rows for teams that no longer exist are dropped before writing, and team deletion removes a team's rows.
+A refused or failed day does not stop the other days or retention, and the workflow fails at the end.
+
+To backfill, start `daily-rollup-workflow` with `{"days": ["2026-10-01", ...]}`, and add `"tables": [...]` or `"force": true` as needed.
+
+### Reading a rollup from a check
+
+Subclass `RollupHealthCheck` instead of `HealthCheck`, set `rollup_model` and `window_days`, and implement `detect_from_rollup(team_ids, window)`.
+The window ends at the latest published day (L).
+When L is missing or more than two days old, or any day of the window is missing, the base class raises `HealthCheckBatchSkipped`.
+Events after L are not in the rollup, so a check that must see them adds a small live ClickHouse query from `window.live_since`, as `no_live_events` does.
+
+While a check still implements `legacy_detect` (its raw-event query), each batch also runs it on a small rotating sample of teams and logs `health check rollup comparison` with the agreement rate and the disagreeing team ids.
+Expect some disagreement for teams whose state changed today, because the raw query sees today and the rollup does not.
+Delete `legacy_detect` when the check leaves dry run.
+
+Read rows through `window_rows(model, team_ids, window)` (`rollups/freshness.py`).
+Name the rollup models (`SdkVersionsDaily`, `EventsHealthDaily`, `HostProxyDaily`) in `READ_REPLICA_OPT_IN` to read them from the read replica.
+
+### Adding a rollup
+
+Subclass `DailyRollup` (`rollups/framework.py`) next to the product's model, with `columns`, `fill_sql()` and `retention_days`.
+The fill drops rows whose strings exceed a column's `max_length` or hold a NUL byte, but filter client-controlled values in `fill_sql()` too, so the dropped count stays near zero.
+A fill reads every team's events, so read event properties through their materialized columns where they exist, as the web analytics fills do.
+Add the module to `DAILY_ROLLUP_MODULES` in `rollups/registry.py`.
+The model needs a composite primary key over the natural key, an index on `day`, no foreign keys, and `EnvironmentScopedManager`, and the product facade must delete its rows on team deletion.
 
 ## ClickHouse kill switch
 

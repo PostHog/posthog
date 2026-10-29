@@ -2,15 +2,35 @@ import time
 
 import structlog
 
+from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.alerts import emit_health_check_alert
 from posthog.temporal.health_checks.db import resolve_stale_issues_with_deltas, upsert_issues_with_deltas
 from posthog.temporal.health_checks.framework import health_check_class_for_kind
-from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult
+from posthog.temporal.health_checks.models import BatchDetectFn, BatchResult, HealthCheckBatchSkipped, HealthCheckResult
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 from posthog.temporal.health_checks.signal_emitter import emit_health_check_signals
 from posthog.temporal.health_checks.validation import _validate_batch_output
 
 logger = structlog.get_logger(__name__)
+
+_DRY_RUN_SAMPLE_SIZE = 20
+
+
+def _dry_run_changes(
+    kind: str, team_ids: list[int], issues_by_team: dict[int, list[HealthCheckResult]]
+) -> tuple[set[tuple[int, str]], set[tuple[int, str]]]:
+    """The (team_id, unique_hash) pairs a real run would open and resolve, compared with active issues."""
+    detected = {
+        (team_id, HealthIssue.compute_unique_hash(kind, issue.payload, issue.hash_keys))
+        for team_id, issues in issues_by_team.items()
+        for issue in issues
+    }
+    active = set(
+        HealthIssue.objects.filter(team_id__in=team_ids, kind=kind, status=HealthIssue.Status.ACTIVE).values_list(
+            "team_id", "unique_hash"
+        )
+    )
+    return detected - active, active - detected
 
 
 def run_check_for_team(kind: str, team_id: int) -> BatchResult:
@@ -46,8 +66,14 @@ def _process_batch_detection(
         return result
 
     start = time.monotonic()
-    issues_by_team = detect_fn(eligible_team_ids)
-    result.detect_duration = time.monotonic() - start
+    try:
+        issues_by_team = detect_fn(eligible_team_ids)
+    except HealthCheckBatchSkipped as skipped:
+        logger.warning("health check batch skipped", kind=kind, reason=str(skipped), teams=len(eligible_team_ids))
+        result.teams_skipped = len(eligible_team_ids)
+        return result
+    finally:
+        result.detect_duration = time.monotonic() - start
 
     issues_by_team, teams_dropped = _validate_batch_output(issues_by_team, set(eligible_team_ids), kind)
 
@@ -57,12 +83,17 @@ def _process_batch_detection(
 
     if dry_run:
         issue_count = sum(len(v) for v in issues_by_team.values())
+        would_fire, would_resolve = _dry_run_changes(kind, eligible_team_ids, issues_by_team)
         logger.info(
             "dry run complete, skipping DB writes",
             kind=kind,
             teams_with_issues=result.teams_with_issues,
             issue_count=issue_count,
             teams_healthy=result.teams_healthy,
+            would_fire=len(would_fire),
+            would_resolve=len(would_resolve),
+            would_fire_team_ids=sorted({team_id for team_id, _ in would_fire})[:_DRY_RUN_SAMPLE_SIZE],
+            would_resolve_team_ids=sorted({team_id for team_id, _ in would_resolve})[:_DRY_RUN_SAMPLE_SIZE],
         )
         return result
 

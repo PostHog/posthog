@@ -73,10 +73,10 @@ def test_declared_access_controlled_resources_have_access_controls() -> None:
         assert resource in valid, f"{kind} declares {resource!r}, which has no resource-level access controls"
 
 
+@pytest.mark.django_db
 def test_run_check_for_team_forwards_the_registrations_dry_run() -> None:
     # The manual refresh and agent paths reach the framework only through this entry point, so
     # a dry registration that stops being forwarded would write live issues for every refresh.
-    # No database is open here: a write would raise before any assertion runs.
     def detect(team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
         return {team_id: [HealthCheckResult(severity=HealthIssue.Severity.INFO, payload={})] for team_id in team_ids}
 
@@ -88,3 +88,4 @@ def test_run_check_for_team_forwards_the_registrations_dry_run() -> None:
 
     assert result.teams_with_issues == 1
     assert result.issues_upserted == 0
+    assert not HealthIssue.objects.filter(kind="dry_stub").exists()

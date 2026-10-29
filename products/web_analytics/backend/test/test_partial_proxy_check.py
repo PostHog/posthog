@@ -7,8 +7,8 @@ from products.web_analytics.backend.temporal.health_checks.partial_proxy import 
     MAX_HOSTS_IN_PAYLOAD,
     MIN_EVENTS_PER_HOST,
     PartialProxyCheck,
-    _is_valid_host,
 )
+from products.web_analytics.backend.temporal.rollups.host_proxy import is_valid_host
 
 
 @pytest.mark.parametrize(
@@ -151,4 +151,4 @@ def test_partial_proxy_passes_min_events_per_host(mock_query: MagicMock) -> None
     ],
 )
 def test_is_valid_host(host: str, expected: bool) -> None:
-    assert _is_valid_host(host) is expected
+    assert is_valid_host(host) is expected
