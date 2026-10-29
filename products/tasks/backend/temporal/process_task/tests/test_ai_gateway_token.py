@@ -328,6 +328,14 @@ class TestMintScopedToken:
             }
         assert set(pin) == expected
 
+    def test_onboarding_mint_carries_the_legacy_model_pin(self, mint_settings):
+        with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
+            post.return_value = self._response(201, {"token": "phe_abc"})
+            assert mint_scoped_token(ai_product="onboarding", team_id=2) == "phe_abc"
+        body = post.call_args.kwargs["json"]
+        assert body["product"] == "onboarding"
+        assert body["allowed_models"] == ["claude-sonnet-5", "claude-opus-4-8"]
+
     def test_limit_tier_is_sent_only_when_given(self, mint_settings):
         with patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post:
             post.return_value = self._response(201, {"token": "phe_abc"})
@@ -575,6 +583,18 @@ class TestMintableGate:
             env = ai_gateway_env_vars(team_id=2, origin_product="review_hog", ai_stage="validation-c1", internal=True)
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once_with(ai_product="review_hog", team_id=2, user=None)
+
+    def test_routed_wizard_run_mints_onboarding(self, mint_settings):
+        mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "onboarding"
+        with patch(
+            "products.tasks.backend.temporal.process_task.utils.mint_scoped_token",
+            return_value="phe_abc",
+        ) as mint:
+            env = ai_gateway_env_vars(
+                team_id=2, origin_product="onboarding", ai_stage="wizard_pr_agent", model="claude-sonnet-5"
+            )
+        assert env["AI_GATEWAY_PRODUCT"] == "onboarding"
+        mint.assert_called_once_with(ai_product="onboarding", team_id=2, user=None)
 
     def test_non_internal_review_hog_does_not_mint(self, mint_settings):
         mint_settings.SANDBOX_AI_GATEWAY_PRODUCTS = "review_hog"
@@ -1412,7 +1432,7 @@ class TestMintRefusalScope:
             == expected
         )
 
-    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog"])
+    @pytest.mark.parametrize("product", ["posthog_ai", "workflows", "review_hog", "onboarding"])
     def test_pinned_products_refuse_an_off_pin_model(self, product):
         refusal = mint_refusal(product, team_id=2, state=None, model="claude-opus-3", runtime="acp")
         assert refusal == "model_outside_pin"
@@ -1420,7 +1440,7 @@ class TestMintRefusalScope:
     def test_unpinned_products_take_any_model(self):
         assert mint_refusal("signals_scout", team_id=2, state=None, model="zai-org/glm-5.3", runtime="acp") is None
 
-    @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation"])
+    @pytest.mark.parametrize("product", ["review_hog", "signals_scout", "signals_implementation", "onboarding"])
     def test_products_billed_elsewhere_skip_the_credit_check(self, product):
         with patch(_CREDIT_LOOKUP, return_value="ai_credits_exhausted") as quota:
             assert mint_refusal(product, team_id=2, state=None, model=None, runtime="acp") is None
@@ -1570,15 +1590,13 @@ class TestPosthogAiMint:
     [
         ("account_audit", True, True),
         ("account_audit", False, False),
-        ("onboarding", False, False),
-        ("onboarding", True, False),
     ],
 )
 def test_account_audit_cost_routing_requires_server_provenance(
     settings: Settings, origin: str, internal: bool, mints: bool
 ) -> None:
     settings.SANDBOX_AI_GATEWAY_URL = "https://ai-gateway.example.com"
-    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit,onboarding"
+    settings.SANDBOX_AI_GATEWAY_PRODUCTS = "account_audit"
     # A non-internal account_audit origin resolves to posthog_code, which is unrouted here.
     resolves_to_posthog_code = origin == "account_audit" and not internal
     with patch("products.tasks.backend.temporal.process_task.utils.mint_scoped_token", return_value="phe_test") as mint:
