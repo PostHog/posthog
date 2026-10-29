@@ -2955,7 +2955,7 @@
         "chromium": 20.984,
         "webkit": 3.763
     },
-    "products/replay_vision/frontend/replay_scanners/components/WatchFeedEmptyState.stories.tsx": {
+    "products/replay_vision/frontend/replay_scanners/components/HighlightFeedEmptyState.stories.tsx": {
         "chromium": 23.811,
         "webkit": 5.359
     },
