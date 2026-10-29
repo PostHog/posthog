@@ -8,8 +8,12 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { mcpCustomHarnessesLogic } from './mcpCustomHarnessesLogic'
 
 export function McpCustomHarnessForm(): JSX.Element {
-    const { isCustomHarnessFormSubmitting, saveInProgressReason, customHarnessForm, customHarnessFormValidationErrors } =
-        useValues(mcpCustomHarnessesLogic)
+    const {
+        isCustomHarnessFormSubmitting,
+        saveInProgressReason,
+        customHarnessForm,
+        customHarnessFormValidationErrors,
+    } = useValues(mcpCustomHarnessesLogic)
     const iconPreview =
         customHarnessForm.icon && !customHarnessFormValidationErrors.icon ? customHarnessForm.icon : null
     const { cancelEditingHarness } = useActions(mcpCustomHarnessesLogic)

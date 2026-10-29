@@ -40,6 +40,7 @@ describe('HarnessLogo', () => {
         ['a custom harness with an icon shows that icon', 'Acme agent', ICON],
         ['a custom harness without an icon keeps the generic mark', 'Support bot', null],
         ['a built-in harness keeps its brand mark', 'Claude Code', null],
+        ['a custom harness named like an object property keeps the generic mark', 'constructor', null],
     ])('%s', async (_, harness, expectedSrc) => {
         render(
             <Provider>

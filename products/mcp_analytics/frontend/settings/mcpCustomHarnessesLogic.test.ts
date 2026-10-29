@@ -152,7 +152,7 @@ describe('mcpCustomHarnessesLogic', () => {
         stored = [harness('a', 'Acme agent', 'acme-agent', ICON), harness('b', 'Support bot', 'support-bot')]
         const logic = await mounted()
 
-        expect(logic.values.customHarnessIcons).toEqual({ 'Acme agent': ICON })
+        expect(logic.values.customHarnessIcons).toEqual(new Map([['Acme agent', ICON]]))
     })
 
     it('keeps what the person typed and shows the server reason when a save fails', async () => {
