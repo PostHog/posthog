@@ -53,10 +53,16 @@ from posthog.api.integration_email_status_serializers import (
     EmailDomainStatusSerializer,
     EmailDomainVerificationSerializer,
 )
+from posthog.api.integration_push_tokens import (
+    PushTokenImportRequestSerializer,
+    PushTokenImportResponseSerializer,
+    import_push_tokens,
+    push_channel_app_id,
+)
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.utils import action
+from posthog.api.utils import ErrorResponseSerializer, action
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.dns_hosts import lookup_dns_host
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
@@ -131,7 +137,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
 )
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle
+from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
@@ -367,6 +373,20 @@ class GitHubRepoSerializer(serializers.Serializer):
         required=False,
         help_text="Whether the PostHog GitHub App has write access — required to open pull requests.",
     )
+
+
+class GitHubRepositoryAccessQuerySerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        required=False,
+        help_text="Repository in owner/repo format. Omit to check access to any repository.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        return validate_github_repository_name(value)
+
+
+class GitHubRepositoryAccessResponseSerializer(serializers.Serializer):
+    available = serializers.BooleanField(help_text="Whether a live GitHub request confirmed repository access.")
 
 
 class GitHubReposQuerySerializer(serializers.Serializer):
@@ -1502,6 +1522,7 @@ class IntegrationViewSet(
         "channels",
         "users",
         "github_repos",
+        "github_repository_access",
         "github_branches",
         "github_teams",
         "github_available_installations",
@@ -1529,6 +1550,7 @@ class IntegrationViewSet(
         "email_verify",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
+        "push_tokens",
     ]
     permission_classes = [IntegrationManagementPermission, PersonalConnectionRecentAuthPermission]
     # LimitOffsetPagination needs a total order, or Postgres can return a row on neither side of a
@@ -1574,6 +1596,8 @@ class IntegrationViewSet(
     def get_throttles(self):
         if self.action == "refresh_github_repos":
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
+        if self.action == "push_tokens":
+            return [PushTokenImportThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
@@ -2381,6 +2405,33 @@ class IntegrationViewSet(
             )
         )
 
+    @validated_request(
+        query_serializer=GitHubRepositoryAccessQuerySerializer,
+        responses={200: GitHubRepositoryAccessResponseSerializer, 503: ErrorResponseSerializer},
+    )
+    @action(methods=["GET"], detail=True, url_path="github_repository_access")
+    def github_repository_access(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        instance = self.get_object()
+        if instance.kind != "github":
+            raise ValidationError("github_repository_access endpoint is only supported for GitHub integrations")
+        github = GitHubIntegration(instance, source="integrations_api", priority=Priority.CRITICAL)
+        repository = request.validated_query_data.get("repository")
+        try:
+            if repository:
+                available = github.installation_can_access_repository(repository, raise_on_transient=True)
+            else:
+                repositories, _ = github.list_repositories(per_page=1)
+                available = bool(repositories)
+        except GitHubIntegrationError as error:
+            if error.status_code in (401, 403, 404) or github.installation_unavailable():
+                available = False
+            else:
+                return Response(
+                    {"error": "Couldn't check GitHub access. Try again in a moment."},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                )
+        return Response({"available": available})
+
     @extend_schema(parameters=[GitHubAssigneesQuerySerializer], responses={200: IntegrationAssigneesResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="github_assignees")
     def github_assignees(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -2677,6 +2728,29 @@ class IntegrationViewSet(
             raise ValidationError("gitlab_members endpoint is only supported for GitLab integrations")
         search = query_serializer.validated_data["search"]
         return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
+
+    @validated_request(
+        PushTokenImportRequestSerializer,
+        responses={
+            200: OpenApiResponse(response=PushTokenImportResponseSerializer, description="Import outcome."),
+            400: OpenApiResponse(description="The rows are invalid, or the integration is not a push channel."),
+            429: OpenApiResponse(description="Too many imports for this project. Retry after a minute."),
+        },
+        summary="Import push device tokens",
+        description="Register existing device tokens, for example exported from another provider, on this push "
+        "channel. Each token is stored encrypted on its person, as the mobile SDK stores it.",
+    )
+    @action(methods=["POST"], detail=True, url_path="push_tokens")
+    def push_tokens(self, request: ValidatedRequest, **kwargs) -> Response:
+        integration = self.get_object()
+        if not push_channel_app_id(integration):
+            raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
+        result = import_push_tokens(integration, request.validated_data["subscriptions"])
+        return Response(
+            PushTokenImportResponseSerializer(
+                {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
+            ).data
+        )
 
     @extend_schema(
         request=None,

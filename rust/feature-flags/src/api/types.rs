@@ -367,6 +367,27 @@ impl FlagsResponse {
         }
     }
 
+    /// Empty flags with the minimal config that `posthog-js` needs to boot. Served to GET
+    /// requests and to requests the service refuses to evaluate (bots, blocked callers).
+    pub fn minimal(request_id: Uuid) -> Self {
+        let mut config = ConfigResponse::new();
+        config.set(
+            "supportedCompression",
+            serde_json::json!(["gzip", "gzip-js"]),
+        );
+        config.set(
+            "config",
+            serde_json::json!({"enable_collect_everything": true}),
+        );
+        config.set("toolbarParams", serde_json::json!({}));
+        config.set("isAuthenticated", serde_json::json!(false));
+        config.set("sessionRecording", serde_json::json!(false));
+
+        let mut response = Self::new(false, HashMap::new(), None, request_id);
+        response.config = config;
+        response
+    }
+
     /// Test helper to create a FlagsResponse with a specific evaluated_at timestamp
     #[cfg(test)]
     pub fn with_evaluated_at(
@@ -924,6 +945,26 @@ impl FlagDetails {
                                 false,
                                 format!("Could not check if person is in {cohort_label}"),
                             ),
+                        };
+                        // A membership line sends the reader to check a cohort that is not what
+                        // rejected them. An absent operator keeps its line, because the matcher
+                        // reads it as `in`.
+                        let explanation = if property.cohort_operator_is_supported() {
+                            explanation
+                        } else {
+                            // Name the operator the way the filter stores it. The `Debug`
+                            // spelling in `operator_str` drops the underscore, so `is_not`
+                            // would read as `isnot`, a spelling that exists nowhere.
+                            let stored_operator = property
+                                .operator
+                                .and_then(|op| serde_json::to_value(op).ok())
+                                .and_then(|value| value.as_str().map(str::to_owned))
+                                .unwrap_or_else(|| operator_str.clone());
+                            format!(
+                                "A cohort filter needs the 'in' or 'not in' operator. This one \
+                                 uses '{stored_operator}', so the condition never matches. Remove \
+                                 this cohort filter and add the cohort again."
+                            )
                         };
                         property_analyses.push(PropertyAnalysis {
                             key: property.key.clone(),
@@ -2093,10 +2134,17 @@ mod tests {
     }
 
     #[rstest]
-    #[case::is_in("in")]
-    #[case::is_not_in("not_in")]
+    #[case::is_in("in", "Could not check if person is in cohort 12345")]
+    #[case::is_not_in("not_in", "Could not check if person is in cohort 12345")]
+    // An unsupported operator rejects the person whether or not membership resolves, so the
+    // operator line replaces the unresolved-membership line here too.
+    #[case::unsupported_operator(
+        "exact",
+        "A cohort filter needs the 'in' or 'not in' operator. This one uses 'exact', so the condition never matches. Remove this cohort filter and add the cohort again."
+    )]
     fn test_condition_analysis_fails_cohort_filters_closed_when_membership_is_unresolved(
         #[case] operator: &str,
+        #[case] expected_explanation: &str,
     ) {
         use std::collections::HashMap;
 
@@ -2127,14 +2175,14 @@ mod tests {
         assert_eq!(analysis.len(), 1);
         assert!(
             !analysis[0].properties[0].matched,
-            "Unresolved cohort membership must report matched=false for both operators"
+            "Unresolved cohort membership must report matched=false for every operator"
         );
         assert!(
             !analysis[0].properties_matched,
             "Condition must agree with the matcher, which fails closed without cohorts"
         );
         assert_eq!(
-            analysis[0].properties[0].explanation, "Could not check if person is in cohort 12345",
+            analysis[0].properties[0].explanation, expected_explanation,
             "The line must not assert a membership that was never resolved"
         );
         assert_eq!(
@@ -2171,6 +2219,21 @@ mod tests {
         CohortMembership::UnverifiedNonMember,
         true,
         "Could not fully check if person is in cohort 12345, because it targets behavior over time"
+    )]
+    // An operator the matcher does not honor rejects the person whatever the membership is, so
+    // the line must name the operator rather than the cohort.
+    #[case::unsupported_operator_member(
+        "exact",
+        CohortMembership::Member,
+        false,
+        "A cohort filter needs the 'in' or 'not in' operator. This one uses 'exact', so the condition never matches. Remove this cohort filter and add the cohort again."
+    )]
+    // A two-word operator must be named the way the filter stores it, with the underscore.
+    #[case::unsupported_two_word_operator_non_member(
+        "is_not",
+        CohortMembership::NonMember,
+        false,
+        "A cohort filter needs the 'in' or 'not in' operator. This one uses 'is_not', so the condition never matches. Remove this cohort filter and add the cohort again."
     )]
     fn test_condition_analysis_applies_cohort_operator_to_known_membership(
         #[case] operator: &str,

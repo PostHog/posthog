@@ -95,6 +95,35 @@ describe('modelsUsageLogic', () => {
         expect(logic.values.page).toBe(1)
     })
 
+    it('sorts all models, resets pagination, and keeps the sort on the next page', async () => {
+        await expectLogic(logic).toDispatchActions(['loadUsageSuccess', 'loadMaterializationJobsSuccess'])
+        await expectLogic(logic, () => logic.actions.setPage(3)).toDispatchActions(['loadUsageSuccess'])
+        const jobRequestCount = jobRequests.length
+
+        await expectLogic(logic, () => logic.actions.sortModels('runs')).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('page')).toBe('1')
+        expect(usageRequests.at(-1)?.get('sort_by')).toBe('runs')
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('desc')
+        await expectLogic(logic, () => logic.actions.sortModels('runs')).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('asc')
+        await expectLogic(logic, () => logic.actions.setPage(2)).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('page')).toBe('2')
+        expect(usageRequests.at(-1)?.get('sort_by')).toBe('runs')
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('asc')
+        await expectLogic(logic, () => logic.actions.sortModels('name')).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('asc')
+        expect(jobRequests).toHaveLength(jobRequestCount)
+
+        await expectLogic(logic, () => logic.actions.sortModels('managed_warehouse_read_bytes')).toDispatchActions([
+            'loadUsageSuccess',
+        ])
+        await expectLogic(logic, () =>
+            logic.actions.setSelectedEngine(DataModelingUsageListEngine.Clickhouse)
+        ).toDispatchActions(['loadUsageSuccess'])
+        expect(usageRequests.at(-1)?.get('sort_by')).toBe('read_bytes')
+        expect(usageRequests.at(-1)?.get('sort_direction')).toBe('desc')
+    })
+
     it('builds a status breakdown by engine', async () => {
         await expectLogic(logic).toDispatchActions(['loadUsageSuccess'])
 

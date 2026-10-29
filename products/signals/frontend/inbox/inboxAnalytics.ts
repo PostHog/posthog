@@ -30,7 +30,6 @@ export const INBOX_CLIENT = 'cloud' as const
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',
-    WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
@@ -49,6 +48,9 @@ export const INBOX_EVENTS = {
     REPORT_SOURCE_SUGGESTION_SHOWN: 'Inbox report source suggestion shown',
     REPORT_SOURCE_SUGGESTION_CLICKED: 'Inbox report source suggestion clicked',
     REPORT_FEEDBACK_NOTE: 'Inbox report feedback note',
+    INTERVIEW_INVITE_SHOWN: 'Inbox interview invite shown',
+    INTERVIEW_INVITE_CLICKED: 'Inbox interview invite clicked',
+    INTERVIEW_INVITE_DISMISSED: 'Inbox interview invite dismissed',
     // Cloud-only for now: the desktop inbox has no model sorts.
     RANKING_DETAILS_VIEWED: 'Inbox ranking details viewed',
     SETTINGS_CHANGED: 'Inbox settings changed',
@@ -173,6 +175,7 @@ export type InboxReportActionType =
     | 'resume_discussion'
     | 'restore'
     | 'create_pr'
+    | 'github_access_recovery'
     | 'copy_implementation_prompt'
     | 'refund'
     | 'open_pr'
@@ -373,9 +376,6 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
     }
 }
 
-/** Where a wizard-command copy happened: the full welcome takeover or the re-enable banner. */
-export type InboxWelcomeCopySurface = 'takeover' | 'banner'
-
 /**
  * The self-driving welcome takeover rendered. `Inbox viewed` never fires for un-set-up teams (the
  * takeover replaces the report list), so this is the top-of-funnel event for setup conversion.
@@ -385,22 +385,9 @@ export function captureInboxWelcomeViewed(): void {
 }
 
 /**
- * The wizard setup command was copied. Previously only recoverable from autocapture (and
- * unreliably: `$el_text` is null on about half of clicks), so the setup funnel's first
- * conversion step gets its own event.
- */
-export function captureInboxWelcomeCommandCopied(params: { surface: InboxWelcomeCopySurface }): void {
-    captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
-        surface: params.surface,
-    })
-}
-
-/**
- * The takeover's "Set up manually" escape hatch was pressed. Sits next to
- * {@link captureInboxWelcomeCommandCopied} as the other exit from the welcome page, so the two
- * together say how a team chose to set self-driving up. Without it a manual setup is invisible:
- * the wizard copy never fires, and the sources and scouts that follow look like they came from
- * nowhere.
+ * The welcome page's "Start manually" link was pressed, the exit from the welcome page that bypasses
+ * quick activation. Without it a manual setup is invisible: the sources and scouts that follow look
+ * like they came from nowhere.
  */
 export function captureInboxWelcomeManualSetupClicked(): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {})
@@ -487,6 +474,7 @@ export function captureInboxReportsImpressed(params: {
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
         ranker_id: params.rankerId,
+        has_pr: params.reports.some((report) => reportPullRequests(report).length > 0),
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
             ...baseReportProperties(report),
@@ -778,6 +766,15 @@ export function captureInboxReportFeedbackNote(params: {
         note: params.note,
         surface: params.surface,
     })
+}
+
+export function captureInboxInterviewInvite(action: 'shown' | 'clicked' | 'dismissed'): void {
+    const event = {
+        shown: INBOX_EVENTS.INTERVIEW_INVITE_SHOWN,
+        clicked: INBOX_EVENTS.INTERVIEW_INVITE_CLICKED,
+        dismissed: INBOX_EVENTS.INTERVIEW_INVITE_DISMISSED,
+    }[action]
+    captureInboxEvent(event, { surface: 'report_feedback_note' })
 }
 
 export function captureSignalSourceConnected(params: {

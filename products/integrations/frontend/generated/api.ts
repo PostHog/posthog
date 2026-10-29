@@ -20,6 +20,7 @@ import type {
     GitHubPrepareCallbackRequestApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    GitHubRepositoryAccessResponseApi,
     GitHubTeamsResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
@@ -31,6 +32,7 @@ import type {
     IntegrationsGithubAssigneesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubRepositoryAccessRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsGitlabMembersRetrieveParams,
     IntegrationsJiraAssignableUsersRetrieveParams,
@@ -47,6 +49,8 @@ import type {
     PostHogConnectionForwardApi,
     PostHogConnectionForwardResponseApi,
     PostHogConnectionTargetApi,
+    PushTokenImportRequestApi,
+    PushTokenImportResponseApi,
     RoleExternalReferenceApi,
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
@@ -571,6 +575,41 @@ export const integrationsGithubReposRefreshCreate = async (
     })
 }
 
+export const getIntegrationsGithubRepositoryAccessRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubRepositoryAccessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_repository_access/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_repository_access/`
+}
+
+export const integrationsGithubRepositoryAccessRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubRepositoryAccessRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubRepositoryAccessResponseApi> => {
+    return apiMutator<GitHubRepositoryAccessResponseApi>(
+        getIntegrationsGithubRepositoryAccessRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getIntegrationsGithubTeamsRetrieveUrl = (
     projectId: string,
     id: number,
@@ -792,6 +831,28 @@ export const integrationsLinkedinAdsConversionRulesRetrieve = async (
     return apiMutator<void>(getIntegrationsLinkedinAdsConversionRulesRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getIntegrationsPushTokensCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/push_tokens/`
+}
+
+/**
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it.
+ * @summary Import push device tokens
+ */
+export const integrationsPushTokensCreate = async (
+    projectId: string,
+    id: number,
+    pushTokenImportRequestApi: PushTokenImportRequestApi,
+    options?: RequestInit
+): Promise<PushTokenImportResponseApi> => {
+    return apiMutator<PushTokenImportResponseApi>(getIntegrationsPushTokensCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pushTokenImportRequestApi),
     })
 }
 

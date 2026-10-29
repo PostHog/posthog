@@ -2,7 +2,12 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
+import { execHog } from 'lib/hog'
+
+import { conditionalFormattingColor } from '~/queries/nodes/DataVisualization/conditionalFormatting'
+import { ColumnScalar } from '~/queries/nodes/DataVisualization/types'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
+import { ConditionalFormattingRule } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType } from '~/types'
 
@@ -23,6 +28,65 @@ describe('BIPivotTable', () => {
         cleanup()
         jest.restoreAllMocks()
     })
+
+    it.each<[boolean, string | number, string | number, ColumnScalar]>([
+        [false, 10, 20, 'INTEGER'],
+        [true, 10, 20, 'INTEGER'],
+        [false, '10', '20', 'INTEGER'],
+        [true, '10', '20', 'INTEGER'],
+        [false, '2026-01-10', '2026-01-20', 'DATE'],
+        [false, '2026-01-10T12:00:00Z', '2026-01-20T12:00:00Z', 'DATETIME'],
+    ])(
+        'formats raw measure values across pivot columns and updates rules, dark=%s, first=%s, second=%s, type=%s',
+        (dark, first, second, type) => {
+            jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(400)
+            jest.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(800)
+            const config: BIConfig = {
+                ...DEFAULT_BI_CONFIG,
+                chartType: ChartDisplayType.ActionsTable,
+                rows: [field('region')],
+                columns: [field('channel')],
+                values: [{ field: field('amount'), aggregation: 'sum', formatting: { style: 'number', prefix: '$' } }],
+            }
+            const rule: ConditionalFormattingRule = {
+                id: 'equals',
+                templateId: 'equals',
+                columnName: 'sum_amount',
+                input: String(first),
+                color: '#FFADAD',
+                colorMode: 'light',
+                bytecode: ['_H', 1, 32, 'input', 1, 1, 32, 'value', 1, 1, 11, 38],
+            }
+            const props = {
+                config,
+                columns: ['bi_row_region', 'bi_column_channel', 'sum_amount'],
+                results: [
+                    ['East', 'Email', first],
+                    ['East', 'Search', second],
+                    ['West', 'Search', first],
+                ],
+            }
+            const background = (record: Record<string, unknown>, column: string): string | undefined =>
+                conditionalFormattingColor([rule], execHog, column, type, record[column], dark)
+            const { container, rerender } = render(<BIPivotTable {...props} cellBackground={background} />)
+            const coloredCells = (): HTMLElement[] =>
+                Array.from(container.querySelectorAll<HTMLElement>('tbody td')).filter(
+                    (cell) => !!cell.style.backgroundColor
+                )
+            expect(coloredCells()).toHaveLength(2)
+            expect(
+                coloredCells().every((cell) => cell.textContent === `${type === 'INTEGER' ? '$' : ''}${first}`)
+            ).toBe(true)
+            const firstColor = coloredCells()[0].style.backgroundColor
+            rule.input = String(second)
+            rerender(<BIPivotTable {...props} cellBackground={background} />)
+            expect(coloredCells()).toHaveLength(1)
+            expect(coloredCells()[0]).toHaveTextContent(`${type === 'INTEGER' ? '$' : ''}${second}`)
+            expect(coloredCells()[0].style.backgroundColor).toBe(firstColor)
+            rerender(<BIPivotTable {...props} cellBackground={() => undefined} />)
+            expect(coloredCells()).toHaveLength(0)
+        }
+    )
 
     it('windows a large sparse pivot on both axes and inspects the last cell', () => {
         jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockImplementation(

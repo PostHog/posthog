@@ -1,6 +1,6 @@
 import logging
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogram, MetricHistogramFloat
@@ -10,6 +10,8 @@ from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 
 from products.warehouse_sources.backend.models.external_data_destination import get_or_create_warehouse_destination
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import GIVE_UP_AFTER_FAILED_RUNS
+from products.warehouse_sources.backend.types import ExternalDataJobStatus
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -41,11 +43,28 @@ LOCK_TAKEOVER_LATEST_ERROR = (
 )
 
 
-def get_data_import_finished_metric(source_type: str | None, status: str) -> MetricCounter:
+FailureStreak = Literal["new", "ongoing", "none"]
+
+
+def failure_streak_label(status: str, failed_runs_in_a_row: int) -> FailureStreak:
+    """`streak` label for `data_import_finished`. `failed_runs_in_a_row` is the streak before this run.
+
+    A failure past the give-up threshold is "ongoing", usually a broken customer connection, so
+    alerting on "new" failures counts only sources that just broke. Non-failed runs get "none" so
+    every series carries the same label names.
+    """
+    if status.lower() != ExternalDataJobStatus.FAILED.lower():
+        return "none"
+    if failed_runs_in_a_row < GIVE_UP_AFTER_FAILED_RUNS:
+        return "new"
+    return "ongoing"
+
+
+def get_data_import_finished_metric(source_type: str | None, status: str, streak: FailureStreak) -> MetricCounter:
     source_type = source_type or "unknown"
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"source_type": source_type, "status": status})
+        .with_additional_attributes({"source_type": source_type, "status": status, "streak": streak})
         .create_counter("data_import_finished", "Number of data imports finished, for any reason (including failure).")
     )
 

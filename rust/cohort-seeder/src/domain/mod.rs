@@ -18,6 +18,7 @@ pub mod condition;
 pub mod condition_analysis;
 pub mod ids;
 pub mod ledger;
+pub mod newest_day;
 pub mod partition;
 pub mod person;
 pub mod person_analysis;
@@ -62,6 +63,7 @@ pub use ids::{
     ScannedAtMs, UtcMillis, UtcMsRange, UtcRangeError,
 };
 pub use ledger::{MarkerFold, MarkerLedger, SettledVerdict, WithheldCohort};
+pub use newest_day::{ConditionSlot, NewestDayConditions};
 pub use partition::{SeedPartition, SeedPartitionCountError, SeedPartitions};
 pub use person::{
     person_chunk_sentinel_day, tile_ranges, EvaluatedConditions, PersonChunkSpec,

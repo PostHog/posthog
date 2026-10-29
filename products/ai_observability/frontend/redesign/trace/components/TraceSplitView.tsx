@@ -1,4 +1,5 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { EvalRollupOutcome } from '../types'
 import { NodeDetail, NodeDetailProps } from './NodeDetail'
 import { TraceTree } from './TraceTree'
 
@@ -8,6 +9,8 @@ export interface TraceSplitViewProps {
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     detail: Omit<NodeDetailProps, 'onSelectNode'> | null
+    evalOutcomes: Record<string, EvalRollupOutcome>
+    feedbackCountByNodeId?: Record<string, number>
 }
 
 export function TraceSplitView({
@@ -16,6 +19,8 @@ export function TraceSplitView({
     onSelectNode,
     onPrefetchNode,
     detail,
+    evalOutcomes,
+    feedbackCountByNodeId,
 }: TraceSplitViewProps): JSX.Element {
     return (
         <div className="@container">
@@ -26,6 +31,8 @@ export function TraceSplitView({
                         selectedNodeId={selectedNodeId}
                         onSelectNode={onSelectNode}
                         onPrefetchNode={onPrefetchNode}
+                        evalOutcomes={evalOutcomes}
+                        feedbackCountByNodeId={feedbackCountByNodeId}
                     />
                 </aside>
                 <div className="min-w-0 flex-1 @3xl:sticky @3xl:top-[var(--scene-title-section-height,50px)] @3xl:max-h-[calc(100vh-var(--scene-title-section-height,50px))] @3xl:overflow-y-auto">

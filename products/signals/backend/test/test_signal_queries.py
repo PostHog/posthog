@@ -51,7 +51,7 @@ from products.signals.backend.temporal.signal_queries import (
     retract_source_signals,
 )
 
-_MODEL_TABLE = f"distributed_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
+_MODEL_TABLE = f"sharded_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 
 
 class _SignalEmbeddingsTestBase(ClickhouseTestMixin, APIBaseTest):
@@ -521,9 +521,7 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             time_machine.travel(now, tick=False) as clock,
             patch("products.signals.backend.spend_metadata.producer_scope", return_value=producer),
         ):
-            record_llm_spend(
-                "first", token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability"
-            )
+            record_llm_spend(token_cost_microusd=100, team_id=self.team.id, signal_id=driver, stage="actionability")
             first = publish_signal_spend_metadata(signal)
             first_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
             for payload in first_payloads:
@@ -531,23 +529,19 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
             assert confirm_signal_spend_metadata(first)
             producer.__enter__.return_value.produce.reset_mock()
             clock.shift(timedelta(seconds=2))
-            record_llm_spend(
-                "second", token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization"
-            )
+            record_llm_spend(token_cost_microusd=200, team_id=self.team.id, signal_id=driver, stage="summarization")
             second = publish_signal_spend_metadata(
                 SignalSpendUpdate(team_id=self.team.id, signal_id=driver, changes=[change])
             )
             assert all(second.versions[key] > version for key, version in first.versions.items())
-            for call in producer.__enter__.return_value.produce.call_args_list:
-                payload = call.kwargs["data"]
+            second_payloads = [call.kwargs["data"] for call in producer.__enter__.return_value.produce.call_args_list]
+            assert not confirm_signal_spend_metadata(second)
+            for payload in second_payloads:
                 deliver(payload, second.versions[payload["model_name"]])
-            assert confirm_signal_spend_metadata(second)
-            for payload in first_payloads:
-                deliver(payload, first.versions[payload["model_name"]])
             assert confirm_signal_spend_metadata(second)
             producer.__enter__.return_value.produce.reset_mock()
             clock.shift(timedelta(seconds=2))
-            record_llm_spend("third", token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
+            record_llm_spend(token_cost_microusd=300, team_id=self.team.id, signal_id=driver, stage="research")
             third = publish_signal_spend_metadata(
                 SignalSpendUpdate(
                     team_id=self.team.id,
@@ -568,6 +562,9 @@ class TestSpendPublicationVersions(_SignalEmbeddingsTestBase):
                 assert payload["content"] == ("" if change.clear_content else "the signal content")
                 assert set(payload["embedding"]) == ({0.0} if change.clear_content else {0.125})
                 deliver(payload, third.versions[payload["model_name"]])
+            assert confirm_signal_spend_metadata(third)
+            for payload in second_payloads:
+                deliver(payload, second.versions[payload["model_name"]])
             assert confirm_signal_spend_metadata(third)
 
 

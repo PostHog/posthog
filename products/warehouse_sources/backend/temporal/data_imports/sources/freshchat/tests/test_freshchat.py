@@ -65,6 +65,22 @@ class TestGetRows:
         # State saved once, pointing at page 2 (the next page after the first was written).
         assert result.saved_states == [FreshchatResumeConfig(page=2)]
 
+    def test_outbound_messages_is_one_unpaginated_request(self) -> None:
+        # The endpoint documents no paging and returns every message at once. Page params would
+        # make the paginator re-request the same array until it hit an empty page that never comes.
+        messages = [
+            {"message_id": "m1", "request_id": "r1", "status": "Delivered", "created_on": 1700000000},
+            {"message_id": "m2", "request_id": "r1", "status": "Failed", "failure_code": "OBM001"},
+        ]
+        result = _driver().run("outbound_messages", [ScriptedResponse(json={"outbound_messages": messages})])
+
+        assert result.raised is None
+        assert result.rows == messages
+        assert len(result.requests) == 1
+        assert result.requests[0].path == "/v2/outbound-messages"
+        assert result.requests[0].query == {}
+        assert result.saved_states == []
+
     def test_bearer_token_is_redacted_from_samples(self) -> None:
         # The token rides in the Authorization header; it must be value-redacted from captured
         # HTTP samples via the tracked session's redact_values.

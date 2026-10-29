@@ -97,8 +97,8 @@ class FreshchatEndpointConfig:
 #
 # The public REST API exposes no server-side updated_since / created_since cursor on the top-level
 # list endpoints, so every endpoint is full refresh only (no `supports_incremental`). Pagination is
-# resumable by page number via the ResumableSource manager. The outbound-messages and metrics
-# endpoints require time-window params and are not covered.
+# resumable by page number via the ResumableSource manager. The metrics endpoints require a metric
+# name and time-window params, and raw reports are async export jobs, so neither is covered.
 FRESHCHAT_ENDPOINTS: dict[str, FreshchatEndpointConfig] = {
     "agents": FreshchatEndpointConfig(
         name="agents",
@@ -134,6 +134,14 @@ FRESHCHAT_ENDPOINTS: dict[str, FreshchatEndpointConfig] = {
         paginated=False,
         single_object=True,
     ),
+    "outbound_messages": FreshchatEndpointConfig(
+        name="outbound_messages",
+        path="/outbound-messages",
+        data_key="outbound_messages",
+        # The endpoint documents no page / items_per_page params and returns every message as one
+        # array; page params on it could loop on the same array forever.
+        paginated=False,
+    ),
     "user_conversations": FreshchatEndpointConfig(
         name="user_conversations",
         path="/users/{user_id}/conversations",
@@ -166,6 +174,7 @@ PRIMARY_KEYS: dict[str, list[str]] = {
     "channels": ["id"],
     "roles": ["id"],
     "accounts_configuration": ["app_id"],
+    "outbound_messages": ["message_id"],
     "user_conversations": ["user_id", "id"],
     "conversation_messages": ["conversation_id", "id"],
 }

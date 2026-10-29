@@ -21,6 +21,11 @@ from posthog.enums import LabeledStrEnum
 ERROR_TRACKING_ISSUE_SEVERITIES = ("low", "medium", "high", "critical")
 
 
+class BuiltInFilterEvaluation(LabeledStrEnum):
+    CLIENT = "client"
+    SERVER = "server"
+
+
 class IssueTrendDirection(LabeledStrEnum):
     NEW = "new"
     INCREASING = "increasing"
@@ -297,6 +302,16 @@ class ErrorTrackingSuppressionRule:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingBuiltInFilter:
+    key: str
+    name: str
+    description: str
+    evaluation: BuiltInFilterEvaluation
+    enabled: bool
+    disabled_reason: str | None
+
+
+@dataclass(frozen=True)
 class ErrorTrackingBypassRule:
     id: UUID
     filters: dict
@@ -313,6 +328,7 @@ class ErrorTrackingIssueBasics:
     description: str | None
     status: str
     severity: str | None
+    created_at: datetime
     # Earliest across all fingerprints, merged ones included.
     first_seen: datetime | None
 

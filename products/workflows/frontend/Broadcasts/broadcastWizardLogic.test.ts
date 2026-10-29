@@ -4,10 +4,8 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -259,8 +257,6 @@ describe('broadcastWizardLogic', () => {
                         }).then((body) => [200, body]),
                 },
             })
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]: true })
             logic.unmount()
             router.actions.push(
                 urlForNewBroadcastWithAudience({
@@ -300,6 +296,91 @@ describe('broadcastWizardLogic', () => {
             expect(logic.values.name).toEqual(applied ? 'Written by the model' : 'We fixed it')
         }
     )
+
+    it.each([
+        { case: 'lands after the template was branded', withLinkEmail: true },
+        { case: 'comes from a link without a template email', withLinkEmail: false },
+    ])('keeps the project brand on an AI draft that $case', async ({ withLinkEmail }) => {
+        const cell = (inner: string): string =>
+            `<table role="presentation"><tbody><tr><td style="padding:10px;"><div>${inner}</div></td></tr></tbody></table>`
+        const brandEmail = {
+            design: {
+                counters: { u_content_text: 1 },
+                body: {
+                    values: {},
+                    rows: [
+                        {
+                            columns: [
+                                {
+                                    contents: [
+                                        { type: 'image', values: { src: { url: 'https://example.com/logo.png' } } },
+                                        { type: 'text', values: { text: '<p>Template body copy</p>' } },
+                                        { type: 'custom', values: { unsubscribe: true } },
+                                    ],
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+            html: `<html><body><div class="u-row-container"><div class="u-row"><div class="u-col u-col-100"><div><div>${[
+                cell('<img src="https://example.com/logo.png" />'),
+                cell('<p>Template body copy</p>'),
+                cell('<a href="{{ unsubscribe_url }}">Unsubscribe</a>'),
+            ].join('')}</div></div></div></div></div></body></html>`,
+        }
+        let respond: (value: unknown) => void = () => {}
+        let markRequested: () => void = () => {}
+        const requested = new Promise<void>((resolve) => {
+            markRequested = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': () => [
+                    200,
+                    { count: 1, results: [{ content: { email: brandEmail } }] },
+                ],
+            },
+            post: {
+                '/api/projects/:team_id/workflow_email_drafts/': () =>
+                    new Promise((resolve) => {
+                        respond = resolve
+                        markRequested()
+                    }).then((body) => [200, body]),
+            },
+        })
+        logic.unmount()
+        router.actions.push(
+            urlForNewBroadcastWithAudience({
+                properties: LOCAL_AUDIENCE,
+                source: 'error_tracking',
+                ...(withLinkEmail ? { email: draftMessage({ kind: 'issue_fixed' }) } : {}),
+                draftSource: { source: 'error_tracking', source_id: 'issue-1' },
+            })
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions([withLinkEmail ? 'brandApplied' : 'loadAiEmailDraft'])
+        await requested
+        respond({
+            subject: 'Written by the model',
+            preheader: '',
+            html: '<p>Model paragraph.</p>',
+            text: 'Model paragraph.',
+            generated_by: 'ai',
+            template_reason: null,
+        })
+        await expectLogic(logic).toDispatchActions(
+            withLinkEmail
+                ? ['loadAiEmailDraftSuccess']
+                : ['loadAiEmailDraftSuccess', 'loadEmailBrandSuccess', 'brandApplied']
+        )
+
+        expect(logic.values.email.subject).toEqual('Written by the model')
+        expect(logic.values.email.html).toContain('Model paragraph.')
+        expect(logic.values.email.html).toContain('https://example.com/logo.png')
+    })
 
     it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {
         logic.unmount()
@@ -543,7 +624,20 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
     })
 
-    it('creates the draft and stores its send time when the workflow editor opens before any Continue', async () => {
+    it.each([
+        {
+            firstSave: 'the workflow editor opens',
+            step: 'review' as const,
+            save: (): void => logic.actions.openInWorkflowEditorConfirmed(),
+            path: '/workflows/broadcast-1/workflow',
+        },
+        {
+            firstSave: 'Continue saves the schedule step',
+            step: 'schedule' as const,
+            save: (): void => logic.actions.continueStep(),
+            path: '/broadcasts/broadcast-1',
+        },
+    ])('creates the draft and stores its send time when $firstSave before any other save', async (testCase) => {
         const createdSchedules: Record<string, any>[] = []
         useMocks({
             post: {
@@ -558,17 +652,13 @@ describe('broadcastWizardLogic', () => {
         router.actions.push('/broadcasts/new')
         logic.actions.setScheduleMode('later')
         logic.actions.setSendAt(sendAt)
-        logic.actions.setStep('review')
+        logic.actions.setStep(testCase.step)
         releaseCreate()
 
-        await expectLogic(logic, () => {
-            logic.actions.openInWorkflowEditorConfirmed()
-        })
-            .toDispatchActions(['saveBroadcastFinished'])
-            .toFinishAllListeners()
+        await expectLogic(logic, testCase.save).toDispatchActions(['saveBroadcastFinished']).toFinishAllListeners()
 
         expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt, rrule: expect.any(String) })])
-        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
+        expect(router.values.location.pathname).toContain(testCase.path)
     })
 
     it('keeps an email edit made while Continue is saving and moves to the draft URL after it saves', async () => {
