@@ -3371,6 +3371,43 @@ export namespace Schemas {
       value: number;
     }
 
+    export type AccountsTableCustomPropertyDisplayType = typeof AccountsTableCustomPropertyDisplayType[keyof typeof AccountsTableCustomPropertyDisplayType];
+
+
+    export const AccountsTableCustomPropertyDisplayType = {
+      Text: 'text',
+      Link: 'link',
+      Number: 'number',
+      Currency: 'currency',
+      Percent: 'percent',
+      Date: 'date',
+      Datetime: 'datetime',
+      Boolean: 'boolean',
+      Select: 'select',
+    } as const;
+
+    export interface AccountsTableCustomPropertyOption {
+      color: string;
+      id?: string | null;
+      label: string;
+    }
+
+    export interface AccountsTableCustomPropertySource {
+      id: string;
+    }
+
+    export interface AccountsTableCustomPropertyDefinition {
+      description?: string | null;
+      display_type: AccountsTableCustomPropertyDisplayType;
+      has_workflow_reference: boolean;
+      id: string;
+      is_big_number?: boolean | null;
+      is_canonical: boolean;
+      name: string;
+      options?: AccountsTableCustomPropertyOption[] | null;
+      source?: AccountsTableCustomPropertySource | null;
+    }
+
     export type AccountsTableCustomPropertyOperator = typeof AccountsTableCustomPropertyOperator[keyof typeof AccountsTableCustomPropertyOperator];
 
 
@@ -3472,6 +3509,14 @@ export namespace Schemas {
     } as const;
     export type AccountsTableUnassignedFilter = typeof AccountsTableUnassignedFilterValue;
 
+    export interface AccountsTableRelationshipDefinition {
+      description?: string | null;
+      id: string;
+      is_controlled: boolean;
+      is_single_holder?: boolean | null;
+      name: string;
+    }
+
     /**
      * Requested direct Account fields, keyed by their typed field reference.
      */
@@ -3513,6 +3558,8 @@ export namespace Schemas {
     }
 
     export interface AccountsTableQueryResponse {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -3527,6 +3574,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -3561,6 +3609,8 @@ export namespace Schemas {
       filterGroups?: ((AccountsTableAccountFieldFilter | AccountsTableRelationshipFilter | AccountsTableCustomPropertyFilter)[])[] | null;
       /** Filters are combined with AND. Values within tag and assignment filters use OR. */
       filters?: (AccountsTableSearchFilter | AccountsTableTagsFilter | AccountsTableAssignedToFilter | AccountsTableAssignedFilter | AccountsTableUnassignedFilter | AccountsTableRelationshipFilter | AccountsTableAccountIdFilter | AccountsTableAccountFieldFilter | AccountsTableCustomPropertyFilter)[] | null;
+      /** Omit missing definitions and custom-property filters incompatible with their current types. */
+      ignoreMissingDefinitions?: boolean | null;
       /** Include churned accounts. Churned accounts are hidden by default. */
       includeChurned?: boolean | null;
       /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -3575,6 +3625,7 @@ export namespace Schemas {
       response?: AccountsTableQueryResponse | null;
       sort?: AccountsTableSort | null;
       tags?: QueryLogTags | null;
+      useDefaultColumns?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -9105,6 +9156,8 @@ export namespace Schemas {
     }
 
     export interface Response20 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -9119,6 +9172,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -101484,6 +101538,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative59 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -101498,6 +101554,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -102114,6 +102171,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative89 {
+      columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
+      customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore: boolean;
@@ -102128,6 +102187,7 @@ export namespace Schemas {
       offset: number;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
+      relationshipDefinitions?: AccountsTableRelationshipDefinition[] | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
       resolved_compare_date_range?: ResolvedDateRangeResponse | null;
       /** The date range used for the query */
@@ -129170,7 +129230,18 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: AccountRelationshipDefinitionsListPagination;
     };
+
+    export type AccountRelationshipDefinitionsListPagination = typeof AccountRelationshipDefinitionsListPagination[keyof typeof AccountRelationshipDefinitionsListPagination];
+
+
+    export const AccountRelationshipDefinitionsListPagination = {
+      None: 'none',
+    } as const;
 
     export type AccountTrackRulesRunsListParams = {
     /**
@@ -131802,7 +131873,18 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: CustomPropertyDefinitionsListPagination;
     };
+
+    export type CustomPropertyDefinitionsListPagination = typeof CustomPropertyDefinitionsListPagination[keyof typeof CustomPropertyDefinitionsListPagination];
+
+
+    export const CustomPropertyDefinitionsListPagination = {
+      None: 'none',
+    } as const;
 
     export type CustomPropertyDefinitionsValuesRetrieveParams = {
     /**
