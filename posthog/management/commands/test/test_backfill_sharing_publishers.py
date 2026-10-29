@@ -33,7 +33,11 @@ class TestBackfillSharingPublishers(BaseTest):
             "recording": lambda: SessionRecording.objects.create(team=self.team, session_id="test-recording"),
         }[kind]()
         identifier = (
-            resource.short_id if kind == "notebook" else resource.session_id if kind == "recording" else resource.pk
+            resource.short_id
+            if isinstance(resource, Notebook)
+            else resource.session_id
+            if isinstance(resource, SessionRecording)
+            else resource.pk
         )
         share = SharingConfiguration.objects.create(team=self.team, **{kind: resource}, enabled=True)
         known = SharingConfiguration.objects.create(team=self.team, **{kind: resource}, shared_by=self.user)
@@ -54,10 +58,10 @@ class TestBackfillSharingPublishers(BaseTest):
         )
         call_command("backfill_sharing_publishers", dry_run=True, batch_size=1, stdout=StringIO())
         share.refresh_from_db()
-        assert share.shared_by_id is None
+        self.assertIsNone(share.shared_by_id)
         call_command("backfill_sharing_publishers", team_id=other_team.pk, stdout=StringIO())
         share.refresh_from_db()
-        assert share.shared_by_id is None
+        self.assertIsNone(share.shared_by_id)
         for _ in range(2):
             call_command("backfill_sharing_publishers", batch_size=1, stdout=StringIO())
         share.refresh_from_db()
@@ -87,7 +91,7 @@ class TestBackfillSharingPublishers(BaseTest):
                 )
             call_command("backfill_sharing_publishers", stdout=StringIO())
             share.refresh_from_db()
-            assert share.shared_by_id is None
+            self.assertIsNone(share.shared_by_id)
 
     @parameterized.expand([("insight", "Insight"), ("notebook", "Notebook")])
     def test_ambiguous_settings_history_does_not_attribute_the_editor(self, kind: str, scope: str) -> None:
@@ -97,10 +101,10 @@ class TestBackfillSharingPublishers(BaseTest):
             team_id=self.team.pk,
             scope=scope,
             activity="sharing enabled",
-            item_id=str(resource.pk if kind == "insight" else resource.short_id),
+            item_id=str(resource.short_id if isinstance(resource, Notebook) else resource.pk),
             user=self.user,
             detail={"changes": [{"field": "sharing", "after": True}]},
         )
         call_command("backfill_sharing_publishers", stdout=StringIO())
         share.refresh_from_db()
-        assert share.shared_by_id is None
+        self.assertIsNone(share.shared_by_id)
