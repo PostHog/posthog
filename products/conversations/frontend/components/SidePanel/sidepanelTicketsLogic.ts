@@ -45,7 +45,7 @@ import type {
     SidePanelTicketFilter,
     SidePanelViewState,
 } from '../../types'
-import { clearSharedTickets, loadTicketsAcrossTabs, subscribeToSharedTickets } from './ticketsAcrossTabs'
+import { clearSharedTickets, loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
 function ticketMatchesFilter(ticket: ConversationTicket, filter: SidePanelTicketFilter): boolean {
     switch (filter) {
@@ -1124,18 +1124,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             document.removeEventListener('visibilitychange', cache.onVisibilityChange)
         }
     }),
-    afterMount(({ values, actions, cache }) => {
-        cache.disposables.add(
-            () =>
-                subscribeToSharedTickets((tickets) => {
-                    actions.setTickets(tickets)
-                    // A tab that stopped polling on an empty list resumes when another tab adds a ticket.
-                    if (tickets.length > 0 && !cache.pollTimer) {
-                        actions.startPolling()
-                    }
-                }),
-            'sharedTickets'
-        )
+    afterMount(({ values, actions }) => {
         actions.initTickets()
         // A cold load of a `#panel=support:...:true` URL can set these before this logic mounts, so
         // the isEmailFormOpen/pendingViewTicket subscriptions above only fire on change and would

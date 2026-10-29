@@ -1,170 +1,89 @@
 import posthog from 'posthog-js'
 
 import type { ConversationTicket } from '../../types'
-import {
-    clearSharedTickets,
-    loadTicketsAcrossTabs,
-    type AcrossTabsDeps,
-    type TicketsSnapshot,
-} from './ticketsAcrossTabs'
+import { clearSharedTickets, loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
-const NOW = 1_000_000
+const START = 1_000_000
 const MAX_AGE_MS = 10_000
+const OPTIONS = { maxAgeMs: MAX_AGE_MS }
 
 const ticket = (id: string): ConversationTicket => ({ id }) as ConversationTicket
 
 describe('loadTicketsAcrossTabs', () => {
-    let stored: TicketsSnapshot | null
-    let deps: AcrossTabsDeps
-    let announce: jest.Mock
+    const originalIndexedDB = globalThis.indexedDB
+    let now: number
 
-    beforeEach(() => {
-        stored = null
-        announce = jest.fn()
-        deps = {
-            now: () => NOW,
-            read: async () => stored,
-            write: async (snapshot) => {
-                stored = snapshot
-                return true
-            },
-            announce,
-            withLock: (fn) => fn(),
-        }
+    const fetchingTickets = (...ids: string[]): jest.Mock => jest.fn().mockResolvedValue(ids.map(ticket))
+
+    beforeEach(async () => {
+        now = START
+        jest.spyOn(Date, 'now').mockImplementation(() => now)
+        await new Promise((resolve) => {
+            const request = indexedDB.deleteDatabase('posthog-conversations')
+            request.onsuccess = request.onerror = () => resolve(null)
+        })
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        globalThis.indexedDB = originalIndexedDB
+        ;(posthog as any).config = undefined
     })
 
     test.each([
-        { name: 'empty store', snapshot: null, force: false, fetches: 1 },
-        { name: 'stale snapshot', snapshot: { fetchedAt: NOW - MAX_AGE_MS }, force: false, fetches: 1 },
-        { name: 'fresh snapshot', snapshot: { fetchedAt: NOW - MAX_AGE_MS + 1 }, force: false, fetches: 0 },
-        { name: 'fresh snapshot but forced', snapshot: { fetchedAt: NOW - 1 }, force: true, fetches: 1 },
-    ])('$name fetches $fetches time(s)', async ({ snapshot, force, fetches }) => {
-        stored = snapshot && { tickets: [ticket('stored')], ...snapshot }
-        const fetchTickets = jest.fn().mockResolvedValue([ticket('fetched')])
+        { name: 'under the max age', ageMs: MAX_AGE_MS - 1, force: false, fetches: 1 },
+        { name: 'at the max age', ageMs: MAX_AGE_MS, force: false, fetches: 2 },
+        { name: 'under the max age but forced', ageMs: 1, force: true, fetches: 2 },
+    ])('fetches $fetches time(s) for a second load $name', async ({ ageMs, force, fetches }) => {
+        const fetchTickets = fetchingTickets('fetched')
 
-        const tickets = await loadTicketsAcrossTabs(fetchTickets, { force, maxAgeMs: MAX_AGE_MS }, deps)
+        await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
+        now += ageMs
+        const tickets = await loadTicketsAcrossTabs(fetchTickets, { ...OPTIONS, force })
 
         expect(fetchTickets).toHaveBeenCalledTimes(fetches)
-        expect(tickets).toEqual([ticket(fetches ? 'fetched' : 'stored')])
-        expect(announce).toHaveBeenCalledTimes(fetches)
-    })
-
-    it('shares one fetch between tabs that queue on the lock together', async () => {
-        let queue: Promise<unknown> = Promise.resolve()
-        deps.withLock = (fn) => {
-            const run = queue.then(fn)
-            queue = run.catch(() => undefined)
-            return run
-        }
-        const fetchTickets = jest.fn().mockResolvedValue([ticket('fetched')])
-
-        const results = await Promise.all(
-            [1, 2, 3].map(() => loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS }, deps))
-        )
-
-        expect(fetchTickets).toHaveBeenCalledTimes(1)
-        expect(results).toEqual([[ticket('fetched')], [ticket('fetched')], [ticket('fetched')]])
-    })
-
-    it('keeps the stored snapshot when the fetch returns nothing', async () => {
-        stored = { tickets: [ticket('stored')], fetchedAt: NOW - MAX_AGE_MS }
-        const fetchTickets = jest.fn().mockResolvedValue(null)
-
-        const tickets = await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS }, deps)
-
-        expect(tickets).toBeNull()
-        expect(stored?.tickets).toEqual([ticket('stored')])
-        expect(announce).not.toHaveBeenCalled()
-    })
-
-    it('does not announce a snapshot that failed to save', async () => {
-        deps.write = async () => false
-        const fetchTickets = jest.fn().mockResolvedValue([ticket('fetched')])
-
-        const tickets = await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS }, deps)
-
         expect(tickets).toEqual([ticket('fetched')])
-        expect(announce).not.toHaveBeenCalled()
     })
 
-    describe('with the browser storage', () => {
-        const originalIndexedDB = globalThis.indexedDB
+    it('keeps the stored tickets when a fetch returns nothing', async () => {
+        await loadTicketsAcrossTabs(fetchingTickets('stored'), OPTIONS)
+        now += 1
 
-        beforeEach(async () => {
-            await new Promise((resolve) => {
-                const request = indexedDB.deleteDatabase('posthog-conversations')
-                request.onsuccess = request.onerror = () => resolve(null)
-            })
-        })
+        expect(await loadTicketsAcrossTabs(jest.fn().mockResolvedValue(null), { ...OPTIONS, force: true })).toBeNull()
 
-        afterEach(() => {
-            globalThis.indexedDB = originalIndexedDB
-            Object.defineProperty(navigator, 'locks', { value: undefined, configurable: true })
-            ;(posthog as any).config = undefined
-        })
+        const fetchTickets = fetchingTickets('fetched')
+        expect(await loadTicketsAcrossTabs(fetchTickets, OPTIONS)).toEqual([ticket('stored')])
+        expect(fetchTickets).not.toHaveBeenCalled()
+    })
 
-        test.each([
-            {
-                name: 'the lock wait times out',
-                breakStorage: () =>
-                    Object.defineProperty(navigator, 'locks', {
-                        value: { request: jest.fn().mockRejectedValue(new DOMException('timeout', 'TimeoutError')) },
-                        configurable: true,
-                    }),
+    it('never reuses tickets fetched for another identity', async () => {
+        const fetchTickets = fetchingTickets('a-ticket')
+        ;(posthog as any).config = { identity_distinct_id: 'person-a' }
+        await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
+        ;(posthog as any).config = { identity_distinct_id: 'person-b' }
+
+        await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
+
+        expect(fetchTickets).toHaveBeenCalledTimes(2)
+    })
+
+    it('fetches again after the stored tickets are cleared', async () => {
+        const fetchTickets = fetchingTickets('fetched')
+        await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
+
+        await clearSharedTickets()
+        await loadTicketsAcrossTabs(fetchTickets, OPTIONS)
+
+        expect(fetchTickets).toHaveBeenCalledTimes(2)
+    })
+
+    it('still fetches from the network when IndexedDB throws on open', async () => {
+        globalThis.indexedDB = {
+            open: () => {
+                throw new DOMException('denied', 'SecurityError')
             },
-            {
-                name: 'IndexedDB throws on open',
-                breakStorage: () => {
-                    globalThis.indexedDB = {
-                        open: () => {
-                            throw new DOMException('denied', 'SecurityError')
-                        },
-                    } as unknown as IDBFactory
-                },
-            },
-        ])('still fetches from the network when $name', async ({ breakStorage }) => {
-            breakStorage()
-            const fetchTickets = jest.fn().mockResolvedValue([ticket('fetched')])
+        } as unknown as IDBFactory
 
-            const tickets = await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
-
-            expect(tickets).toEqual([ticket('fetched')])
-        })
-
-        it.each([
-            { name: 'before the next load', switchDuring: false },
-            { name: 'while the fetch is in flight', switchDuring: true },
-        ])('never reuses tickets fetched for another identity ($name)', async ({ switchDuring }) => {
-            ;(posthog as any).config = { identity_distinct_id: 'person-a' }
-            const switchIdentity = (): void => {
-                ;(posthog as any).config = { identity_distinct_id: 'person-b' }
-            }
-            const fetchTickets = jest.fn().mockImplementation(async () => {
-                if (switchDuring) {
-                    switchIdentity()
-                }
-                return [ticket('a-ticket')]
-            })
-
-            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
-            if (!switchDuring) {
-                switchIdentity()
-            }
-            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
-
-            expect(fetchTickets).toHaveBeenCalledTimes(2)
-        })
-
-        it('leaves no stored tickets behind after they are cleared', async () => {
-            const fetchTickets = jest.fn().mockResolvedValue([ticket('fetched')])
-
-            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
-            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
-            expect(fetchTickets).toHaveBeenCalledTimes(1)
-
-            await clearSharedTickets()
-            await loadTicketsAcrossTabs(fetchTickets, { maxAgeMs: MAX_AGE_MS })
-            expect(fetchTickets).toHaveBeenCalledTimes(2)
-        })
+        expect(await loadTicketsAcrossTabs(fetchingTickets('fetched'), OPTIONS)).toEqual([ticket('fetched')])
     })
 })
