@@ -400,7 +400,8 @@ class TestApplyMigrationItem(APIBaseTest):
         assert self._apply(self._credential(), prefix="stripe_retry").status_code == 400
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
 
-    def test_a_retry_after_a_dead_apply_links_the_source_it_created(self) -> None:
+    @parameterized.expand([("source_with_tables", True), ("source_without_tables", False)])
+    def test_a_retry_after_a_dead_apply_links_the_source_it_created(self, _name: str, has_tables: bool) -> None:
         claimed_at = timezone.now() - timedelta(minutes=20)
         WarehouseMigrationItem.objects.for_team(self.team.pk).filter(id=self.item.id).update(
             status=WarehouseMigrationItem.Status.APPLYING,
@@ -416,14 +417,22 @@ class TestApplyMigrationItem(APIBaseTest):
             prefix="stripe_main",
             description="Imported from the migrated connection stripe_main.",
         )
+        if has_tables:
+            ExternalDataSchema.objects.create(team=self.team, source=orphan, name="Customer", should_sync=True)
 
         response = self._apply(self._credential())
 
-        assert response.status_code == 201, response.json()
-        assert response.json()["source_id"] == str(orphan.id)
         assert ExternalDataSource.objects.filter(team_id=self.team.pk).count() == 1
         self.item.refresh_from_db()
-        assert (self.item.status, self.item.external_data_source_id) == (
-            WarehouseMigrationItem.Status.APPLIED,
-            orphan.id,
-        )
+        if has_tables:
+            assert response.status_code == 201, response.json()
+            assert response.json()["source_id"] == str(orphan.id)
+            assert (self.item.status, self.item.external_data_source_id) == (
+                WarehouseMigrationItem.Status.APPLIED,
+                orphan.id,
+            )
+        else:
+            # A source with no tables never syncs, so the user deletes it rather than having it linked.
+            assert response.status_code == 400
+            assert "Delete that source" in response.json()["message"]
+            assert self.item.status == WarehouseMigrationItem.Status.FAILED

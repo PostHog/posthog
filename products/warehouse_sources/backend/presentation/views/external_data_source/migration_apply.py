@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     ClaimedWarehouseMigrationItem,
     MigrationTableOverride,
     PlannedMigrationSchemas,
+    WarehouseMigrationEmptySourceError,
     WarehouseMigrationTableOverrideError,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
@@ -49,6 +50,7 @@ class ApplyMigrationItemSerializer(serializers.Serializer):
     prefix = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=100,
         help_text="Table name prefix to use instead of the planned one, for example when the planned one is taken.",
     )
     destination_ids = serializers.ListField(
@@ -87,7 +89,7 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
     @action(methods=["POST"], detail=False)
     def apply_migration_item(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Create the planned PostHog source for one migration item, then set its sync schedule."""
-        if not migrations.is_migration_import_enabled(self.team):
+        if not migrations.is_migration_import_enabled(self.team, getattr(request.user, "distinct_id", None)):
             return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = ApplyMigrationItemSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -103,7 +105,7 @@ class ExternalDataSourceMigrationApplyMixin(ExternalDataSourceSetupMixin, Extern
                     for o in data.get("table_overrides", [])
                 ],
             )
-        except WarehouseMigrationTableOverrideError as error:
+        except (WarehouseMigrationTableOverrideError, WarehouseMigrationEmptySourceError) as error:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(error)})
         if item is None:
             return Response(

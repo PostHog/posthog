@@ -614,6 +614,8 @@ export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ 
 /**
  * Create the planned PostHog source for one migration item, then set its sync schedule.
  */
+export const externalDataSourcesApplyMigrationItemCreateBodyPrefixMax = 100
+
 export const externalDataSourcesApplyMigrationItemCreateBodyCreatedViaDefault = `api`
 
 export const ExternalDataSourcesApplyMigrationItemCreateBody = /* @__PURE__ */ zod.object({
@@ -623,6 +625,7 @@ export const ExternalDataSourcesApplyMigrationItemCreateBody = /* @__PURE__ */ z
         .describe("Stored credential from the source connect page, for the item's PostHog source type."),
     prefix: zod
         .string()
+        .max(externalDataSourcesApplyMigrationItemCreateBodyPrefixMax)
         .optional()
         .describe('Table name prefix to use instead of the planned one, for example when the planned one is taken.'),
     destination_ids: zod

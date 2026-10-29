@@ -367,6 +367,10 @@ class WarehouseMigrationItemClaimedError(ValueError):
     """An apply has already claimed or finished this migration item."""
 
 
+class WarehouseMigrationEmptySourceError(ValueError):
+    """An earlier apply left a source with no tables behind. The message says how to recover."""
+
+
 class WarehouseMigrationTableOverrideError(ValueError):
     """The table overrides do not fit the item's plan. The message says why."""
 
@@ -423,8 +427,6 @@ class ClaimedWarehouseMigrationItem:
     """A migration item that one apply request now owns."""
 
     id: UUID
-    migration_id: UUID
-    name: str
     caveats: list[str]
     source_type: str
     # The prefix this attempt creates the source with: the caller's override, else the planned one.

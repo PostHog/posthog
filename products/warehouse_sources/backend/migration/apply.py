@@ -32,6 +32,9 @@ def with_table_overrides(proposal: ItemProposal, overrides: Sequence[TableOverri
         return proposal
     if proposal.schemas is None:
         raise TableOverrideError("This plan uses PostHog's default tables, so it takes no table overrides.")
+    repeated = sorted(name for name, count in Counter(o.vendor_table for o in overrides).items() if count > 1)
+    if repeated:
+        raise TableOverrideError(f"`{repeated[0]}` appears in more than one table override.")
     schemas: dict[str, ProposedSchema | None] = {
         schema.vendor_table or schema.name: schema for schema in proposal.schemas
     }

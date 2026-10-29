@@ -13876,7 +13876,10 @@ export namespace Schemas {
       item_id: string;
       /** Stored credential from the source connect page, for the item's PostHog source type. */
       credential_id: string;
-      /** Table name prefix to use instead of the planned one, for example when the planned one is taken. */
+      /**
+         * Table name prefix to use instead of the planned one, for example when the planned one is taken.
+         * @maxLength 100
+         */
       prefix?: string;
       /** Destinations to write the new source to. Omit to write to the PostHog warehouse. */
       destination_ids?: string[];
