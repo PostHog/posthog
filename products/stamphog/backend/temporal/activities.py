@@ -1033,8 +1033,16 @@ def _engine_gate_inputs(run: ReviewRun) -> tuple[dict, dict[str, str]]:
     return context, policy_files
 
 
-def _file_entries(files: list[dict]) -> set[tuple[str | None, str | None]]:
-    return {(file.get("filename"), file.get("previous_filename")) for file in files}
+@frozen
+class _FileEntry:
+    filename: str | None
+    previous_filename: str | None
+
+
+def _file_entries(files: list[dict]) -> set[_FileEntry]:
+    return {
+        _FileEntry(filename=file.get("filename"), previous_filename=file.get("previous_filename")) for file in files
+    }
 
 
 def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestation:
