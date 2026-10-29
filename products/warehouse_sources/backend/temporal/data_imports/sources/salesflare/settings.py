@@ -1,9 +1,11 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class SalesflareEndpointConfig:
     path: str
     # Salesflare object IDs are globally unique within an account, so `id` is a safe primary key.
