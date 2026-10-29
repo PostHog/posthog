@@ -123,11 +123,16 @@ def _permitted_operations(held_tools: frozenset[str]) -> tuple[McpToolApiOperati
     return tuple(dict.fromkeys((*SANDBOX_HARNESS_OPERATIONS, *tool_operations)))
 
 
+# Tools that undo a soft delete through the same PATCH. Like a delete tool, holding one grants
+# only its own write, `{"deleted": false}`, and never the rest of the PATCH.
+_RESTORE_TOOLS = frozenset({"feature-flag-restore"})
+
+
 @lru_cache(maxsize=1)
 def _soft_delete_tools() -> dict[McpToolApiOperation, frozenset[str]]:
     tools: dict[McpToolApiOperation, set[str]] = {}
     for name, definition in get_mcp_tool_definitions().items():
-        if name.endswith("-delete") or name in {"delete-feature-flag", "notebooks-destroy"}:
+        if name.endswith("-delete") or name in {"delete-feature-flag", "notebooks-destroy"} | _RESTORE_TOOLS:
             for operation in definition.api_operations:
                 if operation.method == "PATCH":
                     tools.setdefault(operation, set()).add(name)
@@ -145,7 +150,9 @@ def _soft_delete_allowed(operation: McpToolApiOperation, held_tools: frozenset[s
         if name in definitions
     )
     if isinstance(data, Mapping) and "deleted" in data:
-        if not held_tools & delete_tools:
+        if held_tools & delete_tools & _RESTORE_TOOLS and data == {"deleted": False}:
+            return True
+        if not (held_tools & delete_tools) - _RESTORE_TOOLS:
             return False
         return has_update or (set(data) == {"deleted"} and data["deleted"] is True)
     return has_update

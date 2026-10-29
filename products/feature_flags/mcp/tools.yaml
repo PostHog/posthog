@@ -88,6 +88,11 @@ tools:
             A flag whose `filters.version` is 2 requires `version`, so read the flag first and send its current
             `version`; never guess it. On such a flag a stale `version` returns 409: read the flag again and decide
             against its current state. Other flags do not check `version`.
+
+
+            Only a running experiment blocks the delete. Check `experiment_set_metadata` in the flag's definition first
+            and name every experiment listed there to the user before deleting: a draft experiment cannot launch until
+            its flag is restored. Use `feature-flag-restore` to undo a delete.
         include_params:
             - version
         inject_body:
@@ -101,6 +106,50 @@ tools:
                     - feature_flag_id
                     - featureFlagId
         hooks: featureFlags/conditionIdHooks
+    feature-flag-restore:
+        operation: feature_flags_partial_update
+        enabled: true
+        scopes:
+            - feature_flag:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        enrich_url: '{id}'
+        title: Restore feature flag
+        description: >
+            Restore a soft-deleted feature flag by ID, undoing `delete-feature-flag` or a bulk delete. Requires the
+            flag's numeric ID. Deleted flags are hidden from `feature-flag-get-all` by default, so take the ID from the
+            delete call's response, the experiment that uses the flag, or `system.feature_flags` with `deleted = true`
+            in `execute-sql`.
+
+
+            Sets `deleted` to false and never accepts or replaces the `filters` object. A flag linked to an experiment
+            had its key renamed to `<key>:deleted:<id>` when it was deleted. Restoring puts the original key back, or
+            adds a numeric suffix when another flag has taken that key since, so check the returned `key` and tell the
+            user if it changed. The flag comes back enabled or disabled, as it was before the delete.
+
+
+            Returns 400 when the flag's `filters.version` is 2: those flags cannot be restored yet. Restoring a flag
+            that is not deleted succeeds and leaves it as it was, so retrying is safe.
+        include_params: []
+        inject_body:
+            deleted: false
+        param_overrides:
+            id:
+                cast: string-int
+                aliases:
+                    - flagId
+                    - flag_id
+                    - feature_flag_id
+                    - featureFlagId
+        response:
+            include:
+                - id
+                - key
+                - active
+                - deleted
+                - version
     feature-flag-archive:
         operation: feature_flags_archive_create
         enabled: true

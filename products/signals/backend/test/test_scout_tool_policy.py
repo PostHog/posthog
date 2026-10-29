@@ -19,6 +19,7 @@ from posthog.models.scoping import unscoped
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
@@ -27,7 +28,7 @@ from products.tasks.backend.models import Task
 
 DISPATCH = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 NOTES_ONLY = ["conversations-tickets-notes-create"]
-TOKEN_SCOPES = "ticket:read ticket:write notebook:read notebook:write task:read task:write project:read query:read signal_scout_internal:write"
+TOKEN_SCOPES = "ticket:read ticket:write notebook:read notebook:write feature_flag:read feature_flag:write task:read task:write project:read query:read signal_scout_internal:write"
 # Hand-written tools whose handlers only read with GET, or make no API call, so they list no endpoint.
 GET_ONLY_TOOLS = frozenset(
     {
@@ -64,6 +65,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             status=Status.NEW,
         )
         self.notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        self.flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="synthetic-flag", deleted=True)
 
     def _scout_client(self, *, allowlist: Any, bound: bool = True) -> Task:
         with patch(DISPATCH):
@@ -121,6 +123,11 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             ("own_record_output", [], True, "post", "own_record_output", 400),
             ("update_cannot_delete", ["notebooks-partial-update"], True, "patch", "notebook", 403),
             ("delete_cannot_update", ["notebooks-destroy"], True, "patch", "notebook_title", 403),
+            # Restoring shares the flag's PATCH with update and delete, and grants neither.
+            ("picked_restore", ["feature-flag-restore"], True, "patch", "flag_restore", status.HTTP_200_OK),
+            ("restore_cannot_delete", ["feature-flag-restore"], True, "patch", "flag_delete", 403),
+            ("restore_cannot_update", ["feature-flag-restore"], True, "patch", "flag_name", 403),
+            ("delete_cannot_restore", ["delete-feature-flag"], True, "patch", "flag_restore", 403),
             ("foreign_harness_write", [], True, "patch", "foreign_run_summary", 403),
             ("unpicked_report_artefact", [], True, "post", "report_artefact", 403),
             ("foreign_emit_signal", [], True, "post", "emit_signal", 403),
@@ -173,6 +180,9 @@ class TestScoutToolPolicyAPI(APIBaseTest):
             "emit_signal": (f"{base}/signals/scout/runs/{foreign_scout_run_id}/emit-signal/", {}),
             "record_output": (f"{base}/signals/scout/runs/{foreign_scout_run_id}/record-output/", {}),
             "notebook": (f"{base}/notebooks/{self.notebook.short_id}/", {"deleted": True}),
+            "flag_restore": (f"{base}/feature_flags/{self.flag.id}/", {"deleted": False}),
+            "flag_delete": (f"{base}/feature_flags/{self.flag.id}/", {"deleted": True}),
+            "flag_name": (f"{base}/feature_flags/{self.flag.id}/", {"name": "Changed"}),
             "run_summary": (f"{base}/tasks/{task.id}/runs/{run.id}/set_summary/", {"summary": "Synthetic summary"}),
             "complete_onboarding": (f"{base}/complete_product_onboarding/", {"type": "product_analytics"}),
             "query": (f"{base}/query/", {"query": {"kind": "HogQLQuery", "query": "select 1"}}),

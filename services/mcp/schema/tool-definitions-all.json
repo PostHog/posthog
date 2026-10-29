@@ -4657,7 +4657,7 @@
         }
     },
     "delete-feature-flag": {
-        "description": "Soft-delete a feature flag by ID in the current project.\n\nA flag whose `filters.version` is 2 requires `version`, so read the flag first and send its current `version`; never guess it. On such a flag a stale `version` returns 409: read the flag again and decide against its current state. Other flags do not check `version`.",
+        "description": "Soft-delete a feature flag by ID in the current project.\n\nA flag whose `filters.version` is 2 requires `version`, so read the flag first and send its current `version`; never guess it. On such a flag a stale `version` returns 409: read the flag again and decide against its current state. Other flags do not check `version`.\n\nOnly a running experiment blocks the delete. Check `experiment_set_metadata` in the flag's definition first and name every experiment listed there to the user before deleting: a draft experiment cannot launch until its flag is restored. Use `feature-flag-restore` to undo a delete.",
         "category": "Feature flags",
         "feature": "flags",
         "summary": "Delete feature flag",
@@ -7031,6 +7031,21 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "feature-flag-restore": {
+        "description": "Restore a soft-deleted feature flag by ID, undoing `delete-feature-flag` or a bulk delete. Requires the flag's numeric ID. Deleted flags are hidden from `feature-flag-get-all` by default, so take the ID from the delete call's response, the experiment that uses the flag, or `system.feature_flags` with `deleted = true` in `execute-sql`.\n\nSets `deleted` to false and never accepts or replaces the `filters` object. A flag linked to an experiment had its key renamed to `<key>:deleted:<id>` when it was deleted. Restoring puts the original key back, or adds a numeric suffix when another flag has taken that key since, so check the returned `key` and tell the user if it changed. The flag comes back enabled or disabled, as it was before the delete.\n\nReturns 400 when the flag's `filters.version` is 2: those flags cannot be restored yet. Restoring a flag that is not deleted succeeds and leaves it as it was, so retrying is safe.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Restore feature flag",
+        "title": "Restore feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/feature_flags/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "feature-flag-roll-out-to-everyone": {

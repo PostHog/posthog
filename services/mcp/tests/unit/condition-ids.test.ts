@@ -147,8 +147,8 @@ const EXPERIMENT_TOOLS_BY_ID = [
     'experiment-unfreeze-exposure',
 ]
 
-// feature-flag-get-all, feature-flag-enable, feature-flag-disable, feature-flag-archive, and
-// feature-flag-unarchive keep no `filters` in their responses, so they are not listed.
+// feature-flag-get-all, feature-flag-enable, feature-flag-disable, feature-flag-archive,
+// feature-flag-unarchive, and feature-flag-restore keep no `filters` in their responses, so they are not listed.
 const CONDITION_TOOLS: { tool: string; params: Record<string, unknown>; responses: unknown[] }[] = [
     { tool: 'create-feature-flag', params: { key: 'flag-9', name: 'Flag 9' }, responses: [flag(9)] },
     { tool: 'delete-feature-flag', params: { id: 9 }, responses: [{ ...flag(9), deleted: true }] },

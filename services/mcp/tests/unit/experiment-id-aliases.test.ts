@@ -133,6 +133,7 @@ describe('feature flag id aliases', () => {
         'feature-flag-disable',
         'feature-flag-enable',
         'feature-flag-get-definition',
+        'feature-flag-restore',
         'feature-flag-roll-out-to-everyone',
         'feature-flag-rules-update',
         'feature-flag-set-release-condition-rollout',

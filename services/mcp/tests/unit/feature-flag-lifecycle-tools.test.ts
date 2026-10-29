@@ -196,4 +196,27 @@ describe('feature flag PATCH tools', () => {
             body: { version: 3, deleted: true },
         })
     })
+
+    it('feature-flag-restore takes only the flag id', () => {
+        const schema = z.toJSONSchema(GENERATED_TOOL_MAP['feature-flag-restore']!().schema, {
+            io: 'input',
+            reused: 'inline',
+        }) as { properties?: Record<string, unknown> }
+
+        expect(Object.keys(schema.properties ?? {})).toEqual(['id'])
+    })
+
+    it('feature-flag-restore always restores, whatever else the caller sends', async () => {
+        const requestMock = vi.fn().mockResolvedValue({ id: 42 })
+        const context = createMockContext(requestMock)
+        const tool = GENERATED_TOOL_MAP['feature-flag-restore']!()
+
+        await tool.handler(context, tool.schema.parse({ flag_id: '42', deleted: true, key: 'renamed' }))
+
+        expect(requestMock).toHaveBeenCalledExactlyOnceWith({
+            method: 'PATCH',
+            path: '/api/projects/17/feature_flags/42/',
+            body: { deleted: false },
+        })
+    })
 })
