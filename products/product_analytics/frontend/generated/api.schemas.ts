@@ -8867,7 +8867,7 @@ export type InsightApiResolvedDateRange = {
 } | null
 
 /**
- * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+ * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
  * @nullable
  */
 export type InsightApiResolvedCompareDateRange = {
@@ -8984,7 +8984,7 @@ export interface InsightApi {
      */
     readonly resolved_date_range: InsightApiResolvedDateRange
     /**
-     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
      * @nullable
      */
     readonly resolved_compare_date_range: InsightApiResolvedCompareDateRange
@@ -9026,7 +9026,7 @@ export type PatchedInsightApiResolvedDateRange = {
 } | null
 
 /**
- * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+ * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
  * @nullable
  */
 export type PatchedInsightApiResolvedCompareDateRange = {
@@ -9143,7 +9143,7 @@ export interface PatchedInsightApi {
      */
     readonly resolved_date_range?: PatchedInsightApiResolvedDateRange
     /**
-     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
      * @nullable
      */
     readonly resolved_compare_date_range?: PatchedInsightApiResolvedCompareDateRange

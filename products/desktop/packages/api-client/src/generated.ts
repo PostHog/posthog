@@ -16370,7 +16370,7 @@ export namespace Schemas {
             date_to: string;
         }> | null;
         /**
-         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
          */
         resolved_compare_date_range: Partial<{
             date_from: string;

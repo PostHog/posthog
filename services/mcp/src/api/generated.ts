@@ -11275,7 +11275,7 @@ export namespace Schemas {
     } | null;
 
     /**
-     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
      * @nullable
      */
     export type InsightResolvedCompareDateRange = {
@@ -11392,7 +11392,7 @@ export namespace Schemas {
          */
       readonly resolved_date_range: InsightResolvedDateRange;
       /**
-         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
          * @nullable
          */
       readonly resolved_compare_date_range: InsightResolvedCompareDateRange;
@@ -88862,7 +88862,7 @@ export namespace Schemas {
     } | null;
 
     /**
-     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
      * @nullable
      */
     export type PatchedInsightResolvedCompareDateRange = {
@@ -88979,7 +88979,7 @@ export namespace Schemas {
          */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
       /**
-         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Only trends insights fill it. Null when comparison is off, when the insight has no result yet, and for other insight types.
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
          * @nullable
          */
       readonly resolved_compare_date_range?: PatchedInsightResolvedCompareDateRange;

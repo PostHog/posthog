@@ -1147,8 +1147,7 @@ class InsightSerializer(InsightBasicSerializer):
         read_only=True,
         help_text=(
             "The earlier period that this insight's query compared against, with both ends resolved to timestamps."
-            " Only trends insights fill it."
-            " Null when comparison is off, when the insight has no result yet, and for other insight types."
+            " Null when comparison is off, when the insight has no result yet, or when its query type does not report the range."
         ),
     )
 
