@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -9,6 +9,8 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamType } from '~/types'
+
+import { unsavedSettingsLogic } from './unsavedSettingsLogic'
 
 type WorkflowsConfig = NonNullable<TeamType['workflows_config']>
 type LimitField = {
@@ -44,6 +46,14 @@ export function WorkflowsDailyLimitsSettings({
 }: WorkflowsDailyLimitsSettingsProps): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const unsavedGuard = unsavedSettingsLogic({
+        sectionId: attrPrefix,
+        message: `Leave without saving?\nThe ${unit} limits you entered will be discarded.`,
+    })
+    // The guard registers its navigation interceptor on mount, and useActions alone
+    // does not mount a logic, so the prompt would never arm without this.
+    useMountedLogic(unsavedGuard)
+    const { setHasUnsavedChanges } = useActions(unsavedGuard)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -82,6 +92,10 @@ export function WorkflowsDailyLimitsSettings({
     const perWorkflowError = errorFor(perWorkflow, savedPerWorkflow, maxPerWorkflow)
     const perProjectError = errorFor(perProject, savedPerProject, maxPerProject)
     const unchanged = perWorkflow === savedPerWorkflow && perProject === savedPerProject
+
+    useEffect(() => {
+        setHasUnsavedChanges(!unchanged)
+    }, [unchanged, setHasUnsavedChanges])
 
     return (
         <div className="@container">
