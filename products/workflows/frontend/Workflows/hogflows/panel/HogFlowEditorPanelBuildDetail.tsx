@@ -210,7 +210,7 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                     <>
                         <LemonDivider className="my-0" />
                         <div className="flex gap-2 justify-between items-center px-2 py-1">
-                            <LemonLabel info="Turn this on for notifications that carry private content, such as direct messages or sign-in codes. The notification is still sent, but PostHog doesn't keep a copy of its title, subtitle, body or image, and the run doesn't keep its variables, so it can't be rerun.">
+                            <LemonLabel info="Turn this on for notifications that carry private content, such as direct messages or sign-in codes. The notification is still sent. PostHog keeps only the title as written in this step, before any values are filled in, and no copy of the subtitle, body or image. The run doesn't keep its variables, so it can't be rerun.">
                                 Protect sensitive data
                             </LemonLabel>
                             <LemonSwitch
