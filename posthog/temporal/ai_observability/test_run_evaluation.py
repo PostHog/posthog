@@ -4695,6 +4695,36 @@ class TestJudgePromptAssembly:
             skip_reason="generation_output_too_long",
         )
 
+    def test_inline_images_that_overflow_the_plain_prompt_are_still_judged(self) -> None:
+        evaluation = {
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this correct?"},
+            "output_type": "boolean",
+            "team_id": 1,
+            "output_config": {},
+        }
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 20_000}}
+        event_data = create_mock_event_data(
+            1,
+            properties={
+                "$ai_input": "Draw eight charts.",
+                "$ai_output_choices": [{"role": "assistant", "content": [image] * 8}],
+            },
+        )
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge,
+            patch(
+                "posthog.temporal.ai_observability.evaluation_llm_judge.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+        ):
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        image_prompt = judge.call_args.kwargs["image_prompt"]
+        assert image_prompt is not None
+        assert judge.call_args.kwargs["user_prompt"] == image_prompt.text
+
     @pytest.mark.parametrize(
         "text,expected_text",
         [
