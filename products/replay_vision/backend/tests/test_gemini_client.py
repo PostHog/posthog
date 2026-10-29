@@ -222,9 +222,14 @@ def test_text_models_keep_their_client_open_between_calls() -> None:
         models = gemini_text_models(timeout_ms=1000)
     gc.collect()
     seen: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return _ok(request)
+
     http_client = models._client._api_client._httpx_client
     assert http_client is not None
-    http_client._transport = httpx.MockTransport(lambda request: seen.append(request) or _ok(request))
+    http_client._transport = httpx.MockTransport(respond)
 
     assert models.generate_content(model="gemini-test", contents="hi").text == "ok"
     assert models.generate_content(model="gemini-test", contents="again").text == "ok"
