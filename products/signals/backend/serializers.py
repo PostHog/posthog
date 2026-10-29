@@ -16,16 +16,16 @@ from rest_framework import serializers
 from rest_framework.request import Request
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
+from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationKind
-from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
-from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
+from posthog.models.integration import Integration, is_supported_external_issue_provider
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
+from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
@@ -398,8 +398,8 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         max_length=AGENT_STEERING_MAX_LENGTH,
         help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
     )
-    issue_tracking_integration = IntegrationReferenceField(
-        kinds=sorted(SUPPORTED_EXTERNAL_ISSUE_PROVIDERS),
+    issue_tracking_integration = TeamScopedPrimaryKeyRelatedField(
+        queryset=Integration.objects.all(),
         required=False,
         allow_null=True,
         help_text=(
@@ -471,6 +471,21 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "when it does not exist yet. Only used while pull_request_label_enabled is true."
         ),
     )
+    anomaly_scoring_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether anomaly scoring scores this project's active trends insights every hour and writes "
+            "the results as $anomaly_score events, which are not billed. True by default. Set false to "
+            "stop new scores; events written before stay. Turning it on does not enroll a project that "
+            "anomaly_scoring_available reports as not covered."
+        ),
+    )
+    anomaly_scoring_available = serializers.SerializerMethodField(
+        help_text=(
+            "Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. "
+            "PostHog decides which projects anomaly scoring covers."
+        )
+    )
     reports_generated_today = serializers.SerializerMethodField(
         help_text=(
             "How many reports first became visible in the inbox during the current project-timezone "
@@ -513,6 +528,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         return self._reports_today_count(obj)
 
     @extend_schema_field(serializers.BooleanField())
+    def get_anomaly_scoring_available(self, obj: SignalTeamConfig) -> bool:
+        return covers_team(parse_config(read_payload()), obj.team)
+
+    @extend_schema_field(serializers.BooleanField())
     def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
         if obj.max_reports_per_day is None:
             return False
@@ -536,12 +555,21 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "github_issue_writeback_enabled",
             "pull_request_label_enabled",
             "pull_request_label",
+            "anomaly_scoring_enabled",
+            "anomaly_scoring_available",
             "reports_generated_today",
             "daily_report_limit_reached",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "reports_generated_today", "daily_report_limit_reached", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "anomaly_scoring_available",
+            "reports_generated_today",
+            "daily_report_limit_reached",
+            "created_at",
+            "updated_at",
+        ]
         extra_kwargs = {
             "autostart_enabled": {
                 "help_text": (
@@ -558,6 +586,15 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
                 )
             },
         }
+
+    def validate_issue_tracking_integration(self, value: Integration | None) -> Integration | None:
+        if value is None:
+            return None
+        if not is_supported_external_issue_provider(value.kind):
+            raise serializers.ValidationError(
+                f"'{value.kind}' cannot track issues. Connect GitHub, GitLab, Linear, or Jira."
+            )
+        return value
 
     def validate(self, attrs: dict) -> dict:
         attrs = super().validate(attrs)
@@ -586,7 +623,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             )
         # The repository reaches a GitHub path, so a name it cannot hold fails here rather than on
         # every run.
-        if integration.kind == IntegrationKind.GITHUB:
+        if integration.kind == Integration.IntegrationKind.GITHUB:
             try:
                 validated_github_repository(config["repository"])
             except serializers.ValidationError as error:
