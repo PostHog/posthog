@@ -89,7 +89,7 @@ class HelpScoutSource(OAuthMixin, ResumableSource[HelpScoutSourceConfig, HelpSco
             caption="Sync your Help Scout conversations, customers, and mailboxes into the PostHog Data warehouse.",
             iconPath="/static/services/helpscout.png",
             docsUrl="https://posthog.com/docs/cdp/sources/helpscout",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
