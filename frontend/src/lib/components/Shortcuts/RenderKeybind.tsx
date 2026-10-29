@@ -18,10 +18,10 @@ export function RenderKeybind({ keybind, className, minimal }: RenderKeybindProp
                     const keys = keybindOption.filter((k) => k !== 'then')
                     return (
                         <React.Fragment key={index}>
-                            {index > 0 && <span className="text-xxs opacity-75">or</span>}
+                            {index > 0 && <span className="mx-1 text-xxs opacity-75">or</span>}
                             {keys.map((key, keyIndex) => (
                                 <React.Fragment key={key}>
-                                    {keyIndex > 0 && <span className="opacity-50 lowercase text-xxs">then</span>}
+                                    {keyIndex > 0 && <span className="mx-1 opacity-50 lowercase text-xxs">then</span>}
                                     <kbd className="KeyboardShortcut gap-x-0.5 text-xxs">{key}</kbd>
                                 </React.Fragment>
                             ))}
@@ -30,7 +30,7 @@ export function RenderKeybind({ keybind, className, minimal }: RenderKeybindProp
                 }
                 return (
                     <React.Fragment key={index}>
-                        {index > 0 && <span className="text-xxs opacity-75">or</span>}
+                        {index > 0 && <span className="mx-1 text-xxs opacity-75">or</span>}
                         <KeyboardShortcut
                             {...Object.fromEntries(keybindOption.map((key: string) => [key, true]))}
                             className="text-xs"
