@@ -169,8 +169,8 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # window the query declares. Otherwise the key can describe a window the result was not
         # computed for. A running experiment serializes end_date=None, which expands to now() here.
         # The expansion does not change self.query, so the moving instant stays out of the cache key
-        # and the cache TTL governs refresh. The page sets as_of to the latest recalculation's query_to, so the
-        # exposures end where the metrics end. end_date keeps meaning "stopped", which the bias check reads.
+        # and the cache TTL governs refresh. as_of ends the window at an earlier instant, such as a recalculation's
+        # query_to, without setting end_date. end_date keeps meaning "stopped", which the bias check reads.
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
         # The window comes from the request, and every day in it costs one row per variant in _fill_date_gaps and one
@@ -190,9 +190,16 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             query_as_of = datetime.fromisoformat(self.query.as_of) if self.query.as_of else None
         except ValueError:
             raise ValidationError("as_of must be an ISO 8601 timestamp")
-        # analysis_window_end compares as_of with end_date, and a naive value raises a TypeError there.
-        if query_as_of is not None and query_as_of.tzinfo is None:
-            raise ValidationError("as_of must include a timezone offset")
+        if query_as_of is not None:
+            # as_of is compared with start_date and end_date, and a naive value on either side raises a TypeError.
+            if query_as_of.tzinfo is None:
+                raise ValidationError("as_of must include a timezone offset")
+            if any(d is not None and d.tzinfo is None for d in (self.window_start, self.window_end_date)):
+                raise ValidationError("start_date and end_date must include a timezone offset when as_of is set")
+            # An as_of before start_date comes from a recalculation of an earlier start date, so it does not
+            # describe this window.
+            if self.window_start is not None and query_as_of < self.window_start:
+                query_as_of = None
         now = datetime.now(UTC)
         # _fill_date_gaps emits one row per day up to the window end, so a far-future as_of would allocate
         # millions of rows. A recalculation's query_to is never later than now, so the clamp does not move it.

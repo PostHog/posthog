@@ -2817,6 +2817,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("as_of_before_end_date", datetime(2024, 1, 20), datetime(2024, 1, 12), datetime(2024, 1, 12)),
             ("as_of_after_end_date", datetime(2024, 1, 10), datetime(2024, 1, 12), datetime(2024, 1, 10)),
             ("as_of_after_now_clamps_to_now", None, datetime(9999, 12, 31), datetime(2024, 1, 15)),
+            ("as_of_before_start_date_is_ignored", None, datetime(2023, 12, 20), datetime(2024, 1, 15)),
         ]
     )
     @time_machine.travel("2024-01-15T00:00:00Z", tick=False)
@@ -2855,11 +2856,12 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("naive", "2024-01-10T00:00:00"),
-            ("malformed", "not-a-date"),
+            ("naive", "2024-01-10T00:00:00", "2024-01-31T00:00:00+00:00"),
+            ("malformed", "not-a-date", "2024-01-31T00:00:00+00:00"),
+            ("naive_end_date", "2024-01-10T00:00:00+00:00", "2024-01-31T00:00:00"),
         ]
     )
-    def test_invalid_as_of_is_a_validation_error(self, _name: str, as_of: str) -> None:
+    def test_invalid_as_of_is_a_validation_error(self, _name: str, as_of: str, end_date: str) -> None:
         feature_flag = self.create_feature_flag(key="invalid-as-of")
         experiment = self.create_experiment(
             feature_flag=feature_flag,
@@ -2872,7 +2874,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             experiment_name=experiment.name,
             feature_flag=model_to_dict(feature_flag),
             start_date=experiment.start_date.isoformat(),
-            end_date=experiment.end_date.isoformat(),
+            end_date=end_date,
             as_of=as_of,
             exposure_criteria=experiment.exposure_criteria,
         )
