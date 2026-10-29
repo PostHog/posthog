@@ -78,6 +78,7 @@ from .coder import (
     print_setup_summary,
     region_from_workspace_name,
     restart_workspace,
+    run_with_capacity_fallback,
     server_supports_user_secrets,
     share_workspace,
     ssh_replace,
@@ -398,10 +399,10 @@ def _start_existing_workspace(
     if status == "stopped":
         if workspace.get("outdated"):
             click.echo(f"Starting devbox '{name}' on the latest template...")
-            update_workspace(name, verbose=verbose)
+            run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
         else:
             click.echo(f"Starting devbox '{name}'...")
-            start_workspace(name, verbose=verbose)
+            run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
         _wait_until_ready(name)
         click.echo("Started.")
         _resume_sync(name)
@@ -410,7 +411,7 @@ def _start_existing_workspace(
 
     click.echo(f"Devbox '{name}' is in state: {status}")
     click.echo("Attempting to start...")
-    start_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: start_workspace(name, verbose=verbose))
     _wait_until_ready(name)
     _resume_sync(name)
     _print_connection_info(name)
@@ -1518,17 +1519,20 @@ def devbox_start(
     config = load_config()
 
     click.echo(f"Creating devbox '{name}' (template={template}, preset={preset}, region={effective_region})...")
-    create_workspace(
+    run_with_capacity_fallback(
         name,
-        disk,
-        git_name=config.get("git_name"),
-        git_email=config.get("git_email"),
-        dotfiles_uri=config.get("dotfiles_uri"),
-        region=effective_region,
-        template=template,
-        preset=preset,
-        start_app=start_app,
-        verbose=verbose,
+        lambda: create_workspace(
+            name,
+            disk,
+            git_name=config.get("git_name"),
+            git_email=config.get("git_email"),
+            dotfiles_uri=config.get("dotfiles_uri"),
+            region=effective_region,
+            template=template,
+            preset=preset,
+            start_app=start_app,
+            verbose=verbose,
+        ),
     )
     _wait_until_ready(name)
     click.echo("Created.")
@@ -1657,7 +1661,7 @@ def devbox_restart(workspace: str | None, verbose: bool) -> None:
     name, workspaces = resolve_workspace_name(workspace)
     _get_workspace_or_fail(name, workspaces)
     click.echo(f"Restarting '{name}'...")
-    restart_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: restart_workspace(name, verbose=verbose))
     _wait_until_ready(name)
     click.echo("Restarted.")
     _print_connection_info(name)
@@ -1675,7 +1679,7 @@ def devbox_update(workspace: str | None, verbose: bool) -> None:
         click.echo(f"Devbox '{name}' is already up to date.")
         return
     click.echo(f"Updating '{name}' to the latest template...")
-    update_workspace(name, verbose=verbose)
+    run_with_capacity_fallback(name, lambda: update_workspace(name, verbose=verbose))
     _wait_until_ready(name)
     click.echo("Updated.")
     click.echo(

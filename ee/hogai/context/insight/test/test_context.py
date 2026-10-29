@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from posthog.schema import AssistantTrendsEventsNode, AssistantTrendsQuery
+from posthog.schema import AssistantTrendsEventsNode, AssistantTrendsQuery, DateRange, EventsNode, TrendsQuery
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -207,6 +207,39 @@ class TestInsightContext(BaseTest):
         call_args = mock_execute.call_args
         executed_query = call_args[0][1]
         self.assertIsNotNone(executed_query)
+
+    @parameterized.expand(
+        [
+            ("dashboard_filter", {"date_from": "-7d"}, None, True),
+            ("same_query", None, None, False),
+            ("frontend_version_only", None, 4, False),
+        ]
+    )
+    @patch("ee.hogai.context.insight.context.execute_and_format_query")
+    async def test_execute_and_format_shows_effective_query_when_it_differs_from_saved(
+        self, _name, dashboard_filters, version, expect_effective, mock_execute
+    ):
+        mock_execute.return_value = "Test Results"
+        saved_query = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "dateRange": {"date_from": "-30d"},
+            },
+        }
+        query = TrendsQuery(
+            series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-30d"), version=version
+        )
+        context = InsightContext(
+            team=self.team, query=query, user=self.user, dashboard_filters=dashboard_filters, saved_query=saved_query
+        )
+
+        result = await context.execute_and_format()
+
+        self.assertIn('"dateRange":{"date_from":"-30d"}', result)
+        self.assertEqual("Query that produced the results below" in result, expect_effective)
+        self.assertEqual('"date_from":"-7d"' in result, expect_effective)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_execute_and_format_with_insight_model_id(self, mock_execute):

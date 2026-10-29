@@ -272,22 +272,30 @@ class TestOrganization(BaseTest):
 
     @parameterized.expand(
         [
-            ("one_organization_cold", 1, False),
-            ("many_organizations_cold", 5, False),
-            ("one_organization_warm", 1, True),
-            ("many_organizations_warm", 5, True),
+            ("memberships_one_organization_cold", 1, False, False, 4),
+            ("memberships_many_organizations_cold", 5, False, False, 4),
+            ("memberships_one_organization_warm", 1, True, False, 4),
+            ("memberships_many_organizations_warm", 5, True, False, 4),
+            ("membership_cold", 1, False, True, 1),
+            ("membership_warm", 1, True, True, 1),
         ]
     )
-    def test_access_cache_reads_memberships_in_constant_round_trips(self, _name, organization_count, warm):
+    def test_access_cache_reads_in_constant_round_trips(self, _name, organization_count, warm, single, round_trips):
         organizations = [self.organization]
         for index in range(organization_count - 1):
             organization = Organization.objects.create(name=f"Extra organization {index}")
             OrganizationMembership.objects.create(organization=organization, user=self.user)
             organizations.append(organization)
 
+        def lookup() -> list[OrganizationMembership]:
+            if not single:
+                return get_cached_organization_memberships(self.user)
+            membership = get_cached_organization_membership(self.organization.id, self.user)
+            return [] if membership is None else [membership]
+
         with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
             if warm:
-                get_cached_organization_memberships(self.user)
+                lookup()
 
             # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
             unpatched_get = access_cache.get
@@ -302,10 +310,29 @@ class TestOrganization(BaseTest):
                     },
                 ) as get_many,
             ):
-                memberships = get_cached_organization_memberships(self.user)
+                memberships = lookup()
 
-            assert get.call_count + get_many.call_count == 4
-            assert {membership.organization for membership in memberships} == set(organizations)
+            assert get.call_count + get_many.call_count == round_trips
+            expected = {self.organization} if single else set(organizations)
+            assert {membership.organization for membership in memberships} == expected
+
+    def test_access_cache_invalidation_reaches_values_cached_by_another_django_release(self):
+        with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django5.2"):
+                assert get_cached_organization_membership(self.organization.id, self.user) is not None
+
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django6.1"):
+                with self.assertNumQueries(1):
+                    membership = get_cached_organization_membership(self.organization.id, self.user)
+                assert membership is not None
+                membership.level = OrganizationMembership.Level.ADMIN
+                with self.captureOnCommitCallbacks(execute=True):
+                    membership.save()
+
+            with patch("posthog.organization_caching._PICKLE_NAMESPACE", "django5.2"):
+                cached = get_cached_organization_membership(self.organization.id, self.user)
+            assert cached is not None
+            assert cached.level == OrganizationMembership.Level.ADMIN
 
     def test_access_cache_is_invalidated_when_organization_or_membership_changes(self):
         with self.settings(ORGANIZATION_ACCESS_CACHE_ENABLED=True):

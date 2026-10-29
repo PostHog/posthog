@@ -1,43 +1,23 @@
 import './Navigation.scss'
 
-import { useActions, useMountedLogic, useValues } from 'kea'
-import { ReactNode, Suspense, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
+import { useMountedLogic, useValues } from 'kea'
+import { ReactNode, useLayoutEffect } from 'react'
 
 import { mcpHintLogic } from 'lib/components/MCPHint/mcpHintLogic'
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
-import { lazyWithRetry } from 'lib/utils/retryImport'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene, SceneConfig } from 'scenes/sceneTypes'
+import { SceneConfig } from 'scenes/sceneTypes'
 
-import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
-import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 import { todayPanelChatSessionLogic } from '~/layout/today/todayPanelChatSessionLogic'
-import { TODAY_RAIL_WIDTH, todayShellLogic } from '~/layout/today/todayShellLogic'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
-import { navigationLogic } from '../navigation/navigationLogic'
-import { ProjectNotice } from '../navigation/ProjectNotice'
-import { SceneTitlePanelButton } from '../scenes/components/SceneTitlePanelButton'
-import { SceneLayout } from '../scenes/SceneLayout'
-import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'
-import { MinimalNavigation } from './components/MinimalNavigation'
+import { BareLayout } from './layout-modes/BareLayout'
+import { ClassicLayout } from './layout-modes/ClassicLayout'
+import { EmbeddedLayout } from './layout-modes/EmbeddedLayout'
+import { MinimalLayout } from './layout-modes/MinimalLayout'
+import { TodayFramedLayout } from './layout-modes/TodayFramedLayout'
+import { TodayPhoneLayout } from './layout-modes/TodayPhoneLayout'
+import { resolveLayoutMode } from './layoutMode'
 import { navigation3000Logic } from './navigationLogic'
-import { SidePanel } from './sidepanel/SidePanel'
-import { sidePanelStateLogic } from './sidepanel/sidePanelStateLogic'
-import { themeLogic } from './themeLogic'
-
-// The Today layout renders only behind the today-rail-nav flag, and its quill UI would otherwise load on every logged-in page.
-const TodayContextPanelFloating = lazyWithRetry(() =>
-    import('~/layout/today/TodayContextPanelFloating').then((m) => ({ default: m.TodayContextPanelFloating }))
-)
-const TodayShell = lazyWithRetry(() => import('~/layout/today/TodayShell').then((m) => ({ default: m.TodayShell })))
-const TodaySidePanel = lazyWithRetry(() =>
-    import('~/layout/today/TodaySidePanel').then((m) => ({ default: m.TodaySidePanel }))
-)
-const TodayTopBar = lazyWithRetry(() => import('~/layout/today/TodayTopBar').then((m) => ({ default: m.TodayTopBar })))
 
 export function Navigation({
     children,
@@ -49,323 +29,48 @@ export function Navigation({
     useMountedLogic(maxGlobalLogic)
     useMountedLogic(mcpHintLogic)
 
-    const { theme } = useValues(themeLogic)
-    const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
-    const mainRef = useRef<HTMLElement>(null)
-    const { mainContentRect, isLayoutNavCollapsed, isLayoutPanelVisible, navbarWidth } = useValues(panelLayoutLogic)
-    const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
-    const { activeSceneId } = useValues(sceneLogic)
-    const { registerScenePanelElement, registerSceneTakeoverElement } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpenManual, sceneTakeoverActive } = useValues(sceneLayoutLogic)
-    const { sidePanelOpen } = useValues(sidePanelStateLogic)
-    const { sidePanelWidth } = useValues(panelLayoutLogic)
-    const {
-        leftNavWidth: todayLeftNavWidth,
-        todayRailEnabled: todayRail,
-        sidebarVisible: todaySidebarVisible,
-        phoneLayout: todayPhoneLayout,
-        phoneHeaderHidden: todayPhoneHeaderHidden,
-        onAiPage: todayOnAiPage,
-    } = useValues(todayShellLogic)
-    const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
-    const todayPhone = todayRail && todayPhoneLayout
-    const todayFramed = todayRail && !todayPhone
-    // The framed Today layout gives the side panel its own grid column, so the panel no longer overlaps the scene.
-    const sidePanelOverlapsMain = sidePanelOpen && !todayFramed
+    const { todayRailEnabled: todayRail, phoneLayout } = useValues(todayShellLogic)
 
-    // SceneMenuBar (when enabled) replaces ProjectNotice's role of conveying project-level
-    // context above scene content, so we hide the notice for users on the new menu bar.
-    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    const inlinePanelRef = useRef<HTMLDivElement | null>(null)
-    const inlinePanelCallbackRef = useCallback(
-        (node: HTMLDivElement | null) => {
-            inlinePanelRef.current = node
-            registerScenePanelElement(node)
-        },
-        [registerScenePanelElement]
-    )
-
-    // SidePanelInfo overrides scenePanelElement while the Info tab is open and
-    // clears it on unmount, leaving it null even though Navigation's inline
-    // panel div is still in the DOM. Re-register it when the side panel closes.
-    useEffect(() => {
-        if (!sidePanelOpen && inlinePanelRef.current) {
-            registerScenePanelElement(inlinePanelRef.current)
-        }
-    }, [sidePanelOpen, registerScenePanelElement])
-
-    // Null the registration on Navigation unmount so the detached inline
-    // panel div is not pinned by sceneLayoutLogic's reducer. Kept in its own
-    // empty-deps effect so it fires only on final unmount, not on every
-    // sidePanelOpen toggle (which would briefly blank SceneLayout's portal).
-    useEffect(() => {
-        return () => {
-            registerScenePanelElement(null)
-        }
-    }, [registerScenePanelElement])
-
-    // Unlike the inline panel above, nothing else ever overrides this registration, so the
-    // callback ref's own null call on unmount is enough cleanup.
-    const takeoverCallbackRef = useCallback(
-        (node: HTMLDivElement | null) => registerSceneTakeoverElement(node),
-        [registerSceneTakeoverElement]
-    )
-
-    const deferSceneMeasurementsDuringResize = sceneConfig?.deferSceneMeasurementsDuringResize ?? false
-
-    // Set container ref so we can measure the width of the scene layout in logic
-    useEffect(() => {
-        if (mainRef.current) {
-            setMainContentRef(mainRef, deferSceneMeasurementsDuringResize)
-            // Set main content rect so we can measure the width of the scene layout in logic
-            setMainContentRect(mainRef.current.getBoundingClientRect())
-        }
-    }, [mainRef, setMainContentRef, setMainContentRect, deferSceneMeasurementsDuringResize])
-
-    const noPaddingScene = sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw'
-
-    // The chat session restores a saved run when it mounts. A layout effect runs before any scene's passive effect,
-    // so a scene that clears the panel on show (the AI-first composer) clears it after the restore. The lazy TodayShell
-    // loads too late to mount it.
+    // Runs before scene effects, so a scene cannot clear the restored chat. TodayShell is lazy, so mount it here.
     useLayoutEffect(() => (todayRail ? todayPanelChatSessionLogic.mount() : undefined), [todayRail])
 
-    const todayPhoneBodyClass = todayPhone && mode === 'full'
+    /**
+     * 'Today' is the new scene shell for PostHog.
+     *
+     * Controlled under 'today-rail-nav' flag.
+     */
+
+    const todayPhoneBodyClass = todayRail && phoneLayout && mode === 'full'
+
     useLayoutEffect(() => {
         if (!todayPhoneBodyClass) {
             return
         }
+
         document.body.classList.add('has-today-phone-layout')
+
         return () => document.body.classList.remove('has-today-phone-layout')
     }, [todayPhoneBodyClass])
 
-    if (mode !== 'full') {
-        const showMinimalNavigation = mode === 'minimal' || mode === 'zen'
-        return (
-            // eslint-disable-next-line react/forbid-dom-props
-            <div
-                className="Navigation3000 flex-col"
-                style={
-                    {
-                        ...theme?.mainStyle,
-                        // The MinimalNavigation bar sits above the scene, so push the
-                        // settings scene's viewport-fixed nav down to clear it.
-                        ...(showMinimalNavigation && {
-                            '--settings-nav-top': 'calc(var(--minimal-navigation-height) + var(--scene-padding))',
-                        }),
-                    } as React.CSSProperties
-                }
-            >
-                {showMinimalNavigation && <MinimalNavigation />}
-                <main
-                    className={
-                        mode === 'zen'
-                            ? '@container/main-content p-4'
-                            : mode === 'embedded'
-                              ? '@container/main-content min-h-screen p-4'
-                              : mode === 'minimal' && sceneConfig?.layout !== 'plain'
-                                ? '@container/main-content flex flex-col p-4'
-                                : undefined
-                    }
-                >
-                    {children}
-                </main>
-            </div>
-        )
+    const layoutMode = resolveLayoutMode({
+        mode,
+        todayRail,
+        phoneLayout,
+    })
+
+    switch (layoutMode) {
+        case 'bare':
+            return <BareLayout>{children}</BareLayout>
+        case 'minimal':
+            return <MinimalLayout sceneConfig={sceneConfig}>{children}</MinimalLayout>
+        case 'embedded':
+            return <EmbeddedLayout>{children}</EmbeddedLayout>
+        case 'classic':
+            return <ClassicLayout sceneConfig={sceneConfig}>{children}</ClassicLayout>
+        case 'today-framed':
+            return <TodayFramedLayout sceneConfig={sceneConfig}>{children}</TodayFramedLayout>
+        case 'today-phone':
+            return <TodayPhoneLayout sceneConfig={sceneConfig}>{children}</TodayPhoneLayout>
     }
-
-    return (
-        <>
-            {/* eslint-disable-next-line react/forbid-elements */}
-            <a
-                href="#main-content"
-                className="sr-only focus:not-sr-only focus:fixed focus:z-top focus:top-4 focus:left-4 focus:p-4 focus:bg-white focus:dark:bg-gray-800 focus:rounded focus:shadow-lg"
-                tabIndex={0}
-            >
-                Skip to content
-            </a>
-            <div
-                className={cn('app-layout bg-surface-tertiary', {
-                    'app-layout--mobile': (mobileLayout && !todayRail) || todayPhone,
-                    'TodayAppLayout scrollbar-thin scrollbar-track-transparent scrollbar-thumb-[var(--color-bg-fill-scroll-thumb)]':
-                        todayRail,
-                    'TodayAppLayout--phone': todayPhone,
-                    'TodayAppLayout--top-bar': todayFramed,
-                    'TodayAppLayout--no-phone-header': todayPhoneHeaderHidden,
-                })}
-                style={
-                    {
-                        ...theme?.mainStyle,
-                        // The Today layout keeps one background on every scene, so it leaves out the notebook canvas.
-                        '--scene-layout-background':
-                            sceneConfig?.canvasBackground && !todayRail
-                                ? 'var(--color-bg-surface-primary)'
-                                : 'var(--color-bg-primary)',
-                        '--side-panel-width': sidePanelWidth + 'px',
-                        '--project-navbar-width':
-                            !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
-                        '--today-rail-width': todayRail ? `${TODAY_RAIL_WIDTH}px` : undefined,
-                        '--left-nav-width': todayRail
-                            ? `${todayLeftNavWidth}px`
-                            : isLayoutNavCollapsed
-                              ? 'var(--project-navbar-width-collapsed)'
-                              : 'var(--project-navbar-width)',
-                    } as React.CSSProperties
-                }
-            >
-                <ProjectDragAndDropProvider>
-                    {todayFramed && (
-                        <Suspense fallback={null}>
-                            <TodayTopBar />
-                        </Suspense>
-                    )}
-                    {todayRail ? (
-                        <Suspense fallback={null}>
-                            <TodayShell className="left-nav" />
-                        </Suspense>
-                    ) : (
-                        <PanelLayout className="left-nav" />
-                    )}
-                    {todayFramed && <div aria-hidden className="TodayAppLayout__shadow" />}
-                    {todayFramed && (
-                        // The chrome token exists only inside a quill scope, so the backdrop that fills the gap above the frame carries data-quill.
-                        <div data-quill aria-hidden className="TodayAppLayout__backdrop bg-[var(--chrome)]" />
-                    )}
-
-                    <div
-                        className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative [--left-nav-width:initial] [--project-navbar-width:initial]',
-                            todayRail
-                                ? todayFramed && [
-                                      'TodayAppLayout__content',
-                                      // A docked sidebar owns the corner and the seam, so the content draws them only without one.
-                                      (mobileLayout || !todaySidebarVisible) && 'TodayAppLayout__content--corner',
-                                      sidePanelWidth > 0 && 'TodayAppLayout__content--side-panel',
-                                  ]
-                                : [
-                                      'lg:rounded border-t lg:border lg:mr-1 lg:mb-1 lg:mt-1',
-                                      sidePanelOpen && 'rounded-r-none',
-                                  ]
-                        )}
-                        {...(todayDrawerOpen ? { inert: '' } : {})}
-                        style={
-                            {
-                                '--scene-layout-rect-right': mainContentRect?.right + 'px',
-                                '--scene-layout-rect-width': mainContentRect?.width + 'px',
-                                '--scene-layout-rect-height': mainContentRect?.height + 'px',
-                            } as React.CSSProperties
-                        }
-                    >
-                        {todayFramed && (
-                            // The frame edge uses quill's border token so it matches the sidebar seam, and that token exists only inside a quill scope.
-                            <div data-quill aria-hidden className="TodayAppLayout__frame" />
-                        )}
-                        <main
-                            ref={mainRef}
-                            role="main"
-                            tabIndex={0}
-                            id="main-content"
-                            className={cn(
-                                // The container rounds the corners. In Chrome, a rounded scroller that holds many canvases stops painting.
-                                '@container/main-content bg-[var(--scene-layout-background)] overflow-y-auto overflow-x-hidden show-scrollbar-on-hover p-4 pb-0 h-full flex-1 focus-visible:outline-none flex flex-col',
-                                {
-                                    'p-0': noPaddingScene,
-                                    'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
-                                }
-                            )}
-                        >
-                            <SceneLayout sceneConfig={sceneConfig}>
-                                {/* While a takeover covers the scene its controls must leave the tab
-                                    order and the accessibility tree, or keyboard and screen-reader
-                                    users can operate them invisibly. The side panel stays outside the
-                                    wrapper: it renders beside the takeover and must stay usable. */}
-                                {/* The attribute rides a spread with the empty-string form: React 18's
-                                    types lack `inert`, and its runtime serializes `inert={false}` to a
-                                    string, which is still inert (presence-based attribute). */}
-                                <div
-                                    className="contents [--side-panel-width:initial]"
-                                    {...(sceneTakeoverActive ? { inert: '' } : {})}
-                                >
-                                    {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
-                                        <div
-                                            className={cn({
-                                                'px-4 empty:hidden': sceneConfig?.layout === 'app-raw-no-header',
-                                                // Settings scene's nav is viewport-fixed on desktop, so the
-                                                // banner needs to clear it (nav width + column gap) to align
-                                                // with the settings content column.
-                                                'md:ml-[calc(var(--settings-nav-width)+2rem)]':
-                                                    activeSceneId === Scene.Settings,
-                                            })}
-                                        >
-                                            <ProjectNotice
-                                                className={cn('my-0 mb-4', {
-                                                    'mt-4': noPaddingScene,
-                                                })}
-                                            />
-                                        </div>
-                                    )}
-                                    {children}
-                                </div>
-                                {!todayFramed && <SidePanel />}
-                            </SceneLayout>
-                        </main>
-
-                        {/* Scene takeover host: fullscreen-in-scene surfaces (the email editor)
-                            portal here to fill the main well at full height, while the navigation
-                            stays visible and the side panel stays usable beside it (z-50 keeps this
-                            under the side panel). Mirrors main's max-width shrink so it never sits
-                            underneath the open side panel. */}
-                        <div
-                            ref={takeoverCallbackRef}
-                            tabIndex={-1}
-                            className={cn(
-                                'absolute inset-0 z-50 bg-[var(--scene-layout-background)] flex flex-col outline-none',
-                                {
-                                    hidden: !sceneTakeoverActive,
-                                    'lg:max-w-[calc(100%-var(--side-panel-width))]': sidePanelOverlapsMain,
-                                }
-                            )}
-                        />
-
-                        {scenePanelIsPresent && (
-                            <>
-                                <div
-                                    className={cn(
-                                        'scene-layout__content-panel starting:w-0 bg-surface-secondary flex flex-col overflow-hidden h-full min-w-0',
-                                        'absolute right-0 top-0 @[1200px]/main-content-container:relative @[1200px]/main-content-container:right-auto @[1200px]/main-content-container:top-auto',
-                                        {
-                                            hidden: !scenePanelOpenManual,
-                                            'z-1': isLayoutPanelVisible,
-                                        }
-                                    )}
-                                >
-                                    <div className="h-[50px] flex items-center justify-end gap-2 -mx-2 px-4 py-2 border-b border-primary shrink-0">
-                                        <SceneTitlePanelButton />
-                                    </div>
-                                    <ScrollableShadows
-                                        direction="vertical"
-                                        className="grow flex-1"
-                                        innerClassName="px-2 py-2 bg-primary"
-                                        styledScrollbars
-                                    >
-                                        <div ref={inlinePanelCallbackRef} />
-                                    </ScrollableShadows>
-                                </div>
-                            </>
-                        )}
-                        {todayFramed && !todayOnAiPage && (
-                            <Suspense fallback={null}>
-                                <TodayContextPanelFloating />
-                            </Suspense>
-                        )}
-                    </div>
-                    {todayFramed && (
-                        <Suspense fallback={null}>
-                            <TodaySidePanel />
-                        </Suspense>
-                    )}
-                </ProjectDragAndDropProvider>
-            </div>
-        </>
-    )
 }

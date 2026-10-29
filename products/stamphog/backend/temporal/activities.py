@@ -2364,11 +2364,18 @@ def _review_payload_command() -> str:
     attacker-controlled files beside our engine (e.g. tools/pr-approval-agent/yaml.py), which Python
     would import ahead of uv's installed dependency, which is arbitrary code execution with the
     sandbox's LLM creds. Overwriting only our known modules would leave those shadow files in place.
+
+    The command fails before it removes or extracts anything when a parent directory of a payload
+    destination is a symlink, such as a PR that commits `tools` as a link. tar follows a symlink in
+    a parent path, so the trusted files would land wherever the PR points, beside files the PR chose.
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
     policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
+    destinations = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
+    parent_dirs = sorted({parent.as_posix() for path in destinations for parent in PurePosixPath(path).parents} - {"."})
+    no_symlinked_parents = " && ".join(f"test ! -L {shlex.quote(parent)}" for parent in parent_dirs)
     return (
-        f"cd {repo_dir} && rm -f {policy_paths} && "
+        f"cd {repo_dir} && {no_symlinked_parents} && rm -f {policy_paths} && "
         f"rm -rf {shlex.quote(_ENGINE_RELATIVE_DIR)} {shlex.quote(_OWNERS_RELATIVE_DIR)} && "
         f"tar -xzf {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)} --no-same-owner && "
         f"rm -f {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)}"

@@ -16,7 +16,7 @@ from posthog.models.user import User
 
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import (
-    TEST_PARTNER_CLIENT_SECRET,
+    TEST_PARTNER_JWKS_URI,
     TEST_PARTNER_SCOPES,
     ProvisioningTestBase,
     provisioning_config,
@@ -65,8 +65,9 @@ class AuthorizeTestBase(ProvisioningTestBase):
         return OAuthApplication.objects.create(
             client_id="authorize-skip-consent-partner",
             name="Skip Consent Partner",
-            client_secret=TEST_PARTNER_CLIENT_SECRET,
+            client_secret="",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            jwks_uri=TEST_PARTNER_JWKS_URI,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris=PARTNER_CALLBACK,
             algorithm="RS256",
@@ -215,7 +216,7 @@ class TestAgenticAuthorize(AuthorizeTestBase):
                 "grant_type": "authorization_code",
                 "code": code,
                 "code_verifier": verifier,
-                **self._client_credentials(partner),
+                **self._client_auth(partner),
             },
         )
         assert token_res.status_code == 200

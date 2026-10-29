@@ -116,6 +116,16 @@ E2B_ENDPOINTS: dict[str, E2BEndpointConfig] = {
         data_selector="builds",
         fanout=TEMPLATE_FANOUT,
     ),
+    # GET /templates/{templateID}/tags — the tags of one template and the build each one points at.
+    # A tag name is unique within a template only. `createdAt` is when the tag was last assigned, so
+    # moving a tag to a new build changes it, which rules it out as a partition key.
+    "template_tags": E2BEndpointConfig(
+        name="template_tags",
+        path="/templates/{templateID}/tags",
+        primary_keys=["templateID", "tag"],
+        page_size_param=None,
+        fanout=TEMPLATE_FANOUT,
+    ),
     # GET /teams/{teamID}/metrics — concurrent sandboxes and sandbox start rate over time.
     "team_metrics": E2BEndpointConfig(
         name="team_metrics",

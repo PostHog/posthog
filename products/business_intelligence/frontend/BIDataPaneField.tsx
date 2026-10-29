@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconCalendar, IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { IconCalendar, IconEllipsis, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonMenu, Tooltip } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -49,10 +49,12 @@ export function BIDataPaneField({
     field,
     measure,
     path = [],
+    description,
 }: {
     field: BIField
     measure: boolean
     path?: string[]
+    description?: string
 }): JSX.Element {
     const editor = useMountedLogic(biEditorLogic)
     const { config } = useValues(editor)
@@ -98,6 +100,11 @@ export function BIDataPaneField({
                 <span className="truncate">
                     {path.length ? field.name.slice(path.join('.').length + 1) : field.name}
                 </span>
+                {description && (
+                    <Tooltip title={description}>
+                        <IconInfo className="shrink-0 text-secondary" aria-label={description} />
+                    </Tooltip>
+                )}
             </button>
             {(field.localDefinition || isNumericBIField(field) || ['string', 'boolean'].includes(field.type)) && (
                 <LemonMenu
