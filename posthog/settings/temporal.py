@@ -421,15 +421,14 @@ if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS <= 0:
         "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS must be a positive integer, or no platform insight check starts"
     )
 # A check holds a worker slot while it waits for a query slot, so keep this inside the evaluation
-# workers' activity slots.
-ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS: int = get_from_env(
-    "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS", ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS, type_cast=int
+# workers' activity slots. A value below the query pool is raised to it rather than refused, because
+# every process loads these settings and a platform value must not stop other workers from starting.
+ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS: int = max(
+    get_from_env(
+        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS", ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS, type_cast=int
+    ),
+    ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
 )
-if ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS < ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS:
-    raise ImproperlyConfigured(
-        "ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS must be at least ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS, "
-        "or ClickHouse slots stay idle"
-    )
 # Insight batch keys the platform starts per tick, across every team. A key is one team's checks due
 # in one slot. With a tick a minute, 60 times this must cover the keys due per hour, or hourly alerts
 # fall behind their cadence. The pool above bounds concurrent queries, not this. A key that finds the
