@@ -200,6 +200,7 @@ def test_rides_out_rate_limit_on_report(
     config: ModalSourceConfig,
     inputs: SourceInputs,
     manager: MagicMock,
+    create_client: MagicMock,
     report: MagicMock,
 ) -> None:
     inputs.schema_name = "billing_report_hourly"
@@ -215,12 +216,14 @@ def test_rides_out_rate_limit_on_report(
     assert [item["object_id"] for item in result[0]] == ["ap-test"]
     # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st rejection, 4s after the 2nd.
     assert sleep.call_args_list == [call(2), call(4)]
+    create_client.return_value.__exit__.assert_called_once()
 
 
 def test_persistent_rate_limit_is_reraised_for_temporal_to_retry(
     config: ModalSourceConfig,
     inputs: SourceInputs,
     manager: MagicMock,
+    create_client: MagicMock,
     report: MagicMock,
 ) -> None:
     inputs.schema_name = "billing_report_hourly"
@@ -234,6 +237,7 @@ def test_persistent_rate_limit_is_reraised_for_temporal_to_retry(
     assert report.call_count == MAX_REPORT_RETRY_ATTEMPTS
     assert sleep.call_args_list == [call(2), call(4), call(6)]
     manager.save_state.assert_not_called()
+    create_client.return_value.__exit__.assert_called_once()
 
 
 @pytest.mark.parametrize("during_creation", [False, True])
