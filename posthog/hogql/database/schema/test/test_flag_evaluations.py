@@ -579,6 +579,23 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert ("in(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
+    def test_group_join_of_a_swapped_events_scan_reads_only_the_groups_of_the_matched_rows(self):
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=self.occurred_at - timedelta(days=1),
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"industry": "software"})
+
+        response = self._query_events(f"SELECT group_0.properties.industry FROM events WHERE {FLAG_CALL_CONJUNCTS}")
+
+        assert response.clickhouse is not None
+        assert "FROM flag_evaluations" in response.clickhouse
+        assert "in(key," in response.clickhouse
+        assert response.results == [("software",)]
+
     @parameterized.expand(
         [
             (
