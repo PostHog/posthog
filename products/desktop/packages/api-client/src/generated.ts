@@ -9142,6 +9142,7 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        include_media?: boolean | undefined;
                     }
                   | {
                         /**
@@ -19339,6 +19340,7 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  include_media?: boolean | undefined;
               }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
