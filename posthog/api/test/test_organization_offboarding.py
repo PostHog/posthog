@@ -23,20 +23,28 @@ class TestOrganizationOffboarding(APIBaseTest):
         self.departing = User.objects.create_and_join(self.organization, "departing@example.com", None)
         self.url = f"/api/organizations/@current/members/{self.departing.uuid}/"
 
-    def test_review_finds_public_dashboards_across_projects_and_sharing_history(self) -> None:
+    def test_review_uses_publisher_with_creator_fallback_only_when_unknown(self) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second project")
         owned = Dashboard.objects.create(team=second_team, created_by=self.departing, name="Product overview")
         shared = Dashboard.objects.create(team=self.team, created_by=self.user, name="Weekly acquisition")
         for dashboard in (owned, shared):
             SharingConfiguration.objects.create(
-                team=dashboard.team, dashboard=dashboard, enabled=True, password_required=dashboard == owned
+                team=dashboard.team,
+                dashboard=dashboard,
+                enabled=True,
+                password_required=dashboard == owned,
+                shared_by=self.departing if dashboard == shared else None,
             )
+        reshared = Dashboard.objects.create(team=self.team, created_by=self.departing)
+        SharingConfiguration.objects.create(team=self.team, dashboard=reshared, enabled=True, shared_by=self.user)
+        history_only = Dashboard.objects.create(team=self.team, created_by=self.user)
+        SharingConfiguration.objects.create(team=self.team, dashboard=history_only, enabled=True)
         ActivityLog.objects.create(
             team_id=self.team.pk,
             user=self.departing,
             scope="Dashboard",
             activity="sharing enabled",
-            item_id=str(shared.pk),
+            item_id=str(history_only.pk),
         )
         inactive = Dashboard.objects.create(team=self.team, created_by=self.departing)
         SharingConfiguration.objects.create(team=self.team, dashboard=inactive, enabled=False)
@@ -150,9 +158,9 @@ class TestOrganizationOffboarding(APIBaseTest):
         )
         assert response.status_code == 200
         share = SharingConfiguration.objects.get(team=self.team, **{kind: resource})
-        assert share.shared_by.filter(pk=self.departing.pk).exists()
+        assert share.shared_by_id == self.departing.pk
         rotated = share.rotate_access_token()
-        assert rotated.shared_by.filter(pk=self.departing.pk).exists()
+        assert rotated.shared_by_id == self.departing.pk
         ActivityLog.objects.filter(team_id=self.team.pk, user=self.departing).delete()
         self.client.force_login(self.user)
         response = self.client.get(self.url + "offboarding/")
@@ -167,16 +175,10 @@ class TestOrganizationOffboarding(APIBaseTest):
             team=self.team, insight=insight, enabled=True, password_required=True
         )
         notebook_share = SharingConfiguration.objects.create(
-            team=self.team, notebook=notebook, enabled=True, password_required=True
+            team=self.team, notebook=notebook, enabled=True, password_required=True, shared_by=self.departing
         )
-        recording_share = SharingConfiguration.objects.create(team=self.team, recording=recording, enabled=True)
-        recording_share.shared_by.add(self.departing)
-        ActivityLog.objects.create(
-            team_id=self.team.pk,
-            user=self.departing,
-            scope="Notebook",
-            activity="sharing enabled",
-            item_id=notebook.short_id,
+        recording_share = SharingConfiguration.objects.create(
+            team=self.team, recording=recording, enabled=True, shared_by=self.departing
         )
         grace_share = SharingConfiguration.objects.create(
             team=self.team,

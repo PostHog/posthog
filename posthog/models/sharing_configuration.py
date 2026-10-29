@@ -50,7 +50,15 @@ class SharingConfiguration(models.Model):
         blank=True,
     )
 
-    shared_by = models.ManyToManyField("posthog.User", related_name="+", blank=True, db_constraint=False)
+    shared_by = models.ForeignKey(
+        "posthog.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+    )
 
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
 
@@ -79,7 +87,9 @@ class SharingConfiguration(models.Model):
         time, so a newly added shareable resource cannot ship without an explicit access-control decision.
         """
         return frozenset(
-            field.name for field in cls._meta.fields if field.is_relation and field.many_to_one and field.name != "team"
+            field.name
+            for field in cls._meta.fields
+            if field.is_relation and field.many_to_one and field.name not in {"team", "shared_by"}
         )
 
     @classmethod
@@ -227,11 +237,10 @@ class SharingConfiguration(models.Model):
                 notebook=source.notebook,
                 interviewee_context=source.interviewee_context,
                 enabled=source.enabled,
+                shared_by_id=source.shared_by_id,
                 settings=source.settings,
                 password_required=source.password_required,
             )
-
-            new_config.shared_by.set(source.shared_by.all())
 
             if source.password_required:
                 from posthog.models.share_password import SharePassword
