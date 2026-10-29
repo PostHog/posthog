@@ -4,11 +4,19 @@ from typing import TYPE_CHECKING
 
 from django.db import transaction
 
+import structlog
+
+from products.signals.backend.agent_runtime import AgentRuntime
+from products.signals.backend.trial.billing import TrialBilling, TrialContinuation
 from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, lock_organization_trial
 
 if TYPE_CHECKING:
+    from posthog.models import Team
+
     from products.signals.backend.models import SignalScoutConfig
+
+logger = structlog.get_logger(__name__)
 
 
 @contextmanager
@@ -60,3 +68,23 @@ def trial_scout_limit(team_id: int) -> int | None:
 
     grant = TrialPolicy(Team.objects.get(id=team_id)).active_grant()
     return grant.scout_limit if grant is not None and grant.exhausted_at is None else None
+
+
+def trial_scout_runtime(team: "Team") -> AgentRuntime | None:
+    if trial_scout_limit(team.parent_team_id or team.id) is None:
+        return None
+    decision = TrialPolicy(team).flag_decision()
+    if not decision.confirmed or decision.enabled is not True:
+        return None
+    try:
+        billing = TrialBilling(team.organization).status()
+    except Exception:
+        logger.warning("signals_trial_scout_billing_unavailable", team_id=team.id, exc_info=True)
+        return None
+    if not billing.ready or billing.continuation != TrialContinuation.PAYMENT:
+        return None
+    # Billing exposes a subscription, not card presence. A provider customer can already have a
+    # saved card before activating a subscription, so keep its normal model too.
+    if team.organization.customer_id:
+        return None
+    return AgentRuntime(runtime_adapter="codex", model="gpt-6-luna")
