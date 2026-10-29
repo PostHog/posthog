@@ -97,6 +97,7 @@ fn v0_raw_event() -> RawEvent {
         set: Some(std::collections::HashMap::new()),
         set_once: Some(std::collections::HashMap::new()),
         token: Some(V0_TOKEN.to_string()),
+        ..Default::default()
     }
 }
 

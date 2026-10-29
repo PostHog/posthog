@@ -84,6 +84,7 @@ impl RawRequest {
                         set: engage_event.set,
                         set_once: engage_event.set_once,
                         properties: engage_event.properties,
+                        ..Default::default()
                     }])
                 } else {
                     Err(CaptureError::RequestHydrationError(String::from(

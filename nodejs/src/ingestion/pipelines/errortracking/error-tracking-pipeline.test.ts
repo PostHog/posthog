@@ -119,6 +119,7 @@ describe('ErrorTrackingPipeline', () => {
         ip?: string
         event?: string
         properties?: Record<string, any>
+        personPropertiesSnapshot?: Record<string, unknown>
     }): Message => {
         const {
             token = 'test-token-123',
@@ -140,6 +141,9 @@ describe('ErrorTrackingPipeline', () => {
                 $exception_list: [{ type: 'Error', value: 'Test error' }],
                 ...properties,
             },
+            ...(options.personPropertiesSnapshot === undefined
+                ? {}
+                : { person_properties_mode: 'snapshot', person_properties: options.personPropertiesSnapshot }),
         }
 
         const messageBody = {
@@ -360,7 +364,7 @@ describe('ErrorTrackingPipeline', () => {
     })
 
     describe('runErrorTrackingPipeline', () => {
-        it('processes a single event through the full pipeline and emits to Kafka', async () => {
+        it.each([undefined, {}, { plan: 'paid' }])('emits an exception with person snapshot %j', async (snapshot) => {
             const person = createTestPerson()
             mockPersonRepository.fetchPersonsByDistinctIds.mockResolvedValue([person])
 
@@ -389,7 +393,7 @@ describe('ErrorTrackingPipeline', () => {
                 })
             )
 
-            const message = createKafkaMessage({})
+            const message = createKafkaMessage({ personPropertiesSnapshot: snapshot })
             const pipeline = createErrorTrackingPipeline(pipelineConfig)
             await runErrorTrackingPipeline(pipeline, [message])
 
@@ -407,10 +411,12 @@ describe('ErrorTrackingPipeline', () => {
 
             // Verify person fields are on the top-level event (not in properties)
             expect(emittedEvent.person_id).toBe('person-uuid-123')
-            expect(parseJSON(emittedEvent.person_properties)).toEqual({
-                email: 'test@example.com',
-                name: 'Test User',
-            })
+            expect(parseJSON(emittedEvent.person_properties)).toEqual(
+                snapshot ?? {
+                    email: 'test@example.com',
+                    name: 'Test User',
+                }
+            )
 
             // Verify properties contain GeoIP (from Hog transformations) and Cymbal data
             const props = parseJSON(emittedEvent.properties)

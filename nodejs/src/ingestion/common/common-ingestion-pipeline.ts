@@ -112,7 +112,11 @@ type BatchContext<TContext> = TContext & BatchingContext
 type TeamAwareContext<TContext> = BatchContext<TContext> & { team: Team }
 
 /** Output of `.resolveTeam()`: the parsed event with the resolved team attached. */
-type TeamResolved<T> = Omit<T & { event: IncomingEvent }, 'event'> & { event: PluginEvent; team: Team }
+type TeamResolved<T> = Omit<T & { event: IncomingEvent }, 'event'> & {
+    event: PluginEvent
+    team: Team
+    personPropertiesSnapshot?: Record<string, unknown>
+}
 
 export type BeforeBatchCallback<TInput, TContext, CBatch> = (
     builder: StartPipelineBuilder<BeforeBatchInput<TInput, TContext>, Record<string, never>>

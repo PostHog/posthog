@@ -23,6 +23,7 @@ type TestInput = {
     person: Person
     headers: EventHeaders
     message: Message
+    personPropertiesSnapshot?: Record<string, unknown>
 }
 
 describe('createPrepareEventStep', () => {
@@ -114,6 +115,26 @@ describe('createPrepareEventStep', () => {
             if (result.type === PipelineResultType.OK) {
                 expect(result.value.preparedEvent.properties).not.toHaveProperty(bloatKey)
                 expect(result.value.preparedEvent.properties).toHaveProperty('other', 'kept')
+            }
+        }
+    )
+
+    it.each([undefined, {}, { plan: 'paid' }])(
+        'strips synthetic person updates only for snapshot %j',
+        async (snapshot) => {
+            const mutations = { $set: { plan: 'paid' }, $set_once: { first: true }, $unset: ['old'] }
+            const result = await createPrepareEventStep<TestInput>()(
+                createInput({
+                    normalizedEvent: createTestPluginEvent({ properties: { ...mutations, other: 'kept' } }),
+                    personPropertiesSnapshot: snapshot,
+                })
+            )
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (result.type === PipelineResultType.OK) {
+                expect(result.value.preparedEvent.properties).toEqual(
+                    snapshot === undefined ? { ...mutations, other: 'kept' } : { other: 'kept' }
+                )
+                expect(result.value.personPropertiesSnapshot).toEqual(snapshot)
             }
         }
     )

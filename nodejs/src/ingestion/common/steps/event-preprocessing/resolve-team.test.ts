@@ -91,11 +91,11 @@ describe('createResolveTeamStep()', () => {
         ])
     })
 
-    it('event with a valid token replaces event with PluginEvent and adds team', async () => {
+    it.each([undefined, {}, { plan: 'paid' }])('resolves team and carries person snapshot %j', async (snapshot) => {
         const input = {
             message: createTestMessage(),
             headers: createTestEventHeaders({ token: teamTwoToken }),
-            event: { event: { ...pipelineEvent }, message: createTestMessage() } as IncomingEvent,
+            event: { event: { ...pipelineEvent }, personPropertiesSnapshot: snapshot },
         }
         const response = await step(input)
         expect(response).toEqual(
@@ -103,6 +103,7 @@ describe('createResolveTeamStep()', () => {
                 ...input,
                 event: { ...pipelineEvent, team_id: teamTwo.id },
                 team: teamTwo,
+                personPropertiesSnapshot: snapshot,
             })
         )
         expect(teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)

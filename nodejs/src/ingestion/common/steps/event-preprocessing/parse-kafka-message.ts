@@ -60,7 +60,8 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): P
             // personInitialAndUTMProperties) happens after transformations in normalizeEventStep.
             const event: PipelineEvent = sanitizeEvent(parsePipelineEvent(combinedEvent))
 
-            return Promise.resolve(ok({ ...input, event: { event } }))
+            const personPropertiesSnapshot = parsePersonPropertiesSnapshot(combinedEvent)
+            return Promise.resolve(ok({ ...input, event: { event, personPropertiesSnapshot } }))
         } catch (error) {
             logger.warn('Failed to parse Kafka message', { error })
             return Promise.resolve(
@@ -135,4 +136,22 @@ function requireObject(value: unknown, field: string): Record<string, unknown> {
 
 function optionalObject(value: unknown, field: string): Record<string, any> | undefined {
     return value == null ? undefined : requireObject(value, field)
+}
+
+function parsePersonPropertiesSnapshot(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+    if (raw.person_properties_mode === undefined && raw.person_properties === undefined) {
+        return undefined
+    }
+    if (raw.person_properties_mode !== 'snapshot') {
+        throw new Error('person_properties requires person_properties_mode=snapshot')
+    }
+
+    const snapshot = requireObject(raw.person_properties, 'person_properties')
+    const properties = optionalObject(raw.properties, 'properties')
+    for (const key of ['$set', '$set_once', '$unset']) {
+        if (raw[key] !== undefined || properties?.[key] !== undefined) {
+            throw new Error(`person_properties snapshot cannot be combined with ${key}`)
+        }
+    }
+    return snapshot
 }

@@ -15,6 +15,7 @@ export type PrepareEventStepInput = {
     team: Team
     processPerson: boolean
     headers: EventHeaders
+    personPropertiesSnapshot?: Record<string, unknown>
 }
 
 export type PrepareEventStepResult<TInput> = Omit<TInput, 'normalizedEvent'> & {
@@ -36,6 +37,11 @@ export function createPrepareEventStep<TInput extends PrepareEventStepInput>(): 
         }
 
         const properties = normalizedEvent.properties!
+        if (input.personPropertiesSnapshot !== undefined) {
+            delete properties.$set
+            delete properties.$set_once
+            delete properties.$unset
+        }
         const sanitizedEventName = sanitizeEventName(normalizedEvent['event'])
 
         if (properties['$ip'] && input.team.anonymize_ips) {

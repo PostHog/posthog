@@ -2,7 +2,7 @@ import { Message } from 'node-rdkafka'
 
 import { logger } from '~/common/utils/logger'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
-import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
+import { PipelineResultType, dlq, isOkResult, ok } from '~/ingestion/framework/results'
 import { createRecordingTopHog } from '~/tests/helpers/tophog'
 import { EventHeaders } from '~/types'
 
@@ -408,10 +408,45 @@ describe('createParseKafkaMessageStep', () => {
                 ['$set', { $set: 42 }],
                 ['$set_once', { $set_once: true }],
                 ['$set_once', { $set_once: [1] }],
+                ['person_properties', { person_properties_mode: 'snapshot', person_properties: null }],
+                ['person_properties', { person_properties_mode: 'snapshot', person_properties: [] }],
+                ['person_properties', { person_properties_mode: 'snapshot', person_properties: 'invalid' }],
+                ['person_properties', { person_properties_mode: 'snapshot', person_properties: 42 }],
+                ['person_properties', { person_properties_mode: 'snapshot' }],
+                ['person_properties_mode', { person_properties: {} }],
+                ['person_properties_mode', { person_properties_mode: 'merge', person_properties: {} }],
             ])('%s with %j should DLQ', async (_field, dataOverrides) => {
                 const result = await step({ message: makeMessage(dataOverrides) })
                 expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
             })
+        })
+
+        it.each([{}, { plan: 'paid', nested: { items: [1, null, false] } }])(
+            'keeps person snapshots outside the transformation event: %j',
+            async (snapshot) => {
+                const result = await step({
+                    message: makeMessage({ person_properties_mode: 'snapshot', person_properties: snapshot }),
+                })
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.value.event.personPropertiesSnapshot).toEqual(snapshot)
+                    expect(result.value.event.event).not.toHaveProperty('person_properties')
+                    expect(result.value.event.event).not.toHaveProperty('person_properties_mode')
+                }
+            }
+        )
+
+        it.each(['$set', '$set_once', '$unset'])('rejects snapshot input combined with %s', async (key) => {
+            for (const mutations of [{ [key]: {} }, { properties: { [key]: {} } }]) {
+                const result = await step({
+                    message: makeMessage({
+                        person_properties_mode: 'snapshot',
+                        person_properties: {},
+                        ...mutations,
+                    }),
+                })
+                expect(result).toEqual(dlq('failed_parse_message', expect.any(Error)))
+            }
         })
 
         describe('optional fields default correctly when absent', () => {

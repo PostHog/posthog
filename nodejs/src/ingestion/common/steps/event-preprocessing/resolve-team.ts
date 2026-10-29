@@ -81,7 +81,10 @@ async function resolveTeam(
 
 export function createResolveTeamStep<TInput extends ResolveTeamStepInput>(
     teamManager: TeamManager
-): ProcessingStep<TInput, Omit<TInput, 'event'> & { event: PluginEvent; team: Team }> {
+): ProcessingStep<
+    TInput,
+    Omit<TInput, 'event'> & { event: PluginEvent; team: Team; personPropertiesSnapshot?: Record<string, unknown> }
+> {
     return async function resolveTeamStep(input) {
         const { event: incomingEvent, ...restInput } = input
 
@@ -92,6 +95,11 @@ export function createResolveTeamStep<TInput extends ResolveTeamStepInput>(
         }
 
         const pluginEvent: PluginEvent = { ...incomingEvent.event, team_id: result.team.id }
-        return ok({ ...restInput, event: pluginEvent, team: result.team })
+        return ok({
+            ...restInput,
+            event: pluginEvent,
+            team: result.team,
+            personPropertiesSnapshot: incomingEvent.personPropertiesSnapshot,
+        })
     }
 }

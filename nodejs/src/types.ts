@@ -892,6 +892,7 @@ export interface EventHeaders {
 
 export interface IncomingEvent {
     event: PipelineEvent
+    personPropertiesSnapshot?: Record<string, unknown>
 }
 
 export interface IncomingEventWithTeam {

@@ -156,6 +156,7 @@ mod tests {
             set: None,
             set_once: None,
             offset: None,
+            ..Default::default()
         };
 
         let context = TransformContext {
@@ -201,6 +202,7 @@ mod tests {
             set: None,
             set_once: None,
             offset: None,
+            ..Default::default()
         };
 
         let context = TransformContext {
