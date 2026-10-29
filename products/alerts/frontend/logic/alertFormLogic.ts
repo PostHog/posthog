@@ -694,8 +694,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ? await api.alerts.create(payload)
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
-                    const cause = isNewAlert ? null : ownerUnavailableCause(error)
-                    if (cause) {
+                    const cause = ownerUnavailableCause(error)
+                    if (cause && existingAlertId !== undefined) {
                         // Taking ownership enables the alert, so the rest of the edits are saved by a second submit.
                         void openTakeOwnershipDialog({
                             resourceLabel: 'alert',
