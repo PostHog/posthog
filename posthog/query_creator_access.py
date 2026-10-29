@@ -59,6 +59,18 @@ def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | N
             raise UserAccessControlError(resource, "viewer", str(obj.pk))
 
 
+def describe_owner_unavailable(user: Optional[User], error: Exception) -> str:
+    """One sentence on why `user` can no longer run a resource, for the person trying to enable it.
+
+    `error` is what `assert_creator_can_run` raised for them.
+    """
+    if user is None:
+        return "The account of its owner was deleted."
+    if isinstance(error, CreatorLeftOrganizationError):
+        return f"Its owner, {user.email}, is no longer in the organization."
+    return f"Its owner, {user.email}, no longer has access to the data it reads."
+
+
 def report_creator_access_revoked(
     *,
     user: Optional[User],

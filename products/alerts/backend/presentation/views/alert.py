@@ -57,7 +57,12 @@ from posthog.models.integration import Integration
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
 from posthog.permissions import get_authenticator_scopes
-from posthog.query_creator_access import OWNER_UNAVAILABLE_CODE, CreatorLeftOrganizationError, assert_creator_can_run
+from posthog.query_creator_access import (
+    OWNER_UNAVAILABLE_CODE,
+    CreatorLeftOrganizationError,
+    assert_creator_can_run,
+    describe_owner_unavailable,
+)
 from posthog.rate_limit import (
     AlertLLMSimulationBurstThrottle,
     AlertLLMSimulationDailyThrottle,
@@ -650,9 +655,9 @@ class RelativeDateTimeField(serializers.DateTimeField):
         return data
 
 
-ALERT_OWNER_UNAVAILABLE_MESSAGE = (
-    "Cannot enable this alert: its owner can no longer run it. Take ownership to enable it as yourself."
-)
+def _owner_unavailable_message(owner: User | None, error: Exception) -> str:
+    """The refusal for an enable the owner cannot run, naming the owner and the cause."""
+    return f"Can't enable this alert. {describe_owner_unavailable(owner, error)} Take ownership to run it with your access."
 
 
 class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
@@ -1123,8 +1128,11 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if self.instance is not None and attrs.get("enabled") is True and not self.instance.enabled:
             try:
                 assert_creator_can_run(self.instance.created_by, self.instance.team, insight)
-            except (CreatorLeftOrganizationError, UserAccessControlError):
-                raise ValidationError({"enabled": [ALERT_OWNER_UNAVAILABLE_MESSAGE]}, code=OWNER_UNAVAILABLE_CODE)
+            except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+                raise ValidationError(
+                    {"enabled": [_owner_unavailable_message(self.instance.created_by, error)]},
+                    code=OWNER_UNAVAILABLE_CODE,
+                )
         # Enforced from the object-level validate() so it runs on every create and update — including
         # a PATCH that omits `insight` (which skips the field-level validator), so an alert can't be
         # repointed at a flag-gated insight kind (or a scope-gated one) in an account where the flag

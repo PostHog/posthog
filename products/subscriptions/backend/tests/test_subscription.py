@@ -1116,8 +1116,9 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "enabled"
-        # The frontend keys its "take ownership" offer on this code.
+        # The frontend keys its "take ownership" offer on this code, and shows the detail as the reason.
         assert response.json()["code"] == "owner_unavailable"
+        assert "former-member@example.com, is no longer in the organization" in response.json()["detail"]
 
     def test_take_ownership_enables_the_subscription_as_the_requester(self):
         subscription = self._disabled_subscription_of_a_former_member()
