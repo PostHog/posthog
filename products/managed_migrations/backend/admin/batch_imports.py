@@ -162,8 +162,9 @@ class BatchImportAdmin(admin.ModelAdmin):
                     "Changing the status to running, or using a resume action, clears the lease, backoff "
                     "and pending commit so a worker can claim the job at once. A pending commit on "
                     "a job no worker holds means a worker stopped mid-commit: the chunk it names "
-                    "may or may not have reached the sink. A resume moves that part back to the start "
-                    "of the chunk, so nothing is lost. A chunk that had arrived is sent twice. "
+                    "may or may not have reached the sink. When the saved offset still matches that chunk, "
+                    "a resume moves the part back to the start of the chunk, so nothing is lost. A chunk "
+                    "that had arrived is sent twice. "
                     "Choosing a resume action: 'Resume (keep progress)' "
                     "continues from the saved byte offset - right for transient pauses and "
                     "for source data that has not changed. 'Resume + re-import in-flight part' "
@@ -246,8 +247,8 @@ class BatchImportAdmin(admin.ModelAdmin):
         permissions=["change"],
     )
     def resume(self, request, queryset):
-        """Resume paused jobs from their saved progress: for transient pauses and
-        unchanged source data. See the 'Worker state' section on the detail page
+        """Resume paused jobs from their saved progress, re-sending a chunk a worker left
+        mid-commit: for transient pauses and unchanged source data. See the 'Worker state' section on the detail page
         for how this differs from the reset variant."""
         for batch_import in queryset:
             try:

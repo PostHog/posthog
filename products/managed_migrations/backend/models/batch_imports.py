@@ -121,9 +121,10 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
 
         Flips the job to running and clears the worker lease and backoff - pausing
         keeps the worker's lease, so without clearing it no worker can re-claim the
-        row for up to 30 minutes. Part offsets are untouched: use this when the
-        source bytes behind the saved offset are unchanged (transient pauses, or a
-        data fix that preserved byte offsets). When the bytes changed underneath the
+        row for up to 30 minutes. Part offsets stay as saved, except that a chunk a
+        worker left mid-commit is sent again: use this when the source bytes behind
+        the saved offset are unchanged (transient pauses, or a data fix that preserved
+        byte offsets). When the bytes changed underneath the
         offset, use `resume_with_inflight_part_reset` instead. Raises ValueError if
         the job is not paused.
         """
@@ -152,15 +153,17 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         (Mixpanel $insert_id, an Amplitude or captured uuid). Other events, including
         the identify events the worker generates for Amplitude, get a new UUID.
 
-        Resets the first unfinished part to offset 0, then resumes as
-        `resume_after_pause` does. Returns the key of the reset part. Raises
-        ValueError if the job is not paused or has no unfinished part.
+        Rewinds a chunk a worker left mid-commit, so its part counts as unfinished even
+        when that chunk was the part's last, then resets the first unfinished part to
+        offset 0 and resumes. Returns the key of the reset part. Raises ValueError if
+        the job is not paused or has no unfinished part.
         """
         with transaction.atomic():
             row = BatchImport.objects.select_for_update().get(pk=self.pk)
             if row.status != BatchImport.Status.PAUSED:
                 raise ValueError(f"Only paused imports can be reset and resumed (status: {row.status})")
             row.raise_if_commit_in_flight()
+            row.rewind_interrupted_commit()
 
             _done, _total, inflight = row.parts_progress()
             if inflight is None:

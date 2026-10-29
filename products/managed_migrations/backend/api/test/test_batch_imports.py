@@ -110,6 +110,20 @@ class TestBatchImportModel(BaseTest):
                 ],
             ),
             (
+                "interrupted_last_chunk_of_a_finished_part",
+                [
+                    {"key": "day-1", "current_offset": 1000, "total_size": 1000},
+                    {"key": "day-2", "current_offset": 8999445, "total_size": 8999445},
+                    {"key": "day-3", "current_offset": 0, "total_size": None},
+                ],
+                "day-2",
+                [
+                    {"key": "day-1", "current_offset": 1000, "total_size": 1000},
+                    {"key": "day-2", "current_offset": 0, "total_size": None},
+                    {"key": "day-3", "current_offset": 0, "total_size": None},
+                ],
+            ),
+            (
                 "job_paused_before_any_read",
                 [{"key": "day-1", "current_offset": 0, "total_size": None}],
                 "day-1",
