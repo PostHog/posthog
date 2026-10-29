@@ -137,7 +137,6 @@ class ToTimeZoneParts:
     swapped: bool
 
 
-# The tables whose `person_properties` field holds the person's properties on each event row.
 _PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
 
 # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
@@ -789,10 +788,8 @@ class PropertySwapper(CloningVisitor):
         return self._field_type_to_property_call(node, field_type)
 
     def _converts_event_or_person_property(self, node: ast.Field) -> bool:
-        # Lazy tables resolve a union scan into branches that each project a property as a column, away from the
-        # call that reads it, such as toFloatOrZero. So the pass before lazy tables converts a union scan's property
-        # at that call, and the branches keep the raw value. Every other read inside the union copies a read of the
-        # outer query, which that pass converted.
+        # Lazy tables move a union scan's property reads into branches, away from a call such as toFloatOrZero that
+        # needs the raw value. The pass before lazy tables converts each read at its call, so the branches stay raw.
         if self._union_scan_depth > 0:
             return False
         if not self.before_lazy_tables:

@@ -386,8 +386,6 @@ def prepare_ast_for_printing(
             # rely on the existence of lazy tables in the AST. They must be run before we resolve lazy tables. Because groups are
             # not currently used in any sort of where clause optimization (WhereClauseExtractor or PersonsTable), this is okay.
             # We also have to call the group property swapper manually in `lazy_tables.py` after we do a join
-            # This pass also converts the event and person properties that a union scan reads, at the call that reads
-            # them, because lazy tables move each of those reads into the union's branches.
             node = PropertySwapper(
                 timezone=context.property_swapper.timezone,
                 group_properties=context.property_swapper.group_properties,

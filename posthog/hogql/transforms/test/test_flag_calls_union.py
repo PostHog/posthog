@@ -404,7 +404,6 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 "probe_join",
                 warehouse_join=True,
             ),
-            # Each branch projects the raw value. The flag_evaluations branch has no Float64 column to match this one.
             param(
                 "property_in_a_typed_materialized_column",
                 f"SELECT properties.probe FROM events WHERE {MIXED}",
