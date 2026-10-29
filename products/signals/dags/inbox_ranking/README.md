@@ -81,7 +81,6 @@ Point-in-time contract:
 - The training side can rebuild any past day by calling the function on newer snapshots with an earlier `as_of`. No backfill is needed while the vectors are inside the embedding TTL.
 - Serving: when any manifest entry reads project vectors, `inbox_ranking_serving_manifest` copies the dt=D day into the deployment's object store before it writes the manifest. The sweep reads that day once per pass, only for the teams it scores. Its `as_of` is the end of dt=D, so it is never newer than a report scored after the publish. Until the next publish, a report scored on day D+2 still reads dt=D, which is one day older than training reads.
 
-
 ### User vectors
 
 `inbox_user_vectors` is an (organization, user, kind) leaf with the user vectors of `user_vectors(interactions, embeddings, as_of)` in `dataset/project_vectors.py`.

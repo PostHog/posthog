@@ -53,6 +53,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     USER_INTERACTION_COLUMNS,
     USER_OPEN,
     USER_VECTOR_KINDS,
+    OrganizationUser,
     known_before,
     prior_views,
     user_vectors,
@@ -180,7 +181,11 @@ def pair_rows(
                 ),
                 "user_open_reports": open_vector["n_reports"] if open_vector is not None else 0,
                 "user_dismiss_reports": dismiss_vector["n_reports"] if dismiss_vector is not None else 0,
-                "prior_views": views[(organization_id, user)] if organization_id is not None else 0,
+                "prior_views": (
+                    views[OrganizationUser(organization_id=organization_id, user_distinct_id=user)]
+                    if organization_id is not None
+                    else 0
+                ),
                 "days_since_last_view": days_since_last_view,
                 "has_history": open_vector is not None or dismiss_vector is not None,
                 "is_suggested_reviewer": (

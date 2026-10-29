@@ -36,6 +36,8 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from posthog.dataclasses import frozen
+
 from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
     MIN_PROJECT_HISTORY_REPORTS,
@@ -70,6 +72,14 @@ _PROJECT_VECTORS_FIELDS: list[tuple[str, pa.DataType]] = [
 PROJECT_VECTORS_SCHEMA = pa.schema(_PROJECT_VECTORS_FIELDS)
 
 USER_HISTORY_LIMIT = 20
+
+
+@frozen
+class OrganizationUser:
+    organization_id: str
+    user_distinct_id: str
+
+
 # The backend owns the user kinds too, because the pair network reads them in this order.
 USER_OPEN, USER_DISMISS = USER_HISTORY_KINDS
 # The durable VIEW action row dates an open, because the `Inbox report opened` event misses the
@@ -221,19 +231,20 @@ def with_user_hashes(table: pa.Table) -> pa.Table:
 
 def prior_views(
     interactions: pa.Table, as_of: datetime.datetime, *, organizations: Mapping[int, str]
-) -> Counter[tuple[str, str]]:
+) -> Counter[OrganizationUser]:
     """The views before `as_of` of each (organization, user) in `interactions`. A user with
     interaction rows and no such view counts 0."""
     view_column = USER_HISTORY_COLUMNS[USER_OPEN]
-    views: Counter[tuple[str, str]] = Counter()
+    views: Counter[OrganizationUser] = Counter()
     for row in interactions.select(["report_team_id", "user_distinct_id", view_column]).to_pylist():
         organization_id = organizations.get(row["report_team_id"])
         if organization_id is not None and row["user_distinct_id"] is not None:
-            views[(organization_id, row["user_distinct_id"])] += int(known_before(row[view_column], as_of))
+            user = OrganizationUser(organization_id=organization_id, user_distinct_id=row["user_distinct_id"])
+            views[user] += int(known_before(row[view_column], as_of))
     return views
 
 
-def history_buckets(views: Counter[tuple[str, str]]) -> dict[str, int]:
+def history_buckets(views: Counter[OrganizationUser]) -> dict[str, int]:
     """How many users of `views` fall in each of `HISTORY_BUCKETS`."""
     return {
         name: sum(1 for count in views.values() if count >= lowest and (highest is None or count <= highest))
