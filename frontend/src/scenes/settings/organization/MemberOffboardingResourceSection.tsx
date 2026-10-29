@@ -100,14 +100,27 @@ export function MemberOffboardingResourceSection({
                         key: 'name',
                         render: (_, resource) => (
                             <div className="flex items-center gap-2 min-w-0">
-                                <span
-                                    className="text-lg text-secondary shrink-0"
-                                    role="img"
-                                    aria-label={resource.kind}
-                                    title={resource.kind}
+                                <Tooltip
+                                    title={
+                                        resource.destination_type
+                                            ? subscriptionDestination(
+                                                  resource.destination_type,
+                                                  resource.destination ?? ''
+                                              ).title
+                                            : resource.kind
+                                    }
                                 >
-                                    {RESOURCE_ICONS[resource.kind]}
-                                </span>
+                                    <span
+                                        className="inline-flex text-lg text-secondary shrink-0"
+                                        role="img"
+                                        aria-label={resource.destination_type ?? resource.kind}
+                                        tabIndex={resource.destination_type ? 0 : undefined}
+                                    >
+                                        {resource.destination_type
+                                            ? (DESTINATION_ICONS[resource.destination_type] ?? <IconBell />)
+                                            : RESOURCE_ICONS[resource.kind]}
+                                    </span>
+                                </Tooltip>
                                 <Link
                                     to={resource.url ?? undefined}
                                     target="_blank"
@@ -129,33 +142,6 @@ export function MemberOffboardingResourceSection({
                     },
                     ...(isSubscription
                         ? [
-                              {
-                                  title: 'Destination',
-                                  key: 'destination',
-                                  width: 96,
-                                  render: (_: unknown, resource: MemberOffboardingResourceApi) =>
-                                      resource.destination_type ? (
-                                          <Tooltip
-                                              title={
-                                                  subscriptionDestination(
-                                                      resource.destination_type,
-                                                      resource.destination ?? ''
-                                                  ).title
-                                              }
-                                          >
-                                              <span
-                                                  className="inline-flex text-xl"
-                                                  role="img"
-                                                  aria-label={resource.destination_type}
-                                                  tabIndex={0}
-                                              >
-                                                  {DESTINATION_ICONS[resource.destination_type] ?? <IconBell />}
-                                              </span>
-                                          </Tooltip>
-                                      ) : (
-                                          <span className="text-secondary">—</span>
-                                      ),
-                              },
                               {
                                   title: 'Created on',
                                   key: 'created_at',
