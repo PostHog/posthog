@@ -385,6 +385,7 @@ class TestEmailSendingTierDecision(SimpleTestCase):
             ("already at the floor", True, 120, 7, 5, False, 3, 3, "tier_not_used_enough"),
             ("bounces on a sample too small to demote", True, 120, 7, 100, False, 0, 0, "tier_not_used_enough", 100),
             ("tenant never synced by AWS", True, 120, 7, 5, False, 0, 0, "tier_not_used_enough", 0, ""),
+            ("tenant with no reputation record yet", True, 120, 7, 0, False, 0, 3, "trusted_account", 0, "ENABLED", ""),
         ]
     )
     def test_trusted_account_floor(
@@ -400,6 +401,7 @@ class TestEmailSendingTierDecision(SimpleTestCase):
         expected_reason: str,
         hard_bounced: int = 0,
         tenant_status: str = "ENABLED",
+        tenant_impact: str | None = None,
     ) -> None:
         now = timezone.now()
         daily_sends = clean_days(1, sent) if sent else {}
@@ -410,7 +412,8 @@ class TestEmailSendingTierDecision(SimpleTestCase):
             suspended=False,
             last_rate_demotion_at=now - timedelta(days=60) if demoted_before else None,
             tenant_state=SesTenantState(
-                sending_status=tenant_status, reputation_impact="NONE" if tenant_status else ""
+                sending_status=tenant_status,
+                reputation_impact=tenant_impact if tenant_impact is not None else ("NONE" if tenant_status else ""),
             ),
             account_trust=AccountTrust(
                 has_active_subscription=paying,
@@ -509,13 +512,14 @@ class TestRecomputeEmailSendingTiers(BaseTest):
 
     @parameterized.expand(
         [
-            ("trusted account", 7, 0, False, 3),
-            ("untrusted account", 3, 0, False, 0),
-            ("dirty recent rates wait for the sweep", 7, 1, True, 1),
+            ("trusted account", 7, 0, False, "NONE", 3),
+            ("trusted account with no reputation record yet", 7, 0, False, None, 3),
+            ("untrusted account", 3, 0, False, "NONE", 0),
+            ("dirty recent rates wait for the sweep", 7, 1, True, "NONE", 1),
         ]
     )
     def test_aws_first_enabling_the_tenant_raises_only_the_trusted_floor(
-        self, _name: str, trust_score: int, tier: int, dirty: bool, expected_tier: int
+        self, _name: str, trust_score: int, tier: int, dirty: bool, impact: str | None, expected_tier: int
     ) -> None:
         self.organization.has_active_subscription = True
         self.organization.created_at = timezone.now() - timedelta(days=120)
@@ -535,7 +539,7 @@ class TestRecomputeEmailSendingTiers(BaseTest):
             patch("products.workflows.backend.services.ses_tenant_state.reload_team_workflows_config_on_workers"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            apply_ses_tenant_state(self.team.id, sending_status="ENABLED", reputation_impact="NONE")
+            apply_ses_tenant_state(self.team.id, sending_status="ENABLED", reputation_impact=impact)
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == expected_tier
         assert histories.called == (trust_score == 7)

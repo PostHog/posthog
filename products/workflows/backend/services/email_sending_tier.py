@@ -120,7 +120,9 @@ class SesTenantState:
 
     @property
     def is_verified_clean(self) -> bool:
-        return self.sending_status.strip().upper() == "ENABLED" and self.impact == "NONE"
+        # AWS keeps no reputation record for a tenant before its first send, so a synced tenant
+        # can be enabled with no impact at all.
+        return self.sending_status.strip().upper() == "ENABLED" and self.impact in ("", "NONE")
 
 
 @frozen
@@ -527,7 +529,7 @@ def recompute_email_sending_tiers(
         email_sending_tier_demoted_at__isnull=True,
         email_sending_suspended_at__isnull=True,
         ses_tenant_sending_status="ENABLED",
-        ses_tenant_reputation_impact="NONE",
+        ses_tenant_reputation_impact__in=["", "NONE"],
     )
     if team_ids is not None:
         stateful_teams = stateful_teams.filter(team_id__in=team_ids)
