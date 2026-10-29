@@ -61,6 +61,10 @@ export function ScannerGoalFlow(): JSX.Element {
         spendMode === 'free' ||
         (goalBudgetInput != null && goalBudgetInput >= MIN_SCAN_BUDGET && goalBudgetInput <= MAX_SCAN_BUDGET)
     const starterDisabledReason = editDisabledReason ?? (goalDraftLoading ? 'Drafting your scanner' : null)
+    // The server refuses an experiment other than the one the replay filters already scope to.
+    const experimentStarterDisabledReason =
+        starterDisabledReason ??
+        (goalDraftQuery?.experiment_exposure ? 'Your replay filters already pick an experiment' : null)
     const submitDisabledReason =
         starterDisabledReason ??
         (!goalDraftInput.trim()
@@ -180,7 +184,7 @@ export function ScannerGoalFlow(): JSX.Element {
                                 ))}
                                 <ScannerGoalExperimentStarter
                                     experiment={experiment}
-                                    disabledReason={starterDisabledReason}
+                                    disabledReason={experimentStarterDisabledReason}
                                     onChange={changeExperiment}
                                 />
                             </div>
