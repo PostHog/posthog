@@ -57,7 +57,18 @@ _PNPM_WEAKENING_SETTINGS = frozenset(
 # The fields pnpm 9 writes on a registry package entry. Any other field, such as `version` or
 # `dependencies`, overrides what the entry's key or its snapshot says.
 _PNPM_REGISTRY_ENTRY_KEYS = frozenset(
-    {"resolution", "engines", "peerDependencies", "peerDependenciesMeta", "hasBin", "cpu", "os", "libc", "deprecated"}
+    {
+        "resolution",
+        "engines",
+        "peerDependencies",
+        "peerDependenciesMeta",
+        "hasBin",
+        "cpu",
+        "os",
+        "libc",
+        "deprecated",
+        "bundledDependencies",
+    }
 )
 
 ReadFile = Callable[[str, str], str | None]
@@ -233,6 +244,9 @@ def pnpm_policy_problems(workspace_path: str, base_text: str | None, changes: It
         for key in ("minimumReleaseAgeExclude", "trustPolicyExclude")
         for entry in settings.get(key) or []
     ]
+    # pnpm reads `!name` as "every package except name", which fnmatch cannot express.
+    if any(pattern.startswith("!") for pattern in excluded):
+        return [f"{workspace_path} negates an exclude pattern, so its exemptions cannot be read."]
     allow_builds = settings.get("allowBuilds") or {}
     built = {name for name, allowed in allow_builds.items() if allowed} if isinstance(allow_builds, dict) else set()
     built.update(str(name) for name in settings.get("onlyBuiltDependencies") or [])
