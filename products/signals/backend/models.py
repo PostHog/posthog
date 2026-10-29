@@ -271,6 +271,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # shares with everybody. A null or blank name falls back to DEFAULT_PULL_REQUEST_LABEL.
     pull_request_label_enabled = models.BooleanField(default=False, db_default=False)
     pull_request_label = models.CharField(max_length=GITHUB_LABEL_NAME_MAX_LENGTH, null=True, blank=True)
+    # Opt-out of anomaly scoring (see anomaly_scores/queue.py). The `anomaly-scoring` flag payload
+    # still decides which projects are enrolled, so turning this on cannot enroll a project.
+    anomaly_scoring_enabled = models.BooleanField(default=True, db_default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -4082,6 +4085,8 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
         FAILED = "failed"
         # No update called the model yet. The row only holds the backoff in `next_eligible_at`.
         SKIPPED = "skipped"
+        # The model answered a first summary with no profile. The row holds the cost and a skip backoff.
+        EMPTY_PROFILE = "empty_profile"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

@@ -36,6 +36,7 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_DIMENSIONS,
     MIN_PROJECT_HISTORY_REPORTS,
     PROJECT_VECTOR_KINDS,
+    USER_HISTORY_KINDS,
 )
 from products.signals.dags.inbox_ranking.dataset.queries import ACTION_TYPES
 from products.signals.dags.inbox_ranking.training.heads import UI_ACTION_COLUMNS
@@ -65,7 +66,8 @@ _PROJECT_VECTORS_FIELDS: list[tuple[str, pa.DataType]] = [
 PROJECT_VECTORS_SCHEMA = pa.schema(_PROJECT_VECTORS_FIELDS)
 
 USER_HISTORY_LIMIT = 20
-USER_OPEN, USER_DISMISS = "open", "dismiss"
+# The backend owns the user kinds too, because the pair network reads them in this order.
+USER_OPEN, USER_DISMISS = USER_HISTORY_KINDS
 # The durable VIEW action row dates an open, because the `Inbox report opened` event misses the
 # surfaces that send no client event.
 USER_HISTORY_COLUMNS: Mapping[str, str] = {USER_OPEN: "first_viewed_at", USER_DISMISS: DISMISS_COLUMN}

@@ -96,6 +96,7 @@ ANSWER = json.dumps(
         "recent_shift": None,
     }
 )
+EMPTY_PROFILE_ANSWER = json.dumps({**json.loads(ANSWER), "profile": "", "themes": [], "modes": []})
 
 
 _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
@@ -644,6 +645,14 @@ class TestActivitySummaryQueue(BaseTest):
                 False,
             ),
             ("an exception after the model call", 3, {"return_value": FakeLLM([ANSWER])}, True, "failed", True),
+            (
+                "an empty first profile",
+                3,
+                {"return_value": FakeLLM([EMPTY_PROFILE_ANSWER])},
+                False,
+                "skipped_empty_profile",
+                True,
+            ),
         ]
     )
     def test_a_pair_that_raised_or_skipped_does_not_come_back_on_the_next_tick(
@@ -947,6 +956,7 @@ async def _run_tick(
         (_plan(6, cost_left_usd=3.0), None, "ok", 4, STOP_MAX_COST_USD_PER_DAY, (2, 2)),
         # The breaker waits for a sample of 10 model calls, which is five waves.
         (_plan(20), 0.01, "failed", 10, STOP_ERROR_RATE, (0, 0)),
+        (_plan(20), 0.01, "skipped_empty_profile", 20, None, (0, 0)),
     ],
 )
 async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_error_rate(
