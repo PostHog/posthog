@@ -95,6 +95,9 @@ export interface authLogicActions {
         }
         precheckResponse: PrecheckResponseType
     } // loginLogic
+    resetLogin: (values?: LoginForm | undefined) => {
+        values?: LoginForm
+    } // loginLogic
     setLoginValue: (
         key: import('node_modules/kea-forms/lib').FieldName,
         value: any
@@ -102,11 +105,8 @@ export interface authLogicActions {
         name: import('node_modules/kea-forms/lib').FieldName
         value: any
     } // loginLogic
-    resetLogin: (values?: LoginForm) => {
-        values?: LoginForm
-    } // loginLogic
     submitLogin: () => {
-        value: true
+        value: boolean
     } // loginLogic
     precheckSignupEmail: (email: string) => {
         email: string
@@ -128,7 +128,7 @@ export interface authLogicActions {
         isTaken: boolean
     } // signupLogic
     submitSignupPanelAuth: () => {
-        value: true
+        value: boolean
     } // signupLogic
     backToEmail: () => {
         value: true
