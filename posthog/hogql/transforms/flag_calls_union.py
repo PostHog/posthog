@@ -10,7 +10,7 @@ scan, so the rules decide which scans pay for a second table, and which shapes t
 """
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from posthog.hogql import ast
 from posthog.hogql.constants import FLAG_CALLED_EVENT
@@ -25,11 +25,14 @@ from posthog.hogql.database.lazy_join_tags import (
     PERSON_DISTINCT_IDS,
     PERSONS,
 )
+from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.events_with_flag_calls import (
     EVENTS_WITH_FLAG_CALLS_CHAIN,
     EVENTS_WITH_FLAG_CALLS_TABLE,
     EventsWithFlagCallsTable,
     FlagEvaluationsColumns,
+    property_read,
+    union_table_of,
 )
 from posthog.hogql.database.schema.util.where_clause_extractor import (
     contains_in_cohort,
@@ -51,9 +54,11 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     flag_key_predicate,
     point_scan_at,
 )
+from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.dataclasses import frozen
+from posthog.property_columns import TableColumn
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
@@ -132,6 +137,23 @@ def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
     for chain in collector.chains:
         if columns.chain(chain) is None:
             return f"it reads {'.'.join(str(part) for part in chain)}, which that table doesn't have"
+    return _typed_materialized_property(columns.events, collector.chains)
+
+
+def _typed_materialized_property(union: Table, chains: list[list[str | int]]) -> str | None:
+    # Each branch projects a property raw. A raw read of a typed materialized column keeps the column's type. The
+    # flag_evaluations branch reads a JSON String, so the UNION ALL has no common type.
+    reads = {read for chain in chains if (read := property_read(union, chain)) is not None}
+    if not reads:
+        return None
+    # Deferred: the registry reads Django models, which this module does not import.
+    from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns_by_table  # noqa: PLC0415
+
+    materialized = get_enabled_materialized_columns_by_table().get("events", {})
+    for column, key in sorted(reads):
+        backing = materialized.get((key, cast(TableColumn, column)))
+        if backing is not None and parse_sql_runtime_type(backing.type).family != "string":
+            return f"it reads {key}, which events stores in a {backing.type} column"
     return None
 
 
@@ -223,14 +245,6 @@ def _flag_key_is_restricted(database: "Database", context: HogQLContext) -> bool
     return key_read_overlaps_restriction("$feature_flag", restricted)
 
 
-def _union_table_of(table_type: ast.Type | None) -> EventsWithFlagCallsTable | None:
-    while isinstance(table_type, (ast.TableAliasType, ast.VirtualTableType)):
-        table_type = table_type.table_type
-    if isinstance(table_type, ast.LazyTableType) and isinstance(table_type.table, EventsWithFlagCallsTable):
-        return table_type.table
-    return None
-
-
 def _union_chain(field_type: ast.Type | None) -> tuple[EventsWithFlagCallsTable, list[str | int]] | None:
     """The union scan that a resolved field reads directly, and its chain there, or None."""
     property_chain: list[str | int] = []
@@ -242,7 +256,7 @@ def _union_chain(field_type: ast.Type | None) -> tuple[EventsWithFlagCallsTable,
     chain: list[str | int] = [field_type.name, *property_chain]
     if isinstance(field_type.table_type, ast.VirtualTableType):
         chain = [field_type.table_type.field, *chain]
-    union = _union_table_of(field_type.table_type)
+    union = union_table_of(field_type.table_type)
     return (union, chain) if union is not None else None
 
 
@@ -513,7 +527,7 @@ class _UnionChainCollector(SyntaxVisitor):
             source = table_type.table_type
             while isinstance(source, ast.TableAliasType):
                 source = source.table_type
-            if _union_table_of(source) is not None:
+            if union_table_of(source) is not None:
                 lazy_join = table_type.lazy_join
                 if isinstance(source, ast.VirtualTableType) or lazy_join.resolver not in _UNION_JOIN_RESOLVERS:
                     self.unreadable_joins.append(table_type.field)

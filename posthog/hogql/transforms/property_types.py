@@ -8,7 +8,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import EVENTS_TABLE_TYPES, EventsGroupSubTable, EventsPersonSubTable
-from posthog.hogql.database.schema.events_with_flag_calls import EVENT_ROW_TABLES, EventsWithFlagCallsTable
+from posthog.hogql.database.schema.events_with_flag_calls import (
+    EVENT_ROW_TABLES,
+    EventsWithFlagCallsTable,
+    union_table_of,
+)
 from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
@@ -138,6 +142,9 @@ class ToTimeZoneParts:
 # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
 # Numeric-typed property in one of these, we must not auto-convert the property
 # to Float, the raw String value has to flow through for the parser to work.
+# The tables whose `person_properties` field holds the person's properties on each event row.
+_PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
+
 STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
 
 
@@ -745,7 +752,7 @@ class PropertySwapper(CloningVisitor):
             property_name = str(type.chain[0])
             if isinstance(type.field_type.table_type, ast.BaseTableType):
                 resolved_table = type.field_type.table_type.resolve_database_table(self.context)
-                if isinstance(resolved_table, (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)):
+                if isinstance(resolved_table, _PERSON_PROPERTIES_TABLES):
                     if property_name in self.person_properties:
                         return self._convert_string_property_to_type(node, "person", property_name)
 
@@ -791,12 +798,7 @@ class PropertySwapper(CloningVisitor):
         if not self.before_lazy_tables:
             return True
         assert isinstance(node.type, ast.PropertyType)
-        table_type: ast.Type = node.type.field_type.table_type
-        while isinstance(table_type, ast.VirtualTableType):
-            table_type = table_type.table_type
-        return isinstance(table_type, ast.BaseTableType) and isinstance(
-            table_type.resolve_database_table(self.context), EventsWithFlagCallsTable
-        )
+        return union_table_of(node.type.field_type.table_type) is not None
 
     def _field_type_to_property_call(self, node: ast.Field, field_type: str):
         if field_type == "DateTime":
