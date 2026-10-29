@@ -259,7 +259,7 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic, () => logic.actions.selectNode(nodeId)).toMatchValues({ canViewInThread: expected })
     })
 
-    it('showFeedback opens the Feedback mode focused on the step and reports where it came from', async () => {
+    it('showFeedback opens the Feedback mode focused on the step, reports where it came from and keeps both on a click of its tab', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         mountAt()
         await expectLogic(logic).toFinishAllListeners()
@@ -276,6 +276,12 @@ describe('traceViewAdapterLogic', () => {
             scores: 1,
             responses: 1,
         })
+
+        await expectLogic(logic, () => logic.actions.setMode('feedback')).toMatchValues({
+            mode: 'feedback',
+            feedbackFocusNodeId: 'gen-1',
+        })
+        expect(capture.mock.calls.filter(([event]) => event === 'llma trace view feedback viewed')).toHaveLength(1)
     })
 
     it('has no chip, no counts and an error mode after the feedback read fails', async () => {

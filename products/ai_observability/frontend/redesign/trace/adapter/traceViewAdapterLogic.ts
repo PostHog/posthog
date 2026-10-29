@@ -321,7 +321,9 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             null as string | null,
             {
                 showFeedback: (_, { nodeId }) => nodeId,
-                setMode: () => null,
+                setMode: (focusNodeId, { mode }) => (mode === 'feedback' ? focusNodeId : null),
+                selectAndShowSpans: () => null,
+                viewInThread: () => null,
             },
         ],
     }),
@@ -514,7 +516,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values, props }) => {
+    listeners(({ actions, values, props, selectors }) => {
         // The click's read starts before the selection moves, so the selectedNodeId subscription's navigation read
         // for the same id is deduped and the load event reports a click. Selecting the node that is already
         // selected changes no value and the subscription does not fire, so this read also retries a failed node.
@@ -542,8 +544,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 actions.setDetailTab('evals')
             },
             showFeedback: ({ entry }) => captureFeedbackViewed(entry),
-            setMode: ({ mode }) => {
-                if (mode === 'feedback') {
+            setMode: ({ mode }, _, __, previousState) => {
+                if (mode === 'feedback' && selectors.mode(previousState) !== 'feedback') {
                     captureFeedbackViewed('tab')
                 }
             },
