@@ -1071,13 +1071,16 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
     const shouldFill = options.shouldFill ?? ((s: ResolvedSeries) => !!s.fill)
     const zOrder = options.zOrder ?? 'per-series'
     const visible = series.filter((s) => !s.visibility?.excluded)
+    // `yFloor` is set for the default stroke; a wider stroke rests higher so it still sits on the axis.
+    const floorFor = (s: ResolvedSeries): number | undefined =>
+        yFloor == null ? undefined : yFloor - ((s.stroke?.width ?? LINE_STROKE_WIDTH) - LINE_STROKE_WIDTH) / 2
 
     const paintArea = (s: ResolvedSeries): void => {
         if (!shouldFill(s)) {
             return
         }
         drawArea(
-            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor, connects },
+            { ctx, dimensions, labels, xScale, yScale: resolveYScale(s), smooth, yFloor: floorFor(s), connects },
             s,
             yValuesFor(s),
             bottomFor(s)
@@ -1094,7 +1097,7 @@ export function drawLineSeriesLayer(options: LineSeriesLayerOptions): void {
             xScale,
             yScale: resolveYScale(s),
             smooth,
-            yFloor,
+            yFloor: floorFor(s),
             connects,
         }
         drawLine(drawCtx, s, yValuesFor(s))

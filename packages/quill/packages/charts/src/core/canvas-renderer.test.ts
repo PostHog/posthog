@@ -1264,6 +1264,28 @@ describe('hog-charts canvas-renderer', () => {
         )
     })
 
+    describe('drawLineSeriesLayer — yFloor', () => {
+        it.each([
+            { name: 'the default stroke', stroke: undefined, expectedY: 367 },
+            { name: 'a 10px stroke', stroke: { width: 10 }, expectedY: 363 },
+        ])('rests $name on the x-axis line at y=$expectedY', ({ stroke, expectedY }) => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b']
+            const xScale = scalePoint<string>().domain(labels).range([48, 784]).padding(0)
+            const yScale = scaleLinear().domain([0, 100]).range([368, 16])
+            drawLineSeriesLayer({
+                ctx,
+                dimensions,
+                labels,
+                series: [makeSeries({ key: 's1', data: [0, 0], stroke })],
+                xScale,
+                resolveYScale: () => yScale,
+                yFloor: 367,
+            })
+            expect(ctx.moveTo).toHaveBeenCalledWith(48, expectedY)
+        })
+    })
+
     describe('traceScatterMarker', () => {
         it.each<[ScatterMarkerShape, 'arc' | 'rect', number[]]>([
             ['circle', 'arc', [10, 20, 6, 0, Math.PI * 2]],
