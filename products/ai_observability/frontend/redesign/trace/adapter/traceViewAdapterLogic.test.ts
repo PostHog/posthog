@@ -1,8 +1,9 @@
 import { waitFor } from '@testing-library/react'
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -13,7 +14,14 @@ import { initKeaTests } from '~/test/init'
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { TraceApi, TraceEvaluationResultsApi } from '../../../generated/api.schemas'
 import { traceSummaryLogic } from '../traceSummaryLogic'
-import { decodeIdSegment, makeEvaluationResults, makeFeedback, makeNodeDetail, makeTraceResource } from './testFixtures'
+import {
+    decodeIdSegment,
+    makeEvaluationResults,
+    makeFeedback,
+    makeNodeDetail,
+    makeTraceCluster,
+    makeTraceResource,
+} from './testFixtures'
 import { traceViewAdapterLogic } from './traceViewAdapterLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
@@ -21,7 +29,10 @@ jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
+const CREATED_AT = '2026-09-01T10:15:00Z'
 const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
+const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 
 const answeredGeneration = makeNodeDetail({
@@ -39,7 +50,10 @@ describe('traceViewAdapterLogic', () => {
     let traceGate: Promise<void>
     let nodeRequests: string[]
     let failingNodeId: string | null
+    let clusterRequests: string[]
+    let clustersStatus: number
     let feedbackStatus: number
+    let searchStatus: number
     let summaryRequests: number
     let evaluations: TraceEvaluationResultsApi
 
@@ -54,7 +68,10 @@ describe('traceViewAdapterLogic', () => {
         traceGate = Promise.resolve()
         nodeRequests = []
         failingNodeId = null
+        clusterRequests = []
+        clustersStatus = 200
         feedbackStatus = 200
+        searchStatus = 200
         summaryRequests = 0
         evaluations = makeEvaluationResults()
         useMocks({
@@ -71,8 +88,27 @@ describe('traceViewAdapterLogic', () => {
                     return [200, traceResource]
                 },
                 [EVALUATIONS_URL]: () => [200, evaluations],
+                [CLUSTERS_URL]: ({ request }) => {
+                    clusterRequests.push(String(new URL(request.url).searchParams.get('created_at')))
+                    return clustersStatus === 200
+                        ? [200, { clusters: [makeTraceCluster()] }]
+                        : [clustersStatus, { detail: 'Server error.' }]
+                },
                 [FEEDBACK_URL]: () =>
                     feedbackStatus === 200 ? [200, makeFeedback()] : [feedbackStatus, { detail: 'Server error.' }],
+                [SEARCH_URL]: () =>
+                    searchStatus === 200
+                        ? [
+                              200,
+                              {
+                                  total: 3,
+                                  matches: [
+                                      { nodeId: 'gen-1', count: 2 },
+                                      { nodeId: 'gen-2', count: 1 },
+                                  ],
+                              },
+                          ]
+                        : [searchStatus, { detail: 'Search timed out.' }],
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -97,6 +133,7 @@ describe('traceViewAdapterLogic', () => {
     afterEach(() => {
         resumeKeaLoadersErrors()
         logic.unmount()
+        resumeKeaLoadersErrors()
         jest.restoreAllMocks()
     })
 
@@ -137,6 +174,34 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic).toDispatchActions([
             aiObservabilityTraceLogic.actionCreators.loadNeighbors('trace-1', '2026-09-01T10:15:00Z'),
         ])
+    })
+
+    it('asks for the clusters with the trace start once the trace arrives', async () => {
+        let releaseTrace = (): void => {}
+        traceGate = new Promise<void>((resolve) => {
+            releaseTrace = resolve
+        })
+        mountAt()
+
+        await waitFor(() => expect(nodeRequests).toEqual(['trace-1']))
+        expect(clusterRequests).toEqual([])
+        expect(logic.values.clustersChip).toBeNull()
+
+        releaseTrace()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(clusterRequests).toEqual([CREATED_AT])
+        expect(logic.values.clustersChip?.first.label).toBe('Billing questions')
+    })
+
+    it('shows no clusters chip and no toast when the clusters read fails', async () => {
+        const toast = jest.spyOn(lemonToast, 'error')
+        clustersStatus = 500
+        mountAt()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', clustersChip: null })
+        expect(clusterRequests).toEqual([CREATED_AT])
+        expect(toast).not.toHaveBeenCalled()
     })
 
     it('reports the reads that open the view as navigation and a click on an unread step as a selection', async () => {
@@ -308,6 +373,120 @@ describe('traceViewAdapterLogic', () => {
                 feedbackCountByNodeId: {},
                 feedbackMode: { status: 'error' },
             })
+    })
+
+    it('reads the search from the link and keeps the list it came from', async () => {
+        mountAt({ search: 'invoice', back_to: 'generations' })
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                searchBox: expect.objectContaining({ query: 'invoice', status: 'ready', total: 3 }),
+                backLink: expect.objectContaining({ label: 'Back to generations' }),
+            })
+    })
+
+    it('writes the settled search to the URL once, keeping the selection and the other params', async () => {
+        mountAt({ back_to: 'generations', timestamp: '2026-09-01T10:15:00Z' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        const replace = jest.spyOn(router.actions, 'replace')
+
+        await expectLogic(logic, () => {
+            logic.actions.setQuery('two')
+            logic.actions.setQuery('two words + 50%')
+        })
+            .toDispatchActions(['setQuery', 'setQuery'])
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['setQuery'])
+
+        expect(replace).toHaveBeenCalledTimes(1)
+        expect(router.values.searchParams).toEqual({
+            back_to: 'generations',
+            timestamp: '2026-09-01T10:15:00Z',
+            search: 'two words + 50%',
+            event: 'gen-1',
+        })
+        expect(logic.values.selectedNodeId).toBe('gen-1')
+    })
+
+    it.each(['1.50', '[draft]'])('keeps the typed search %s when the browser restores its URL', async (query) => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setQuery(query)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const { pathname, search } = router.values.location
+
+        // Back and forward decode the URL again, as a page load does.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname,
+                search,
+                searchParams: decodeParams(search, '?'),
+                hash: '',
+                hashParams: {},
+                url: `${pathname}${search}`,
+            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.query).toBe(query)
+    })
+
+    it('steps to the next match from another mode and shows it in spans', async () => {
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setMode('thread')
+
+        await expectLogic(logic, () => logic.actions.stepMatch('next')).toMatchValues({
+            mode: 'spans',
+            selectedNodeId: 'gen-1',
+            searchBox: expect.objectContaining({ position: 1 }),
+        })
+    })
+
+    it('keeps the selection in the URL while a search is active', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        logic.actions.setQuery('invoice')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.stepMatch('next')
+        expect(router.values.searchParams).toMatchObject({ search: 'invoice', event: 'gen-2' })
+
+        logic.actions.selectNode('span-1')
+        expect(router.values.searchParams).toMatchObject({ search: 'invoice', event: 'span-1' })
+    })
+
+    it('steps to the first match from a mode that does not show the selected step', async () => {
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('gen-1')
+        logic.actions.setMode('thread')
+
+        expect(logic.values.searchBox.position).toBeNull()
+
+        logic.actions.stepMatch('next')
+        expect(logic.values).toMatchObject({ mode: 'spans', selectedNodeId: 'gen-1' })
+    })
+
+    it('drops the previous matches when a newer search fails', async () => {
+        silenceKeaLoadersErrors()
+        mountAt({ search: 'invoice' })
+        await expectLogic(logic).toFinishAllListeners()
+        searchStatus = 504
+
+        logic.actions.setQuery('refund')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.stepMatch('next')
+
+        expect(logic.values).toMatchObject({
+            matchingNodeIds: null,
+            selectedNodeId: 'trace-1',
+            searchBox: expect.objectContaining({ status: 'error', failure: 'too_slow', matchingSteps: 0 }),
+        })
     })
 
     it('the Summary mode reads the summary on open, and a step link leaves it for that step in spans', async () => {

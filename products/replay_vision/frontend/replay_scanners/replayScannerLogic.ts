@@ -35,6 +35,8 @@ import { urls } from 'scenes/urls'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 
+import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
+
 import {
     visionScannersAffectedCohortCreate,
     visionScannersCreate,
@@ -534,6 +536,7 @@ export interface replayScannerLogicValues {
     goalDraft: DraftScannerResponseApi | null
     goalDraftInput: string
     goalDraftLoading: boolean
+    goalExperiment: ExperimentBasicApi | null
     goalSpendMode: GoalSpendMode
     hasActiveObservationFilters: boolean
     hasObservationsInFlight: boolean
@@ -794,6 +797,9 @@ export interface replayScannerLogicActions {
     setGoalDraftInput: (goal: string) => {
         goal: string
     }
+    setGoalExperiment: (experiment: ExperimentBasicApi | null) => {
+        experiment: ExperimentBasicApi | null
+    }
     setGoalSpendMode: (mode: GoalSpendMode) => {
         mode: GoalSpendMode
     }
@@ -1041,6 +1047,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         clearClassifierTags: true,
         draftScannerFromGoal: (request: GoalDraftRequest) => ({ request }),
         setGoalDraftInput: (goal: string) => ({ goal }),
+        setGoalExperiment: (experiment: ExperimentBasicApi | null) => ({ experiment }),
         setGoalBudgetInput: (budget: number | null) => ({ budget }),
         setGoalSpendMode: (mode: GoalSpendMode) => ({ mode }),
         loadObservations: (background = false) => ({ background }),
@@ -1316,6 +1323,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 startFromScratch: () => '',
                 discardScannerDraft: () => '',
                 scannerSaved: () => '',
+            },
+        ],
+        // Picked from the goal flow's experiment starter, and sent with the goal even after the goal is edited.
+        goalExperiment: [
+            null as ExperimentBasicApi | null,
+            {
+                setGoalExperiment: (_, { experiment }) => experiment,
+                startFromScratch: () => null,
+                discardScannerDraft: () => null,
+                scannerSaved: () => null,
             },
         ],
         // The monthly credit budget input on the goal-based creation flow, used when the person sets a budget.
@@ -2279,7 +2296,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             draftScannerFromGoal: ({ request: { goal, templateKey, spend } }) => {
                 posthog.capture('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
-                    // Set when a goal starter card wrote the goal, so the funnel can split typed goals from one-click ones.
+                    // Set when a starter wrote the goal and it was sent unedited, or when an experiment was picked,
+                    // so the funnel can split typed goals from starter ones.
                     template_key: templateKey ?? null,
                     spend_mode: 'freeOnly' in spend ? 'free' : 'budget',
                     // The goal is customer text, so only its length is captured.

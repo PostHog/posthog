@@ -122,9 +122,12 @@
  * `bg-muted` collides: PostHog's compiled rule reads `--muted-3000`, quill's
  * reads `--muted`. Pin the class to quill's muted surface inside the subtree
  * without hijacking `--muted-3000` (which `text-muted` also depends on).
+ * PostHog's utilities are `!important` in a layer, so this rule must be too, in the same layer.
  */
-[data-quill] .bg-muted {
-    background-color: var(--muted);
+@layer utilities {
+    [data-quill] .bg-muted {
+        background-color: var(--muted) !important;
+    }
 }
 
 [data-quill] .bg-popover {
@@ -165,6 +168,14 @@
     background-color: var(--destructive-foreground);
 }
 
+[data-quill] .bg-foreground {
+    background-color: var(--foreground);
+}
+
+[data-quill] .bg-muted-foreground {
+    background-color: var(--muted-foreground);
+}
+
 [data-quill] .text-foreground {
     color: var(--foreground);
 }
@@ -180,6 +191,10 @@
 
 [data-quill] .text-muted-foreground {
     color: var(--muted-foreground);
+}
+
+[data-quill] .text-background {
+    color: var(--background);
 }
 
 [data-quill] .text-subtle-foreground {
@@ -234,12 +249,26 @@
     border-color: var(--muted-foreground);
 }
 
+[data-quill] .border-foreground {
+    border-color: var(--foreground);
+}
+
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill] .hover\:border-foreground:hover {
+    border-color: var(--foreground);
+}
+
 [data-quill] .border-input {
     border-color: var(--input);
 }
 
 [data-quill] .border-ring {
     border-color: var(--ring);
+}
+
+/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's focus-visible variant class */
+[data-quill] .focus-visible\:outline-ring:focus-visible {
+    outline-color: var(--ring);
 }
 
 /*
