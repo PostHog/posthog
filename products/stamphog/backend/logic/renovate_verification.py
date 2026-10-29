@@ -74,6 +74,18 @@ class VersionChange:
 
 
 @frozen
+class LockedPackage:
+    name: str
+    version: str
+
+
+@frozen
+class PackageAlias:
+    dependency: str
+    package: str
+
+
+@frozen
 class RenovateVerification:
     problems: tuple[str, ...]
     changes: tuple[VersionChange, ...] = ()
@@ -292,11 +304,11 @@ def _replaced_version(base_versions: list[str], *, kept: set[str], new_version: 
     return max(same_line or candidates, key=_numeric_version)
 
 
-def _split_pnpm_key(key: str) -> tuple[str, str] | None:
+def _split_pnpm_key(key: str) -> LockedPackage | None:
     name, separator, version = key.rpartition("@")
     if not separator or not _NPM_NAME_RE.match(name) or not _VERSION_RE.match(version):
         return None
-    return name, version
+    return LockedPackage(name=name, version=version)
 
 
 def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[VersionChange], list[str]]:
@@ -311,7 +323,7 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
     base_versions: dict[str, list[str]] = {}
     for key in base_packages:
         if (parsed := _split_pnpm_key(key)) is not None:
-            base_versions.setdefault(parsed[0], []).append(parsed[1])
+            base_versions.setdefault(parsed.name, []).append(parsed.version)
 
     changes: list[VersionChange] = []
     problems: list[str] = []
@@ -324,7 +336,7 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
         if parsed is None:
             problems.append(f"{path} locks an entry that is not a plain registry package.")
             continue
-        name, version = parsed
+        name, version = parsed.name, parsed.version
         if name not in base_versions:
             problems.append(f"{path} adds {name}, which it did not lock before.")
             continue
@@ -346,7 +358,7 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
     return changes, [*problems, *_pnpm_reference_problems(path, base, head)]
 
 
-def _pnpm_reference_target(name: str, reference: Any, *, alias: bool) -> tuple[str, str] | None:
+def _pnpm_reference_target(name: str, reference: Any, *, alias: bool) -> LockedPackage | None:
     """The package and version that a lockfile reference to ``name`` selects, or None.
 
     A reference is a version with an optional peer suffix, ``1.2.0(react@18.3.1)``. With ``alias``,
@@ -359,7 +371,7 @@ def _pnpm_reference_target(name: str, reference: Any, *, alias: bool) -> tuple[s
     target = reference.split("(", 1)[0]
     if alias and (parsed := _split_pnpm_key(target)) is not None:
         return parsed
-    return (name, target) if _VERSION_RE.match(target) else None
+    return LockedPackage(name=name, version=target) if _VERSION_RE.match(target) else None
 
 
 def _pnpm_reference_problem(
@@ -370,27 +382,29 @@ def _pnpm_reference_problem(
     reference: Any,
     packages: Mapping[str, Any],
     *,
-    base_aliases: frozenset[tuple[str, str]] = frozenset(),
+    base_aliases: frozenset[PackageAlias] = frozenset(),
     alias: bool = False,
 ) -> str | None:
     """A changed reference must select a locked package, the same package as before, in the same release line.
 
-    ``base_aliases`` holds the (dependency, package) aliases that the base locked for the package
-    that owns the reference. A published package declares its own aliases, so a new pair
-    substitutes a package that no check has seen.
+    ``base_aliases`` holds the aliases that the base locked for the package that owns the
+    reference. A published package declares its own aliases, so a new pair substitutes a package
+    that no check has seen.
     """
     target = _pnpm_reference_target(name, reference, alias=alias)
-    if target is None or f"{target[0]}@{target[1]}" not in packages:
+    if target is None or f"{target.name}@{target.version}" not in packages:
         return f"{path} points {owner} at {name} through something other than a locked version."
     previous = _pnpm_reference_target(name, base_reference, alias=alias)
     if previous is None:
-        if target[0] != name and (name, target[0]) not in base_aliases:
+        if target.name != name and PackageAlias(dependency=name, package=target.name) not in base_aliases:
             return f"{path} points {owner} at another package for {name}."
         return None
-    if previous[0] != target[0]:
+    if previous.name != target.name:
         return f"{path} points {owner} at another package for {name}."
-    if refusal := update_refusal(VersionChange(name=target[0], old_version=previous[1], new_version=target[1])):
-        return f"{path} moves {owner} from {name} {previous[1]} to {target[1]}, {refusal}."
+    if refusal := update_refusal(
+        VersionChange(name=target.name, old_version=previous.version, new_version=target.version)
+    ):
+        return f"{path} moves {owner} from {name} {previous.version} to {target.version}, {refusal}."
     return None
 
 
@@ -415,17 +429,17 @@ def _pnpm_specifier_map_problems(
 _PNPM_SNAPSHOT_FIELDS = ("dependencies", "optionalDependencies")
 
 
-def _pnpm_snapshot_aliases(snapshots: Mapping[str, Any]) -> dict[str, frozenset[tuple[str, str]]]:
-    """The (dependency, package) aliases that each package's snapshots declare, by package name."""
-    aliases: dict[str, set[tuple[str, str]]] = {}
+def _pnpm_snapshot_aliases(snapshots: Mapping[str, Any]) -> dict[str, frozenset[PackageAlias]]:
+    """The aliases that each package's snapshots declare, by package name."""
+    aliases: dict[str, set[PackageAlias]] = {}
     for key, snapshot in snapshots.items():
         if (parsed := _split_pnpm_key(key.split("(", 1)[0])) is None:
             continue
         for field in _PNPM_SNAPSHOT_FIELDS:
             for name, reference in ((snapshot or {}).get(field) or {}).items():
                 target = _pnpm_reference_target(name, reference, alias=True)
-                if target is not None and target[0] != name:
-                    aliases.setdefault(parsed[0], set()).add((name, target[0]))
+                if target is not None and target.name != name:
+                    aliases.setdefault(parsed.name, set()).add(PackageAlias(dependency=name, package=target.name))
     return {package: frozenset(pairs) for package, pairs in aliases.items()}
 
 
@@ -468,7 +482,7 @@ def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[s
         if parsed is None or unsuffixed not in packages:
             problems.append(f"{path} adds a snapshot that matches no locked package.")
             continue
-        owner = f"the snapshot of {parsed[0]}"
+        owner = f"the snapshot of {parsed.name}"
         previous = base_snapshots.get(key) or base_by_version.get(unsuffixed)
         for field in _PNPM_SNAPSHOT_FIELDS:
             references = (snapshot or {}).get(field) or {}
@@ -486,7 +500,7 @@ def _pnpm_reference_problems(path: str, base: Mapping[str, Any], head: Mapping[s
                         base_reference,
                         reference,
                         packages,
-                        base_aliases=base_aliases.get(parsed[0], frozenset()),
+                        base_aliases=base_aliases.get(parsed.name, frozenset()),
                         alias=True,
                     )
                 ):
@@ -500,12 +514,12 @@ def _manifest_problems(path: str, base_text: str, head_text: str) -> list[str]:
     return package_json_problems(path, base_text, head_text)
 
 
-def _changed_ranges(base: Mapping[str, Any], head: Mapping[str, Any]) -> set[tuple[str, str]]:
-    return {(name, str(value)) for name, value in head.items() if base.get(name) != value}
+def _changed_ranges(base: Mapping[str, Any], head: Mapping[str, Any]) -> set[str]:
+    return {name for name, value in head.items() if base.get(name) != value}
 
 
-def manifest_changed_specifiers(path: str, base_text: str, head_text: str) -> set[tuple[str, str]]:
-    """Each (dependency, new specifier) that a manifest with no problems changes.
+def manifest_respecified_dependencies(path: str, base_text: str, head_text: str) -> set[str]:
+    """Each dependency whose specifier a manifest with no problems changes.
 
     The lockfile checks prove what gets installed, so a specifier change that no locked version
     change matches would reach the next ``pnpm install`` unchecked.
@@ -563,7 +577,7 @@ def verify_renovate_update(
             if not manifest_problems:
                 respecified.extend(
                     (path, dependency)
-                    for dependency, _specifier in sorted(manifest_changed_specifiers(path, base_text, head_text))
+                    for dependency in sorted(manifest_respecified_dependencies(path, base_text, head_text))
                 )
         except (ValueError, yaml.YAMLError, TypeError, AttributeError):
             problems.append(f"{path} does not parse.")
