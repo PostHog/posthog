@@ -47,10 +47,10 @@ from posthog.auth import (
     WebhookSignatureAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.llm.billing import BILLABLE_AI_PRODUCTS
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission
 from posthog.rate_limit import PersonalSpendBurstThrottle, PersonalSpendDailyThrottle, PersonalSpendSustainedThrottle
+from posthog.tasks.usage_report import POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
@@ -59,6 +59,7 @@ MAX_PRODUCT_KEY_LENGTH = 64
 MAX_DATE_STRING_LENGTH = 32
 
 SUPPORTED_PRODUCTS = frozenset({"posthog_code"})
+BILLABLE_AI_PRODUCTS = frozenset(POSTHOG_AI_PRODUCTS + POSTHOG_CODE_AI_PRODUCTS)
 
 DEFAULT_DATE_FROM = "-30d"
 MAX_WINDOW_DAYS = 90

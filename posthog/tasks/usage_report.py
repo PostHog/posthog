@@ -33,7 +33,7 @@ from posthog.cloud_utils import get_cached_instance_license
 from posthog.constants import AI_EVENT_NAME_PREFIX, FlagRequestType
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.billing import AI_COST_MARKUP_PERCENT, POSTHOG_AI_PRODUCTS, POSTHOG_CODE_AI_PRODUCTS
+from posthog.llm.billing import AI_COST_MARKUP_PERCENT
 from posthog.logging.timing import timed_log
 from posthog.models import OrganizationMembership, User
 from posthog.models.ai_events.sql import TABLE_BASE_NAME as AI_EVENTS_TABLE
@@ -1810,7 +1810,23 @@ CLOUD_REGION_TO_URL = {
 }
 
 
+# ai_product values that roll into PostHog AI (Max) billing credits.
+POSTHOG_AI_PRODUCTS = [
+    "posthog_ai",
+    "slack_app",
+    "workflows",
+    "subscriptions",
+    "alert_investigation_agent",
+    "alert_llm_detector",
+    "product_analytics",
+    "surveys",
+    "replay_vision",
+    "hogql_decide",
+]
+
+# ai_product values billed as PostHog Desktop credits.
 UNBILLED_TASK_ORIGIN_PRODUCTS = ("task_analysis", "account_audit")
+POSTHOG_CODE_AI_PRODUCTS = ["posthog_code"]
 
 
 def get_ai_billing_instance_group_type_index(team_id: int) -> int | None:
