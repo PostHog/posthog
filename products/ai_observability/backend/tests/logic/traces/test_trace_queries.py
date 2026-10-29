@@ -175,7 +175,7 @@ class TestLoadTraceFeedbackRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest)
     def test_reads_feedback_of_this_trace_and_only_the_steps_it_targets(self) -> None:
         self._ingest(
             "00000000-0000-0000-0000-000000000001",
-            {"$ai_metric_name": "helpfulness", "$ai_metric_value": 0},
+            {"$ai_metric_name": "helpfulness", "$ai_metric_value": 0, "$ai_parent_id": "span-a"},
             event="$ai_metric",
         )
         self._ingest(
@@ -190,7 +190,8 @@ class TestLoadTraceFeedbackRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest)
         )
         self._ingest("00000000-0000-0000-0000-000000000004", {"$ai_generation_id": "gen-a"}, event="$ai_generation")
         self._ingest("00000000-0000-0000-0000-000000000005", {}, event="$ai_trace")
-        self._ingest("00000000-0000-0000-0000-000000000007", {"$ai_span_id": "span-untargeted"})
+        self._ingest("00000000-0000-0000-0000-000000000007", {"$ai_span_id": "span-a"})
+        self._ingest("00000000-0000-0000-0000-000000000010", {"$ai_span_id": "span-untargeted"})
         self._ingest(
             "00000000-0000-0000-0000-000000000008",
             {"$ai_metric_value": 2, "$ai_parent_id": "00000000-0000-0000-0000-000000000009"},
@@ -209,10 +210,11 @@ class TestLoadTraceFeedbackRows(TraceEventsMixin, ClickhouseTestMixin, BaseTest)
             (row.uuid, row.event, row.parent_id, row.generation_id, row.metric_name, row.metric_value_json)
             for row in rows
         ) == [
-            ("00000000-0000-0000-0000-000000000001", "$ai_metric", None, None, "helpfulness", "0"),
+            ("00000000-0000-0000-0000-000000000001", "$ai_metric", "span-a", None, "helpfulness", "0"),
             ("00000000-0000-0000-0000-000000000002", "$ai_metric", "gen-a", None, "helpfulness", '"0"'),
             ("00000000-0000-0000-0000-000000000003", "$ai_feedback", None, None, None, ""),
             ("00000000-0000-0000-0000-000000000004", "$ai_generation", None, "gen-a", None, ""),
+            ("00000000-0000-0000-0000-000000000007", "$ai_span", None, None, None, ""),
             (
                 "00000000-0000-0000-0000-000000000008",
                 "$ai_metric",
