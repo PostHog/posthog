@@ -3331,6 +3331,24 @@ class TestPrinter(BaseTest):
         printed = self._select(query)
         assert expected in printed, printed
 
+    @parameterized.expand(
+        [
+            ("toStartOfMinute",),
+            ("toStartOfHour",),
+            ("toStartOfDay",),
+            ("toStartOfWeek",),
+            ("toStartOfMonth",),
+            ("toStartOfQuarter",),
+            ("toStartOfYear",),
+            ("toStartOfISOYear",),
+        ]
+    )
+    def test_to_datetime_of_start_of_interval_uses_the_plain_constructor(self, trunc_func: str):
+        # Funnel trends wrap the interval bucket in toDateTime, and the parser rejects a Date (code 43).
+        printed = self._expr(f"toDateTime({trunc_func}(timestamp))")
+        assert "parseDateTime64BestEffort" not in printed, printed
+        assert printed.startswith(f"toDateTime({trunc_func}("), printed
+
     def test_window_functions(self):
         self.assertEqual(
             self._select(
