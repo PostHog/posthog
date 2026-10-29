@@ -127,7 +127,8 @@ export function RadialChart<Meta = unknown>({
         hoverAnimationMs,
     })
 
-    const ariaLabel = `Pie chart with ${countVisibleSeries(coloredSeries)} slices`
+    const visibleSeriesCount = useMemo(() => countVisibleSeries(coloredSeries), [coloredSeries])
+    const ariaLabel = `Pie chart with ${visibleSeriesCount} slices`
 
     const canvasBounds = useCanvasBounds(canvasRef)
 

@@ -379,7 +379,8 @@ export function Chart<Meta = unknown>({
         hoverAnimationMs,
     })
 
-    const ariaParts = [`Chart with ${countVisibleSeries(coloredSeries)} data series`]
+    const visibleSeriesCount = useMemo(() => countVisibleSeries(coloredSeries), [coloredSeries])
+    const ariaParts = [`Chart with ${visibleSeriesCount} data series`]
     const cleanXAxisLabel = normalizeAxisLabel(xAxisLabel)
     const cleanYAxisLabel = normalizeAxisLabel(yAxisLabel)
     if (!hideXAxis && cleanXAxisLabel) {
