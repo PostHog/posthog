@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -12,21 +13,40 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.models import Team
 from posthog.test.persons import create_person
 
-from products.feature_flags.backend.flag_windows.exposure import ExposureBucket, WatchedEdit, exposure_by_bucket
+from products.feature_flags.backend.flag_windows.exposure import (
+    ExposureBucket,
+    ExposureCounts,
+    WatchedEdit,
+    exposure_by_bucket,
+)
 
 START = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 BUCKET = timedelta(minutes=10)
 
-BOOLEAN = WatchedEdit(id="boolean", flag_key="new-checkout", group_type_index=None, variants=(), enables=False)
+BOOLEAN = WatchedEdit(
+    id="boolean", flag_key="new-checkout", edited_at=START, group_type_index=None, variants=(), enables=False
+)
 MULTIVARIATE = WatchedEdit(
-    id="multivariate", flag_key="pricing-test", group_type_index=None, variants=("control", "test"), enables=False
+    id="multivariate",
+    flag_key="pricing-test",
+    edited_at=START,
+    group_type_index=None,
+    variants=("control", "test"),
+    enables=False,
 )
 # A variant may be named "false", and only its JSON type tells it apart from a flag that evaluated to false.
 FALSE_VARIANT = WatchedEdit(
-    id="false-variant", flag_key="pricing-test", group_type_index=None, variants=("control", "false"), enables=False
+    id="false-variant",
+    flag_key="pricing-test",
+    edited_at=START,
+    group_type_index=None,
+    variants=("control", "false"),
+    enables=False,
 )
-GROUP = WatchedEdit(id="group", flag_key="org-beta", group_type_index=0, variants=(), enables=False)
-ENABLED = WatchedEdit(id="enabled", flag_key="new-checkout", group_type_index=None, variants=(), enables=True)
+GROUP = WatchedEdit(id="group", flag_key="org-beta", edited_at=START, group_type_index=0, variants=(), enables=False)
+ENABLED = WatchedEdit(
+    id="enabled", flag_key="new-checkout", edited_at=START, group_type_index=None, variants=(), enables=True
+)
 
 # (distinct id, minutes after START, event properties)
 Event = tuple[str, int, dict[str, Any]]
@@ -147,16 +167,49 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
         )
 
         self.assertEqual(
+            {
+                edit_id: [(bucket.start, bucket.in_bucket) for bucket in buckets]
+                for edit_id, buckets in exposure.items()
+            },
+            {
+                edit.id: [
+                    (
+                        START + timedelta(minutes=minutes),
+                        ExposureCounts(with_flag=with_flag, exposed=exposed, by_variant=by_variant),
+                    )
+                    for minutes, with_flag, exposed, by_variant in expected
+                ]
+            },
+        )
+
+    def test_counts_since_the_edit_hold_each_person_once_and_skip_events_before_it(self) -> None:
+        self._send(
+            [
+                ("person-1", 5, {"$feature/new-checkout": True}),
+                ("person-1", 12, {"$feature/new-checkout": True}),
+                ("person-2", 15, {"$feature/new-checkout": False}),
+                ("person-1", 22, {"$feature/new-checkout": True}),
+                ("person-3", 25, {"$feature/new-checkout": True}),
+            ]
+        )
+        edit = dataclasses.replace(BOOLEAN, edited_at=START + timedelta(minutes=10))
+
+        exposure = exposure_by_bucket(self.team, [edit], START, START + timedelta(minutes=30), BUCKET)
+
+        self.assertEqual(
             exposure,
             {
                 edit.id: [
                     ExposureBucket(
-                        start=START + timedelta(minutes=minutes),
-                        with_flag=with_flag,
-                        exposed=exposed,
-                        by_variant=by_variant,
-                    )
-                    for minutes, with_flag, exposed, by_variant in expected
+                        start=START + timedelta(minutes=10),
+                        in_bucket=ExposureCounts(with_flag=2, exposed=1, by_variant={}),
+                        since_edit=ExposureCounts(with_flag=2, exposed=1, by_variant={}),
+                    ),
+                    ExposureBucket(
+                        start=START + timedelta(minutes=20),
+                        in_bucket=ExposureCounts(with_flag=2, exposed=2, by_variant={}),
+                        since_edit=ExposureCounts(with_flag=3, exposed=2, by_variant={}),
+                    ),
                 ]
             },
         )
@@ -178,11 +231,23 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             exposure,
             {
                 "boolean": [
-                    ExposureBucket(start=START, with_flag=2, exposed=1, by_variant={}),
-                    ExposureBucket(start=START + timedelta(minutes=10), with_flag=1, exposed=1, by_variant={}),
+                    ExposureBucket(
+                        start=START,
+                        in_bucket=ExposureCounts(with_flag=2, exposed=1, by_variant={}),
+                        since_edit=ExposureCounts(with_flag=2, exposed=1, by_variant={}),
+                    ),
+                    ExposureBucket(
+                        start=START + timedelta(minutes=10),
+                        in_bucket=ExposureCounts(with_flag=1, exposed=1, by_variant={}),
+                        since_edit=ExposureCounts(with_flag=3, exposed=2, by_variant={}),
+                    ),
                 ],
                 "multivariate": [
-                    ExposureBucket(start=START, with_flag=2, exposed=2, by_variant={"control": 1, "test": 1})
+                    ExposureBucket(
+                        start=START,
+                        in_bucket=ExposureCounts(with_flag=2, exposed=2, by_variant={"control": 1, "test": 1}),
+                        since_edit=ExposureCounts(with_flag=2, exposed=2, by_variant={"control": 1, "test": 1}),
+                    )
                 ],
             },
         )

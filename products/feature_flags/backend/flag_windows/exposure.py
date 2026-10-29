@@ -15,6 +15,8 @@ compares errors against this curve, not against the edit time.
   minimum volume by itself.
 - `$feature/<key>` holds the variant key on a multivariate flag, so the exposed people there are the people with any
   value other than false.
+- Each bucket also holds the counts since the edit. Per-bucket counts can't be added up, because a person can be in many
+  buckets. The query keeps a `uniqState` per bucket and merges the states of the buckets so far, in the same scan.
 
 One query per team reads every watched edit, because `$feature/<key>` is on every event: a query per edit would read
 the same events again.
@@ -41,6 +43,10 @@ from posthog.models import Team
 QUERY_TIMEOUT_SECONDS = 30
 QUERY_MAX_THREADS = 2
 
+# HogQL has no finalizeAggregation, so a frame of one row reads the bucket's own count.
+IN_BUCKET = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN CURRENT ROW AND CURRENT ROW)"
+SINCE_EDIT = "uniqMerge({state}) OVER (ORDER BY bucket ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)"
+
 
 @frozen
 class WatchedEdit:
@@ -49,6 +55,8 @@ class WatchedEdit:
     # Names the edit in the result, for example the observation window or the activity log entry.
     id: str
     flag_key: str
+    # Counts start here, because events before the edit carry the old value.
+    edited_at: datetime
     # The group type that the flag aggregates by, or None for a person flag.
     group_type_index: int | None
     # The variants that the flag serves after the edit (`ExposureChange.served_variants`). Empty for a boolean flag.
@@ -58,8 +66,7 @@ class WatchedEdit:
 
 
 @frozen
-class ExposureBucket:
-    start: datetime
+class ExposureCounts:
     # The people (or groups) whose events carry the flag, or that loaded flags when the edit enables the flag.
     with_flag: int
     # The people (or groups) with a value other than false.
@@ -68,12 +75,19 @@ class ExposureBucket:
     by_variant: Mapping[str, int]
 
 
+@frozen
+class ExposureBucket:
+    start: datetime
+    in_bucket: ExposureCounts
+    # From the edit, or from the range start when it is later, to the end of this bucket. Each person counts once.
+    since_edit: ExposureCounts
+
+
 def exposure_by_bucket(
     team: Team, edits: Sequence[WatchedEdit], start: datetime, end: datetime, bucket: timedelta
 ) -> dict[str, list[ExposureBucket]]:
     """The exposure of each edit in each bucket of `[start, end)`, by edit id, oldest bucket first. A bucket in which
-    nobody carried the flag has no entry. Each count holds a person once per bucket, so a person whose value changed
-    inside a bucket counts under both values."""
+    nobody carried the flag after the edit has no entry. A person whose value changed counts under both values."""
     seconds = bucket.total_seconds()
     if seconds < 1 or seconds != int(seconds):
         raise ValueError(f"A bucket must be a whole number of seconds, got {bucket}")
@@ -93,18 +107,26 @@ def exposure_by_bucket(
         "toStartOfInterval(timestamp, toIntervalSecond({seconds}), {start})",
         placeholders={"seconds": ast.Constant(value=int(seconds)), "start": ast.Constant(value=start)},
     )
-    columns = [_edit_columns(index, edit) for index, edit in enumerate(edits)]
-    query = ast.SelectQuery(
-        select=[
-            ast.Alias(alias="bucket", expr=bucket_start),
-            *[column for edit_columns in columns for column in edit_columns],
-        ],
+    states = [state for index, edit in enumerate(edits) for state in _edit_states(index, edit)]
+    per_bucket = ast.SelectQuery(
+        select=[ast.Alias(alias="bucket", expr=bucket_start), *states],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=parse_expr(
             "timestamp >= {start} AND timestamp < {end}",
             placeholders={"start": ast.Constant(value=start), "end": ast.Constant(value=end)},
         ),
         group_by=[ast.Field(chain=["bucket"])],
+    )
+    query = ast.SelectQuery(
+        select=[
+            ast.Field(chain=["bucket"]),
+            *[
+                parse_expr(template, placeholders={"state": ast.Field(chain=[state.alias])})
+                for state in states
+                for template in (IN_BUCKET, SINCE_EDIT)
+            ],
+        ],
+        select_from=ast.JoinExpr(table=per_bucket),
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["bucket"]), order="ASC")],
         # One row per bucket. HogQL adds LIMIT 100 to a query without one.
         limit=ast.Constant(value=buckets),
@@ -133,17 +155,23 @@ def exposure_by_bucket(
     for row in response.results or []:
         values = iter(row[1:])
         for edit in edits:
-            with_flag, exposed = int(next(values)), int(next(values))
-            by_variant = {variant: int(next(values)) for variant in edit.variants}
-            if with_flag:
-                result[edit.id].append(
-                    ExposureBucket(start=row[0], with_flag=with_flag, exposed=exposed, by_variant=by_variant)
-                )
+            # Each count gives the bucket's own value, then the value since the edit.
+            pairs = [(int(next(values)), int(next(values))) for _ in range(2 + len(edit.variants))]
+            in_bucket = _counts(edit, [pair[0] for pair in pairs])
+            since_edit = _counts(edit, [pair[1] for pair in pairs])
+            if in_bucket.with_flag:
+                result[edit.id].append(ExposureBucket(start=row[0], in_bucket=in_bucket, since_edit=since_edit))
     return result
 
 
-def _edit_columns(index: int, edit: WatchedEdit) -> list[ast.Expr]:
-    """The edit's counts: with the flag, exposed, then one per variant in the order of `edit.variants`."""
+def _counts(edit: WatchedEdit, values: list[int]) -> ExposureCounts:
+    with_flag, exposed, *by_variant = values
+    return ExposureCounts(with_flag=with_flag, exposed=exposed, by_variant=dict(zip(edit.variants, by_variant)))
+
+
+def _edit_states(index: int, edit: WatchedEdit) -> list[ast.Alias]:
+    """The `uniqState` of each of the edit's counts: with the flag, exposed, then one per variant in the order of
+    `edit.variants`."""
     if edit.group_type_index is None:
         actor = ast.Field(chain=["person_id"])
         has_actor: ast.Expr = ast.Constant(value=True)
@@ -187,12 +215,17 @@ def _edit_columns(index: int, edit: WatchedEdit) -> list[ast.Expr]:
     else:
         exposed = parse_expr("{flag_value} = 'true'", placeholders={"flag_value": flag_value})
 
-    def count(alias: str, condition: ast.Expr) -> ast.Expr:
+    def count(alias: str, condition: ast.Expr) -> ast.Alias:
         return ast.Alias(
             alias=f"e{index}_{alias}",
             expr=parse_expr(
-                "uniqIf({actor}, {has_actor} AND {condition})",
-                placeholders={"actor": actor, "has_actor": has_actor, "condition": condition},
+                "uniqState(if({has_actor} AND timestamp >= {edited_at} AND {condition}, {actor}, NULL))",
+                placeholders={
+                    "actor": actor,
+                    "has_actor": has_actor,
+                    "edited_at": ast.Constant(value=edit.edited_at),
+                    "condition": condition,
+                },
             ),
         )
 
