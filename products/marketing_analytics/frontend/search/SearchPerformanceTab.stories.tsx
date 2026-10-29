@@ -703,27 +703,9 @@ export const LegacyScene: Story = {
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
     },
 }
-export const NewDashboardScene: Story = {
-    ...LegacyScene,
-    parameters: {
-        ...LegacyScene.parameters,
-        featureFlags: [
-            FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
-        ],
-    },
-}
 export const FlagOff: Story = {
     ...LegacyScene,
     parameters: { ...LegacyScene.parameters, featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING] },
-}
-export const NewDashboardFlagOff: Story = {
-    ...LegacyScene,
-    parameters: {
-        ...LegacyScene.parameters,
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
-    },
 }
 
 export const PositionMetrics: Story = {

@@ -405,6 +405,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     ),
                     SourceFieldInputConfig(
                         name="property_id",
+                        account_selector=True,
                         label="Property ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

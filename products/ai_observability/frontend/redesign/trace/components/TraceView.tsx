@@ -1,5 +1,5 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
-import { ConversationState, LabeledLink, TraceMode } from '../types'
+import { ConversationState, EvalRollupOutcome, LabeledLink, TraceMode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
 import { Thread } from './Thread'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
@@ -25,6 +25,7 @@ export interface TraceViewReadyProps {
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
     search?: TraceSearchBoxProps | null
+    evalOutcomes: Record<string, EvalRollupOutcome>
     /** The steps that contain the search query, or null when nothing is searched. */
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
@@ -54,6 +55,7 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     onSelectNode={props.onSelectNode}
                     onPrefetchNode={props.onPrefetchNode}
                     detail={props.detail}
+                    evalOutcomes={props.evalOutcomes}
                     matchingNodeIds={props.matchingNodeIds}
                     highlightQuery={props.highlightQuery}
                 />

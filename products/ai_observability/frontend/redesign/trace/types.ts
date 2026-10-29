@@ -1,4 +1,9 @@
-import type { TraceEvaluationResultOutcomeEnumApi, TraceNodeApi, TraceNodeDetailApi } from '../../generated/api.schemas'
+import type {
+    TraceEvaluationResultOutcomeEnumApi,
+    TraceNodeApi,
+    TraceNodeDetailApi,
+    TraceNodeEvaluationRollupOutcomeEnumApi,
+} from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
@@ -78,6 +83,16 @@ export interface NodeProperties {
  * `inconclusive` is a run that produced no usable value: skipped, not applicable, no score, unknown sentiment.
  */
 export type EvalOutcome = TraceEvaluationResultOutcomeEnumApi
+
+/** A step's evaluations rolled up: `fail` if any fails, else `pass` if any passes, else `unrated`. */
+export type EvalRollupOutcome = TraceNodeEvaluationRollupOutcomeEnumApi
+
+export interface EvalsChipData {
+    passed: number
+    /** Results with a pass or a fail. */
+    graded: number
+    unrated: number
+}
 
 export interface EvalTarget {
     label: string

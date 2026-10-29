@@ -1,4 +1,5 @@
 import type { TraceNodeApi } from '../../../generated/api.schemas'
+import { EvalRollupOutcome } from '../types'
 import { NodeDetail, NodeDetailProps } from './NodeDetail'
 import { TraceTree } from './TraceTree'
 
@@ -8,6 +9,7 @@ export interface TraceSplitViewProps {
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery'> | null
+    evalOutcomes: Record<string, EvalRollupOutcome>
     matchingNodeIds?: ReadonlySet<string> | null
     highlightQuery?: string | null
 }
@@ -18,6 +20,7 @@ export function TraceSplitView({
     onSelectNode,
     onPrefetchNode,
     detail,
+    evalOutcomes,
     matchingNodeIds = null,
     highlightQuery = null,
 }: TraceSplitViewProps): JSX.Element {
@@ -30,6 +33,7 @@ export function TraceSplitView({
                         selectedNodeId={selectedNodeId}
                         onSelectNode={onSelectNode}
                         onPrefetchNode={onPrefetchNode}
+                        evalOutcomes={evalOutcomes}
                         matchingNodeIds={matchingNodeIds}
                     />
                 </aside>

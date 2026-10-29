@@ -86,18 +86,18 @@ If the user's question spans multiple kinds, run the playbooks in sequence.
 
 Decide this now, before the investigation, because it changes which queries you keep.
 
-The findings go in a walkthrough when the chart is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot) and `posthog:explain-chart` exists in this session.
-It exists when `posthog:render-ui` lists `explain-chart` in its `tool_name`, or when `info explain-chart` works through `exec`.
-Without `render-ui`, only some hosts draw the walkthrough from `exec`, so Step 5 checks that it appeared and falls back to the written report when it did not.
-Otherwise the findings go in a written report.
+When the user gave you a saved insight or a query that is a `TrendsQuery` over time (not a box plot, 2D heatmap or scatter plot), the investigation ends with a chart explanation from `posthog:explain-chart`.
+`posthog:explain-chart` exists only where chart explanations are enabled, so check for it now and read its schema.
+Where PostHog tools run through `exec`, it is not in your own tool list: run `info explain-chart` before you decide it is missing.
+When it does not exist, the findings go in a written report.
+The chart explanation is the answer, in place of a notebook or a long reply. Write a notebook as well only when the user asks for one.
+For anything else, such as a metric you queried on your own, the findings go in a written report.
 
-When it is a walkthrough:
+When it is a chart explanation:
 
-- Read the `explain-chart` schema now.
-- Add "Show the walkthrough (Step 5)" as the last item of your plan or to-do list.
-- Keep the `TrendsQuery` behind each finding, such as an event count with a breakdown or a property filter.
-  The walkthrough draws a `TrendsQuery` as a chart beside the finding, and any other query only as a link.
-  Use SQL for the findings that a `TrendsQuery` cannot express.
+- Add "Show the chart explanation (Step 5)" as the last item of your plan or to-do list.
+- Keep the query behind each finding. The chart explanation runs it again and draws the result beside the finding.
+  Prefer an insight query, such as a `TrendsQuery` with a breakdown or a property filter, and use SQL only for what an insight query cannot express.
 
 ## Step 2 — Common opening moves
 
@@ -145,9 +145,11 @@ in the control = strong hypothesis; moved too = expand the investigation. Skip w
 
 ## Step 5 — Write findings
 
-Use the format you chose in Step 1: the walkthrough when `explain-chart` exists and the chart is a `TrendsQuery` over time, and the written report otherwise.
+**Before you write your answer, call `posthog:explain-chart` when the user gave you a trends insight over time.**
+Do this after a long investigation too, and when most of your evidence is SQL.
+For anything else, use the written report.
 
-### The walkthrough
+### The chart explanation
 
 It draws the chart with each moment highlighted and lets the user step through them.
 Map the investigation onto it:
@@ -157,26 +159,31 @@ Map the investigation onto it:
   of `summary`.
 - **Likely cause** and **Confidence** → `cause`, `confidence` and `confidence_reason`.
 - **Evidence** → `evidence`, each finding with the `query` that produced it, or a `url`
-  for a commit or a deploy. Pass the `TrendsQuery` you ran where you have one: the
-  walkthrough draws it as a chart, while any other query only becomes a link.
+  for a commit or a deploy. The chart explanation runs each query and draws it: an insight
+  query with its insight chart, and a `HogQLQuery` from its rows. Shape the SQL for the chart,
+  with the x-axis column first, then optionally one text column to break down by, then the numbers.
+  Prefer a series over time to a before-and-after comparison, so the user sees when the change happened.
+- **Zoomed-in evidence** → when the metric moved suddenly, add one finding that zooms in on the change.
+  Use the insight's own query with a `dateRange` around the change, at the interval that shows it best, from `minute` to `day`.
+  Filter it to the segment the cause points at, such as the affected browser or region.
 - A **headline** of one sentence with no numbers sums up the whole chart.
-  Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the walkthrough highlights it.
+  Wrap each name behind a moment, such as the referrer of a spike or the country behind a rise, in `**double asterisks**` so the chart explanation highlights it.
   Do the same in each `cause`.
 
 Call `posthog:explain-chart` first. It reports any chapter whose dates match no point on the
 chart, so fix those dates and call it again.
-When its response says the user already sees the result, the walkthrough is on screen, and you are done.
+When its response says the user already sees the result, the chart explanation is on screen, and you are done.
 Otherwise call `posthog:render-ui` with `tool_name` `explain-chart` and the same input as `tool_input`.
-When `render-ui` does not exist either, the user sees nothing, so write the written report instead.
+When the call fails because the tool does not exist, or `render-ui` does not exist either, the user sees nothing, so write the written report instead.
 
-Then reply in at most three short sentences: which chapter to look at first, one caveat
-about the data if the walkthrough cannot show it, and one offer from below. The walkthrough
-already holds the chart, the chapters, their causes and their evidence, so the reply has no
-bullet points, no description of the chart and no list of the moments.
+Then reply briefly.
+Say which chapter to look at first, then add only what the chart explanation cannot hold, such as a caveat about the data, a linked fix or a decision that is still open.
+End with one offer from below.
+The chart explanation already holds the chart, the chapters, their causes and their evidence, so do not describe the chart or list the moments again.
 
 ### The written report
 
-Without the walkthrough, use the format below. Offer to save key charts via `posthog:insight-create`.
+Without the chart explanation, use the format below. Offer to save key charts via `posthog:insight-create`.
 If a cause is found and no annotation marks it, offer `posthog:annotation-create`.
 See [common-causes.md](./references/common-causes.md) for the cause taxonomy.
 

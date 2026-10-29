@@ -124,7 +124,8 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["GET"], url_path="evaluations")
     def evaluations(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
-        """A trace's evaluation results, newest first and at most 250, each with its outcome and label ready to render."""
+        """A trace's evaluation results, newest first and at most 250, each with its outcome and label ready to render,
+        plus a roll-up of the latest run of each evaluation on each node."""
         try:
             trace_id = decode_trace_id_segment(pk)
         except MalformedTraceIdSegmentError:

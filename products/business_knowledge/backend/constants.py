@@ -4,6 +4,8 @@ Constants and tunables for business_knowledge.
 
 import datetime
 
+import httpx
+
 # Per-team caps. Enforced in the create endpoint, not at the DB layer — easier
 # to relax for a single paying customer without a migration.
 MAX_SOURCES_PER_TEAM = 500
@@ -191,6 +193,7 @@ BK_RRF_SCORE_FLOOR = 0.015
 BK_RERANK_MODEL = "claude-haiku-4-5"
 # Max chars of chunk content included in the rerank prompt per candidate.
 BK_RERANK_SNIPPET_CHARS = 500
+BK_RERANK_TIMEOUT = httpx.Timeout(30.0, connect=5.0)
 # Timeout (seconds) for the async embedding call on the query path. If the
 # embedding service is slow, FTS alone fires (graceful degradation).
 BK_QUERY_EMBEDDING_TIMEOUT = 5.0

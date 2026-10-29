@@ -20,6 +20,7 @@ import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitoring.service'
+import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
@@ -280,7 +281,8 @@ export class EmailTrackingService {
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
-        private emailSuppressionService: EmailSuppressionService
+        private emailSuppressionService: EmailSuppressionService,
+        private emailStatusService: EmailStatusService | null = null
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -493,6 +495,7 @@ export class EmailTrackingService {
                 hardBounceRecipients,
                 complainedRecipients,
                 deliveredRecipients,
+                emailStatusUpdates,
             } = await this.sesWebhookHandler.handleWebhook({
                 body: parseJSON(req.body),
                 headers: req.headers,
@@ -537,6 +540,24 @@ export class EmailTrackingService {
             } catch (error) {
                 logger.error('[EmailTrackingService] handleSesWebhook: Failed to track logs', { error })
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
+            }
+
+            // Best-effort like the writes around it: queue and flush never throw.
+            if (this.emailStatusService && emailStatusUpdates?.length) {
+                for (const update of emailStatusUpdates) {
+                    const teamId = parseInt(update.teamId, 10)
+                    if (Number.isNaN(teamId)) {
+                        continue
+                    }
+                    this.emailStatusService.queue({
+                        teamId,
+                        messageId: update.invocationId,
+                        status: update.status,
+                        reason: update.reason,
+                        statusAt: new Date(update.timestamp),
+                    })
+                }
+                await this.emailStatusService.flush()
             }
 
             // Feed bounces, complaints and successful deliveries into the suppression list. Wrapped

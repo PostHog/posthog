@@ -19,6 +19,9 @@ type ReadyValues = Pick<
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
+    | 'evalsChip'
+    | 'evalOutcomesByNode'
+    | 'gitBranch'
     | 'searchBox'
     | 'matchingNodeIds'
     | 'highlightQuery'
@@ -31,6 +34,7 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    showFailingEvals: () => void
     setQuery: (query: string) => void
     stepMatch: (direction: MatchDirection) => void
 }
@@ -41,7 +45,11 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
     }
     return {
         header: values.header,
-        summary: values.summary,
+        summary: {
+            ...values.summary,
+            evals: values.evalsChip ? { chip: values.evalsChip, onClick: actions.showFailingEvals } : null,
+            git: values.gitBranch,
+        },
         mode: values.mode,
         onModeChange: actions.setMode,
         tree: values.tree,
@@ -60,6 +68,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
             : null,
         thread: values.thread,
         timeline: values.timeline,
+        evalOutcomes: values.evalOutcomesByNode,
         search: { ...values.searchBox, onQueryChange: actions.setQuery, onStep: actions.stepMatch },
         matchingNodeIds: values.matchingNodeIds,
         highlightQuery: values.highlightQuery,
@@ -85,6 +94,9 @@ export function TraceScene(): JSX.Element {
         canViewInThread,
         thread,
         timeline,
+        evalsChip,
+        evalOutcomesByNode,
+        gitBranch,
         searchBox,
         matchingNodeIds,
         highlightQuery,
@@ -106,6 +118,9 @@ export function TraceScene(): JSX.Element {
                       canViewInThread,
                       thread,
                       timeline,
+                      evalsChip,
+                      evalOutcomesByNode,
+                      gitBranch,
                       searchBox,
                       matchingNodeIds,
                       highlightQuery,

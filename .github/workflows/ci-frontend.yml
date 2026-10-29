@@ -65,7 +65,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -777,6 +777,46 @@ jobs:
 
                   - name: Validate SetupTaskId completions
                     run: node bin/validate-setup-tasks.mjs
+
+            # A field removed from a model that a cached query response stores makes every old
+            # cache entry that holds it fail to parse. The author acknowledges the removal with a
+            # cache-impact label, which is read live so a re-run of this job sees a new label.
+            # An unreadable base schema skips the check rather than failing the required gate.
+            - name: Check for fields removed from cached response models
+              id: cached-schema
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  if ! base_sha=$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$GITHUB_SHA" --jq '.parents[0].sha') ||
+                      ! gh api "repos/$GITHUB_REPOSITORY/contents/frontend/src/queries/schema.json?ref=$base_sha" \
+                          -H "Accept: application/vnd.github.raw" > "$RUNNER_TEMP/base-schema.json" ||
+                      ! PR_LABELS=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '.[].name'); then
+                      echo "::notice::Could not read the base schema or the PR labels. Skipping the cached schema check."
+                      exit 0
+                  fi
+                  export PR_LABELS
+                  python3 .github/scripts/check_cached_schema_removals.py "$RUNNER_TEMP/base-schema.json" frontend/src/queries/schema.json
+
+            - name: Post CI report — cached schema removals
+              if: ${{ !cancelled() && github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && steps.cached-schema.outputs.removed != '' }}
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  REMOVED: ${{ steps.cached-schema.outputs.removed }}
+                  STATUS: ${{ steps.cached-schema.outputs.status }}
+                  SUMMARY: ${{ steps.cached-schema.outputs.summary }}
+                  BODY: ${{ steps.cached-schema.outputs.body }}
+              run: node .github/scripts/post-cached-schema-section.mjs
+
+            - name: Require a cache impact label
+              if: ${{ !cancelled() && steps.cached-schema.outputs.removed == 'true' && steps.cached-schema.outputs.acknowledged != 'true' }}
+              env:
+                  BODY: ${{ steps.cached-schema.outputs.body }}
+              run: |
+                  printf '%s\n' "$BODY" >> "$GITHUB_STEP_SUMMARY"
+                  echo "::error::This PR removes fields that cached query responses can still hold. Apply the cache-impact-deprecated, cache-impact-accepted or cache-impact-bumped label, then re-run this job. The job summary lists the cost of each option."
+                  exit 1
 
     jest:
         runs-on: ubuntu-24.04

@@ -474,6 +474,17 @@ The `open` kind reads `first_viewed_at`, the durable VIEW row, and the `dismiss`
 The vector is the plain mean of the user's last `USER_HISTORY_LIMIT` (20) reports of the kind, through the as-of rule and the embedding gate of `project_vectors()`.
 A report counts only in the organization of its own team, and a user without usable history gets no row.
 
+### Pair-grain experiments
+
+A family with `grain="pair"` scores one row per (report, impressed user) from `inbox_ranking_nn_pair_examples`. Pair grain is experiment-only: `ModelFamily` refuses a pair-grain serving family, so the manifest, the promote job and the pins never see one.
+
+- **Registration.** A pair family declares its `heads` from `PAIR_HEAD_NAMES` (`open`, `action`; there is no pair `fixed` label). Its `baseline` is another pair experiment in the registry, and its optional `reference` is a report-grain serving family. It names a baseline, a reference, or both. `family_problems` refuses a baseline of the other grain, an unregistered pair baseline, a baseline cycle and a reference that is not a report-grain serving family.
+- **Lane.** The experiments job routes a pair family to `nn/pair_lane.py`. A day without the pair examples object skips the pair families only, with a log line. A pair takes its report's input and state columns from the report's row of the day's `inbox_ranking_nn_examples` object, and its team's project vectors as of its birth day. The experiment and its baseline fit with each of `EXPERIMENT_SEEDS` on the same train pairs and are graded on the same holdout pairs.
+- **Reference.** For each seed, the reference fits at report grain on the report train rows born on a pair train day, and each holdout pair takes its report's score. The reference fits before the pair matrices are built, so its report matrix and the pair matrices are never in memory together.
+- **Grade.** `vs_baseline` (`nn/pair_grade.py`) has `grain: "pair"` and, per head, within-user AUCs for each arm and seed. A user is one person in one team, and a user with one outcome class is left out. `macro` weighs each user the same, and `pooled` weighs each user by its pairs. The scopes are `all` and `non_dogfood` (without the dogfood project's users). The slices are `all`, the prior-view buckets, `history_10_plus`, `suggested_reviewer` and `not_suggested_reviewer`. `vs_baseline` and `vs_reference` give the mean, min and max delta over the paired seeds, and a team bootstrap interval for the macro delta. One `inbox_ranking_experiment_compared` event per head, scope and slice carries `grain`, `scope`, `slice` and the deltas against both arms. Report-grain experiments keep their block and their events as they were.
+
+No pair family is registered yet. The user-input feature set and the two pair families that read it come in a follow-up.
+
 ## Configuration
 
 | Setting                                 | Default         | Meaning                                                                                                                                                                                                             |

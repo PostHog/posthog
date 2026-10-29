@@ -9,8 +9,8 @@ import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSessi
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
 import { SampleTraceFixture } from '../sampleFixtures/sampleTraceFixture'
-import { FIXTURE_TRACE, withWidth } from '../storyFixtures'
-import { NodeDetailTab, TraceMode } from '../types'
+import { FIXTURE_EVAL_OUTCOMES, FIXTURE_EVALS_CHIP, FIXTURE_TRACE, withWidth } from '../storyFixtures'
+import { EvalRollupOutcome, EvalsChipData, NodeDetailTab, TraceMode } from '../types'
 import { TraceView } from './TraceView'
 
 function findNode(nodes: TraceNodeApi[], id: string): TraceNodeApi | null {
@@ -55,6 +55,8 @@ interface PlaygroundProps {
     fixture: SampleTraceFixture
     initialMode: TraceMode
     initialNodeId?: string
+    evals?: EvalsChipData
+    evalOutcomes?: Record<string, EvalRollupOutcome>
     search?: PlaygroundSearch
 }
 
@@ -63,7 +65,14 @@ function searchResults(search: PlaygroundSearch): TraceSearchResultsApi {
     return { total: matches.reduce((sum, match) => sum + match.count, 0), matches }
 }
 
-function Playground({ fixture, initialMode, initialNodeId, search }: PlaygroundProps): JSX.Element {
+function Playground({
+    fixture,
+    initialMode,
+    initialNodeId,
+    evals,
+    evalOutcomes = {},
+    search,
+}: PlaygroundProps): JSX.Element {
     const [mode, setMode] = useState<TraceMode>(initialMode)
     const [selectedNodeId, setSelectedNodeId] = useState(initialNodeId ?? fixture.initialNodeId)
     const [tab, setTab] = useState<NodeDetailTab>('messages')
@@ -72,11 +81,15 @@ function Playground({ fixture, initialMode, initialNodeId, search }: PlaygroundP
         setSelectedNodeId(id)
         setMode('spans')
     }
+    const showFailingEvals = (): void => {
+        selectAndShowSpans(Object.keys(evalOutcomes).find((id) => evalOutcomes[id] === 'fail') ?? fixture.tree[0].id)
+        setTab('evals')
+    }
     return (
         <TraceView
             status="ready"
             header={fixture.header}
-            summary={fixture.summary}
+            summary={{ ...fixture.summary, evals: evals ? { chip: evals, onClick: showFailingEvals } : null }}
             mode={mode}
             onModeChange={setMode}
             tree={fixture.tree}
@@ -93,6 +106,7 @@ function Playground({ fixture, initialMode, initialNodeId, search }: PlaygroundP
             }}
             thread={fixture.thread}
             timeline={fixture.timeline}
+            evalOutcomes={evalOutcomes}
             search={
                 search
                     ? {
@@ -126,6 +140,15 @@ export const ThreadMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 
 export const TimelineMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'timeline' } }
 export const Narrow: Story = {
     args: { fixture: FIXTURE_TRACE, initialMode: 'spans' },
+    decorators: [withWidth(520)],
+}
+export const NarrowWithEvals: Story = {
+    args: {
+        fixture: FIXTURE_TRACE,
+        initialMode: 'spans',
+        evals: FIXTURE_EVALS_CHIP,
+        evalOutcomes: FIXTURE_EVAL_OUTCOMES,
+    },
     decorators: [withWidth(520)],
 }
 export const NarrowWithSearch: Story = {

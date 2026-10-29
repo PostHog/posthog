@@ -124,15 +124,28 @@ class TestLoadTrace(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert loaded.rows[0].latency == 1.0
         assert [row.uuid for row in loaded.rows if row.error_is_truthy] == [uuids[0]]
 
-    def test_ingested_error_and_token_values_read_like_the_legacy_view(self) -> None:
-        self._ingest("00000000-0000-0000-0000-000000000001", {"$ai_error": "", "$ai_input_tokens": {"total": 7}})
-        self._ingest("00000000-0000-0000-0000-000000000002", {"$ai_error": {"message": "boom"}, "$ai_input_tokens": 3})
+    def test_ingested_values_read_like_the_legacy_view(self) -> None:
+        self._ingest(
+            "00000000-0000-0000-0000-000000000001",
+            {"$ai_error": "", "$ai_input_tokens": {"total": 7}, "$ai_git_branch": ""},
+        )
+        self._ingest(
+            "00000000-0000-0000-0000-000000000002",
+            {
+                "$ai_error": {"message": "boom"},
+                "$ai_input_tokens": 3,
+                "$ai_git_branch": "feat/rag",
+                "$ai_git_repo": "acme/app",
+            },
+        )
 
         rows = load_trace(self.team, None, "trace-1", None).rows
 
-        assert sorted((row.uuid, row.error_is_truthy, row.input_tokens) for row in rows) == [
-            ("00000000-0000-0000-0000-000000000001", False, 7),
-            ("00000000-0000-0000-0000-000000000002", True, 3),
+        assert sorted(
+            (row.uuid, row.error_is_truthy, row.input_tokens, row.git_branch, row.git_repo) for row in rows
+        ) == [
+            ("00000000-0000-0000-0000-000000000001", False, 7, None, None),
+            ("00000000-0000-0000-0000-000000000002", True, 3, "feat/rag", "acme/app"),
         ]
 
     def test_person_comes_from_the_trace_event_distinct_id(self) -> None:
@@ -223,7 +236,11 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     @parameterized.expand([("with a hint", T0), ("without a hint", None)])
     def test_falls_back_to_events(self, _name: str, timestamp_hint: datetime | None) -> None:
-        old_span: dict[str, object] = {"$ai_span_name": "old", "$ai_error": {"message": "boom"}}
+        old_span: dict[str, object] = {
+            "$ai_span_name": "old",
+            "$ai_error": {"message": "boom"},
+            "$ai_git_branch": "feat/rag",
+        }
         clean_span: dict[str, object] = {"$ai_error": "", "$ai_input_tokens": {"total": 7}}
         bulk_create_events(
             [
@@ -234,9 +251,11 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
 
         loaded = load_trace(self.team, None, "trace-1", timestamp_hint)
 
-        assert sorted((row.uuid, row.span_name, row.error_is_truthy, row.input_tokens) for row in loaded.rows) == [
-            ("00000000-0000-0000-0000-000000000001", "old", True, None),
-            ("00000000-0000-0000-0000-000000000002", None, False, 7),
+        assert sorted(
+            (row.uuid, row.span_name, row.error_is_truthy, row.input_tokens, row.git_branch) for row in loaded.rows
+        ) == [
+            ("00000000-0000-0000-0000-000000000001", "old", True, None, "feat/rag"),
+            ("00000000-0000-0000-0000-000000000002", None, False, 7, None),
         ]
 
     def test_hint_bounds_the_fallback_window(self) -> None:
