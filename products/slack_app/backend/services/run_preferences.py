@@ -59,6 +59,8 @@ def _central_run_default(team_id: int, user_id: int | None) -> ResolvedAIRunConf
     resolved = ai_run_defaults.resolve_ai_run_defaults(team_id, user_id)
     if resolved.runtime != ai_run_defaults.ACP or not resolved.model:
         return None
+    if find_model_choice(resolved.model, available_model_choices()) is None:
+        return None
     return resolved
 
 

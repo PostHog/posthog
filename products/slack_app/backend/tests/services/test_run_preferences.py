@@ -217,7 +217,8 @@ class TestAvailableModelChoices:
             choices = available_model_choices()
 
         models = {c.model for c in choices}
-        assert {"claude-sonnet-5", "gpt-5.6-sol", "gpt-6.1-sol", "zai-org/glm-5.3"} <= models
+        assert {"claude-sonnet-5", "gpt-5.6-sol", "gpt-6.1-sol", "moonshotai/kimi-k3"} <= models
+        assert not {"deepseek-ai/deepseek-v4.1-flash-1017-fast", "zai-org/glm-5.3"} & models
         assert all(c.label and c.runtime_adapter for c in choices)
 
 
@@ -237,8 +238,8 @@ class TestCentralRunDefault:
 
     @pytest.mark.parametrize(
         "runtime, model",
-        [("pi", "gpt-5.6-terra"), ("acp", None)],
-        ids=["a_pi_default_slack_cannot_run", "a_default_with_no_model"],
+        [("pi", "gpt-5.6-terra"), ("acp", None), ("acp", "deepseek-ai/deepseek-v4.1-flash-1017-fast")],
+        ids=["a_pi_default_slack_cannot_run", "a_default_with_no_model", "a_model_outside_the_slack_gateway_pin"],
     )
     def test_a_default_slack_cannot_use_falls_back_to_its_own_floor(self, runtime, model):
         with patch(
