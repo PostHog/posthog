@@ -40,8 +40,6 @@ class ReplayObservationMedia(TeamScopedRootMixin, UUIDModel):
 
     # Analysis-video time, for seeking the player the person is looking at.
     video_start_ms = models.PositiveIntegerField()
-    # Recording time, which is what the rasterizer was asked to render.
-    rec_start_ms = models.PositiveIntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

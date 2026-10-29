@@ -27,6 +27,7 @@ rules:
           - '/workflows/ci-llm-gateway.yml'
           - '/workflows/llm-gateway-cd.yml'
           - '/workflows/update-ai-costs.yml'
+          - '/workflows/update-ai-costs-stale-alert.yml'
       owners: [team-devex, team-agent-infrastructure]
     - match: ['/workflows/ci-llm-gateway.yml', '/workflows/llm-gateway-cd.yml']
       sensitive: true

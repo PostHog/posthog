@@ -111,20 +111,36 @@ def create_depot_source(team: Team, *, prefix: str = "depot_", repository: str =
     )
 
 
-def _quarantined_row(*, file: str, name: str, classname: str, parent: str) -> dict[str, Any]:
+def _quarantined_row(*, file: str, name: str, classname: str, parent: str, v2_shape: bool = True) -> dict[str, Any]:
+    if not v2_shape:
+        return {
+            "file": file,
+            "name": name,
+            "labels": "[]",
+            "parent": parent,
+            "status": "FLAKY",
+            "variant": "",
+            "classname": classname,
+            "codeowners": "[]",
+            "test_case_id": f"case-{name}",
+            "quarantined_at": "2026-01-10T10:00:00.000Z",
+            "quarantine_setting": "AUTO_QUARANTINE",
+            "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+        }
     return {
+        "id": f"case-{name}",
+        "test_collection_id": "collection",
         "file": file,
         "name": name,
         "labels": "[]",
-        "parent": parent,
-        "status": "FLAKY",
+        "parent_name": parent,
+        "class_name": classname,
         "variant": "",
-        "classname": classname,
+        "status": "flaky",
         "codeowners": "[]",
-        "test_case_id": f"case-{name}",
-        "quarantined_at": "2026-01-10T10:00:00.000Z",
-        "quarantine_setting": "AUTO_QUARANTINE",
-        "status_last_updated_at": "2026-01-10T10:00:00.000Z",
+        "quarantine_state": "quarantined",
+        "quarantined_since": "2026-01-10T10:00:00.000Z",
+        "url": f"https://app.trunk.io/example/flaky-tests/collections/collection/tests/case-{name}",
     }
 
 

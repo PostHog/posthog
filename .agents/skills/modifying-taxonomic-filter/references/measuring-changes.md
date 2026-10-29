@@ -23,7 +23,6 @@ The health dashboard (see [evidence-sources](evidence-sources.md)) has most of t
 
 - Any ordering, default or promotion change: watch row-0 share, opens ending in a selection, and the Suggested view's share of picks.
 - Any change to a group: watch that group's item use (`sourceGroupType`), not just its tab use.
-- Any change in one surface: compare both surfaces on the shared events.
 
 ## Experiments
 

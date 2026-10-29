@@ -115,7 +115,7 @@ class ReplayObservation(UUIDModel):
     watch_rank = models.JSONField(
         null=True,
         blank=True,
-        help_text="What to watch ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
+        help_text="Highlight feed ranking derived from the observation's embedding; see `watch_rank.WatchRank`.",
     )
     created_task_id = models.UUIDField(
         null=True,

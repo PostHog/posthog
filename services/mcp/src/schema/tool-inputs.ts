@@ -585,34 +585,7 @@ const ExplainChartEvidenceSchema = z.object({
         .record(z.string(), z.unknown())
         .optional()
         .describe(
-            'The query that found this, as you ran it (for example a TrendsQuery with a breakdown). It becomes a link to that chart, and a TrendsQuery also draws as a chart in the walkthrough.'
-        ),
-    chart: z
-        .object({
-            type: z.enum(['line', 'bar']).describe('`line` for values over time, `bar` for a value per label.'),
-            labels: z
-                .array(z.string())
-                .min(1)
-                .max(200)
-                .describe(
-                    'The x-axis labels in order, such as hours or referrers, written as the person should read them.'
-                ),
-            series: z
-                .array(
-                    z.object({
-                        name: z.string().min(1).max(80),
-                        values: z.array(z.number()).describe('One value per label, in the same order.'),
-                    })
-                )
-                .min(1)
-                .max(6),
-        })
-        .refine((chart) => chart.series.every((item) => item.values.length === chart.labels.length), {
-            message: 'Each series needs one value per label.',
-        })
-        .optional()
-        .describe(
-            'Numbers to draw beside this finding when its query is not a TrendsQuery, such as SQL. Copy them from the result you got.'
+            'The query that found this, as you ran it. The explanation runs it again and draws the result beside the finding. An insight query (`TrendsQuery`, `FunnelsQuery`, `RetentionQuery`, `StickinessQuery`, `PathsQuery` or `LifecycleQuery`) draws with its insight chart. A `HogQLQuery` draws from its rows: select the x-axis column first (a time bucket or a label), then either the numbers to draw, or one text column to break down by followed by one number. Order by the x-axis column. SQL returns 100 rows unless it sets a `LIMIT`.'
         ),
     url: z
         .string()

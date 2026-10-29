@@ -14,8 +14,6 @@ const CONTRACT_PATH = path.resolve(
 )
 // Each section of the contract states whether its events carry `surface`, so it is not listed per event.
 const IMPLIED_PROPERTIES = new Set(['surface'])
-// Sent from the backend, so no frontend capture call exists for it.
-const SERVER_SIDE_EVENTS = new Set(['taxonomic filter event match answered'])
 
 function sourceFiles(root: string): string[] {
     if (fs.statSync(root).isFile()) {
@@ -122,7 +120,7 @@ describe('taxonomic filter telemetry contract', () => {
     )
 
     it('lists no event that the frontend no longer sends', () => {
-        const stale = [...documented.keys()].filter((event) => !captured.has(event) && !SERVER_SIDE_EVENTS.has(event))
+        const stale = [...documented.keys()].filter((event) => !captured.has(event))
         expect(stale).toEqual([])
     })
 })
