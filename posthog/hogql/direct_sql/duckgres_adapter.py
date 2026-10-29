@@ -35,8 +35,6 @@ from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import is_direct_query_cancellation_requested
 from posthog.psycopg_helpers import resolve_psycopg_hostaddr_with_timeout
 
-from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceAuth, ServiceCredentialUnavailable
-from products.managed_warehouse.backend.facade.sql_editor import resolve_managed_warehouse_postgres_connection
 from products.warehouse_sources.backend.facade.models import MANAGED_WAREHOUSE_SERVICE_CREDENTIAL_KIND
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 
@@ -395,6 +393,17 @@ class DuckgresRawAdapter:
             return self.validate_source_config(request.source, request.team)[1]
         if not request.source.is_dynamic_managed_warehouse or request.principal is None:
             raise ExposedHogQLError(MANAGED_WAREHOUSE_UNAVAILABLE_ERROR)
+
+        # posthog.test.base reaches this module through posthog.hogql.query. Module-level imports of
+        # the managed warehouse facade here make every test that uses posthog.test.base depend on the
+        # facade, so the CI test selector selects all of those tests for any edit to the facade.
+        from products.managed_warehouse.backend.facade.contracts import (  # noqa: PLC0415 -- keeps the facade out of the test import graph
+            ManagedWarehouseSourceAuth,
+            ServiceCredentialUnavailable,
+        )
+        from products.managed_warehouse.backend.facade.sql_editor import (  # noqa: PLC0415 -- keeps the facade out of the test import graph
+            resolve_managed_warehouse_postgres_connection,
+        )
 
         try:
             connection = resolve_managed_warehouse_postgres_connection(

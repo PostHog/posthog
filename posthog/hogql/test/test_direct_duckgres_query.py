@@ -25,6 +25,11 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
 
 from products.access_control.backend.models.access_control import AccessControl
+
+# The adapter imports these inside a method, and the CI test selector does not follow such imports.
+# Module-level imports here keep an edit to the facade selecting this file.
+from products.managed_warehouse.backend.facade import sql_editor as managed_warehouse_sql_editor
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
 from products.warehouse_sources.backend.facade.models import (
     MANAGED_WAREHOUSE_SOURCE_PREFIX,
     DataWarehouseTable,
@@ -279,8 +284,6 @@ class TestDirectDuckgresQuery(APIBaseTest):
     @parameterized.expand([("open",), ("enter",)])
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_managed_trino_unavailable_does_not_fall_back_to_duckgres(self, stage: str, _flag: MagicMock) -> None:
-        from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTrinoConnectionUnavailable
-
         source = self._dynamic_managed_source()
         source.job_inputs = {}
         source.save(update_fields=["job_inputs"])
@@ -445,7 +448,7 @@ class TestDirectDuckgresQuery(APIBaseTest):
         cursor.stream.assert_called_once_with("SELECT 1 AS value", None)
 
     @patch("posthog.hogql.direct_sql.duckgres_adapter._connect_duckgres_address")
-    @patch("posthog.hogql.direct_sql.duckgres_adapter.resolve_managed_warehouse_postgres_connection")
+    @patch.object(managed_warehouse_sql_editor, "resolve_managed_warehouse_postgres_connection")
     def test_dynamic_source_mints_for_the_stable_user_identity_and_uses_tls(self, resolve_connection, connect) -> None:
         source = self._dynamic_managed_source()
         source.job_inputs = {}
