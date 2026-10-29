@@ -221,7 +221,9 @@ export function GithubIntegration({
                 {!isConnected &&
                     !githubAvailableInstallationsResponse &&
                     githubAvailableInstallationsResponseLoading && (
-                        <p className="text-secondary mb-0">Looking for existing GitHub installations…</p>
+                        <span role="status" className="sr-only">
+                            Looking for existing GitHub installations…
+                        </span>
                     )}
                 {!isConnected &&
                     !githubAvailableInstallationsResponseLoading &&
@@ -238,8 +240,8 @@ export function GithubIntegration({
                     )}
                 {installRequestInProgress || (isConnected && !showManageButton) ? null : emphasizeConnect &&
                   !isConnected ? (
-                    <div className="flex w-full flex-col items-center gap-4">
-                        <div className="flex flex-wrap justify-center gap-2">
+                    <div className={cn('flex w-full flex-col gap-4', centered ? 'items-center' : 'items-start')}>
+                        <div className={cn('flex flex-wrap gap-2', centered && 'justify-center')}>
                             <LemonButton
                                 type={canLinkExisting ? 'secondary' : 'primary'}
                                 icon={<IconGithub />}

@@ -627,15 +627,6 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SignalsOnboardingExposeCreateBody = /* @__PURE__ */ zod.object({
-    variant: zod
-        .enum(['control', 'test-ui', 'test-github'])
-        .describe('\* `control` - Control\n\* `test-ui` - Focused steps\n\* `test-github` - Activate and explore')
-        .describe(
-            'Assigned experiment variant at the eligible Inbox impression.\n\n\* `control` - Control\n\* `test-ui` - Focused steps\n\* `test-github` - Activate and explore'
-        ),
-})
-
 /**
  * View and control signal processing pipeline state for a team.
  */
