@@ -35,10 +35,11 @@
         }
     }
 
-    // The watch layout stacks the player over a scrolling panel. The player keeps a fixed share of the viewport.
+    // The watch layout stacks the player over a scrolling panel. The player's share is of the wrapper, not the viewport.
     &--watch {
         flex-direction: column;
         overflow-y: auto;
+        container-type: size;
 
         .SessionRecordingPlayerWrapper__column {
             display: flex;
@@ -63,7 +64,7 @@
             z-index: 2;
             display: flex;
             flex: none;
-            height: clamp(24rem, 60vh, 48rem);
+            height: clamp(16rem, 55cqh, 48rem);
             background: var(--color-bg-surface-primary);
 
             &--fullscreen {
