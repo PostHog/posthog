@@ -379,6 +379,20 @@ class TestDispatchCommentCommand(BaseTest):
         assert task is not None
         assert "@octo asked: Mention the new flag" in task.description
 
+    @parameterized.expand([("writer_project", True), ("another_project", False)])
+    def test_help_lists_docs_only_where_the_knowledge_writer_runs(self, _name: str, is_writer_project: bool) -> None:
+        github = FakeGitHub()
+        writer_env = self._knowledge_writer_env()
+        if not is_writer_project:
+            writer_env["KNOWLEDGE_WRITER_TEAM_ID"] = str(self.team.id + 1000)
+
+        with patch.dict(os.environ, writer_env):
+            outcome = dispatch_comment_command(self._request(verb="help"), github=github)
+
+        assert outcome == "help"
+        assert ("`@posthog docs" in github.replies[-1]) is is_writer_project
+        assert "`@posthog stamp" in github.replies[-1]
+
     def test_invalid_arguments_reply_with_the_usage_and_run_nothing(self) -> None:
         self._link_github_login()
         github = FakeGitHub()
