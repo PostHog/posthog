@@ -3854,7 +3854,7 @@ const api = {
             const levels = (params.level?.split(',') ?? []).filter((x) => x !== 'WARNING')
             const response = await new ApiRequest()
                 .pluginConfig(pluginConfigId)
-                .withAction('logs/')
+                .withAction('logs')
                 .withQueryString(
                     toParams(
                         {
@@ -3924,7 +3924,7 @@ const api = {
             id: HogFunctionType['id'],
             params: LogEntryRequestParams = {}
         ): Promise<PaginatedResponse<LogEntry>> {
-            return await new ApiRequest().hogFunction(id).withAction('logs/').withQueryString(params).get()
+            return await new ApiRequest().hogFunction(id).withAction('logs').withQueryString(params).get()
         },
         async metrics(
             id: HogFunctionType['id'],
@@ -4840,7 +4840,7 @@ const api = {
             id: BatchExportConfiguration['id'],
             params: LogEntryRequestParams = {}
         ): Promise<PaginatedResponse<LogEntry>> {
-            return await new ApiRequest().batchExport(id).withAction('logs/').withQueryString(params).get()
+            return await new ApiRequest().batchExport(id).withAction('logs').withQueryString(params).get()
         },
         async test(destination: BatchExportService['type']): Promise<BatchExportConfigurationTest> {
             return await new ApiRequest().batchExports().withAction('test').withQueryString({ destination }).get()
@@ -5055,7 +5055,7 @@ const api = {
             ): Promise<Record<string, any>[]> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('logs/')
+                    .withAction('history')
                     .getResponse({ signal: options.signal })
                 return parseLogEntries(await response.text())
             },
@@ -5089,7 +5089,7 @@ const api = {
             }> {
                 const response = await new ApiRequest()
                     .taskRun(taskId, runId, options.projectId)
-                    .withAction('logs/')
+                    .withAction('history')
                     .withQueryString({
                         ...(options.tailBytes !== undefined ? { tail_bytes: options.tailBytes } : {}),
                         ...(options.before !== undefined ? { before: options.before } : {}),

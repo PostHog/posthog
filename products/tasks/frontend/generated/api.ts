@@ -142,6 +142,7 @@ import type {
     TasksRepositoryReadinessRetrieveParams,
     TasksReviewRetrieveParams,
     TasksRunsArtifactsPreviewRetrieveParams,
+    TasksRunsHistoryRetrieveParams,
     TasksRunsListParams,
     TasksRunsLivingArtifactsVersionContentParams,
     TasksRunsSessionLogsRetrieveParams,
@@ -2007,6 +2008,44 @@ export const tasksRunsConnectionTokenRetrieve = async (
     options?: RequestInit
 ): Promise<ConnectionTokenResponseApi> => {
     return apiMutator<ConnectionTokenResponseApi>(getTasksRunsConnectionTokenRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTasksRunsHistoryRetrieveUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsHistoryRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/history/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/history/`
+}
+
+/**
+ * Same response as the task run logs endpoint, with the same query parameters. Browser clients use this path because content blockers block URLs that contain logs?.
+ * @summary Get task run history
+ */
+export const tasksRunsHistoryRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    params?: TasksRunsHistoryRetrieveParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getTasksRunsHistoryRetrieveUrl(projectId, taskId, id, params), {
         ...options,
         method: 'GET',
     })
