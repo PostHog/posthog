@@ -618,6 +618,12 @@ ignore_imports = [
     "products.cdp.backend.presentation.serializers -> products.cdp.backend.validation",
     "products.cdp.backend.presentation.hog_functions -> products.cdp.backend.flag_gated_templates",
     "products.cdp.backend.presentation.icons -> products.cdp.backend.services.icons",
+    # TODO: approvals presentation wave. The approval handling mixin that other products' viewsets
+    # use still reads the gate exceptions and the change request serializer from approvals
+    # internals. Delete both entries once the facade exposes the exceptions and a change request
+    # contract for presentation to serialize, because ApprovalRequired carries the ChangeRequest model.
+    "products.approvals.backend.presentation.mixins -> products.approvals.backend.exceptions",
+    "products.approvals.backend.presentation.mixins -> products.approvals.backend.serializers",
     # TODO: existing violations — fix by routing through facade
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.contract",
     "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.detector",
@@ -722,7 +728,6 @@ ignore_imports = [
     "products.experiments.backend.presentation.serializers -> products.experiments.backend.setup_context",
     "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.api.feature_flag",
     "products.experiments.backend.presentation.serializers -> products.feature_flags.backend.models.feature_flag",
-    "products.experiments.backend.presentation.views -> products.approvals.backend.mixins",
     "products.experiments.backend.presentation.views -> products.experiments.backend.experiment_service",
     "products.experiments.backend.presentation.views -> products.experiments.backend.llm_metric_templates",
     "products.experiments.backend.presentation.views -> products.experiments.backend.models.experiment",
