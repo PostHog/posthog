@@ -58,7 +58,8 @@ const RULES: GuidanceRule[] = [
         text: [
             'SQL over session replay tables returns recording metadata (duration, event counts, URLs), not what happened in the session.',
             'To answer a question about what users did or saw, Replay Vision can watch the recordings for you:',
-            'call `vision-scanners-inline-scan` with `session_ids` and a `prompt` for sessions you already have,',
+            'call `vision-scanners-inline-scan` with `session_ids` and either `built_in: "summarize_recording"` for a',
+            'general summary or a `prompt` for a specific question, for sessions you already have,',
             'or `vision-requests-create` for up to 200 sessions and poll `vision-requests-get` for the results.',
             '`vision-observations-search` finds observations from earlier scans by meaning.',
             'Keep using SQL when the user only needs recording metadata.',
