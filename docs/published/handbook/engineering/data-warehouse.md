@@ -25,6 +25,7 @@ This reservation does not add qualified names to existing models or require a na
 The **Lineage** tab in the materialization dialog shows the selected view and its upstream and downstream dependencies.
 Drag nodes to change their positions. Switch tabs to keep those positions, or use **Reset layout** to restore the layout.
 The button to open the full graph opens Models with a `+view_name+` search filter. This filter includes both upstream and downstream dependencies.
+When a filter changes the visible nodes in Models, the graph clears manual positions and arranges the remaining nodes again.
 
 ## Model materialization usage
 

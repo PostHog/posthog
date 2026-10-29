@@ -1,6 +1,7 @@
 import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
@@ -210,6 +211,17 @@ export const modelsLineageLogic = kea<modelsLineageLogicType>([
                     node_type: node.type,
                     is_filtered: values.isFiltered,
                 })
+            }
+        },
+    })),
+    subscriptions(({ actions }) => ({
+        visibleNodes: (nodes: DataModelingNode[], previousNodes: DataModelingNode[] | undefined) => {
+            if (
+                previousNodes &&
+                (nodes.length !== previousNodes.length ||
+                    nodes.some((node, index) => node.id !== previousNodes[index].id))
+            ) {
+                actions.resetNodePositions()
             }
         },
     })),

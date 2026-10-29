@@ -63,6 +63,9 @@ describe('modelsLineageLogic', () => {
     })
 
     it('ranks plain search results without moving the graph', async () => {
+        const position = { x: 120, y: 80 }
+        logic.actions.nodeDragStopped('1', position)
+
         await expectLogic(logic, () => {
             logic.actions.setSearchTerm('leads')
             logic.actions.setDebouncedSearchTerm('leads')
@@ -73,6 +76,7 @@ describe('modelsLineageLogic', () => {
             highlightedNodeIds: new Set(['1', '2', '3']),
             focusNodeIds: null,
             searchFocusRequest: null,
+            nodePositions: { '1': position },
         })
     })
 
@@ -212,23 +216,32 @@ describe('modelsLineageLogic', () => {
             })
     })
 
-    it('keeps manual node positions through filtering until the layout is reset', async () => {
-        const position = { x: 120, y: 80 }
+    it.each(['type', 'lineage', 'clear'] as const)(
+        'clears distant node positions when the %s filter changes the graph',
+        async (filter) => {
+            const position = { x: 100000, y: 100000 }
 
-        logic.actions.nodeDragStopped('1', position)
-        logic.actions.setTypeFilter(['view'])
+            if (filter === 'clear') {
+                logic.actions.setSearchTerm('+website_leads+')
+                logic.actions.setDebouncedSearchTerm('+website_leads+')
+            }
 
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ nodePositions: { '1': position } })
+            logic.actions.nodeDragStopped('1', position)
+            expect(posthog.capture).toHaveBeenCalledWith('models lineage node moved', {
+                node_type: 'table',
+                is_filtered: filter === 'clear',
+            })
 
-        expect(posthog.capture).toHaveBeenCalledWith('models lineage node moved', {
-            node_type: 'table',
-            is_filtered: false,
-        })
-
-        await expectLogic(logic, () => {
-            logic.actions.resetNodePositions()
-        }).toMatchValues({ nodePositions: {} })
-    })
+            await expectLogic(logic, () => {
+                if (filter === 'type') {
+                    logic.actions.setTypeFilter(['view'])
+                } else if (filter === 'lineage') {
+                    logic.actions.setSearchTerm('+website_leads+')
+                    logic.actions.setDebouncedSearchTerm('+website_leads+')
+                } else {
+                    logic.actions.resetFilters()
+                }
+            }).toMatchValues({ nodePositions: {} })
+        }
+    )
 })
