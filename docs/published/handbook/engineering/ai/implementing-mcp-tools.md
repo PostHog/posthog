@@ -893,6 +893,14 @@ The `mcp-events` feature flag gates the project subscription API at `/api/projec
 Its preview endpoint validates filters and returns up to five matching events from the past seven days.
 Filters must work both as real-time destination filters and as HogQL preview queries, so setup rejects runtime-only functions such as `typeof`.
 
+With the `mcp-events` flag on, the MCP 2.0 dispatcher advertises the `events` capability to connections that have `mcp_event_subscription:write` and `query:read` and are not read-only.
+It handles `events/list`, `events/subscribe`, and `events/unsubscribe` in `services/mcp/src/hono/event-subscriptions.ts`.
+`events/subscribe` is a protocol method, not a tool or an `exec` command.
+The `mcp-events-preview` tool, configured in `products/mcp_events/mcp/tools.yaml`, calls the preview endpoint with the same arguments.
+Discovery instructions tell clients to preview first and then use their native event-triggered task interface.
+Subscription creation validates filters even when the client skips the preview.
+Preview inputs and results stay out of evaluation tool spans because the results contain event payloads.
+
 The `mcp_events` product owns subscriptions. Each subscription creates one Hog function through the CDP facade with `managed_by="mcp_events"`.
 The public Hog function API hides these functions and refuses to change them.
 The fixed Hog program checks the subscription deadline, removes event properties the subscriber cannot read, measures the UTF-8 body size, and rejects bodies larger than 256 KiB before calling `fetch`.
@@ -904,7 +912,7 @@ Subscription identity includes the authenticated principal, callback URL, event 
 OAuth token refresh keeps the same principal when the user and application are unchanged.
 Subscription management requires a direct OAuth access token or personal API key. Short-lived delegated tokens are rejected.
 Django verifies the HTTPS callback challenge before activation, using DNS-pinned HTTP with a ten-second deadline and an 8 KiB response limit.
-The granted lifetime is at most 24 hours and never outlives the OAuth access token or personal API key.
+Clients renew through `events/subscribe`. The granted lifetime is at most 24 hours and never outlives the OAuth access token or personal API key.
 Activation rechecks the current credential and filter access after callback verification, using the same subscriber lock as revocation.
 A sweep every five minutes disables expired subscriptions and clears their secret inputs. Delivery deadline checks do not depend on that sweep.
 

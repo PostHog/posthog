@@ -13,6 +13,12 @@ describe('fetch handler', () => {
         return result.invocation.queueParameters as CyclotronInvocationQueueParametersFetchType
     }
 
+    it('preserves an absolute delivery deadline on queued fetches', async () => {
+        const expiresAt = Date.now() + 1000
+        expect((await callFetch({ expires_at: expiresAt })).expires_at).toBe(expiresAt)
+        expect((await callFetch({})).expires_at).toBeUndefined()
+    })
+
     // Receivers dedupe on webhook-id, so two deliveries must never share one. A
     // single invocation can call fetch repeatedly, which anything derived from the
     // invocation would collapse into one id.

@@ -139,6 +139,7 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     method: z.string(),
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
+    expires_at: z.number().finite().optional(),
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),

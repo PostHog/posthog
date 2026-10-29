@@ -7,6 +7,7 @@ import {
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
+import { McpEventSubscriptionsPreviewBody } from '../generated/mcp_events/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -1497,3 +1498,5 @@ export const FlagRulesV2UpdateInputSchema = z.preprocess(
             .describe('The complete new configuration. It replaces the stored `filters`.'),
     })
 )
+
+export const McpEventFiltersSchema = McpEventSubscriptionsPreviewBody().shape.filters.strict()

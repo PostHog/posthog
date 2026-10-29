@@ -1315,6 +1315,19 @@ describe('Hog Executor', () => {
             expect(result.execResult).toEqual({ status: 200, body: 'Hello, world!' })
         })
 
+        it.each([0, 1])('does not send an expired fetch after %i attempts', async (attempts) => {
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/expired`,
+                method: 'POST',
+                expires_at: Date.now(),
+            })
+            invocation.state.attempts = attempts
+            const result = await executor.executeFetch(invocation)
+            expect(result.finished).toBe(true)
+            expect(result.error?.message).toBe('HTTP fetch expired before delivery.')
+            expect(mockRequest).not.toHaveBeenCalled()
+        })
+
         it('handles failure status and retries', async () => {
             mockRequest.mockImplementation((req: any, res: any) => {
                 res.writeHead(500, { 'Content-Type': 'text/plain' })
