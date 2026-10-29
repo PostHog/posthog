@@ -1112,6 +1112,13 @@ class SignalReport(UUIDModel):
         can invert the join and scan every team's `task_run` artefacts when `task_ids` is a
         subquery. Only cross-team callers with literal `task_ids` (the PR webhook) leave it unset.
         """
+        artefact_rows, legacy_rows, assignment_rows = SignalReport.report_ids_for_task_ids(task_ids, team_id=team_id)
+        return models.Q(id__in=artefact_rows) | models.Q(id__in=legacy_rows) | models.Q(id__in=assignment_rows)
+
+    @staticmethod
+    def report_ids_for_task_ids(task_ids: Any, *, team_id: int | None = None) -> list["models.QuerySet[Any]"]:
+        """The `report_id` querysets behind `reports_for_task_ids_filter`, one per link table. A caller
+        can run them as separate indexed lookups instead of one `OR` over `SignalReport`."""
         artefact_rows = SignalReportArtefact.objects.filter(
             type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id__in=task_ids
         )
@@ -1124,11 +1131,7 @@ class SignalReport(UUIDModel):
             artefact_rows = artefact_rows.filter(team_id=team_id)
             legacy_rows = legacy_rows.filter(team_id=team_id)
             assignment_rows = assignment_rows.filter(team_id=team_id)
-        return (
-            models.Q(id__in=artefact_rows.values("report_id"))
-            | models.Q(id__in=legacy_rows.values("report_id"))
-            | models.Q(id__in=assignment_rows.values("report_id"))
-        )
+        return [rows.values("report_id") for rows in (artefact_rows, legacy_rows, assignment_rows)]
 
 
 class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):

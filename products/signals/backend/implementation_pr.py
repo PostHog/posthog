@@ -338,23 +338,29 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
     url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'
     url_pattern = rf"^{url_body}([/?#]|$)"
     array_url_pattern = rf'"{url_body}([/?#"]|$)'
-    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
-        team_id,
-        pr_bearing_task_run_filter(),
-        Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
+    task_ids = list(
+        tasks_facade.task_ids_with_pr_url_subquery(
+            team_id,
+            pr_bearing_task_run_filter(),
+            Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
+        ).values_list("task_id", flat=True)
     )
-    candidates = SignalReport.objects.filter(team_id=team_id).filter(
-        Q(
-            artefacts__pull_request__repository__iexact=repository,
-            artefacts__pull_request__number=pr_number,
-            artefacts__pull_request__team_id=team_id,
-        )
-        | Q(assignment__repository__iexact=repository, assignment__pr_number=pr_number)
-        | SignalReport.reports_for_task_ids_filter(task_ids, team_id=team_id)
-    )
-    prs = fetch_implementation_prs_for_reports(
-        [str(report_id) for report_id in candidates.values_list("id", flat=True).distinct()], team_id=team_id
-    )
+    # One `OR` over joins to every link table defeats the indexes, so each path is its own lookup.
+    candidate_querysets = [
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            pull_request_id__in=SignalReportPullRequest.objects.for_team(team_id)
+            .filter(repository__iexact=repository, number=pr_number)
+            .values("id"),
+        ).values("report_id"),
+        SignalReportAssignment.all_teams.filter(
+            team_id=team_id, repository__iexact=repository, pr_number=pr_number
+        ).values("report_id"),
+    ]
+    if task_ids:
+        candidate_querysets.extend(SignalReport.report_ids_for_task_ids(task_ids, team_id=team_id))
+    candidate_ids = {str(row["report_id"]) for queryset in candidate_querysets for row in queryset}
+    prs = fetch_implementation_prs_for_reports(sorted(candidate_ids), team_id=team_id)
     return [
         report_id
         for report_id, report_prs in prs.items()
