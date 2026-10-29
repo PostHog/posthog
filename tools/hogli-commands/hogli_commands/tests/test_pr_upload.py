@@ -75,6 +75,7 @@ def test_open_pr_and_attach_capable_gh_edit_the_pr_description(
     path.write_bytes(b"fake bytes")
     with (
         patch.object(pr_upload, "_gh_with_attach", return_value=_GH),
+        patch.object(pr_upload, "github_token", return_value="personal-token"),
         patch.object(pr_upload.subprocess, "run", return_value=_gh_returns("")) as run,
         patch.object(pr_upload.telemetry, "add_command_properties") as add_props,
         patch.object(pr_assets, "publish") as publish,
@@ -82,9 +83,32 @@ def test_open_pr_and_attach_capable_gh_edit_the_pr_description(
         result = CliRunner(mix_stderr=False).invoke(command, ["--yes", "--pr", "1234", *caption_args, str(path)])
 
     assert result.exit_code == 0, result.stderr
-    run.assert_called_once_with([_GH, "pr", "edit", "1234", "--attach", f"{path}{attach_suffix}"], check=False)
+    run.assert_called_once()
+    assert run.call_args.args[0] == [_GH, "pr", "edit", "1234", "--attach", f"{path}{attach_suffix}"]
+    # an application GITHUB_TOKEN from .env.local must not replace the developer's own login
+    assert run.call_args.kwargs["env"]["GH_TOKEN"] == "personal-token"
     add_props.assert_called_once_with(upload_route="gh_attach")
     publish.assert_not_called()
+
+
+def test_sibling_file_gh_would_read_instead_is_refused(tmp_path: Path) -> None:
+    # gh takes the longest existing name before a `#`, so this sibling would be published
+    # in place of the validated file.
+    path = tmp_path / "after.png"
+    path.write_bytes(b"fake bytes")
+    secret = tmp_path / "secret.env"
+    secret.write_bytes(b"SECRET=1")
+    (tmp_path / "after.png#state.png").symlink_to(secret)
+    with (
+        patch.object(pr_upload, "_gh_with_attach", return_value=_GH),
+        patch.object(pr_upload.subprocess, "run") as run,
+    ):
+        result = CliRunner(mix_stderr=False).invoke(
+            upload_image.upload_image, ["--yes", "--pr", "1234", "--alt", "state.png", str(path)]
+        )
+
+    assert result.exit_code != 0
+    run.assert_not_called()
 
 
 def test_failed_gh_attach_exits_nonzero(tmp_path: Path) -> None:
@@ -92,6 +116,7 @@ def test_failed_gh_attach_exits_nonzero(tmp_path: Path) -> None:
     path.write_bytes(b"fake bytes")
     with (
         patch.object(pr_upload, "_gh_with_attach", return_value=_GH),
+        patch.object(pr_upload, "github_token", return_value=None),
         patch.object(pr_upload.subprocess, "run", return_value=_gh_returns("", returncode=1)),
         patch.object(pr_assets, "publish") as publish,
     ):
