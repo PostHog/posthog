@@ -22,9 +22,16 @@ class ReplayObservationRank(TeamScopedRootMixin, models.Model):
         related_name="+",
         db_constraint=False,
     )
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
+    # The observation's own cascade removes the row, so deleting a scanner does not scan this table for it.
     scanner = models.ForeignKey(
-        "replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+        "replay_vision.ReplayScanner",
+        on_delete=models.DO_NOTHING,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
     )
     # The observation's own creation time, so a window filter never reads the observation row.
     created_at = models.DateTimeField()

@@ -13,16 +13,19 @@ class HighlightWindow(models.IntegerChoices):
 
 
 class ReplayHighlightFeedState(TeamScopedRootMixin, models.Model):
-    """Which stored build of a team's highlight feed is current, and when the team's ranks last changed."""
+    """Which stored build of a team's highlight feed is current, and whether ranks changed since it was built."""
 
     team = models.OneToOneField(
         "posthog.Team", on_delete=models.CASCADE, primary_key=True, related_name="+", db_constraint=False
     )
-    # The current build, as the epoch second it ranked to, so a page load can stay on the build its first page read.
-    generation = models.PositiveIntegerField(default=0)
+    generation = models.PositiveBigIntegerField(default=0)
+    # The build before the current one, kept so a reader who started on it keeps its pages.
+    previous_generation = models.PositiveBigIntegerField(null=True, blank=True)
+    # When the current build became current, so a load that began earlier stays on the previous build.
     built_at = models.DateTimeField(null=True, blank=True)
-    # A rank written after the last build sets this, so a rebuild picks the team up.
-    changed_at = models.DateTimeField(null=True, blank=True)
+    # Counts asks for a rebuild; a build records the count it saw, so an ask that lands during a build is not lost.
+    changes = models.PositiveBigIntegerField(default=0)
+    built_changes = models.PositiveBigIntegerField(default=0)
 
     class Meta:
         app_label = "replay_vision"
@@ -32,9 +35,12 @@ class ReplayHighlightFeedEntry(TeamScopedRootMixin, models.Model):
     """One ranked candidate of a team's highlight feed for one window, as of one build. A page load filters and
     orders these instead of ranking the window itself."""
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    id = models.BigAutoField(primary_key=True)
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, db_index=False
+    )
     window_days = models.PositiveSmallIntegerField(choices=HighlightWindow.choices)
-    generation = models.PositiveIntegerField()
+    generation = models.PositiveBigIntegerField()
     # The row's place in its scanner by score in this window, best first.
     place = models.PositiveIntegerField()
     observation_id = models.UUIDField()

@@ -2,9 +2,12 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
+
+from posthog.models import Team
 
 from products.replay_vision.backend.highlight_builds import build_highlight_feed, rank_window
 from products.replay_vision.backend.models.replay_highlight_feed import (
@@ -25,6 +28,7 @@ from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 _NOW = datetime(2026, 10, 20, 12, tzinfo=UTC)
 
 
+@time_machine.travel(_NOW, tick=False)
 class TestHighlightBuilds(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -44,9 +48,10 @@ class TestHighlightBuilds(BaseTest):
     ) -> ReplayObservation:
         scanner = scanner or self.scanner
         fields.setdefault("scanner_snapshot", snapshot_for(scanner))
+        fields.setdefault("completed_at", created_at)
+        fields.setdefault("team", self.team)
         observation = ReplayObservation.objects.create(
             scanner=scanner,
-            team=self.team,
             session_id=f"sess-{uuid.uuid4()}",
             distinct_id=person,
             triggered_by=ObservationTrigger.ON_DEMAND,
@@ -70,7 +75,7 @@ class TestHighlightBuilds(BaseTest):
         recent = self._ranked(10, age=timedelta(hours=1))
         older = self._ranked(10, age=timedelta(days=3), top=0.5)
 
-        build_highlight_feed(self.team.id, ANCHOR_VERSION, _NOW)
+        build_highlight_feed(self.team.id, ANCHOR_VERSION)
 
         entries = {
             (entry.window_days, str(entry.observation_id)): (entry.place, round(entry.percentile, 3))
@@ -98,7 +103,7 @@ class TestHighlightBuilds(BaseTest):
     def test_a_scanner_needs_enough_rows_to_be_placed(self, _name: str, rows: int, kept: int) -> None:
         self._ranked(rows, age=timedelta(hours=1))
 
-        build_highlight_feed(self.team.id, ANCHOR_VERSION, _NOW)
+        build_highlight_feed(self.team.id, ANCHOR_VERSION)
 
         assert ReplayHighlightFeedEntry.objects.for_team(self.team.id).filter(window_days=1).count() == kept
 
@@ -119,7 +124,7 @@ class TestHighlightBuilds(BaseTest):
             observation_id__in=[ids[0], *(member.id for member in members)]
         ).update(feed_group_id=group)
 
-        build_highlight_feed(self.team.id, ANCHOR_VERSION, _NOW)
+        build_highlight_feed(self.team.id, ANCHOR_VERSION)
 
         best = ReplayHighlightFeedEntry.objects.for_team(self.team.id).get(window_days=1, observation_id=ids[0])
         assert (best.group_root, best.group_sessions, best.group_people) == (group, 3, 2)
@@ -128,7 +133,7 @@ class TestHighlightBuilds(BaseTest):
     def test_an_arbitrary_window_ranks_like_a_build(self) -> None:
         self._ranked(10, age=timedelta(hours=1))
 
-        build_highlight_feed(self.team.id, ANCHOR_VERSION, _NOW)
+        build_highlight_feed(self.team.id, ANCHOR_VERSION)
         ranked = rank_window(self.team.id, ANCHOR_VERSION, _NOW - timedelta(days=1), _NOW)
 
         stored = ReplayHighlightFeedEntry.objects.for_team(self.team.id).filter(window_days=1)
@@ -136,31 +141,70 @@ class TestHighlightBuilds(BaseTest):
             (entry.observation_id, entry.place) for entry in stored
         )
 
-    def test_a_new_build_replaces_entries_older_than_the_build_it_follows(self) -> None:
+    def test_a_new_build_keeps_the_build_it_replaces_and_drops_older_ones(self) -> None:
         self._ranked(10, age=timedelta(hours=1))
 
-        first = build_highlight_feed(self.team.id, ANCHOR_VERSION, _NOW - timedelta(hours=5))
-        second = build_highlight_feed(self.team.id, ANCHOR_VERSION, _NOW - timedelta(hours=4))
-        third = build_highlight_feed(self.team.id, ANCHOR_VERSION, _NOW)
+        generations = [build_highlight_feed(self.team.id, ANCHOR_VERSION, force=True) for _ in range(3)]
 
+        state = ReplayHighlightFeedState.objects.for_team(self.team.id).get()
         assert set(
             ReplayHighlightFeedEntry.objects.for_team(self.team.id).values_list("generation", flat=True).distinct()
-        ) == {second, third}
-        assert first < second < third
-        assert ReplayHighlightFeedState.objects.for_team(self.team.id).get().generation == third
+        ) == {2, 3}
+        assert (generations, state.generation, state.previous_generation) == ([1, 2, 3], 3, 2)
 
-    def test_a_redelivered_rank_keeps_the_first_row(self) -> None:
+    def test_a_team_built_since_its_last_change_keeps_its_build(self) -> None:
+        self._ranked(10, age=timedelta(hours=1))
+        first = build_highlight_feed(self.team.id, ANCHOR_VERSION)
+
+        unchanged = build_highlight_feed(self.team.id, ANCHOR_VERSION)
+        self._ranked(1, age=timedelta(minutes=5))
+        changed = build_highlight_feed(self.team.id, ANCHOR_VERSION)
+
+        assert (first, unchanged, changed) == (1, 1, 2)
+
+    @parameterized.expand(
+        [
+            ("redelivery_keeps_the_first_rank", ANCHOR_VERSION, 0, 0.4, RankCategory.FAILURE),
+            ("new_anchors_rank_afresh", ANCHOR_VERSION + 1, 1, 0.9, RankCategory.STRUGGLE),
+        ]
+    )
+    def test_a_second_rank_replaces_only_a_rank_from_other_anchors(
+        self, _name: str, second_version: int, written: int, contrast: float, category: int
+    ) -> None:
         observation = self._observation(_NOW)
+        record_ranks(self.team.id, ANCHOR_VERSION, {str(observation.id): NewRank(contrast=0.4, category="failure")})
+        ReplayObservationRank.objects.for_team(self.team.id).update(feed_group_id=uuid.uuid4())
 
-        first = record_ranks(
-            self.team.id, ANCHOR_VERSION, {str(observation.id): NewRank(contrast=0.4, category="failure")}
-        )
         again = record_ranks(
-            self.team.id, ANCHOR_VERSION, {str(observation.id): NewRank(contrast=0.9, category="struggle")}
+            self.team.id, second_version, {str(observation.id): NewRank(contrast=0.9, category="struggle")}
         )
 
         rank = ReplayObservationRank.objects.for_team(self.team.id).get(observation_id=observation.id)
-        assert (first, again, rank.contrast, rank.category) == (1, 0, 0.4, RankCategory.FAILURE)
+        assert (again, rank.contrast, rank.category, rank.feed_group_id is None) == (
+            written,
+            contrast,
+            category,
+            written == 1,
+        )
+
+    def test_a_child_environments_ranks_reach_its_projects_builds(self) -> None:
+        child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
+        scanner = ReplayScanner.objects.create(
+            team=child,
+            name="child",
+            scanner_type=ScannerType.MONITOR,
+            scanner_config={"prompt": "p"},
+            model=ScannerModel.GEMINI_3_8_FLASH,
+        )
+        for index in range(10):
+            observation = self._observation(_NOW - timedelta(hours=1, minutes=index), scanner=scanner, team=child)
+            record_ranks(
+                child.id, ANCHOR_VERSION, {str(observation.id): NewRank(contrast=1 - index / 100, category="failure")}
+            )
+
+        build_highlight_feed(child.id, ANCHOR_VERSION)
+
+        assert ReplayHighlightFeedEntry.objects.for_team(self.team.id).filter(window_days=1).count() == 2
 
     def test_copy_fills_a_missing_group_from_the_rank_json_once(self) -> None:
         group = uuid.uuid4()

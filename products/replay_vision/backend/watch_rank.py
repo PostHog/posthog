@@ -252,14 +252,15 @@ async def rank_observation(request: RankRequest) -> Literal["ranked", "already_r
     if current_rank({"watch_rank": row["watch_rank"]}) is not None:
         return "already_ranked"
     reading = classify(request.vector, await anchor_vectors(request.team_id))
-    # The similarities land first, so a rank on the row means its similarities are there too.
-    await sync_to_async(save_anchor_similarities)(request.team_id, {request.observation_id: reading.similarities})
-    await sync_to_async(_save_rank)(request.team_id, request.observation_id, reading.rank)
+    await sync_to_async(_save_rank)(request.team_id, request.observation_id, reading)
     return "ranked"
 
 
-def _save_rank(team_id: int, observation_id: str, rank: WatchRank) -> None:
+def _save_rank(team_id: int, observation_id: str, reading: AnchorReading) -> None:
+    # One transaction, so a rank on the row always comes with its similarities.
+    rank = reading.rank
     with transaction.atomic():
+        save_anchor_similarities(team_id, {observation_id: reading.similarities})
         ReplayObservation.objects.filter(team_id=team_id, id=observation_id).update(watch_rank=rank.to_json())
         record_ranks(team_id, ANCHOR_VERSION, {observation_id: NewRank(contrast=rank.contrast, category=rank.category)})
 

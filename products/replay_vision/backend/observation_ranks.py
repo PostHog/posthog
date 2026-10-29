@@ -19,20 +19,15 @@ from products.replay_vision.backend.models.replay_observation_rank import RankCa
 
 _WRITE_CHUNK = 500
 
-CATEGORY_CODES: dict[str, int] = {
-    "failure": RankCategory.FAILURE,
-    "struggle": RankCategory.STRUGGLE,
-    "revenue": RankCategory.REVENUE,
-    "routine": RankCategory.ROUTINE,
-}
+CATEGORY_CODES: dict[str, int] = {category.name.lower(): category.value for category in RankCategory}
 
-# A snapshot that names an experiment it cannot parse gets -1, which matches no experiment, so the row stays hidden
-# from every viewer rather than readable by all.
+# A snapshot that names an experiment as anything but a plain integer gets -1, which matches no experiment, so the row
+# stays hidden from every viewer rather than readable by all.
 _EXPERIMENT_SQL = """
     CASE
-        WHEN jsonb_typeof(o.scanner_snapshot #> '{experiment_targeting,experiment_id}') = 'number'
+        WHEN o.scanner_snapshot #>> '{experiment_targeting,experiment_id}' ~ '^-?[0-9]{1,9}$'
             THEN (o.scanner_snapshot #>> '{experiment_targeting,experiment_id}')::int
-        WHEN jsonb_typeof(o.scanner_snapshot #> '{scanner_config,experiment_id}') = 'number'
+        WHEN o.scanner_snapshot #>> '{scanner_config,experiment_id}' ~ '^-?[0-9]{1,9}$'
             THEN (o.scanner_snapshot #>> '{scanner_config,experiment_id}')::int
         WHEN o.scanner_snapshot #> '{experiment_targeting,experiment_id}' IS NOT NULL
             OR o.scanner_snapshot #> '{scanner_config,experiment_id}' IS NOT NULL
@@ -45,13 +40,6 @@ _RANK_COLUMNS = (
     "observation_id, team_id, scanner_id, created_at, anchor_version, contrast, category, feed_group_id, "
     "search_theme_id, person_key, experiment_id"
 )
-_MARK_CHANGED_SQL = """
-    INSERT INTO replay_vision_replayhighlightfeedstate (team_id, generation, changed_at)
-    VALUES (%s, 0, now())
-    ON CONFLICT (team_id) DO UPDATE SET changed_at = EXCLUDED.changed_at
-    WHERE replay_vision_replayhighlightfeedstate.changed_at IS NULL
-        OR replay_vision_replayhighlightfeedstate.changed_at <= replay_vision_replayhighlightfeedstate.built_at
-"""
 
 
 @frozen
@@ -61,8 +49,10 @@ class NewRank:
 
 
 def record_ranks(team_id: int, anchor_version: int, ranks: Mapping[str, NewRank]) -> int:
-    """Insert a rank row for each newly ranked observation, in the caller's transaction. An observation that already
-    has one keeps it, so a redelivered message changes nothing. Returns how many rows it inserted."""
+    """Write a rank row for each ranked observation, in the caller's transaction. An observation that already has one
+    under `anchor_version` keeps it, so a redelivered message changes nothing, and one ranked under other anchors is
+    ranked afresh, clusters included. Returns how many rows it wrote."""
+    row_team_id = resolve_effective_team_id(team_id)
     inserted = 0
     for chunk in batched(ranks.items(), _WRITE_CHUNK, strict=False):
         params: list[Any] = []
@@ -74,22 +64,30 @@ def record_ranks(team_id: int, anchor_version: int, ranks: Mapping[str, NewRank]
                 # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
                 f"""
                 INSERT INTO replay_vision_replayobservationrank ({_RANK_COLUMNS})
-                SELECT o.id, o.team_id, o.scanner_id, o.created_at, %s, r.contrast, r.category, NULL, NULL,
+                SELECT o.id, %s, o.scanner_id, o.created_at, %s, r.contrast, r.category, NULL, NULL,
                     {_PERSON_SQL}, {_EXPERIMENT_SQL}
                 FROM (VALUES {values}) AS r(observation_id, contrast, category)
                 JOIN replay_vision_replayobservation o ON o.id = r.observation_id AND o.team_id = %s
-                ON CONFLICT (observation_id) DO NOTHING
+                ON CONFLICT (observation_id) DO UPDATE SET
+                    anchor_version = EXCLUDED.anchor_version,
+                    contrast = EXCLUDED.contrast,
+                    category = EXCLUDED.category,
+                    feed_group_id = NULL,
+                    search_theme_id = NULL
+                WHERE replay_vision_replayobservationrank.anchor_version <> EXCLUDED.anchor_version
                 """,
-                [anchor_version, *params, team_id],
+                [row_team_id, anchor_version, *params, team_id],
             )
             inserted += cursor.rowcount
     if inserted:
-        _mark_changed(team_id)
+        mark_changed(team_id)
     return inserted
 
 
 def set_rank_clusters(team_id: int, clusters: Mapping[str, tuple[uuid.UUID, uuid.UUID | None]]) -> None:
     """Record each observation's feed group and search theme on its rank row."""
+    row_team_id = resolve_effective_team_id(team_id)
+    updated = 0
     for chunk in batched(clusters.items(), _WRITE_CHUNK, strict=False):
         params: list[Any] = []
         for observation_id, (group_id, theme_id) in chunk:
@@ -104,32 +102,36 @@ def set_rank_clusters(team_id: int, clusters: Mapping[str, tuple[uuid.UUID, uuid
                 FROM (VALUES {values}) AS c(observation_id, group_id, theme_id)
                 WHERE rank.observation_id = c.observation_id AND rank.team_id = %s
                 """,
-                [*params, team_id],
+                [*params, row_team_id],
             )
-    if clusters:
-        _mark_changed(team_id)
+            updated += cursor.rowcount
+    if updated:
+        mark_changed(team_id)
 
 
 def copy_team_ranks(team_id: int, anchor_version: int, since: datetime, *, dry_run: bool = False) -> int:
     """Copy the team's current ranks since `since` from the observations' rank JSON into rank rows, filling in a
-    feed group or search theme an existing row lacks. Returns how many rows it wrote, or would write."""
+    feed group or search theme an existing row lacks. Returns how many rows it wrote, or how many ranks a write would
+    read."""
     source = """
         FROM replay_vision_replayobservation o
-        WHERE o.team_id = %(team_id)s
+        WHERE o.team_id = %(observation_team_id)s
             AND o.created_at >= %(since)s
             AND o.status = 'succeeded'
             AND o.watch_rank IS NOT NULL
             AND o.watch_rank -> 'anchor_version' = to_jsonb(%(anchor_version)s::int)
             AND jsonb_typeof(o.watch_rank -> 'contrast') = 'number'
-            AND o.watch_rank ->> 'category' IN ('failure', 'struggle', 'revenue', 'routine')
+            AND o.watch_rank ->> 'category' = ANY(%(categories)s)
     """
     category = "CASE o.watch_rank ->> 'category' " + " ".join(
         f"WHEN '{name}' THEN {code}" for name, code in CATEGORY_CODES.items()
     )
     params: dict[str, Any] = {
         "team_id": resolve_effective_team_id(team_id),
+        "observation_team_id": team_id,
         "since": since,
         "anchor_version": anchor_version,
+        "categories": list(CATEGORY_CODES),
     }
     with connection.cursor() as cursor:
         if dry_run:
@@ -140,7 +142,7 @@ def copy_team_ranks(team_id: int, anchor_version: int, since: datetime, *, dry_r
             # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (fixed SQL, every value is a parameter)
             f"""
             INSERT INTO replay_vision_replayobservationrank ({_RANK_COLUMNS})
-            SELECT o.id, o.team_id, o.scanner_id, o.created_at, %(anchor_version)s,
+            SELECT o.id, %(team_id)s, o.scanner_id, o.created_at, %(anchor_version)s,
                 (o.watch_rank ->> 'contrast')::double precision, {category} END,
                 (o.watch_rank ->> 'group')::uuid, (o.watch_rank ->> 'theme')::uuid,
                 {_PERSON_SQL}, {_EXPERIMENT_SQL}
@@ -155,11 +157,29 @@ def copy_team_ranks(team_id: int, anchor_version: int, since: datetime, *, dry_r
         )
         written = cursor.rowcount
     if written:
-        _mark_changed(team_id)
+        mark_changed(team_id)
     return written
 
 
-def _mark_changed(team_id: int) -> None:
-    # Only the first change after a build writes, so a busy team does not rewrite its state row on every rank.
+def mark_changed(team_id: int) -> None:
+    """Ask for a rebuild of the team's highlight feed. Only the first ask after a build writes, and neither statement
+    waits on a build in progress, which never holds the state row while it ranks."""
+    row_team_id = resolve_effective_team_id(team_id)
     with connection.cursor() as cursor:
-        cursor.execute(_MARK_CHANGED_SQL, [resolve_effective_team_id(team_id)])
+        cursor.execute(
+            """
+            INSERT INTO replay_vision_replayhighlightfeedstate (team_id, generation, changes, built_changes)
+            VALUES (%s, 0, 1, 0)
+            ON CONFLICT (team_id) DO NOTHING
+            """,
+            [row_team_id],
+        )
+        if cursor.rowcount:
+            return
+        cursor.execute(
+            """
+            UPDATE replay_vision_replayhighlightfeedstate SET changes = changes + 1
+            WHERE team_id = %s AND changes <= built_changes
+            """,
+            [row_team_id],
+        )
