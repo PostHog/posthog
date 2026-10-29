@@ -247,12 +247,37 @@ export interface _TracingAggregationQueryBodyApi {
     offset?: number
     /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
     includeImpact?: boolean
+    /** Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out. */
+    groupByEndpoint?: boolean
+    /** Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query. */
+    includeHealth?: boolean
 }
 
 export interface _TracingAggregationRequestApi {
     /** The span aggregation query to execute. */
     query: _TracingAggregationQueryBodyApi
 }
+
+/**
+ * * `silent` - Silent
+ * * `regressed` - Regressed
+ * * `degraded` - Degraded
+ * * `new` - New
+ * * `recovered` - Recovered
+ * * `improved` - Improved
+ * * `ok` - Ok
+ */
+export type ServiceHealthStatusEnumApi = (typeof ServiceHealthStatusEnumApi)[keyof typeof ServiceHealthStatusEnumApi]
+
+export const ServiceHealthStatusEnumApi = {
+    Silent: 'silent',
+    Regressed: 'regressed',
+    Degraded: 'degraded',
+    New: 'new',
+    Recovered: 'recovered',
+    Improved: 'improved',
+    Ok: 'ok',
+} as const
 
 export interface _AggregatedSpanRowApi {
     /** Service that emitted the spans in this group. */
@@ -295,6 +320,21 @@ export interface _AggregatedSpanRowApi {
      * @nullable
      */
     spans_with_distinct_id: number | null
+    /** How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set `includeHealth`.
+     *
+     * * `silent` - Silent
+     * * `regressed` - Regressed
+     * * `degraded` - Degraded
+     * * `new` - New
+     * * `recovered` - Recovered
+     * * `improved` - Improved
+     * * `ok` - Ok */
+    health_status: ServiceHealthStatusEnumApi | null
+    /**
+     * Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.
+     * @nullable
+     */
+    health_reason: string | null
 }
 
 export interface _TracingAggregationResponseApi {
@@ -880,27 +920,6 @@ export interface _ServiceHealthSummaryApi {
     /** Services per status. */
     improved: number
 }
-
-/**
- * * `silent` - Silent
- * * `regressed` - Regressed
- * * `degraded` - Degraded
- * * `new` - New
- * * `recovered` - Recovered
- * * `improved` - Improved
- * * `ok` - Ok
- */
-export type ServiceHealthStatusEnumApi = (typeof ServiceHealthStatusEnumApi)[keyof typeof ServiceHealthStatusEnumApi]
-
-export const ServiceHealthStatusEnumApi = {
-    Silent: 'silent',
-    Regressed: 'regressed',
-    Degraded: 'degraded',
-    New: 'new',
-    Recovered: 'recovered',
-    Improved: 'improved',
-    Ok: 'ok',
-} as const
 
 export interface _ServiceHealthRowApi {
     /** Service name. */

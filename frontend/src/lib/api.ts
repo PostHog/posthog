@@ -2897,6 +2897,8 @@ const api = {
                 limit?: number
                 offset?: number
                 includeImpact?: boolean
+                groupByEndpoint?: boolean
+                includeHealth?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
