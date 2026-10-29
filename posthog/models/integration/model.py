@@ -295,7 +295,11 @@ class Integration(models.Model):
         VERCEL = "vercel"
         YOUTUBE_ANALYTICS = "youtube-analytics"
 
+    # Declared for type checkers that do not read Django fields: ty refuses the model as an
+    # `IntegrationRecord` without them.
+    id: int
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team_id: int
 
     # The integration type identifier
     kind = field_access_control(models.CharField(max_length=32, choices=integration_kind_choices), "project", "admin")
