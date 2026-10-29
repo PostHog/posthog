@@ -10863,6 +10863,10 @@ export namespace Schemas {
         incremental: boolean;
         status: string | null;
         /**
+         * Whether this schema is linked to an existing self-managed table that its first sync will import. Until then the table keeps reading the original bucket.
+         */
+        pending_self_managed_table: boolean;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         sync_type?: (ExternalDataSchemaSyncTypeEnum | NullEnum) | undefined;
