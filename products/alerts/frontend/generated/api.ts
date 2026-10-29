@@ -208,14 +208,14 @@ export const getAlertsTakeOwnershipCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Send a synthetic test notification to subscribed users and every active destination on this alert.
+ * Make the requesting user the owner of this alert and enable it. Checks run with the owner's access, so this is how an alert continues after its owner left.
  */
 export const alertsTakeOwnershipCreate = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<AlertTestDeliveryResponseApi> => {
-    return apiMutator<AlertTestDeliveryResponseApi>(getAlertsTakeOwnershipCreateUrl(projectId, id), {
+): Promise<AlertApi> => {
+    return apiMutator<AlertApi>(getAlertsTakeOwnershipCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
     })
@@ -225,17 +225,17 @@ export const getAlertsTestDeliveryCreateUrl = (projectId: string, id: string) =>
     return `/api/projects/${projectId}/alerts/${id}/test-delivery/`
 }
 
+/**
+ * Send a synthetic test notification to subscribed users and every active destination on this alert.
+ */
 export const alertsTestDeliveryCreate = async (
     projectId: string,
     id: string,
-    alertApi: NonReadonly<AlertApi>,
     options?: RequestInit
-): Promise<AlertApi> => {
-    return apiMutator<AlertApi>(getAlertsTestDeliveryCreateUrl(projectId, id), {
+): Promise<AlertTestDeliveryResponseApi> => {
+    return apiMutator<AlertTestDeliveryResponseApi>(getAlertsTestDeliveryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(alertApi),
     })
 }
 
