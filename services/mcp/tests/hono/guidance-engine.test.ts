@@ -133,6 +133,13 @@ describe('GuidanceEngine', () => {
         ])
     })
 
+    it('shows the notice to a scout when the rule lists the scout preset', async () => {
+        const scoutRule: GuidanceRule = { ...rule, trigger: { ...rule.trigger, presets: ['user', 'scout'] } }
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [scoutRule])
+        const state = makeState({ apiKeyScopes: ['signal_scout_internal:write'] })
+        await expect(run(engine, state, [replayQuery, replayQuery])).resolves.toEqual([undefined, 'test-rule:shown'])
+    })
+
     it('matches only the configured outcome', async () => {
         const errorRule: GuidanceRule = { ...rule, trigger: { ...rule.trigger, outcome: 'error' }, threshold: 1 }
         const engine = new GuidanceEngine(makeGuidanceRedis(), [errorRule])

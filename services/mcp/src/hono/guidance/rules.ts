@@ -64,7 +64,7 @@ const RULES: GuidanceRule[] = [
         trigger: {
             tool: 'execute-sql',
             outcome: 'error',
-            presets: ['user'],
+            presets: ['user', 'scout'],
         },
         threshold: 3,
         maxPerSession: 1,
