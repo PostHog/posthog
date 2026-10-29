@@ -238,6 +238,17 @@ class TestLockfileVersions(SimpleTestCase):
 
         assert (problems == []) if expected is None else (expected in problems[0])
 
+    def test_pnpm_refuses_a_specifier_change_without_a_new_version(self) -> None:
+        def lock(specifier: str) -> str:
+            return _left_pad_lock(
+                "1.0.0",
+                importers={".": {"dependencies": {"left-pad": {"specifier": specifier, "version": "1.0.0"}}}},
+            )
+
+        _, problems = pnpm_lock_versions("pnpm-lock.yaml", lock("^1.0.0"), lock("^2.0.0"))
+
+        assert "changes the specifier of left-pad" in problems[0]
+
     def test_pnpm_new_snapshot_refuses_an_alias(self) -> None:
         def lock(left_pad: str) -> str:
             return _left_pad_lock(
