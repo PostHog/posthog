@@ -9,6 +9,10 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel, updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
+import type {
+    AccountsTableCustomPropertyDefinition,
+    AccountsTableRelationshipDefinition,
+} from '~/queries/schema/schema-general'
 import { AccountsTableAccountField, DatabaseSchemaField, DatabaseSchemaTable } from '~/queries/schema/schema-general'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
@@ -16,31 +20,14 @@ import {
     accountRelationshipDefinitionsList,
     customPropertyDefinitionsList,
 } from 'products/customer_analytics/frontend/generated/api'
-import type {
-    AccountRelationshipDefinitionApi,
-    CustomPropertyDefinitionApi,
-} from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import type { AccountsTableQueryResponse } from '../../../../../frontend/src/queries/schema/schema-general'
 import { ACCOUNT_FIELD_TAXONOMIC_OPTIONS, propertyTypeForDisplayType } from './accountsPropertyFilters'
 
 export const ACCOUNTS_NAME_COLUMN = 'name'
 export const ACCOUNTS_TAGS_COLUMN = 'accounts.tags.names AS tag_names'
 const LEGACY_ACCOUNTS_TAGS_NAME_COLUMN = 'accounts.tags.names AS names'
 const LEGACY_ACCOUNTS_TAGS_ACCOUNT_ID_COLUMN = 'accounts.tags.account_id AS account_id'
-
-// Legacy role names remain serialized for saved views and shared URLs.
-// Query planning maps them to seeded relationship definitions.
-export const LEGACY_ROLE_COLUMNS = {
-    csm: 'CSM',
-    account_executive: 'Account executive',
-    account_owner: 'Account owner',
-} as const
-
-export type AccountRoleKey = keyof typeof LEGACY_ROLE_COLUMNS
-
-export function isLegacyRoleColumn(column: string): column is AccountRoleKey {
-    return column in LEGACY_ROLE_COLUMNS
-}
 
 export const ACCOUNTS_DEFAULT_COLUMNS: string[] = [
     ACCOUNTS_NAME_COLUMN,
@@ -112,7 +99,7 @@ export const DEFAULT_COLUMN_DISPLAY_WINDOW_DAYS = 7
 
 const CUSTOM_PROPERTY_COLUMN_REGEX = /^accounts\.custom_properties\.values\.`([0-9a-fA-F-]+)` AS (cp_[0-9a-fA-F]+)$/
 
-// Keep stored column strings scalar so saved views and shared URLs stay stable.
+// Keep stored column strings scalar so saved column identities stay stable.
 export function applyColumnDisplayToSelect(columns: string[], columnDisplay: AccountColumnDisplayState): string[] {
     if (Object.keys(columnDisplay).length === 0) {
         return columns
@@ -126,36 +113,8 @@ export function applyColumnDisplayToSelect(columns: string[], columnDisplay: Acc
     })
 }
 
-function relationshipExpression(definition: AccountRelationshipDefinitionApi, alias: string): string {
-    return `accounts.relationships.values.\`${definition.id}\` AS ${alias}`
-}
-
-export const ROLE_KEY_BY_NAME: Record<string, AccountRoleKey> = Object.fromEntries(
-    Object.entries(LEGACY_ROLE_COLUMNS).map(([key, name]) => [name, key as AccountRoleKey])
-)
-
-export function roleKeyToDefinitionMap(
-    definitions: AccountRelationshipDefinitionApi[]
-): Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>> {
-    return Object.fromEntries(
-        definitions
-            .filter((definition) => ROLE_KEY_BY_NAME[definition.name])
-            .map((definition) => [ROLE_KEY_BY_NAME[definition.name], definition])
-    )
-}
-
-// Keep legacy role names stable in persisted state. Omit roles without a matching definition.
-export function translateSelectColumns(
-    columns: string[],
-    roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>
-): string[] {
-    return columns.flatMap((column) => {
-        if (!isLegacyRoleColumn(column)) {
-            return [column]
-        }
-        const definition = roleKeyToDefinition[column]
-        return definition ? [relationshipExpression(definition, column)] : []
-    })
+function getRelationshipColumn(definitionId: string): string {
+    return `accounts.relationships.values.\`${definitionId}\` AS ${relationshipAlias(definitionId)}`
 }
 
 export type AccountColumnOption = {
@@ -228,7 +187,7 @@ function joinOptionsFromSchema(
     return buildJoinOptions(field.name, names, joinedTable)
 }
 
-function customPropertyOptions(definitions: CustomPropertyDefinitionApi[]): AccountColumnOption[] {
+function customPropertyOptions(definitions: AccountsTableCustomPropertyDefinition[]): AccountColumnOption[] {
     return definitions.map((definition) => ({
         name: definition.name,
         type: definition.display_type,
@@ -236,19 +195,17 @@ function customPropertyOptions(definitions: CustomPropertyDefinitionApi[]): Acco
     }))
 }
 
-// Keep seeded role names compatible with default columns and persisted selections.
-function relationshipOptions(definitions: AccountRelationshipDefinitionApi[]): AccountColumnOption[] {
+function relationshipOptions(definitions: AccountsTableRelationshipDefinition[]): AccountColumnOption[] {
     return definitions.map((definition) => ({
         name: definition.name,
-        expression:
-            ROLE_KEY_BY_NAME[definition.name] ?? relationshipExpression(definition, relationshipAlias(definition.id)),
+        expression: getRelationshipColumn(definition.id),
     }))
 }
 
 export function buildAccountColumnGroups(
     allTablesMap: Record<string, DatabaseSchemaTable> | null | undefined,
-    customPropertyDefinitions: CustomPropertyDefinitionApi[] = [],
-    relationshipDefinitions: AccountRelationshipDefinitionApi[] = []
+    customPropertyDefinitions: AccountsTableCustomPropertyDefinition[] = [],
+    relationshipDefinitions: AccountsTableRelationshipDefinition[] = []
 ): AccountColumnGroup[] {
     const accountsTable = allTablesMap?.[ACCOUNTS_ACCOUNTS_TABLE_NAME]
     const directOptions: AccountColumnOption[] = []
@@ -331,12 +288,18 @@ export interface accountsColumnConfigLogicValues {
     currentTeamId: number | null // teamLogic
     accountsColumnGroups: AccountColumnGroup[]
     activePickerGroup: AccountColumnGroup | null
-    aliasToDefinition: Record<string, CustomPropertyDefinitionApi>
-    aliasToRelationshipDefinition: Record<string, AccountRelationshipDefinitionApi>
+    aliasToDefinition: Record<string, AccountsTableCustomPropertyDefinition>
+    aliasToRelationshipDefinition: Record<string, AccountsTableRelationshipDefinition>
     columnConfiguratorVisible: boolean
     columnDisplay: AccountColumnDisplayState
-    customPropertyDefinitions: CustomPropertyDefinitionApi[]
-    customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
+    customPropertyCatalog: AccountsTableCustomPropertyDefinition[]
+    customPropertyCatalogLoaded: boolean
+    customPropertyCatalogLoading: boolean
+    customPropertyCatalogProjectId: number | null
+    customPropertyDefinitions: AccountsTableCustomPropertyDefinition[]
+    customPropertyDefinitionsById: Record<string, AccountsTableCustomPropertyDefinition>
+    customPropertyDefinitionsError: string | null
+    customPropertyDefinitionsLoaded: boolean
     customPropertyDefinitionsLoading: boolean
     customPropertyTaxonomicOptions: (SimpleOption & {
         description?: string
@@ -353,16 +316,28 @@ export interface accountsColumnConfigLogicValues {
     pickerSearch: string
     pickerSearchPlaceholder: string
     querySelectColumns: string[]
-    relationshipDefinitions: AccountRelationshipDefinitionApi[]
-    relationshipDefinitionsById: Record<string, AccountRelationshipDefinitionApi>
+    relationshipCatalog: AccountsTableRelationshipDefinition[]
+    relationshipCatalogLoaded: boolean
+    relationshipCatalogLoading: boolean
+    relationshipCatalogProjectId: number | null
+    relationshipDefinitions: AccountsTableRelationshipDefinition[]
+    relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
+    relationshipDefinitionsError: string | null
     relationshipDefinitionsLoaded: boolean
     relationshipDefinitionsLoading: boolean
     relationshipTaxonomicOptions: (SimpleOption & {
         id: string
         property_type: PropertyType
     })[]
-    roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>
+    renderSelectColumns: string[]
     selectColumns: string[]
+    tableColumnResponse: {
+        definitionIds: string[]
+        requested: string[] | undefined
+    } | null
+    tableCustomPropertyDefinitions: AccountsTableCustomPropertyDefinition[]
+    tableRelationshipDefinitions: AccountsTableRelationshipDefinition[]
+    useDefaultColumns: boolean
     visibleColumnNames: string[]
 }
 
@@ -382,10 +357,22 @@ export interface accountsColumnConfigLogicActions {
         force?: boolean
         shallow?: boolean
     } // databaseTableListLogic
+    ensureDefinitionsLoaded: () => {
+        value: true
+    }
     hideColumnConfigurator: () => {
         value: true
     }
-    loadCustomPropertyDefinitions: () => any
+    hydrateTableDefinitions: (
+        response: import('~/queries/schema/schema-general').AccountsTableQueryResponse,
+        requestedColumns?: string[]
+    ) => {
+        requestedColumns: string[] | undefined
+        response: AccountsTableQueryResponse
+    }
+    loadCustomPropertyDefinitions: (params?: { projectId?: number | null }) => {
+        projectId?: number | null
+    }
     loadCustomPropertyDefinitionsFailure: (
         error: string,
         errorObject?: any
@@ -394,13 +381,19 @@ export interface accountsColumnConfigLogicActions {
         errorObject?: any
     }
     loadCustomPropertyDefinitionsSuccess: (
-        customPropertyDefinitions: CustomPropertyDefinitionApi[],
-        payload?: any
+        customPropertyCatalog: AccountsTableCustomPropertyDefinition[],
+        payload?: {
+            projectId?: number | null
+        }
     ) => {
-        customPropertyDefinitions: CustomPropertyDefinitionApi[]
-        payload?: any
+        customPropertyCatalog: AccountsTableCustomPropertyDefinition[]
+        payload?: {
+            projectId?: number | null
+        }
     }
-    loadRelationshipDefinitions: () => any
+    loadRelationshipDefinitions: (params?: { projectId?: number | null }) => {
+        projectId?: number | null
+    }
     loadRelationshipDefinitionsFailure: (
         error: string,
         errorObject?: any
@@ -409,11 +402,15 @@ export interface accountsColumnConfigLogicActions {
         errorObject?: any
     }
     loadRelationshipDefinitionsSuccess: (
-        relationshipDefinitions: AccountRelationshipDefinitionApi[],
-        payload?: any
+        relationshipCatalog: AccountsTableRelationshipDefinition[],
+        payload?: {
+            projectId?: number | null
+        }
     ) => {
-        relationshipDefinitions: AccountRelationshipDefinitionApi[]
-        payload?: any
+        relationshipCatalog: AccountsTableRelationshipDefinition[]
+        payload?: {
+            projectId?: number | null
+        }
     }
     moveColumn: (
         oldIndex: number,
@@ -423,6 +420,9 @@ export interface accountsColumnConfigLogicActions {
         oldIndex: number
     }
     resetColumns: () => {
+        value: true
+    }
+    resetDefinitionCatalogs: () => {
         value: true
     }
     restoreSelectColumns: (columns: string[]) => {
@@ -467,22 +467,53 @@ export interface accountsColumnConfigLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface accountsColumnConfigLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        defaultSelectColumns: (relationshipDefinitions: AccountRelationshipDefinitionApi[]) => string[]
-        roleKeyToDefinition: (
-            relationshipDefinitions: AccountRelationshipDefinitionApi[]
-        ) => Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>
-        querySelectColumns: (
-            selectColumns: string[],
-            roleKeyToDefinition: Partial<
-                Record<'account_executive' | 'account_owner' | 'csm', AccountRelationshipDefinitionApi>
-            >,
-            columnDisplay: AccountColumnDisplayState
+        customPropertyDefinitions: (
+            customPropertyCatalog: AccountsTableCustomPropertyDefinition[],
+            customPropertyCatalogProjectId: number | null,
+            currentProjectId: number | null
+        ) => AccountsTableCustomPropertyDefinition[]
+        customPropertyDefinitionsLoaded: (
+            customPropertyCatalogLoaded: boolean,
+            customPropertyCatalogProjectId: number | null,
+            currentProjectId: number | null
+        ) => boolean
+        customPropertyDefinitionsLoading: (
+            customPropertyCatalogLoading: boolean,
+            customPropertyCatalogProjectId: number | null,
+            currentProjectId: number | null
+        ) => boolean
+        relationshipDefinitions: (
+            relationshipCatalog: AccountsTableRelationshipDefinition[],
+            relationshipCatalogProjectId: number | null,
+            currentProjectId: number | null
+        ) => AccountsTableRelationshipDefinition[]
+        relationshipDefinitionsLoaded: (
+            relationshipCatalogLoaded: boolean,
+            relationshipCatalogProjectId: number | null,
+            currentProjectId: number | null
+        ) => boolean
+        relationshipDefinitionsLoading: (
+            relationshipCatalogLoading: boolean,
+            relationshipCatalogProjectId: number | null,
+            currentProjectId: number | null
+        ) => boolean
+        defaultSelectColumns: (
+            relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
         ) => string[]
-        visibleColumnNames: (querySelectColumns: string[]) => string[]
+        querySelectColumns: (selectColumns: string[], columnDisplay: AccountColumnDisplayState) => string[]
+        renderSelectColumns: (
+            querySelectColumns: string[],
+            tableColumnResponse: {
+                definitionIds: string[]
+                requested: string[] | undefined
+            } | null,
+            useDefaultColumns: boolean
+        ) => string[]
+        visibleColumnNames: (renderSelectColumns: string[]) => string[]
         accountsColumnGroups: (
             allTablesMap: Record<string, DatabaseSchemaTable>,
-            customPropertyDefinitions: CustomPropertyDefinitionApi[],
-            relationshipDefinitions: AccountRelationshipDefinitionApi[]
+            customPropertyDefinitions: AccountsTableCustomPropertyDefinition[],
+            relationshipDefinitions: AccountsTableRelationshipDefinition[]
         ) => AccountColumnGroup[]
         activePickerGroup: (
             accountsColumnGroups: AccountColumnGroup[],
@@ -496,32 +527,35 @@ export interface accountsColumnConfigLogicMeta {
         ) => AccountPickerColumnOption[]
         pickerSearchPlaceholder: (activePickerGroup: AccountColumnGroup | null) => string
         customPropertyDefinitionsById: (
-            customPropertyDefinitions: CustomPropertyDefinitionApi[]
-        ) => Record<string, CustomPropertyDefinitionApi>
+            customPropertyDefinitions: AccountsTableCustomPropertyDefinition[],
+            tableCustomPropertyDefinitions: AccountsTableCustomPropertyDefinition[]
+        ) => Record<string, AccountsTableCustomPropertyDefinition>
         editingColumn: (selectColumns: string[], editingColumnIndex: number | null) => string | null
         displayByAlias: (columnDisplay: AccountColumnDisplayState) => AccountColumnDisplayState
         aliasToDefinition: (
-            customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
-        ) => Record<string, CustomPropertyDefinitionApi>
+            customPropertyDefinitionsById: Record<string, AccountsTableCustomPropertyDefinition>
+        ) => Record<string, AccountsTableCustomPropertyDefinition>
         relationshipDefinitionsById: (
-            relationshipDefinitions: AccountRelationshipDefinitionApi[]
-        ) => Record<string, AccountRelationshipDefinitionApi>
-        relationshipTaxonomicOptions: (relationshipDefinitions: AccountRelationshipDefinitionApi[]) => (SimpleOption & {
+            relationshipDefinitions: AccountsTableRelationshipDefinition[],
+            tableRelationshipDefinitions: AccountsTableRelationshipDefinition[]
+        ) => Record<string, AccountsTableRelationshipDefinition>
+        relationshipTaxonomicOptions: (
+            relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
+        ) => (SimpleOption & {
             id: string
             property_type: PropertyType
         })[]
-        customPropertyTaxonomicOptions: (customPropertyDefinitions: CustomPropertyDefinitionApi[]) => (SimpleOption & {
+        customPropertyTaxonomicOptions: (
+            customPropertyDefinitionsById: Record<string, AccountsTableCustomPropertyDefinition>
+        ) => (SimpleOption & {
             description?: string
             id: string
             is_canonical?: boolean
             property_type: PropertyType
         })[]
         aliasToRelationshipDefinition: (
-            relationshipDefinitions: AccountRelationshipDefinitionApi[],
-            roleKeyToDefinition: Partial<
-                Record<'account_executive' | 'account_owner' | 'csm', AccountRelationshipDefinitionApi>
-            >
-        ) => Record<string, AccountRelationshipDefinitionApi>
+            relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
+        ) => Record<string, AccountsTableRelationshipDefinition>
     }
 }
 
@@ -548,6 +582,12 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         logic: [propertyDefinitionsModel],
     })),
     actions({
+        ensureDefinitionsLoaded: true,
+        resetDefinitionCatalogs: true,
+        hydrateTableDefinitions: (
+            response: import('~/queries/schema/schema-general').AccountsTableQueryResponse,
+            requestedColumns?: string[]
+        ) => ({ response, requestedColumns }),
         setSelectColumns: (columns: string[]) => ({ columns }),
         setDefaultSelectColumns: (columns: string[]) => ({ columns }),
         restoreSelectColumns: (columns: string[]) => ({ columns }),
@@ -567,6 +607,44 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         setPickerSearch: (search: string) => ({ search }),
     }),
     reducers({
+        tableColumnResponse: [
+            null as { requested: string[] | undefined; definitionIds: string[] } | null,
+            {
+                hydrateTableDefinitions: (_, { response, requestedColumns }) => ({
+                    requested: requestedColumns,
+                    definitionIds: (response.columns ?? []).flatMap((column) =>
+                        'definitionId' in column ? [column.definitionId] : []
+                    ),
+                }),
+                resetDefinitionCatalogs: () => null,
+            },
+        ],
+        tableCustomPropertyDefinitions: [
+            [] as AccountsTableCustomPropertyDefinition[],
+            {
+                hydrateTableDefinitions: (_, { response }) => response.customPropertyDefinitions ?? [],
+                resetDefinitionCatalogs: () => [],
+            },
+        ],
+        tableRelationshipDefinitions: [
+            [] as AccountsTableRelationshipDefinition[],
+            {
+                hydrateTableDefinitions: (_, { response }) => response.relationshipDefinitions ?? [],
+                resetDefinitionCatalogs: () => [],
+            },
+        ],
+        useDefaultColumns: [
+            true,
+            {
+                resetColumns: () => true,
+                setDefaultSelectColumns: () => true,
+                restoreSelectColumns: () => false,
+                setSelectColumns: () => false,
+                selectColumn: () => false,
+                unselectColumn: () => false,
+                moveColumn: () => false,
+            },
+        ],
         selectColumns: [
             [...ACCOUNTS_DEFAULT_COLUMNS],
             {
@@ -636,74 +714,172 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 setColumnDisplayConfig: (_, { config }) => config,
             },
         ],
-        // Wait for definitions to avoid a second query and visible column changes.
-        relationshipDefinitionsLoaded: [
-            false,
-            {
-                loadRelationshipDefinitionsSuccess: () => true,
-                loadRelationshipDefinitionsFailure: () => true,
-            },
-        ],
     }),
     loaders(({ values }) => ({
-        customPropertyDefinitions: [
-            [] as CustomPropertyDefinitionApi[],
+        customPropertyCatalog: [
+            [] as AccountsTableCustomPropertyDefinition[],
             {
-                loadCustomPropertyDefinitions: async (): Promise<CustomPropertyDefinitionApi[]> => {
-                    const response = await customPropertyDefinitionsList(String(values.currentProjectId))
-                    return response.results
+                loadCustomPropertyDefinitions: async (
+                    params: { projectId?: number | null } = {},
+                    breakpoint
+                ): Promise<AccountsTableCustomPropertyDefinition[]> => {
+                    const projectId = params.projectId ?? values.currentProjectId
+                    const response = await customPropertyDefinitionsList(String(projectId), { pagination: 'none' })
+                    breakpoint()
+                    return response.results.filter(
+                        (definition) => !definition.target_type || definition.target_type === 'account'
+                    )
                 },
             },
         ],
-        relationshipDefinitions: [
-            [] as AccountRelationshipDefinitionApi[],
+        relationshipCatalog: [
+            [] as AccountsTableRelationshipDefinition[],
             {
-                loadRelationshipDefinitions: async (): Promise<AccountRelationshipDefinitionApi[]> => {
-                    const response = await accountRelationshipDefinitionsList(String(values.currentProjectId))
+                loadRelationshipDefinitions: async (
+                    params: { projectId?: number | null } = {},
+                    breakpoint
+                ): Promise<AccountsTableRelationshipDefinition[]> => {
+                    const projectId = params.projectId ?? values.currentProjectId
+                    const response = await accountRelationshipDefinitionsList(String(projectId), { pagination: 'none' })
+                    breakpoint()
                     return response.results
                 },
             },
         ],
     })),
+    reducers({
+        customPropertyCatalog: { resetDefinitionCatalogs: () => [] },
+        customPropertyCatalogLoading: { resetDefinitionCatalogs: () => false },
+        customPropertyCatalogProjectId: [
+            null as number | null,
+            {
+                loadCustomPropertyDefinitions: (_, { projectId = null }) => projectId,
+                loadCustomPropertyDefinitionsSuccess: (_, { payload }) => payload?.projectId ?? null,
+                resetDefinitionCatalogs: () => null,
+            },
+        ],
+        customPropertyCatalogLoaded: [
+            false,
+            {
+                loadCustomPropertyDefinitionsSuccess: () => true,
+                resetDefinitionCatalogs: () => false,
+            },
+        ],
+        customPropertyDefinitionsError: [
+            null as string | null,
+            {
+                loadCustomPropertyDefinitions: () => null,
+                loadCustomPropertyDefinitionsFailure: (_, { error }) => error,
+                resetDefinitionCatalogs: () => null,
+            },
+        ],
+        relationshipCatalog: { resetDefinitionCatalogs: () => [] },
+        relationshipCatalogLoading: { resetDefinitionCatalogs: () => false },
+        relationshipCatalogProjectId: [
+            null as number | null,
+            {
+                loadRelationshipDefinitions: (_, { projectId = null }) => projectId,
+                loadRelationshipDefinitionsSuccess: (_, { payload }) => payload?.projectId ?? null,
+                resetDefinitionCatalogs: () => null,
+            },
+        ],
+        relationshipCatalogLoaded: [
+            false,
+            {
+                loadRelationshipDefinitionsSuccess: () => true,
+                resetDefinitionCatalogs: () => false,
+            },
+        ],
+        relationshipDefinitionsError: [
+            null as string | null,
+            {
+                loadRelationshipDefinitions: () => null,
+                loadRelationshipDefinitionsFailure: (_, { error }) => error,
+                resetDefinitionCatalogs: () => null,
+            },
+        ],
+    }),
     selectors({
-        // Keep legacy names so defaults dedupe persisted selections.
+        customPropertyDefinitions: [
+            (s) => [s.customPropertyCatalog, s.customPropertyCatalogProjectId, s.currentProjectId],
+            (
+                definitions: AccountsTableCustomPropertyDefinition[],
+                projectId: number | null,
+                currentProjectId: number | null
+            ): AccountsTableCustomPropertyDefinition[] =>
+                projectId === null || projectId === currentProjectId ? definitions : [],
+        ],
+        customPropertyDefinitionsLoaded: [
+            (s) => [s.customPropertyCatalogLoaded, s.customPropertyCatalogProjectId, s.currentProjectId],
+            (loaded: boolean, projectId: number | null, currentProjectId: number | null): boolean =>
+                loaded && (projectId === null || projectId === currentProjectId),
+        ],
+        customPropertyDefinitionsLoading: [
+            (s) => [s.customPropertyCatalogLoading, s.customPropertyCatalogProjectId, s.currentProjectId],
+            (loading: boolean, projectId: number | null, currentProjectId: number | null): boolean =>
+                loading && (projectId === null || projectId === currentProjectId),
+        ],
+        relationshipDefinitions: [
+            (s) => [s.relationshipCatalog, s.relationshipCatalogProjectId, s.currentProjectId],
+            (
+                definitions: AccountsTableRelationshipDefinition[],
+                projectId: number | null,
+                currentProjectId: number | null
+            ): AccountsTableRelationshipDefinition[] =>
+                projectId === null || projectId === currentProjectId ? definitions : [],
+        ],
+        relationshipDefinitionsLoaded: [
+            (s) => [s.relationshipCatalogLoaded, s.relationshipCatalogProjectId, s.currentProjectId],
+            (loaded: boolean, projectId: number | null, currentProjectId: number | null): boolean =>
+                loaded && (projectId === null || projectId === currentProjectId),
+        ],
+        relationshipDefinitionsLoading: [
+            (s) => [s.relationshipCatalogLoading, s.relationshipCatalogProjectId, s.currentProjectId],
+            (loading: boolean, projectId: number | null, currentProjectId: number | null): boolean =>
+                loading && (projectId === null || projectId === currentProjectId),
+        ],
         defaultSelectColumns: [
-            (s) => [s.relationshipDefinitions],
-            (relationshipDefinitions: AccountRelationshipDefinitionApi[]): string[] => [
+            (s) => [s.relationshipDefinitionsById],
+            (definitions: Record<string, AccountsTableRelationshipDefinition>): string[] => [
                 ...ACCOUNTS_DEFAULT_COLUMNS,
-                ...relationshipDefinitions.map(
-                    (definition) =>
-                        ROLE_KEY_BY_NAME[definition.name] ??
-                        relationshipExpression(definition, relationshipAlias(definition.id))
-                ),
+                ...Object.values(definitions).map((definition) => getRelationshipColumn(definition.id)),
             ],
         ],
-        roleKeyToDefinition: [
-            (s) => [s.relationshipDefinitions],
-            (
-                relationshipDefinitions: AccountRelationshipDefinitionApi[]
-            ): Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>> =>
-                roleKeyToDefinitionMap(relationshipDefinitions),
-        ],
         querySelectColumns: [
-            (s) => [s.selectColumns, s.roleKeyToDefinition, s.columnDisplay],
+            (s) => [s.selectColumns, s.columnDisplay],
+            (selectColumns: string[], columnDisplay: AccountColumnDisplayState): string[] =>
+                applyColumnDisplayToSelect(selectColumns, columnDisplay),
+        ],
+        renderSelectColumns: [
+            (s) => [s.querySelectColumns, s.tableColumnResponse, s.useDefaultColumns],
             (
-                selectColumns: string[],
-                roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>,
-                columnDisplay: AccountColumnDisplayState
+                columns: string[],
+                response: { requested: string[] | undefined; definitionIds: string[] } | null,
+                useDefaults: boolean
             ): string[] =>
-                applyColumnDisplayToSelect(translateSelectColumns(selectColumns, roleKeyToDefinition), columnDisplay),
+                columns.filter((column) => {
+                    const id = column.match(
+                        /^accounts\.(?:custom_properties(?:_history)?|relationships)\.values\.`([^`]+)`/
+                    )?.[1]
+                    return (
+                        !id ||
+                        useDefaults ||
+                        !response ||
+                        !objectsEqual(response.requested, columns) ||
+                        response.definitionIds.includes(id)
+                    )
+                }),
         ],
         visibleColumnNames: [
-            (s) => [s.querySelectColumns],
+            (s) => [s.renderSelectColumns],
             (querySelectColumns: string[]): string[] => querySelectColumns.map((c) => extractDisplayLabel(c)),
         ],
         accountsColumnGroups: [
             (s) => [s.allTablesMap, s.customPropertyDefinitions, s.relationshipDefinitions],
             (
                 allTablesMap: Record<string, DatabaseSchemaTable>,
-                customPropertyDefinitions: CustomPropertyDefinitionApi[],
-                relationshipDefinitions: AccountRelationshipDefinitionApi[]
+                customPropertyDefinitions: AccountsTableCustomPropertyDefinition[],
+                relationshipDefinitions: AccountsTableRelationshipDefinition[]
             ): AccountColumnGroup[] =>
                 buildAccountColumnGroups(allTablesMap, customPropertyDefinitions, relationshipDefinitions),
         ],
@@ -730,9 +906,12 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 activePickerGroup ? `Search ${activePickerGroup.label.toLowerCase()}` : 'Search all columns',
         ],
         customPropertyDefinitionsById: [
-            (s) => [s.customPropertyDefinitions],
-            (customPropertyDefinitions: CustomPropertyDefinitionApi[]): Record<string, CustomPropertyDefinitionApi> =>
-                Object.fromEntries(customPropertyDefinitions.map((definition) => [definition.id, definition])),
+            (s) => [s.customPropertyDefinitions, s.tableCustomPropertyDefinitions],
+            (
+                catalog: AccountsTableCustomPropertyDefinition[],
+                table: AccountsTableCustomPropertyDefinition[]
+            ): Record<string, AccountsTableCustomPropertyDefinition> =>
+                Object.fromEntries([...catalog, ...table].map((definition) => [definition.id, definition])),
         ],
         editingColumn: [
             (s) => [s.selectColumns, s.editingColumnIndex],
@@ -752,8 +931,8 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         aliasToDefinition: [
             (s) => [s.customPropertyDefinitionsById],
             (
-                customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
-            ): Record<string, CustomPropertyDefinitionApi> =>
+                customPropertyDefinitionsById: Record<string, AccountsTableCustomPropertyDefinition>
+            ): Record<string, AccountsTableCustomPropertyDefinition> =>
                 Object.fromEntries(
                     Object.values(customPropertyDefinitionsById).map((definition) => [
                         customPropertyAlias(definition.id),
@@ -762,37 +941,38 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 ),
         ],
         relationshipDefinitionsById: [
-            (s) => [s.relationshipDefinitions],
+            (s) => [s.relationshipDefinitions, s.tableRelationshipDefinitions],
             (
-                relationshipDefinitions: AccountRelationshipDefinitionApi[]
-            ): Record<string, AccountRelationshipDefinitionApi> =>
-                Object.fromEntries(relationshipDefinitions.map((definition) => [definition.id, definition])),
+                catalog: AccountsTableRelationshipDefinition[],
+                table: AccountsTableRelationshipDefinition[]
+            ): Record<string, AccountsTableRelationshipDefinition> =>
+                Object.fromEntries([...catalog, ...table].map((definition) => [definition.id, definition])),
         ],
         relationshipTaxonomicOptions: [
-            (s) => [s.relationshipDefinitions],
+            (s) => [s.relationshipDefinitionsById],
             (
-                relationshipDefinitions: AccountRelationshipDefinitionApi[]
+                relationshipDefinitionsById: Record<string, AccountsTableRelationshipDefinition>
             ): (SimpleOption & {
                 id: string
                 property_type: PropertyType
             })[] =>
-                relationshipDefinitions.map((definition) => ({
+                Object.values(relationshipDefinitionsById).map((definition) => ({
                     id: definition.id,
                     name: definition.name,
                     property_type: PropertyType.Assignee,
                 })),
         ],
         customPropertyTaxonomicOptions: [
-            (s) => [s.customPropertyDefinitions],
+            (s) => [s.customPropertyDefinitionsById],
             (
-                customPropertyDefinitions: CustomPropertyDefinitionApi[]
+                customPropertyDefinitionsById: Record<string, AccountsTableCustomPropertyDefinition>
             ): (SimpleOption & {
                 id: string
                 description?: string
                 is_canonical?: boolean
                 property_type: PropertyType
             })[] =>
-                customPropertyDefinitions.map((definition) => ({
+                Object.values(customPropertyDefinitionsById).map((definition) => ({
                     id: definition.id,
                     name: definition.name,
                     description: definition.description ?? undefined,
@@ -801,19 +981,16 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 })),
         ],
         aliasToRelationshipDefinition: [
-            (s) => [s.relationshipDefinitions, s.roleKeyToDefinition],
+            (s) => [s.relationshipDefinitionsById],
             (
-                relationshipDefinitions: AccountRelationshipDefinitionApi[],
-                roleKeyToDefinition: Partial<Record<AccountRoleKey, AccountRelationshipDefinitionApi>>
-            ): Record<string, AccountRelationshipDefinitionApi> => ({
-                ...Object.fromEntries(
-                    relationshipDefinitions.map((definition) => [relationshipAlias(definition.id), definition])
+                definitions: Record<string, AccountsTableRelationshipDefinition>
+            ): Record<string, AccountsTableRelationshipDefinition> =>
+                Object.fromEntries(
+                    Object.values(definitions).map((definition) => [relationshipAlias(definition.id), definition])
                 ),
-                ...roleKeyToDefinition,
-            }),
         ],
     }),
-    listeners(({ actions, values, selectors, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         // Seed property types so filters show valid operators.
         loadCustomPropertyDefinitionsSuccess: () => {
             updatePropertyDefinitions(
@@ -826,11 +1003,7 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                 )
             )
         },
-        restoreSelectColumns: () => {
-            cache.hasRestoredColumns = true
-        },
-        // Only upgrade unchanged defaults. Never replace restored selections.
-        loadRelationshipDefinitionsSuccess: (_, __, ___, previousState) => {
+        loadRelationshipDefinitionsSuccess: () => {
             updatePropertyDefinitions(
                 Object.fromEntries(
                     values.relationshipTaxonomicOptions.map((option) => [
@@ -839,23 +1012,51 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
                     ])
                 )
             )
-            const previousDefault = selectors.defaultSelectColumns(previousState)
-            if (
-                !cache.hasRestoredColumns &&
-                objectsEqual(values.selectColumns, previousDefault) &&
-                !objectsEqual(values.defaultSelectColumns, values.selectColumns)
-            ) {
-                actions.setDefaultSelectColumns(values.defaultSelectColumns)
+        },
+        [projectLogic.actionTypes.loadCurrentProjectSuccess]: ({ currentProject }) => {
+            if (cache.definitionProjectId !== currentProject?.id) {
+                cache.definitionProjectId = currentProject?.id
+                actions.resetDefinitionCatalogs()
             }
         },
-        resetColumns: () => {
-            cache.hasRestoredColumns = false
-            if (!objectsEqual(values.selectColumns, values.defaultSelectColumns)) {
-                actions.setSelectColumns(values.defaultSelectColumns)
+        resetColumns: () => actions.setDefaultSelectColumns(values.defaultSelectColumns),
+        ensureDefinitionsLoaded: () => {
+            if (!values.customPropertyDefinitionsLoaded && !values.customPropertyDefinitionsLoading) {
+                actions.loadCustomPropertyDefinitions({ projectId: values.currentProjectId })
             }
+            if (!values.relationshipDefinitionsLoaded && !values.relationshipDefinitionsLoading) {
+                actions.loadRelationshipDefinitions({ projectId: values.currentProjectId })
+            }
+        },
+        showColumnConfigurator: () => actions.ensureDefinitionsLoaded(),
+        hydrateTableDefinitions: ({ response }) => {
+            if (values.useDefaultColumns && response.columns) {
+                actions.setDefaultSelectColumns([
+                    ...ACCOUNTS_DEFAULT_COLUMNS,
+                    ...response.columns.flatMap((column) => {
+                        if (column.kind !== 'relationship') {
+                            return []
+                        }
+                        return [getRelationshipColumn(column.definitionId)]
+                    }),
+                ])
+            }
+            updatePropertyDefinitions(
+                Object.fromEntries([
+                    ...values.customPropertyTaxonomicOptions.map((option) => [
+                        `${PropertyDefinitionType.AccountCustomProperty}/${option.id}`,
+                        { id: option.id, name: option.id, property_type: option.property_type },
+                    ]),
+                    ...values.relationshipTaxonomicOptions.map((option) => [
+                        `${PropertyDefinitionType.AccountRelationship}/${option.id}`,
+                        { id: option.id, name: option.id, property_type: option.property_type },
+                    ]),
+                ])
+            )
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions, values, cache }) => {
+        cache.definitionProjectId = values.currentProjectId
         updatePropertyDefinitions(
             Object.fromEntries(
                 ACCOUNT_FIELD_TAXONOMIC_OPTIONS.map((option) => [
@@ -870,7 +1071,5 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             // The picker needs fields when the SQL editor loaded only shallow schemas.
             actions.ensureAllTableFields()
         }
-        actions.loadCustomPropertyDefinitions()
-        actions.loadRelationshipDefinitions()
     }),
 ])
