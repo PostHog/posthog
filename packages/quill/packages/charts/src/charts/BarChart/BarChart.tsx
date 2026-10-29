@@ -122,7 +122,10 @@ function BarChartInner<Meta = unknown>({
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
-    const wrapperMinHeight = computeWrapperMinHeight({ isHorizontal, fitToHeight, resolvedMinBandSize, labels })
+    const wrapperMinHeight = useMemo(
+        () => computeWrapperMinHeight({ isHorizontal, fitToHeight, resolvedMinBandSize, labels }),
+        [isHorizontal, fitToHeight, resolvedMinBandSize, labels]
+    )
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
