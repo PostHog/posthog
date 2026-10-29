@@ -50,8 +50,8 @@ class DeprecatePayload:
 
 
 @frozen
-class MaterializePayload:
-    """The stored materialize payload, with the warehouse table id of each source."""
+class MaterializePayloadFields:
+    """The materialize fields the stored payload and the payload a caller sees share."""
 
     subject_name: str
     refresh_interval_seconds: int
@@ -59,8 +59,6 @@ class MaterializePayload:
     saves_bytes_per_month: float
     freshness_today_seconds: int | None
     freshness_after_seconds: int
-    live_sources: tuple[SourceRef, ...]
-    unknown_sources: tuple[SourceRef, ...]
     refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
     incremental_key: str | None = None
     unique_key: tuple[str, ...] = ()
@@ -71,6 +69,14 @@ class MaterializePayload:
     background_seconds_saved_per_month: float | None = None
     main_saving: WarehouseSuggestionMainSaving | None = None
     read_seconds: float | None = None
+
+
+@frozen
+class MaterializePayload(MaterializePayloadFields):
+    """The stored materialize payload, with the warehouse table id of each source."""
+
+    live_sources: tuple[SourceRef, ...]
+    unknown_sources: tuple[SourceRef, ...]
 
 
 @frozen
@@ -94,27 +100,11 @@ class VisibleSources:
 
 
 @frozen
-class MaterializeSuggestionPayload:
+class MaterializeSuggestionPayload(MaterializePayloadFields):
     """The materialize payload a caller sees: the source names they can read, and a count of the others."""
 
-    subject_name: str
-    refresh_interval_seconds: int
-    saves_seconds_per_month: float
-    saves_bytes_per_month: float
-    freshness_today_seconds: int | None
-    freshness_after_seconds: int
     live_sources: VisibleSources
     unknown_sources: VisibleSources
-    refresh_mode: WarehouseSuggestionRefreshMode = WarehouseSuggestionRefreshMode.FULL
-    incremental_key: str | None = None
-    unique_key: tuple[str, ...] = ()
-    lookback_seconds: int = 0
-    refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasis | None = None
-    recomputed_by_views: int = 0
-    waiting_seconds_saved_per_month: float | None = None
-    background_seconds_saved_per_month: float | None = None
-    main_saving: WarehouseSuggestionMainSaving | None = None
-    read_seconds: float | None = None
 
 
 SuggestionPayloadView = CertifyPayload | DeprecatePayload | MaterializeSuggestionPayload | UnmaterializePayload
