@@ -88,6 +88,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.trial.reports import trial_report_activity
 from products.signals.backend.typed_report_links import (
     ReportEdge,
     linked_reports as fetch_linked_reports,
@@ -1374,6 +1375,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@trial_report_activity
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     try:
         return await _run_agentic_report(input)

@@ -38,6 +38,9 @@ async def _run_gate(source_config: dict, *, verdict: str = "NOT_ACTIONABLE", ext
         patch(f"{GATE_MODULE_PATH}.afetch_source_config", AsyncMock(return_value=source_config)),
         patch(f"{GATE_MODULE_PATH}.build_async_anthropic_client", return_value=client),
         patch(f"{GATE_MODULE_PATH}.resolve_ai_gateway_config", return_value=None),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+        patch("products.signals.backend.emission.pipeline.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.record_llm_spend"),
         patch(f"{GATE_MODULE_PATH}.capture_pipeline_stage") as capture,
     ):
         dropped = await steering_filters_signal(

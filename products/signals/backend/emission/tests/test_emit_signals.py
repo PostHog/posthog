@@ -1,6 +1,6 @@
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any
@@ -46,6 +46,16 @@ from products.signals.backend.spend import signal_id_for
 PIPELINE_MODULE_PATH = "products.signals.backend.emission.pipeline"
 FETCHER_MODULE_PATH = "products.signals.backend.emission.fetchers.data_warehouse"
 ACTIVITY_MODULE_PATH = "products.signals.backend.emission.emit_signals"
+
+
+@pytest.fixture(autouse=True)
+def no_trial() -> Iterator[None]:
+    with (
+        patch(f"{PIPELINE_MODULE_PATH}.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+    ):
+        yield
 
 
 def _make_config(**overrides: Any) -> SignalSourceTableConfig:
@@ -601,21 +611,31 @@ class TestCheckActionability:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "model,expected_output_config",
+        "model,expected_output_config,trial",
         [
-            ("claude-sonnet-5", {"effort": "medium"}),
-            ("claude-sonnet-5-5", {"effort": "medium"}),
-            ("claude-sonnet-4-5", None),
+            ("claude-sonnet-5", {"effort": "medium"}, False),
+            ("claude-sonnet-5-5", {"effort": "medium"}, False),
+            ("claude-sonnet-4-5", None, False),
+            ("claude-sonnet-5", {"effort": "medium"}, True),
         ],
     )
-    async def test_pins_effort_only_on_adaptive_models(self, model, expected_output_config):
+    async def test_pins_effort_only_on_adaptive_models(
+        self, model: str, expected_output_config: dict[str, str] | None, trial: bool
+    ) -> None:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(return_value=_make_llm_response("ACTIONABLE"))
+        mock_client.with_options.return_value = mock_client
 
-        with patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model):
+        with (
+            patch(f"{PIPELINE_MODULE_PATH}.LLM_MODEL", model),
+            patch(f"{PIPELINE_MODULE_PATH}.requires_trial_accounting", return_value=trial),
+            patch("products.signals.backend.system_one_decision.requires_trial_accounting", return_value=trial),
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+        ):
             await check_actionability(mock_client, 7, _make_output(), "Is this actionable? {description}")
 
         call_kwargs = mock_client.messages.create.call_args.kwargs
+        assert call_kwargs["model"] == model
         assert call_kwargs.get("output_config") == expected_output_config
 
     @pytest.mark.asyncio

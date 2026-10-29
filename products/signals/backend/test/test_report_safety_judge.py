@@ -1,5 +1,6 @@
 import json
 import asyncio
+from collections.abc import Iterator
 from datetime import UTC, datetime
 from threading import Event
 
@@ -27,6 +28,16 @@ from products.signals.backend.temporal.types import SignalData
 
 MODULE_PATH = "products.signals.backend.temporal.report_safety_judge"
 DECISION_MODULE_PATH = "products.signals.backend.system_one_decision"
+
+
+@pytest.fixture(autouse=True)
+def non_trial_billing() -> Iterator[None]:
+    with (
+        patch(f"{DECISION_MODULE_PATH}.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+    ):
+        yield
 
 
 @pytest.mark.asyncio
