@@ -182,6 +182,7 @@ from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOU
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
 from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
 from products.replay_vision.backend.watch_rank import (
+    ISSUE_CATEGORIES,
     rank_highlight_feed_by_embedding,
     select_embedding_filler,
     select_embedding_picks,
@@ -1722,6 +1723,15 @@ class HighlightFeedQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Comma-separated user IDs. Restrict the feed to observations from scanners those users created.",
     )
+    categories = serializers.CharField(
+        required=False,
+        help_text=(
+            "Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` "
+            "(repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage "
+            "limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops "
+            "its sessions without promoting weaker ones."
+        ),
+    )
     limit = serializers.IntegerField(
         required=False,
         default=HIGHLIGHT_FEED_DEFAULT_LIMIT,
@@ -1749,6 +1759,13 @@ class HighlightFeedQuerySerializer(serializers.Serializer):
 
     def validate_tags(self, value: str) -> list[str]:
         return [tagify(tag) for tag in split_csv(value)]
+
+    def validate_categories(self, value: str) -> list[str] | None:
+        categories = set(validate_csv_choices(value, frozenset(ISSUE_CATEGORIES), "categories"))
+        if not categories:
+            raise serializers.ValidationError("Include at least one category.")
+        # Every category is the unfiltered feed, so it shares that feed's cached picks.
+        return None if categories == set(ISSUE_CATEGORIES) else sorted(categories)
 
     def validate_scanner_ids(self, value: str) -> list[UUID]:
         raw_ids = split_csv(value)
@@ -2526,6 +2543,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                         sorted(readable_experiment_ids(self.user_access_control, self.team_id)),
                         sorted(map(str, allowed_ids)),
                         params.get("scanner_type"),
+                        params.get("categories"),
                     ]
                 ).encode()
             ).hexdigest()
@@ -2540,13 +2558,24 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         else:
             # The embedding ranker reads only a small stored rank, so it picks over the whole window in SQL.
             candidate_rows = select_embedding_picks(
-                walkable, allowed_ids, viewed, self.user_access_control, self.team_id, HIGHLIGHT_FEED_CANDIDATE_CAP
+                walkable,
+                allowed_ids,
+                viewed,
+                self.user_access_control,
+                self.team_id,
+                HIGHLIGHT_FEED_CANDIDATE_CAP,
+                params.get("categories") or ISSUE_CATEGORIES,
             )
             # Picks in one feed group collapse into one card, so the floor counts groups.
             pick_roots = {row["watch_group_root"] for row in candidate_rows}
             if len(pick_roots) < HIGHLIGHT_FEED_MIN_ITEMS:
+                filler_base = walkable
+                if params.get("categories"):
+                    # Padding must not bring back a session the viewer hid by its category.
+                    hidden = [category for category in ISSUE_CATEGORIES if category not in params["categories"]]
+                    filler_base = walkable.exclude(watch_rank__category__in=hidden)
                 candidate_rows += select_embedding_filler(
-                    walkable, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
+                    filler_base, allowed_ids, viewed, self.user_access_control, self.team_id, pick_roots
                 )
             # The first load in the bucket keeps the entry, so concurrent loads never replace it with later picks.
             cache.add(picks_key, (as_of, candidate_rows), HIGHLIGHT_FEED_PICKS_CACHE_TTL_S)

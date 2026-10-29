@@ -11,10 +11,12 @@ function Stateful({
     nodes,
     initialSelectedId = 'gen-answer',
     evalOutcomes = {},
+    feedbackCountByNodeId,
 }: {
     nodes: TraceNodeApi[]
     initialSelectedId?: string
     evalOutcomes?: Record<string, EvalRollupOutcome>
+    feedbackCountByNodeId?: Record<string, number>
 }): JSX.Element {
     const [selected, setSelected] = useState<string | null>(initialSelectedId)
     return (
@@ -24,6 +26,7 @@ function Stateful({
             onSelectNode={setSelected}
             onPrefetchNode={() => {}}
             evalOutcomes={evalOutcomes}
+            feedbackCountByNodeId={feedbackCountByNodeId}
         />
     )
 }
@@ -57,4 +60,7 @@ export const WithError: Story = {
             },
         ],
     },
+}
+export const WithFeedbackMarkers: Story = {
+    args: { nodes: FIXTURE_TREE, feedbackCountByNodeId: { 'trace-1': 3, 'gen-answer': 12, 'span-search': 1 } },
 }

@@ -129,11 +129,14 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
+        const sensitiveInvocation = { ...invocation, hogFunction: { metadata: { sensitive: true } } }
+
         it.each([
-            ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>'],
-            ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>'],
-        ])('leaves the href untouched when the anchor opts out via %s', (_name, html) => {
-            const out = addTrackingToEmail(html, invocation, signer)
+            ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>', invocation],
+            ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
+            ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
+        ])('leaves the href untouched when the anchor opts out via %s', (_name, html, inv) => {
+            const out = addTrackingToEmail(html, inv, signer)
             expect(out).toContain('href="https://example.com"')
             expect(out).not.toContain('target=')
         })
@@ -159,14 +162,21 @@ describe('EmailTrackingService', () => {
             })
 
             it.each([
-                ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>'],
-                ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>'],
-            ])('translates the %s opt-out into ses:no-track', (_name, html) => {
+                [
+                    'clicktracking="off"',
+                    '<body><a href="https://example.com" clicktracking="off">x</a></body>',
+                    invocation,
+                ],
+                ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>', invocation],
+                ['a sensitive template', '<body><a href="https://example.com">x</a></body>', sensitiveInvocation],
+            ])('translates the %s opt-out into ses:no-track', (_name, html, inv) => {
                 // SES honors only its own attribute, so without this the anchor is still rewritten
                 // to awstrack.me and app deeplinks stop resolving.
-                const out = sesTrack(html)
+                const out = addTrackingToEmail(html, inv, signer, false, 'ses')
                 expect(out).toContain('ses:no-track')
                 expect(out).not.toContain('ses:tags')
+                // Opting links out of click tracking keeps the open pixel.
+                expect(out).toContain('ph_id=')
             })
 
             it('merges into an author-supplied ses:tags value instead of emitting a second attribute', () => {
