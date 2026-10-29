@@ -131,6 +131,13 @@ pub const CONDITIONS_EVALUATED: &str = "seeder_conditions_evaluated_total";
 pub const HOGVM_ERRORS: &str = "seeder_hogvm_errors_total";
 pub const AGGREGATE_ENTRIES: &str = "seeder_aggregate_entries";
 pub const TILES_PRODUCED: &str = "seeder_tiles_produced_total";
+/// Behavioral tiles not sent because their run already recorded a newer day for the same person
+/// and condition (counter).
+pub const TILES_SKIPPED: &str = "seeder_tiles_skipped_total";
+/// (person, condition) pairs all newest-day indexes hold together (gauge). At
+/// `SEEDER_NEWEST_DAY_INDEX_MAX_ENTRIES` the budget is full, and tiles for new pairs are sent for
+/// every day.
+pub const NEWEST_DAY_INDEX_ENTRIES: &str = "seeder_newest_day_index_entries";
 pub const TILE_PRODUCE_QUEUE_FULL: &str = "seeder_tile_produce_queue_full_total";
 pub const TILE_PRODUCE_ERRORS: &str = "seeder_tile_produce_errors_total";
 pub const PRODUCE_ACK_SECONDS: &str = "seeder_produce_ack_seconds";

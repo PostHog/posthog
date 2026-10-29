@@ -169,6 +169,42 @@ describe('inboxSceneLogic routing', () => {
         expect(logic.values.activeTab).toBe('reports')
     })
 
+    it.each([null, 'report', 'scout'] as const)('opens sources from %s without selecting a report', (surface) => {
+        mountLogic()
+        if (surface === 'report') {
+            router.actions.push(urls.inboxReport('reports', 'report-1'))
+        } else if (surface === 'scout') {
+            router.actions.push(urls.inboxScout('signals-scout-web-vitals'))
+        }
+        router.actions.push(urls.inbox('sources'))
+
+        expect(router.values.location.pathname.endsWith('/inbox/sources')).toBe(true)
+        expect(logic.values.activeTab).toBe('sources')
+        expect(logic.values.selectedReportId).toBeNull()
+        expect(logic.values.selectedScoutSkillName).toBeNull()
+    })
+
+    it.each(['/inbox', '/inbox/config', '/inbox/settings', '/inbox/sources'])(
+        'preserves source setup parameters when returning to %s',
+        (path) => {
+            mountLogic()
+            const searchParams = {
+                setup: 'signal-sources',
+                signal_source: 'intercom',
+                integration_id: '7',
+                source: 'saved-filter',
+            }
+            const hashParams = { tab: 'details' }
+            router.actions.push(path, searchParams, hashParams)
+
+            expect(router.values.location.pathname.endsWith('/inbox/sources')).toBe(true)
+            expect(logic.values.activeTab).toBe('sources')
+            expect(logic.values.selectedReportId).toBeNull()
+            expect(router.values.searchParams).toEqual(searchParams)
+            expect(router.values.hashParams).toEqual(hashParams)
+        }
+    )
+
     // The scout page's tabs live in the URL, so a link to a scout's runs has to survive a reload.
     // Selecting a scout resets the tab, so the URL's tab had to be applied after that reset.
     describe('the scout page tab in the URL', () => {

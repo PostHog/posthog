@@ -86,6 +86,24 @@ class TestProviderImportRuns(BaseTest):
 
         mock_client.get_suppressions.assert_not_called()
 
+    @parameterized.expand([("bounce", "a@example.com", True), ("spam_report", "d@example.com", False)])
+    def test_only_bounce_suppressions_are_imported_as_hard_bounces(
+        self,
+        mock_client_class: MagicMock,
+        _start_workflow: MagicMock,
+        _name: str,
+        identifier: str,
+        hard_bounced: bool,
+    ) -> None:
+        mock_client_class.return_value.get_suppressions.side_effect = lambda suppression_type, limit, offset: (
+            self.pages.get((suppression_type, offset), [])
+        )
+        run = self._start(["suppressions"])
+        runs.run_step(self.team.id, run.id, "suppressions", attempt=1)
+
+        row = MessageSuppression.objects.for_team(self.team.id).get(identifier=identifier)
+        assert (row.hard_bounced_at is not None) is hard_bounced
+
     def test_an_older_attempt_stops_without_writing_once_a_newer_attempt_takes_over(
         self, mock_client_class: MagicMock, _start_workflow: MagicMock
     ) -> None:

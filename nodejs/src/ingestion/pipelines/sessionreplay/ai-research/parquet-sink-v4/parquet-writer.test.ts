@@ -1,16 +1,27 @@
 import { ParquetReader } from '@dsnp/parquetjs'
-import { CompressionCodec } from '@dsnp/parquetjs/dist/gen-nodejs/parquet_types'
+import { CompressionCodec, ConvertedType } from '@dsnp/parquetjs/dist/gen-nodejs/parquet_types'
 import { randomBytes } from 'node:crypto'
 
 import { BLOCK_INDEX_COLUMNS, V4Index } from './index-columns'
 import { indexRowsToParquet } from './parquet-writer'
 
+const CONVERTED_TYPE_NAMES: Record<number, string> = Object.fromEntries(
+    Object.entries(ConvertedType).map(([name, value]) => [value, name])
+)
+
 async function describeFile(
     file: Buffer
 ): Promise<{ fields: string[]; rowGroups: number; codecs: unknown[]; rows: unknown[] }> {
     const reader = await ParquetReader.openBuffer(file)
-    const fields = reader.schema.fieldList.map((field) =>
-        [field.repetitionType, field.primitiveType ?? 'group', field.path.join('.'), field.originalType]
+    // parquetjs's reader drops a group's LIST annotation, so annotations come from the footer, which lists fields in fieldList order.
+    const footer = reader.metadata!.schema.slice(1)
+    const fields = reader.schema.fieldList.map((field, index) =>
+        [
+            field.repetitionType,
+            field.primitiveType ?? 'group',
+            field.path.join('.'),
+            CONVERTED_TYPE_NAMES[footer[index].converted_type!],
+        ]
             .filter(Boolean)
             .join(' ')
     )
@@ -107,11 +118,13 @@ describe('indexRowsToParquet', () => {
             'OPTIONAL INT32 viewport_width',
             'OPTIONAL INT32 viewport_height',
             'OPTIONAL INT64 viewport_ts_ms',
-            'REPEATED group moments',
-            'REQUIRED BYTE_ARRAY moments.kind UTF8',
-            'REQUIRED BYTE_ARRAY moments.window_id UTF8',
-            'REQUIRED INT64 moments.ts_ms',
-            'REQUIRED INT32 moments.event_index',
+            'REQUIRED group moments LIST',
+            'REPEATED group moments.list',
+            'REQUIRED group moments.list.element',
+            'REQUIRED BYTE_ARRAY moments.list.element.kind UTF8',
+            'REQUIRED BYTE_ARRAY moments.list.element.window_id UTF8',
+            'REQUIRED INT64 moments.list.element.ts_ms',
+            'REQUIRED INT32 moments.list.element.event_index',
             'REPEATED BYTE_ARRAY url_fingerprints UTF8',
             'REPEATED BYTE_ARRAY window_ids UTF8',
             'OPTIONAL BYTE_ARRAY urls UTF8',
@@ -124,7 +137,7 @@ describe('indexRowsToParquet', () => {
         expect(fields).toEqual(SCHEMAS[index])
     })
 
-    it('reads back the values it writes, in row groups of the given size, with snappy on every column', async () => {
+    it('reads back the values it writes, in row groups of the given size, with zstd on every column', async () => {
         const image = {
             team_id: 7,
             key_month: '2026-10',
@@ -139,7 +152,7 @@ describe('indexRowsToParquet', () => {
             await indexRowsToParquet('images', Array(5).fill(image), 2)
         )
         expect(rowGroups).toBe(3)
-        expect(codecs).toEqual(Array(3 * 8).fill(CompressionCodec.SNAPPY))
+        expect(codecs).toEqual(Array(3 * 8).fill(CompressionCodec.ZSTD))
         expect(rows).toEqual(Array(5).fill({ ...image, team_id: 7n, byte_start: 0n, byte_end: 99n, byte_size: 60n }))
     })
 
@@ -168,11 +181,33 @@ describe('indexRowsToParquet', () => {
 
         const { rows } = await describeFile(file)
         expect((rows as Record<string, unknown>[])[0]).toMatchObject({ urls, urls_truncated: false })
-        // Snappy cannot shrink random base64, so the file is about one copy of the value.
+        // Zstd shrinks random base64 by about a quarter, so a second copy in the statistics would break this bound.
         expect(file.length).toBeLessThan(urls.length * 1.1)
     })
 
-    it('reads moments back as a list of structs and the string lists as lists', async () => {
+    it('writes blocks in (team_id, session_id, first_ts_ms) order, with a null first_ts_ms last', async () => {
+        const at = (team_id: number, session_id: string, first_ts_ms: number | null): Record<string, unknown> => ({
+            ...block([], []),
+            team_id,
+            session_id,
+            first_ts_ms,
+        })
+        const arrival = [at(10, 'a', 1), at(2, 'b', null), at(2, 'b', 30), at(2, 'a', 5), at(2, 'b', 4)]
+
+        const { rows } = await describeFile(await indexRowsToParquet('blocks', arrival, 1_000))
+
+        expect(
+            (rows as Record<string, unknown>[]).map((row) => [row.team_id, row.session_id, row.first_ts_ms ?? null])
+        ).toEqual([
+            [2n, 'a', 5n],
+            [2n, 'b', 4n],
+            [2n, 'b', 30n],
+            [2n, 'b', null],
+            [10n, 'a', 1n],
+        ])
+    })
+
+    it('reads moments back as a 3-level list of structs and the string lists as lists', async () => {
         const moments = [
             { kind: 'click', window_id: 'w1', ts_ms: 1_000, event_index: 2 ** 31 - 1 },
             { kind: 'full_snapshot_undecoded', window_id: 'w2', ts_ms: 2_000, event_index: 0 },
@@ -182,9 +217,13 @@ describe('indexRowsToParquet', () => {
         )
         const read = rows as Record<string, unknown>[]
         expect(read.map((row) => [row.moments, row.url_fingerprints, row.window_ids])).toEqual([
-            [moments.map((moment) => ({ ...moment, ts_ms: BigInt(moment.ts_ms) })), ['w1', 'w2'], ['w1', 'w2']],
-            // parquetjs reads an empty repeated field as null; Arrow readers see an empty list.
-            [null, null, null],
+            [
+                { list: moments.map((moment) => ({ element: { ...moment, ts_ms: BigInt(moment.ts_ms) } })) },
+                ['w1', 'w2'],
+                ['w1', 'w2'],
+            ],
+            // parquetjs reads an empty repeated field as null and leaves a LIST wrapped; Arrow readers see empty lists.
+            [{ list: null }, null, null],
         ])
     })
 })
