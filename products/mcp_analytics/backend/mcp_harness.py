@@ -149,7 +149,7 @@ def harness_label_or_token_sql(
     return _label_multi_if(token_col, fallback, custom_rules)
 
 
-def _custom_arms_sql(token_col: str, custom_rules: Sequence[CustomHarnessRule]) -> str:
+def custom_arms_sql(token_col: str, custom_rules: Sequence[CustomHarnessRule]) -> str:
     # Rule fields are team-supplied. They are escaped here and also restricted to a safe character set on save.
     return "".join(
         f"position({token_col}, {escape_hogql_string(rule.pattern.lower())}) > 0, {escape_hogql_string(rule.name)},\n        "
@@ -166,7 +166,7 @@ def _label_multi_if(token_col: str, fallback_sql: str, custom_rules: Sequence[Cu
     if not token_col.isidentifier():
         raise ValueError(f"token_col must be a SQL identifier, got {token_col!r}")
     return f"""multiIf(
-        {_custom_arms_sql(token_col, custom_rules)}{token_col} = 'claude-code claude-desktop', 'Claude Desktop',
+        {custom_arms_sql(token_col, custom_rules)}{token_col} = 'claude-code claude-desktop', 'Claude Desktop',
         {token_col} = 'claude-code claude-vscode', 'Claude Code (VS Code)',
         startsWith({token_col}, 'claude-code sdk'), 'Claude Agent SDK',
         startsWith({token_col}, 'claude-code'), 'Claude Code',
