@@ -13,7 +13,7 @@ from products.stamphog.backend.logic.renovate_verification import (
     changed_file_problems,
     commit_problems,
     is_renovate_pr,
-    manifest_changed_specifiers,
+    manifest_respecified_dependencies,
     package_json_problems,
     pnpm_lock_versions,
     pnpm_policy_problems,
@@ -128,12 +128,12 @@ class TestManifestProblems(SimpleTestCase):
         change = VersionChange(name="left-pad", old_version="1.0.0", new_version="1.1.0")
         assert (pnpm_policy_problems("pnpm-workspace.yaml", workspace, [change]) == []) is enforced
 
-    def test_manifest_changed_specifiers_reads_named_catalogs(self) -> None:
-        assert manifest_changed_specifiers(
+    def test_manifest_respecified_dependencies_reads_named_catalogs(self) -> None:
+        assert manifest_respecified_dependencies(
             "pnpm-workspace.yaml",
             "catalogs:\n  react:\n    react: ^18.0.0\n    scheduler: ^0.23.0\n",
             "catalogs:\n  react:\n    react: ^18.3.0\n    scheduler: ^0.23.0\n",
-        ) == {("react", "^18.3.0")}
+        ) == {"react"}
 
 
 class TestLockfileVersions(SimpleTestCase):
