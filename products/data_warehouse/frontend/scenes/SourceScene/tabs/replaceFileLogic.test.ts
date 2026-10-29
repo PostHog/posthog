@@ -78,6 +78,30 @@ describe('replaceFileLogic', () => {
         expect(mockReplace).toHaveBeenCalledWith(expect.any(String), 'table-9', expect.anything())
     })
 
+    it('follows the result pages when the exact name is not on the first page', async () => {
+        mockList
+            .mockResolvedValueOnce({
+                count: 2,
+                next: 'next-page',
+                results: [{ id: 'other', name: 'orders_backup' }],
+            } as PaginatedTableListApi)
+            .mockResolvedValueOnce({
+                count: 2,
+                next: null,
+                results: [{ id: 'table-9', name: 'orders' }],
+            } as PaginatedTableListApi)
+        logic.actions.openReplaceFile({ tableId: null, tableName: 'orders' })
+        logic.actions.selectFile(csvFile())
+
+        await expectLogic(logic, () => {
+            logic.actions.submitReplaceFile()
+        }).toDispatchActions(['replaceFileSuccess'])
+
+        expect(mockList).toHaveBeenCalledTimes(2)
+        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ offset: 1 }))
+        expect(mockReplace).toHaveBeenCalledWith(expect.any(String), 'table-9', expect.anything())
+    })
+
     it.each([
         {
             stage: 'upload',

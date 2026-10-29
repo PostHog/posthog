@@ -208,6 +208,10 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     const onReplaceFile = isFileUpload
         ? (schema: ExternalDataSourceSchema): void => openReplaceFile(replaceFileTarget(schema))
         : undefined
+    // The schema filters are hidden for file uploads, so a saved filter (e.g. "Show enabled only",
+    // which an upload's schema never matches) must not hide its table.
+    const visibleSchemas = isFileUpload ? (source?.schemas ?? []) : filteredSchemas
+    const visibleSchemaGroups = isFileUpload ? [] : groupedFilteredSchemas
 
     useEffect(() => {
         if (showDestinations) {
@@ -298,7 +302,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                 )}
                 <div className="flex items-center gap-2 shrink-0">
                     {isFileUpload && (
-                        <SourceEditorAction source={source}>
+                        <SchemaEditorAction schema={fileUploadSchema ?? null}>
                             <LemonButton
                                 type="primary"
                                 onClick={() => fileUploadSchema && onReplaceFile?.(fileUploadSchema)}
@@ -307,7 +311,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                             >
                                 Replace file
                             </LemonButton>
-                        </SourceEditorAction>
+                        </SchemaEditorAction>
                     )}
                     {source?.direct_query_enabled && supportsDirectQuery(source.source_type) && (
                         <LemonButton
@@ -373,13 +377,13 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     )}
                 </div>
             </div>
-            {groupedFilteredSchemas.length > 1 ? (
+            {visibleSchemaGroups.length > 1 ? (
                 <div className="border rounded bg-bg-light">
                     <LemonCollapse
                         multiple
                         embedded
-                        defaultActiveKeys={groupedFilteredSchemas.map((group) => group.schemaName)}
-                        panels={groupedFilteredSchemas.map(({ schemaName, tables }) => ({
+                        defaultActiveKeys={visibleSchemaGroups.map((group) => group.schemaName)}
+                        panels={visibleSchemaGroups.map(({ schemaName, tables }) => ({
                             key: schemaName,
                             header: (
                                 <div className="flex items-center justify-between gap-3 w-full">
@@ -414,7 +418,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                 </div>
             ) : (
                 <ManagedSchemaTable
-                    schemas={filteredSchemas}
+                    schemas={visibleSchemas}
                     isLoading={sourceLoading}
                     source={source}
                     sourceId={id}
