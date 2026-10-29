@@ -257,10 +257,9 @@ impl ChunkScanner {
     /// them all through one fresh accumulator, meter the moved bytes under `kind`, and return the
     /// sorted tiles. One accumulator keeps a tile key from splitting across two tile sets.
     ///
-    /// `kind` and `comment` co-vary at the two call sites. A [`ScanKind::BehavioralCompare`] scan
-    /// reads every column of each table, which is the shadow compare's wide re-scan. The per-row
-    /// and per-chunk fold metrics are emitted for the authoritative [`ScanKind::Behavioral`] arm
-    /// only, so a diagnostic re-scan of the same rows never doubles a throughput series.
+    /// `kind` and `comment` co-vary at the two call sites. The per-row and per-chunk fold metrics
+    /// are emitted for the authoritative [`ScanKind::Behavioral`] arm only, so a diagnostic
+    /// re-scan of the same rows never doubles a throughput series.
     #[allow(clippy::too_many_arguments)]
     async fn scan_tables(
         &self,
@@ -279,14 +278,9 @@ impl ChunkScanner {
         let mut volume = ScanVolume::default();
         let mut summary = FoldSummary::default();
         for query in queries {
-            let projection = if kind == ScanKind::BehavioralCompare {
-                &ChunkProjection::FullColumns
-            } else {
-                &query.projection
-            };
             let mut cursor = self
                 .client
-                .query(&scan_sql(&query.spec, projection))
+                .query(&scan_sql(&query.spec, &query.projection))
                 .with_option(LOG_COMMENT_OPTION, comment.to_string())
                 .fetch::<EventRow>()
                 .map_err(ScanError::Query)?;
@@ -347,13 +341,20 @@ impl ChunkScanner {
         // Spans the re-scan, its fold, and the diff. Records on every exit, so a cancelled or
         // failed compare still reports the time it held the chunk's slot and lease.
         let _timer = MetricTimer::start(SHADOW_COMPARE_DURATION_SECONDS);
+        let wide: Vec<TableQuery> = queries
+            .iter()
+            .map(|query| TableQuery {
+                spec: query.spec.clone(),
+                projection: ChunkProjection::FullColumns,
+            })
+            .collect();
         let (legacy_tiles, legacy_fold) = match self
             .scan_tables(
                 spec,
                 run,
                 domain,
                 active,
-                queries,
+                &wide,
                 ScanKind::BehavioralCompare,
                 ScanLogComment::BehavioralCompareChunk {
                     spec,
@@ -1712,6 +1713,7 @@ mod tests {
                     person(person_id),
                 )
             };
+            let my_flag = r#"{"$feature_flag":"my-flag"}"#;
             let admin = connect(None);
             let flag_evaluations_tables = FLAG_EVALUATIONS_DDL
                 .split(';')
@@ -1744,14 +1746,14 @@ mod tests {
                      distinct_id, person_id, person_properties, elements_chain, team_id, _timestamp) \
                      VALUES {}, {}",
                     event_row(10, "$pageview", "{}", 2),
-                    event_row(11, "$feature_flag_called", r#"{"$feature_flag":"my-flag"}"#, 4),
+                    event_row(11, "$feature_flag_called", my_flag, 4),
                 ),
                 format!(
                     "INSERT INTO {database}.sharded_flag_evaluations (uuid, event, properties, \
                      timestamp, team_id, distinct_id, person_id, _timestamp) VALUES {}, {}, {}, {}, {}",
-                    flag_row(20, r#"{"$feature_flag":"my-flag"}"#, 1),
-                    flag_row(21, r#"{"$feature_flag":"my-flag"}"#, 3),
-                    flag_row(22, r#"{"$feature_flag":"my-flag"}"#, 3),
+                    flag_row(20, my_flag, 1),
+                    flag_row(21, my_flag, 3),
+                    flag_row(22, my_flag, 3),
                     flag_row(23, r#"{"$feature_flag":"other-flag"}"#, 1),
                     flag_row(24, "not json", 5),
                 ),

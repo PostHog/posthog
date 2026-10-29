@@ -62,8 +62,8 @@ pub struct UnknownTriggerKind(pub String);
 /// The only event `flag_evaluations` stores.
 const FLAG_CALLED_EVENT: &str = "$feature_flag_called";
 
-/// Mirrors `FLAG_EVALUATIONS_TTL_DAYS` in `posthog/models/flag_evaluations/sql.py`. Change both
-/// together.
+/// Mirrors `FLAG_EVALUATIONS_TTL_DAYS` in `posthog/models/flag_evaluations/sql.py`. The comment
+/// there lists every copy of the value. Change them all together.
 const FLAG_EVALUATIONS_TTL_DAYS: DayIdx = 92;
 
 /// The ClickHouse table a scan reads.
@@ -99,8 +99,8 @@ impl ScanTable {
     }
 
     /// Whether the TTL may already have dropped rows of `domain`'s day at `now_ms`. The TTL is
-    /// `toDate(timestamp) + 92 days`, so the day's first rows expire 92 days after the UTC date of
-    /// the day's start. A team east of UTC starts its day on the UTC date before. Django pins
+    /// `toDate(timestamp)` plus [`FLAG_EVALUATIONS_TTL_DAYS`] days, so the day's first rows expire
+    /// that many days after the UTC date of the day's start. A team east of UTC starts its day on the UTC date before. Django pins
     /// `flag_evaluations` only for windows inside the TTL. A chunk can still run or retry days
     /// after Django created its run.
     pub fn past_retention(self, domain: &SeedDomain, now_ms: i64) -> bool {
@@ -989,13 +989,9 @@ mod tests {
             json!({ "table": "flag_evaluations" }),
             json!({ "flag_evaluations": null }),
         ] {
-            let error = match PinnedRun::validate(pinned_with_flag_calls_table(Some(value.clone())))
-            {
-                Ok(validated) => {
-                    panic!("{value} validated as {:?}", validated.run.flag_calls_table)
-                }
-                Err(error) => error,
-            };
+            let error = PinnedRun::validate(pinned_with_flag_calls_table(Some(value.clone())))
+                .map(|validated| validated.run.flag_calls_table)
+                .expect_err(&format!("{value} validated"));
             assert!(
                 error.to_string().contains("flag_calls_table"),
                 "{value}: the error does not name the key: {error}"
