@@ -27,6 +27,19 @@ describe('SlopeChart', () => {
         expect(chart.yTicks()).toHaveLength(0)
     })
 
+    it('fills legend value columns for its own legend rows', () => {
+        const { container } = renderChart(
+            <SlopeChart
+                series={SERIES}
+                labels={LABELS}
+                theme={THEME}
+                config={{ legend: { show: true, values: ['max'] } }}
+            />
+        )
+        const cells = Array.from(container.querySelectorAll('[data-attr="hog-chart-legend-value"]'))
+        expect(cells.map((c) => c.textContent)).toEqual(['90', '80'])
+    })
+
     it('renders empty state without crashing', () => {
         const { chart } = renderChart(<SlopeChart series={[]} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(0)

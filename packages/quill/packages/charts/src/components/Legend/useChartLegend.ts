@@ -2,7 +2,7 @@ import { useCallback, useMemo, useState, type ReactNode } from 'react'
 
 import type { ChartLegendConfig, ChartTheme, Series } from '../../core/types'
 import type { LegendItem, LegendItemClickModifiers, LegendProps } from './Legend'
-import { legendItemsFromSeries } from './legendItemsFromSeries'
+import { legendItemsFromSeries, withLegendValues } from './legendItemsFromSeries'
 
 /** True when the primary pointer is coarse (a touch screen), read live at click time. Guarded like
  *  `prefersReducedMotion` because `matchMedia` is absent in jsdom test workers and other non-browser
@@ -101,7 +101,8 @@ export function useChartLegend<Meta>(
     const visibleSeries = useMemo(() => applyHiddenSeries(series, hiddenSet), [series, hiddenSet])
     const legendValues = config?.values
     const derivedItems = useMemo(
-        () => items ?? legendItemsFromSeries(series, theme, legendValues),
+        () =>
+            items ? withLegendValues(items, series, legendValues) : legendItemsFromSeries(series, theme, legendValues),
         [items, series, theme, legendValues]
     )
 
