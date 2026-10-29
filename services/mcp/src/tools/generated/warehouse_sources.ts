@@ -1106,7 +1106,12 @@ const warehouseMigrationItemsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_migrations/${encodeURIComponent(String(params.id))}/items/`,
         })
-        const filtered = omitResponseFields(result, ['*.proposal.schemas', '*.proposal.prefill']) as typeof result
+        const filtered = omitResponseFields(result, [
+            '*.proposal.schemas.*.disabled_columns',
+            '*.proposal.schemas.*.row_filters',
+            '*.proposal.schemas.*.alternative_names',
+            '*.proposal.prefill',
+        ]) as typeof result
         return filtered
     },
 })

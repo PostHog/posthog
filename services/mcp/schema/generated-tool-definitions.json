@@ -16440,7 +16440,7 @@
         "feature_flag": "warehouse-migration-import"
     },
     "warehouse-migration-items-list": {
-        "description": "One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the user, and the planned PostHog source type in 'proposal'. 'proposal.inferred_tables' lists table pairs a naming rule made, which the user must confirm. 'proposal.unmatched_tables' lists Fivetran tables with no PostHog table; propose one from 'proposal.unused_posthog_tables' or leave it out. To move an item, get 'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as 'migration_item_id', then call 'warehouse-migration-item-apply' with the stored credential.",
+        "description": "One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the user, and the planned PostHog source type in 'proposal'. 'proposal.schemas' lists the planned tables with their 'vendor_table'. 'proposal.inferred_tables' lists table pairs a naming rule made, which the user must confirm. 'proposal.unmatched_tables' lists Fivetran tables with no PostHog table; propose one from 'proposal.unused_posthog_tables' or leave it out. To move an item, get 'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as 'migration_item_id', then call 'warehouse-migration-item-apply' with the stored credential.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List the connections in a Fivetran migration",

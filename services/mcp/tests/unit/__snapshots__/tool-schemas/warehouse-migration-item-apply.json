@@ -18,6 +18,7 @@
         },
         "prefix": {
             "description": "Table name prefix to use instead of the planned one, for example when the planned one is taken.",
+            "maxLength": 100,
             "type": "string"
         },
         "table_overrides": {

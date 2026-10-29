@@ -646,7 +646,8 @@ tools:
         title: List the connections in a Fivetran migration
         description: >
             One item per Fivetran connection, with its verdict (as_is, caveats, unsupported), the caveats to read to the
-            user, and the planned PostHog source type in 'proposal'. 'proposal.inferred_tables' lists table pairs a
+            user, and the planned PostHog source type in 'proposal'. 'proposal.schemas' lists the planned tables with
+            their 'vendor_table'. 'proposal.inferred_tables' lists table pairs a
             naming rule made, which the user must confirm. 'proposal.unmatched_tables' lists Fivetran tables with no
             PostHog table; propose one from 'proposal.unused_posthog_tables' or leave it out. To move an item, get
             'data-warehouse-source-connect-link' with the proposal's source_type and the item's id as
@@ -654,7 +655,9 @@ tools:
         feature_flag: warehouse-migration-import
         response:
             exclude:
-                - '*.proposal.schemas'
+                - '*.proposal.schemas.*.disabled_columns'
+                - '*.proposal.schemas.*.row_filters'
+                - '*.proposal.schemas.*.alternative_names'
                 - '*.proposal.prefill'
     warehouse-migration-refresh:
         operation: warehouse_migrations_refresh_create

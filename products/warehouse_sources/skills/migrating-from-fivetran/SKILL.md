@@ -57,7 +57,8 @@ project yet. Tell the user that and stop.
    - Read the connector note for any connector in the migration.
 
    Pass what the user decides to apply as `table_overrides`: `{vendor_table, posthog_table}` maps a table, and a null
-   `posthog_table` leaves it out. End the report with the credentials the user needs, one line per connection.
+   `posthog_table` leaves it out. `vendor_table` is a planned table's `proposal.schemas[].vendor_table` (a database
+   names it `schema.table`), or a name from `unmatched_tables`. End the report with the credentials the user needs, one line per connection.
 
 3. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user
    already knows the password. For each item:

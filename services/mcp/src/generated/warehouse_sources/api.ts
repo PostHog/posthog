@@ -2304,6 +2304,8 @@ export const ExternalDataSourcesApplyMigrationItemCreateParams = () => zod.objec
         ),
 })
 
+export const externalDataSourcesApplyMigrationItemCreateBodyPrefixMax = 100
+
 export const ExternalDataSourcesApplyMigrationItemCreateBody = () => zod.object({
     item_id: zod.string().describe('The migration item to create a PostHog source for.'),
     credential_id: zod
@@ -2311,6 +2313,7 @@ export const ExternalDataSourcesApplyMigrationItemCreateBody = () => zod.object(
         .describe("Stored credential from the source connect page, for the item's PostHog source type."),
     prefix: zod
         .string()
+        .max(externalDataSourcesApplyMigrationItemCreateBodyPrefixMax)
         .optional()
         .describe('Table name prefix to use instead of the planned one, for example when the planned one is taken.'),
     destination_ids: zod
