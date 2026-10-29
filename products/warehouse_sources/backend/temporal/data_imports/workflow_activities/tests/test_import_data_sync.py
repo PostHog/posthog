@@ -40,6 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     NEW_TABLE_NOT_READY_MESSAGE,
     _transient_error_message,
 )
+from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
+    IncrementalHistoryUnavailableError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.preemption import PreemptionConfig
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.ride_out import (
     IMPORT_RIDE_OUT_FLAG,
@@ -761,12 +764,19 @@ async def test_proxy_auth_failure_is_still_reported():
 
 
 @pytest.mark.asyncio
-async def test_rest_client_non_retryable_error_routes_through_handler_without_source_opt_in():
+@pytest.mark.parametrize(
+    "error",
+    [
+        RESTClientNonRetryableError("Non-JSON response from https://api.example.com/v1/data/leads"),
+        # A schema that keeps history on a source that replaces rows by file fails every run the same way.
+        IncrementalHistoryUnavailableError("orders keeps a history table, which needs a primary key"),
+    ],
+)
+async def test_typed_non_retryable_errors_route_through_handler_without_source_opt_in(error: Exception):
     # RESTClientNonRetryableError is the REST engine's "retrying can never help" signal (a non-JSON
     # body on an otherwise-successful response). It must be honored by type even when the source's
     # get_non_retryable_errors doesn't list the message, so any REST-based source stops instead of
     # retrying the deterministic failure to the activity max and minting error-tracking noise.
-    error = RESTClientNonRetryableError("Non-JSON response from https://api.example.com/v1/data/leads")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()

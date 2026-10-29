@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.models.external_data_schema import INCRE
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.incremental_history import (
+    IncrementalHistoryUnavailableError,
     attach_history_lanes,
     finalize_history_lane,
     stage_history_batch,
@@ -85,7 +86,7 @@ class TestAttachHistoryLanes:
         response.primary_keys = None
 
         if fails:
-            with pytest.raises(ValueError, match="primary key"):
+            with pytest.raises(IncrementalHistoryUnavailableError, match="primary key"):
                 _attach(schema, response)
         else:
             _attach(schema, response)

@@ -156,6 +156,11 @@ class LanedPipelineV3(PipelineV3[ResumableData]):
     def _maintains_companion_table(self) -> bool:
         return super()._maintains_companion_table() or self._output_lanes[0].cdc_write_mode == SCD2_APPEND_MODE
 
+    def _keeps_table_on_reset(self) -> bool:
+        # An incremental history-only run's table is the history table, the only copy of past versions. CDC
+        # sets the write mode on the response and reseeds its history from the snapshot instead.
+        return self._output_lanes[0].cdc_write_mode == SCD2_APPEND_MODE and self._resource.cdc_write_mode is None
+
     async def run(self) -> PipelineResult:
         completed = False
         try:

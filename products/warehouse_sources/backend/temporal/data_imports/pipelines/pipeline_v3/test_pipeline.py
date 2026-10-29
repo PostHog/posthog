@@ -1347,6 +1347,9 @@ class TestCompanionJob:
 
         assert producer.call_args.kwargs["cdc_write_mode"] == "scd2_append"
         assert pipeline._maintains_companion_table() is True
+        assert pipeline._keeps_table_on_reset() is True
+        cdc_history_only = self._laned([OutputLane(name="users_history", cdc_write_mode="scd2_append")])
+        assert cdc_history_only._keeps_table_on_reset() is False
 
     def test_the_companion_delivers_to_no_destination(self) -> None:
         # Delivery names the destination table from the schema, so history rows merged by key
