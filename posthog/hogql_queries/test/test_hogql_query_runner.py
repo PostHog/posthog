@@ -593,7 +593,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner._read_cache_entry_freshness(
             {
                 "window": "up_to_now_long",
-                "fresh_until": (datetime.now(UTC) - timedelta(minutes=1)).isoformat(),
+                "fresh_until": "2020-01-01T00:00:00+00:00",
                 "reason": "window_age",
             }
         )
@@ -616,18 +616,20 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
             ("entry_recomputed_without_window", "personal_api_key", True, False, True),
         ]
     )
+    @time_machine.travel("2026-10-29T15:00:00Z", tick=False)
     def test_entry_window_age_applies_only_to_flagged_api_key_reads(
         self, _name: str, access_method: str | None, flag_on: bool, entry_has_window: bool, expected_stale: bool
     ) -> None:
+        now = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
         window = SqlFreshness(
             window=SqlWindowClass.UP_TO_NOW_LONG,
-            fresh_until=datetime.now(UTC) + timedelta(hours=1),
+            fresh_until=now + timedelta(hours=1),
             reason=FreshnessReason.WINDOW_AGE,
         )
         with self._flag(flag_on), tags_context(access_method=access_method):
             runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query="select 1"))
             runner._read_cache_entry_freshness(freshness_record(window) if entry_has_window else None)
-            stale = runner._is_stale_for_request(last_refresh=datetime.now(UTC) - timedelta(minutes=10))
+            stale = runner._is_stale_for_request(last_refresh=now - timedelta(minutes=10))
         assert stale is expected_stale
 
     @parameterized.expand(

@@ -50,6 +50,12 @@ class Window:
 
 
 @frozen
+class _Bound:
+    start: Optional[datetime]
+    end: Optional[datetime]
+
+
+@frozen
 class QueryFacts:
     now: datetime
     start_of_today: datetime
@@ -337,7 +343,7 @@ def _column_unit(expr: ast.Expr) -> tuple[bool, Optional[str]]:
 
 def _bound(
     evaluator: _Evaluator, column: ast.Expr, op: ast.CompareOperationOp, value_expr: ast.Expr
-) -> Optional[tuple[Optional[datetime], Optional[datetime]]]:
+) -> Optional[_Bound]:
     is_column, unit = _column_unit(column)
     if not is_column:
         return None
@@ -347,12 +353,12 @@ def _bound(
     at = evaluator.anchor(value)
     step = _period(unit) if unit else timedelta()
     if op == ast.CompareOperationOp.Eq:
-        return at, at + step
+        return _Bound(start=at, end=at + step)
     edge = at + step if op in _TRUNCATION_SHIFTED_OPS else at
-    return (edge, None) if op in _LOWER_BOUND_OPS else (None, edge)
+    return _Bound(start=edge, end=None) if op in _LOWER_BOUND_OPS else _Bound(start=None, end=edge)
 
 
-def _bounds_from_conjunct(evaluator: _Evaluator, conjunct: ast.Expr) -> tuple[Optional[datetime], Optional[datetime]]:
+def _bounds_from_conjunct(evaluator: _Evaluator, conjunct: ast.Expr) -> _Bound:
     if isinstance(conjunct, ast.CompareOperation) and conjunct.op in _FLIPPED_OPS:
         bound = _bound(evaluator, conjunct.left, conjunct.op, conjunct.right)
         if bound is None:
@@ -363,20 +369,18 @@ def _bounds_from_conjunct(evaluator: _Evaluator, conjunct: ast.Expr) -> tuple[Op
         low = _bound(evaluator, conjunct.expr, ast.CompareOperationOp.GtEq, conjunct.low)
         high = _bound(evaluator, conjunct.expr, ast.CompareOperationOp.LtEq, conjunct.high)
         if low is not None and high is not None:
-            return low[0], high[1]
+            return _Bound(start=low.start, end=high.end)
     raise _UnsupportedBound()
 
 
-def _select_bounds(evaluator: _Evaluator, select: ast.SelectQuery) -> tuple[list[datetime], list[datetime]]:
-    starts: list[datetime] = []
-    ends: list[datetime] = []
-    for clause in (select.where, select.prewhere):
-        for conjunct in top_level_conjuncts(clause) if clause is not None else []:
-            if _mentions_events_timestamp(conjunct):
-                start, end = _bounds_from_conjunct(evaluator, conjunct)
-                starts.extend([start] if start is not None else [])
-                ends.extend([end] if end is not None else [])
-    return starts, ends
+def _select_bounds(evaluator: _Evaluator, select: ast.SelectQuery) -> list[_Bound]:
+    return [
+        _bounds_from_conjunct(evaluator, conjunct)
+        for clause in (select.where, select.prewhere)
+        if clause is not None
+        for conjunct in top_level_conjuncts(clause)
+        if _mentions_events_timestamp(conjunct)
+    ]
 
 
 def extract_facts(
@@ -403,10 +407,12 @@ def extract_facts(
             foreign_source = True
             continue
         try:
-            starts, ends = _select_bounds(evaluator, select)
+            bounds = _select_bounds(evaluator, select)
         except _UnsupportedBound:
             unsupported_bound = True
             continue
+        starts = [bound.start for bound in bounds if bound.start is not None]
+        ends = [bound.end for bound in bounds if bound.end is not None]
         if not starts:
             unbounded_select = True
             continue
