@@ -267,6 +267,17 @@ Existing connections need a full resync of `CampaignPerformance` to backfill cur
 Missing currency columns prevent monetary tiles, and empty historical currency values stop queries with a resync message.
 Creative, audience, demographic, and publisher reports are excluded to avoid counting overlapping breakdowns twice.
 
+## Google Search Console pagination
+
+Daily Search Analytics imports request pages until Google returns an empty page.
+A response with fewer rows than requested does not stop pagination.
+Google's API still limits the available rows, so completing pagination does not guarantee every search query is available.
+
+After fixing an incomplete import, another incremental sync only rereads dates from the saved cursor onward.
+To recover recent dates without deleting the table, temporarily set an incremental lookback that covers the affected dates, run the sync, and restore the previous lookback after checking the results.
+The lookback is limited to 60 days.
+Older gaps need a separate backfill within Google's retention window.
+
 ## Adding a new source
 
 Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
