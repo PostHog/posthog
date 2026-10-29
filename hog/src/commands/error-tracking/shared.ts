@@ -1,8 +1,8 @@
 import type { OptionSpec } from '@/core/command'
 import { ARTIFACT_KINDS, type ArtifactKind } from '@/core/config'
+import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Output } from '@/core/output'
-import type { Env } from '@/core/runtime'
 import { plural } from '@/core/text'
 import type { ErrorTrackingOptions, InjectedReport, UploadReport } from '@/error-tracking/run'
 
@@ -53,7 +53,8 @@ export const RELEASE_OPTIONS = {
     releaseMode: {
         type: 'string',
         choices: ['event', 'symbol-set'],
-        description: 'JavaScript only: put the release in the bundle (event, the default) or in the symbol set',
+        description:
+            'JavaScript only: put the release in the bundle (event, the default) or in the symbol set. Defaults to HOG_RELEASE_MODE, then errorTracking.releaseMode in posthog.json',
     },
 } as const satisfies Record<string, OptionSpec>
 
@@ -127,8 +128,9 @@ function count(flag: string, value: string | undefined, fallback: number): numbe
     return parsed
 }
 
-// posthog-cli reads the release mode from this variable too.
-export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions {
+// The release mode comes from the flag, then HOG_RELEASE_MODE, then errorTracking.releaseMode in posthog.json.
+export async function readOptions(options: RawOptions, ctx: Context): Promise<ErrorTrackingOptions> {
+    const env = ctx.runtime.env
     if (options.force && options.skipOnConflict) {
         throw new HogError(
             'usage_error',
@@ -137,11 +139,15 @@ export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions
             EXIT_USAGE
         )
     }
-    const releaseMode = options.releaseMode ?? env.POSTHOG_RELEASE_MODE ?? 'event'
+    const releaseMode =
+        options.releaseMode ??
+        (env.HOG_RELEASE_MODE || undefined) ??
+        (await ctx.config())?.config.errorTracking?.releaseMode ??
+        'event'
     if (releaseMode !== 'event' && releaseMode !== 'symbol-set') {
         throw new HogError(
             'usage_error',
-            'POSTHOG_RELEASE_MODE must be event or symbol-set.',
+            'HOG_RELEASE_MODE must be event or symbol-set.',
             'Unset it, or pass --release-mode.',
             EXIT_USAGE
         )

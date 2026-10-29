@@ -110,6 +110,7 @@ Point `$schema` at the published schema to get validation in your editor:
 }
 ```
 
+`errorTracking.releaseMode` sets the default for `--release-mode`. `HOG_RELEASE_MODE` overrides it.
 `endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
 `hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
@@ -159,7 +160,7 @@ hog uploads the same bytes and content hashes as posthog-cli, so either CLI can 
 
 1. `HOG_API_KEY` and `HOG_PROJECT_ID` in the environment, plus an optional `HOG_HOST`
 2. The same variables in the file `--dotenv-file` or `HOG_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
-3. `~/.posthog/credentials.json`, which `hog auth login` and `posthog-cli login` write (`POSTHOG_HOME` moves the folder). `hog auth login` makes it readable only by you.
+3. `~/.posthog/credentials.json`, which `hog auth login` and `posthog-cli login` write (`HOG_HOME` moves the folder). `hog auth login` makes it readable only by you.
 
 `--host`, `HOG_HOST` and `host` in `posthog.json` override the host from any of these.
 

@@ -80,8 +80,8 @@ async function readDotenv(runtime: Runtime, path: string): Promise<string | unde
 }
 
 function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
-    if (env.POSTHOG_HOME) {
-        return env.POSTHOG_HOME
+    if (env.HOG_HOME) {
+        return env.HOG_HOME
     }
     return homeDir === undefined ? undefined : join(homeDir, '.posthog')
 }
@@ -92,7 +92,7 @@ export function posthogFile(runtime: Runtime, name: string): string {
         throw new HogError(
             'no_home_directory',
             "hog couldn't find your home folder to store credentials in.",
-            'Set POSTHOG_HOME to the folder to use.'
+            'Set HOG_HOME to the folder to use.'
         )
     }
     return join(home, name)

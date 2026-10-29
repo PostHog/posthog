@@ -33,7 +33,7 @@ export default defineCommand({
     examples: ['hog error-tracking inject dist', 'hog et inject dist --release-name web --release-version 1.4.0'],
 
     async run({ args, options, ctx }) {
-        const settings = readOptions(options, ctx.runtime.env)
+        const settings = await readOptions(options, ctx)
         const selection = await select(ctx, args.paths ?? [], settings)
         const report = await inject(ctx, selection, settings)
         return {
