@@ -1,7 +1,7 @@
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.ai_observability.judge_images import MAX_IMAGES, OVER_LIMIT_MARKER, JudgeImages
+from posthog.temporal.ai_observability.judge_images import MAX_IMAGES, JudgeImages
 
 from products.ai_observability.backend.llm.images import ImagePart
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
@@ -9,8 +9,12 @@ from products.ai_observability.backend.text_repr.formatters.media_blocks import 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
 
 
-def _pointer(digit: str, mime: str = "image%2Fjpeg", size: int = 63357) -> MediaBlock:
-    return MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{digit * 64}?mime={mime}&size={size}")
+def _pointer(digit: str, mime: str = "image%2Fjpeg") -> MediaBlock:
+    return MediaBlock(modality="image", url=f"phaiblob://v1/sha256/{digit * 64}?mime={mime}&size=63357")
+
+
+def _inline(digit: str, length: int = 4) -> MediaBlock:
+    return MediaBlock(modality="image", mime_type="image/png", base64_data=digit * length)
 
 
 class TestJudgeImagesMarkers:
@@ -42,17 +46,20 @@ class TestJudgeImagesMarkers:
     def test_images_it_cannot_attach_keep_an_unnumbered_marker(self, media: MediaBlock, marker: str):
         assert JudgeImages(team_id=7).marker(media) == marker
 
-    def test_stops_attaching_at_the_image_limit(self):
-        images = JudgeImages(team_id=7)
-        markers = [
-            images.marker(MediaBlock(modality="image", mime_type="image/png", base64_data=f"image{i}"))
-            for i in range(MAX_IMAGES + 1)
-        ]
-
-        assert markers[-2:] == [f"[image {MAX_IMAGES}]", OVER_LIMIT_MARKER]
-
 
 class TestJudgeImagesContent:
+    def test_attaches_the_newest_images_when_over_the_limit(self):
+        images = JudgeImages(team_id=7)
+        prompt = " ".join(images.marker(_inline(f"{i:02}")) for i in range(MAX_IMAGES + 1))
+
+        content = images.content(prompt, "openai", "gpt-5.5")
+
+        assert content[1] == {"type": "text", "text": "Image 1: not attached, over the judge's image limit."}
+        assert content[-3:-1] == [
+            {"type": "text", "text": f"Image {MAX_IMAGES + 1}:"},
+            ImagePart(mime_type="image/png", base64_data=f"{MAX_IMAGES:02}" * 4),
+        ]
+
     @pytest.mark.parametrize(
         ("provider", "model", "expected_image"),
         [
@@ -101,34 +108,31 @@ class TestJudgeImagesContent:
         assert content[1] == {"type": "text", "text": "Image 1: could not be attached."}
 
     @pytest.mark.parametrize(
-        ("provider", "second_image"),
+        ("provider", "media", "second_attached"),
         [
+            pytest.param("openai", _pointer, True, id="links_have_no_byte_cap"),
+            # The pointers claim 63 KB, so this also checks the budget counts the bytes actually read.
+            pytest.param("together_ai", _pointer, False, id="bytes_read_for_inline_providers"),
             pytest.param(
                 "openai",
-                [{"type": "text", "text": "Image 2:"}, ImagePart(mime_type="image/jpeg", url="https://signed")],
-                id="links_have_no_byte_cap",
-            ),
-            pytest.param(
-                "together_ai",
-                [{"type": "text", "text": "Image 2: not attached, too large."}],
-                id="inline_bytes_stop_at_the_budget",
+                lambda digit: _inline(digit, length=13_400_000),
+                False,
+                id="inline_images_on_link_providers",
             ),
         ],
     )
-    def test_caps_only_the_bytes_sent_inline(self, provider: str, second_image: list):
+    def test_caps_only_the_bytes_sent_inline(self, provider: str, media, second_attached: bool):
         images = JudgeImages(team_id=7)
-        prompt = (
-            f"user: {images.marker(_pointer('a', size=10_000_000))} {images.marker(_pointer('b', size=10_000_000))}"
-        )
+        prompt = f"user: {images.marker(media('a'))} {images.marker(media('b'))}"
 
         with (
             patch(f"{OBJECT_STORAGE}.get_presigned_url", return_value="https://signed"),
-            patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"hi") as read,
+            patch(f"{OBJECT_STORAGE}.read_bytes", return_value=b"x" * 10_000_000),
         ):
             content = images.content(prompt, provider, "any")
 
-        assert content[3:-1] == second_image
-        assert read.call_count == (1 if provider == "together_ai" else 0)
+        too_large = {"type": "text", "text": "Image 2: not attached, too large."}
+        assert (too_large in content) is not second_attached
 
     def test_skips_images_whose_marker_was_sampled_out_of_the_prompt(self):
         images = JudgeImages(team_id=7)

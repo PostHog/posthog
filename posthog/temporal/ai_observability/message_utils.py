@@ -125,7 +125,7 @@ def _extract_content_text(content: Union[str, list, dict, None], images: "JudgeI
     - Anthropic: [{"type": "text", "text": "..."}]
     - OpenAI Responses API: [{"text": "...", "annotations": [...]}]
     - Generic: [{"content": "..."}]
-    - Image, audio and file blocks, as markers such as `[image]`
+    - With `images`, image, audio and file blocks, as markers such as `[image 1]`
     - Plain strings
 
     Always falls back to str() rather than returning empty — an LLM judge
@@ -147,8 +147,8 @@ def _extract_content_text(content: Union[str, list, dict, None], images: "JudgeI
                     text_parts.append(str(block["text"]))
                 elif "content" in block:
                     text_parts.append(str(block["content"]))
-                elif (media := parse_media_block(block)) is not None:
-                    text_parts.append(images.marker(media) if images else media.marker())
+                elif images is not None and (media := parse_media_block(block)) is not None:
+                    text_parts.append(images.marker(media))
                 else:
                     # Unknown block shape — stringify rather than silently drop
                     text_parts.append(str(block))
@@ -156,8 +156,8 @@ def _extract_content_text(content: Union[str, list, dict, None], images: "JudgeI
                 text_parts.append(block)
         return " ".join(text_parts)
 
-    if isinstance(content, dict) and (media := parse_media_block(content)) is not None:
-        return images.marker(media) if images else media.marker()
+    if images is not None and isinstance(content, dict) and (media := parse_media_block(content)) is not None:
+        return images.marker(media)
 
     # Fallback: convert to string
     return str(content)

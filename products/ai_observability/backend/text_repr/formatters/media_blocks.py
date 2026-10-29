@@ -1,3 +1,5 @@
+import re
+
 from posthog.dataclasses import frozen
 
 _IMAGE_TYPES = frozenset({"image", "image_url", "input_image"})
@@ -5,6 +7,9 @@ _AUDIO_TYPES = frozenset({"audio", "input_audio"})
 _FILE_TYPES = frozenset({"document", "file", "input_file"})
 _GEMINI_DATA_KEYS = ("inline_data", "inlineData", "file_data", "fileData")
 _LINK_SCHEMES = ("https://", "http://", "phaiblob://")
+# Without full capture the SDKs replace the bytes with a placeholder such as `[base64 image redacted]`.
+# Same pattern as the frontend's `isRedactedMediaSentinel`.
+_REDACTED_RE = re.compile(r"^\s*\[base64\b[^\]]*\bredacted\]\s*$", re.IGNORECASE)
 
 
 @frozen
@@ -28,14 +33,7 @@ class MediaBlock:
 
 def parse_media_block(block: dict) -> MediaBlock | None:
     """Read an OpenAI chat or Responses, Anthropic, or Gemini media block. OTel parts get markers in `otel_parts`."""
-    block_type = block.get("type")
-    if isinstance(block_type, str):
-        if block_type in _IMAGE_TYPES:
-            return _image_block(block)
-        if block_type in _AUDIO_TYPES:
-            return MediaBlock(modality="audio")
-        if block_type in _FILE_TYPES:
-            return MediaBlock(modality="file")
+    # Before the `type` check: the PostHog Gemini SDK records `{"type": "image", "inline_data": {...}}`.
     for key in _GEMINI_DATA_KEYS:
         data = block.get(key)
         if isinstance(data, dict):
@@ -51,6 +49,14 @@ def parse_media_block(block: dict) -> MediaBlock | None:
                     modality=modality, mime_type=mime_type, url=uri if uri.startswith(_LINK_SCHEMES) else None
                 )
             return _with_source(modality, mime_type, data.get("data"))
+    block_type = block.get("type")
+    if isinstance(block_type, str):
+        if block_type in _IMAGE_TYPES:
+            return _image_block(block)
+        if block_type in _AUDIO_TYPES:
+            return MediaBlock(modality="audio")
+        if block_type in _FILE_TYPES:
+            return MediaBlock(modality="file")
     return None
 
 
@@ -64,11 +70,13 @@ def _image_block(block: dict) -> MediaBlock:
         return _with_source(
             "image", media_type if isinstance(media_type, str) else None, source.get("data") or source.get("url")
         )
-    return _with_source("image", None, image_url)
+    # The Gemini Interactions API puts `data` and `mime_type` on the block itself.
+    mime_type = block.get("mime_type") or block.get("mimeType")
+    return _with_source("image", mime_type if isinstance(mime_type, str) else None, image_url or block.get("data"))
 
 
 def _with_source(modality: str, mime_type: str | None, value: object) -> MediaBlock:
-    if not isinstance(value, str) or not value:
+    if not isinstance(value, str) or not value or _REDACTED_RE.match(value):
         return MediaBlock(modality=modality, mime_type=mime_type)
     if value.startswith("data:") and ";base64," in value:
         header, payload = value[len("data:") :].split(";base64,", 1)

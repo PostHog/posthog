@@ -44976,7 +44976,7 @@ export namespace Schemas {
          * @nullable
          */
       judge_method?: 'llm' | 'decision' | null;
-      /** Set to false to judge text only. The judge sees the event's images by default. */
+      /** Set to false to judge text only. */
       include_media?: boolean;
     } | {
       /**
@@ -86707,7 +86707,7 @@ export namespace Schemas {
          * @nullable
          */
       judge_method?: 'llm' | 'decision' | null;
-      /** Set to false to judge text only. The judge sees the event's images by default. */
+      /** Set to false to judge text only. */
       include_media?: boolean;
     } | {
       /**

@@ -128,7 +128,7 @@ logger = structlog.get_logger(__name__)
                     },
                     "include_media": {
                         "type": "boolean",
-                        "description": "Set to false to judge text only. The judge sees the event's images by default.",
+                        "description": "Set to false to judge text only.",
                     },
                 },
                 "additionalProperties": False,
@@ -595,15 +595,13 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             config = data["evaluation_config"]
             if not isinstance(config, dict):
                 raise serializers.ValidationError({"evaluation_config": "Must be an object."})
-            if (
-                self.partial
-                and self.instance is not None
-                and evaluation_type == EvaluationType.LLM_JUDGE.value
-                and "judge_method" not in config
-                and "judge_method" in self.instance.evaluation_config
-            ):
-                # A prompt-only PATCH must not reset the saved routing choice.
-                data["evaluation_config"] = {"judge_method": self.instance.evaluation_config["judge_method"], **config}
+            if self.partial and self.instance is not None and evaluation_type == EvaluationType.LLM_JUDGE.value:
+                # A prompt-only PATCH must not reset the saved routing choice or image opt-out.
+                saved = self.instance.evaluation_config
+                kept = {
+                    key: saved[key] for key in ("judge_method", "include_media") if key not in config and key in saved
+                }
+                data["evaluation_config"] = {**kept, **config}
         if (
             self.instance
             and output_type != self.instance.output_type

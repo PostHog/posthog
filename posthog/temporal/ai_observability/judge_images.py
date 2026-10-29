@@ -1,13 +1,18 @@
 """Images an LLM judge sees next to the transcript that refers to them as `[image N]`."""
 
 import base64
+from collections import Counter
 from typing import Any, Literal
+
+import structlog
 
 from posthog.dataclasses import frozen
 
 from products.ai_observability.backend.ai_blobs import BlobPointer
 from products.ai_observability.backend.llm.images import IMAGE_MIME_TYPES, ImagePart, image_transport
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
+
+logger = structlog.get_logger(__name__)
 
 # Each image costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image size limit.
 MAX_IMAGES = 20
@@ -17,14 +22,19 @@ MAX_INLINE_BYTES = 15_000_000
 # AWS credentials stops working when the credentials expire.
 PRESIGNED_URL_SECONDS = 15 * 60
 
-OVER_LIMIT_MARKER = "[image: not attached, over the judge's image limit]"
+Outcome = Literal["link", "inline", "over_limit", "too_large", "unavailable"]
+
+_NOT_ATTACHED_LABELS: dict[Outcome, str] = {
+    "over_limit": "not attached, over the judge's image limit",
+    "too_large": "not attached, too large",
+    "unavailable": "could not be attached",
+}
 
 
 @frozen
 class _Image:
     number: int
     mime_type: str
-    size: int
     # An offloaded image has a pointer, a small one stays inline as base64.
     pointer: BlobPointer | None
     base64_data: str | None
@@ -45,17 +55,11 @@ class JudgeImages:
         key = pointer.sha256 if pointer else media.base64_data
         if media.modality != "image" or mime_type not in IMAGE_MIME_TYPES or key is None:
             return media.marker()
-        if (number := self._numbers.get(key)) is not None:
-            return f"[image {number}]"
-
-        if len(self._images) >= MAX_IMAGES:
-            return OVER_LIMIT_MARKER
-        number = len(self._images) + 1
-        size = (pointer.size if pointer else None) or len(media.base64_data or "") * 3 // 4
-        self._numbers[key] = number
-        self._images.append(
-            _Image(number=number, mime_type=mime_type, size=size, pointer=pointer, base64_data=media.base64_data)
-        )
+        if (number := self._numbers.get(key)) is None:
+            number = self._numbers[key] = len(self._images) + 1
+            self._images.append(
+                _Image(number=number, mime_type=mime_type, pointer=pointer, base64_data=media.base64_data)
+            )
         return f"[image {number}]"
 
     def content(self, user_prompt: str, provider: str, model: str) -> str | list[Any]:
@@ -65,24 +69,36 @@ class JudgeImages:
         if not images:
             return user_prompt
 
+        # Numbers follow the transcript, input before output, so the last ones are the newest and the graded output.
+        attachable = {image.number for image in images[-MAX_IMAGES:]}
         parts: list[Any] = [{"type": "text", "text": "The transcript refers to these images as [image N]."}]
+        outcomes: Counter[str] = Counter()
         inline_bytes = 0
         for image in images:
-            transport = image_transport(provider, model, image.mime_type)
-            if transport is not None and (transport == "inline" or image.pointer is None):
-                if inline_bytes + image.size > MAX_INLINE_BYTES:
-                    parts.append({"type": "text", "text": f"Image {image.number}: not attached, too large."})
-                    continue
-                inline_bytes += image.size
-            part = self._image_part(image, transport)
-            if part is None:
-                parts.append({"type": "text", "text": f"Image {image.number}: could not be attached."})
+            part = self._image_part(image, provider, model) if image.number in attachable else None
+            size = len(part.base64_data) * 3 // 4 if part is not None and part.base64_data is not None else 0
+            outcome: Outcome
+            if image.number not in attachable:
+                outcome = "over_limit"
+            elif part is None:
+                outcome = "unavailable"
+            elif inline_bytes + size > MAX_INLINE_BYTES:
+                # Counts the bytes actually read: the size in the pointer comes from the event.
+                outcome = "too_large"
+            else:
+                outcome = "link" if part.url else "inline"
+                inline_bytes += size
+            outcomes[outcome] += 1
+            if outcome in _NOT_ATTACHED_LABELS:
+                parts.append({"type": "text", "text": f"Image {image.number}: {_NOT_ATTACHED_LABELS[outcome]}."})
             else:
                 parts.extend([{"type": "text", "text": f"Image {image.number}:"}, part])
         parts.append({"type": "text", "text": user_prompt})
+        logger.info("judge_images_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
-    def _image_part(self, image: _Image, transport: Literal["url", "inline"] | None) -> ImagePart | None:
+    def _image_part(self, image: _Image, provider: str, model: str) -> ImagePart | None:
+        transport = image_transport(provider, model, image.mime_type)
         if transport is None:
             return None
         if image.pointer is None:

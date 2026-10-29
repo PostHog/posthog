@@ -1,6 +1,6 @@
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 from typing import Annotated, Any, Literal
 
@@ -597,7 +597,9 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
 
 
 def _judge_sees_images(evaluation: dict[str, Any]) -> bool:
-    if evaluation["evaluation_config"].get("include_media") is False:
+    config = evaluation["evaluation_config"]
+    # Decision models take the transcript as text only.
+    if config.get("include_media") is False or config.get("judge_method") == "decision":
         return False
     team_id = str(evaluation["team_id"])
     # Local evaluation keeps the check off the network. An inconclusive result means off.
@@ -846,20 +848,28 @@ def call_llm_judge(
                 ),
             )
         else:
-            response = client.complete(
-                CompletionRequest(
-                    model=model,
-                    system=system_prompt,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": images.content(user_prompt, provider, model) if images else user_prompt,
-                        }
-                    ],
-                    provider=provider,
-                    response_format=response_format,
-                )
+            request = CompletionRequest(
+                model=model,
+                system=system_prompt,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": images.content(user_prompt, provider, model) if images else user_prompt,
+                    }
+                ],
+                provider=provider,
+                response_format=response_format,
             )
+            try:
+                response = client.complete(request)
+            except Exception as e:
+                rejected = isinstance(e, ProviderRequestRejectedError) or _rejected_request_status(e) is not None
+                if not rejected or isinstance(request.messages[0]["content"], str):
+                    raise
+                # A model without image input, or an image link the provider could not download.
+                # Grade the transcript alone rather than skip the run.
+                logger.warning("judge_images_rejected", evaluation_id=evaluation["id"], provider=provider, model=model)
+                response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(

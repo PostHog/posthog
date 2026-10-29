@@ -27,6 +27,7 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.temporal.ai_observability.judge_images import JudgeImages
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 from posthog.temporal.common.errors import NonReportableError
@@ -42,6 +43,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConnectionError,
+    ProviderRequestRejectedError,
     QuotaExceededError,
     RateLimitError,
     StructuredOutputParseError,
@@ -53,6 +55,7 @@ from products.ai_observability.backend.models.evaluation_directories import Eval
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
 
 from . import run_evaluation as run_evaluation_module
 from .evaluation_errors import (
@@ -1137,6 +1140,42 @@ def _openai_status_error(status: int, message: str) -> openai.APIStatusError:
 
 
 @pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(ProviderRequestRejectedError("The model does not accept image input."), id="mapped_rejection"),
+        pytest.param(_openai_status_error(400, "Error while downloading the image."), id="unmapped_400"),
+    ],
+)
+def test_judge_retries_with_text_only_when_the_provider_rejects_images(error: Exception) -> None:
+    images = JudgeImages(team_id=1)
+    user_prompt = f"user: {images.marker(MediaBlock(modality='image', mime_type='image/png', base64_data='aGk='))}"
+
+    with (
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.model_spec") as spec,
+        patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as client_class,
+    ):
+        spec.return_value.resolve.return_value = MagicMock(
+            provider="openai", model="gpt-5.5", provider_key=MagicMock(), is_byok=True
+        )
+        client = client_class.return_value
+        client.complete.side_effect = [
+            error,
+            MagicMock(parsed=BooleanEvalResult(verdict=True, reasoning="ok"), usage=None),
+        ]
+        result = call_llm_judge(
+            evaluation={"id": "test-evaluation", "team_id": 1, "evaluation_config": {"prompt": "Polite?"}},
+            system_prompt="",
+            user_prompt=user_prompt,
+            allows_na=False,
+            images=images,
+        )
+
+    assert result["verdict"] is True
+    assert isinstance(client.complete.call_args_list[0].args[0].messages[0]["content"], list)
+    assert client.complete.call_args_list[1].args[0].messages == [{"role": "user", "content": user_prompt}]
+
+
+@pytest.mark.parametrize(
     "provider, raised_exception, expected_status, expected_detail",
     [
         pytest.param(
@@ -1563,7 +1602,8 @@ class TestRunEvaluationWorkflow:
             assert "user: [image 1] What does this chart show?" in content[-1]["text"]
         else:
             assert isinstance(content, str)
-            assert "user: [image] What does this chart show?" in content
+            assert "[image" not in content
+            assert "What does this chart show?" in content
 
     @pytest.mark.parametrize(
         "oversized_input",

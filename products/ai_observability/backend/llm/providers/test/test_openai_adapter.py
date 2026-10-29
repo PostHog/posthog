@@ -192,18 +192,25 @@ class TestOpenAIImageParts:
             ),
         ],
     )
-    def test_image_parts_are_sent_as_image_url_blocks(self, image: ImagePart, expected_url: str):
+    @pytest.mark.parametrize("json_fallback", [False, True], ids=["plain", "json_fallback"])
+    def test_image_parts_are_sent_as_image_url_blocks(self, image: ImagePart, expected_url: str, json_fallback: bool):
         request = CompletionRequest(
             model="gpt-4.1",
             messages=[{"role": "user", "content": [image, {"type": "text", "text": "hi"}]}],
             provider="openai",
+            response_format=_Verdict if json_fallback else None,
         )
         mock_client = MagicMock()
+        mock_client.beta.chat.completions.parse.side_effect = _make_bad_request_error(
+            "response_format is not supported"
+        )
         mock_client.chat.completions.create.return_value.usage = None
+        mock_client.chat.completions.create.return_value.choices[0].message.content = '{"verdict": true}'
         with patch("products.ai_observability.backend.llm.providers.openai.openai.OpenAI", return_value=mock_client):
             OpenAIAdapter().complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
 
-        assert mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"] == [
+        sent = mock_client.chat.completions.create.call_args.kwargs["messages"]
+        assert next(message for message in sent if message["role"] == "user")["content"] == [
             {"type": "image_url", "image_url": {"url": expected_url}},
             {"type": "text", "text": "hi"},
         ]

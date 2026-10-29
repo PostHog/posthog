@@ -64,7 +64,7 @@
                 {
                     "properties": {
                         "include_media": {
-                            "description": "Set to false to judge text only. The judge sees the event's images by default.",
+                            "description": "Set to false to judge text only.",
                             "type": "boolean"
                         },
                         "judge_method": {
