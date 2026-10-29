@@ -502,8 +502,8 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
             assert self._ch_mapping("hidden-did") == (str(person.uuid), 1, 100)
 
-    @override_settings(PERSONHOG_LEADER_OWNS_PERSON_WRITES=True)
-    def test_raises_through_the_leader_and_leaves_the_person_publish_to_the_relay(self) -> None:
+    @override_settings(PERSONHOG_WRITE_PATH="leader")
+    def test_raises_through_the_leader_and_publishes_the_person_it_wrote(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"hidden-did": 0})
         self._ch_person_row(person.uuid, 103, deleted=True)
         self._ch_mapping_row("hidden-did", person.uuid, 100, deleted=True)
@@ -516,21 +516,28 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             person_pb2.RaisePersonVersionRequest(team_id=self.team.pk, person_id=person.pk, min_version=104)
         ]
         assert [a.outcome for a in actions] == ["repaired", "repaired"]
-        assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
+        assert self._ch_person(person.uuid) == (0, 104, PG_PROPERTIES)
         assert self._ch_mapping("hidden-did") == (str(person.uuid), 0, 101)
 
-    @override_settings(PERSONHOG_LEADER_OWNS_PERSON_WRITES=True)
-    def test_skips_a_person_the_leader_holds_as_deleted(self) -> None:
+    @override_settings(PERSONHOG_WRITE_PATH="leader")
+    def test_skips_a_person_deleted_before_the_leader_raise(self) -> None:
         person = self._pg_person(version=3, distinct_ids={"hidden-did": 0})
         self._ch_person_row(person.uuid, 103, deleted=True)
         self._ch_mapping_row("hidden-did", person.uuid, 100, deleted=True)
         fake = get_active_fake()
+        raise_on_leader = fake.raise_person_version
 
-        with patch.object(fake, "raise_person_version", side_effect=rpc_error(grpc.StatusCode.NOT_FOUND)):
+        def deleted_then_raise(
+            request: person_pb2.RaisePersonVersionRequest, timeout: float | None = None
+        ) -> person_pb2.RaisePersonVersionResponse:
+            tombstone_persons_in_postgres(self.team.pk, [person.uuid])
+            return raise_on_leader(request, timeout)
+
+        with patch.object(fake, "raise_person_version", side_effect=deleted_then_raise):
             _, actions = self._repair(person.uuid)
 
         assert [a.outcome for a in actions] == ["skipped_tombstoned", "skipped_tombstoned"]
-        fake.assert_not_called("write_distinct_ids")
+        assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
 
     @parameterized.expand([("dry_run", False, []), ("apply", True, [1.0])])
     def test_throttles_on_each_divergent_row_written(self, _name: str, apply: bool, sleeps: list[float]) -> None:

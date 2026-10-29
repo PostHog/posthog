@@ -1212,10 +1212,13 @@ class FakePersonHogClient:
             error = grpc.RpcError()
             error.code = lambda: grpc.StatusCode.NOT_FOUND
             raise error
+        # The stored row stays as it is, because Postgres trails the leader until its writer applies the raise.
+        written = person_pb2.Person()
+        written.CopyFrom(person)
         raised = person.version < request.min_version
         if raised:
-            person.version = request.min_version
-        return person_pb2.RaisePersonVersionResponse(person=person, raised=raised)
+            written.version = request.min_version
+        return person_pb2.RaisePersonVersionResponse(person=written, raised=raised)
 
     def restore_persons(
         self, request: person_pb2.RestorePersonsRequest, timeout: float | None = None
