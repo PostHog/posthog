@@ -436,7 +436,10 @@ impl S3SourceConfig {
                 )
                 .is_some()
                 {
-                    return Err(Error::msg(format!("Endpoint host '{}' is not allowed", host)));
+                    return Err(Error::msg(format!(
+                        "Endpoint host '{}' is not allowed",
+                        host
+                    )));
                 }
             }
         }
