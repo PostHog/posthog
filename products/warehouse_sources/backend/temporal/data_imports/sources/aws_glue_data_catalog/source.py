@@ -61,6 +61,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
     api_docs_url = "https://docs.aws.amazon.com/glue/latest/webapi/API_Operations.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-glue-data-catalog"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

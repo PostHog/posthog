@@ -66,6 +66,7 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-security-hub"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

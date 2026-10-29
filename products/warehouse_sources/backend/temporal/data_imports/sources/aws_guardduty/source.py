@@ -64,6 +64,7 @@ class AwsGuarddutySource(ResumableSource[AwsGuarddutySourceConfig, AwsGuarddutyR
     api_docs_url = "https://docs.aws.amazon.com/guardduty/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-guardduty"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

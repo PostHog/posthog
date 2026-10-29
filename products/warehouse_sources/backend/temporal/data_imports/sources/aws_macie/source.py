@@ -70,6 +70,7 @@ class AwsMacieSource(ResumableSource[AwsMacieSourceConfig, AwsMacieResumeConfig]
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-macie"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

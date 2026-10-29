@@ -71,6 +71,7 @@ class AwsWafSource(ResumableSource[AwsWafSourceConfig, AwsWafResumeConfig]):
     api_docs_url = "https://docs.aws.amazon.com/waf/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-waf"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

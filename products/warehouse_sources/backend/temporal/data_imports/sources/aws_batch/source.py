@@ -64,6 +64,7 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
     api_docs_url = "https://docs.aws.amazon.com/batch/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-batch"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

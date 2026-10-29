@@ -83,6 +83,7 @@ class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerR
     api_docs_url = "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_Operations.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-sagemaker"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

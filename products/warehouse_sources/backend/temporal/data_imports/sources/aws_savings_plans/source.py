@@ -64,6 +64,7 @@ class AwsSavingsPlansSource(ResumableSource[AwsSavingsPlansSourceConfig, AwsSavi
     api_docs_url = "https://docs.aws.amazon.com/savingsplans/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-savings-plans"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

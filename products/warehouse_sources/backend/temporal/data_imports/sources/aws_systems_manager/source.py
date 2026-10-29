@@ -65,6 +65,7 @@ class AwsSystemsManagerSource(ResumableSource[AwsSystemsManagerSourceConfig, Sys
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-systems-manager"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

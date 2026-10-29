@@ -64,6 +64,7 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-iam-access-analyzer"
 
     @property
     def source_type(self) -> ExternalDataSourceType:

@@ -67,6 +67,7 @@ class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig,
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-compute-optimizer"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
