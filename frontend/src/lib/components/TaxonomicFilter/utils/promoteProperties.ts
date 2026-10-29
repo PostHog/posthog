@@ -1,7 +1,7 @@
 import { SkeletonItem, TaxonomicDefinitionTypes, isSkeletonItem } from 'lib/components/TaxonomicFilter/types'
 
 /** Search terms mapped to properties that should be promoted when that exact term is searched. */
-export const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
+const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
     url: ['$current_url'],
     path: ['$pathname'],
     email: ['$email'],

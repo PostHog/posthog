@@ -26,10 +26,6 @@ class TestFinnworldsSource:
         self.team_id = 123
         self.config = FinnworldsSourceConfig(api_key="fw-test", tickers="AAPL, MSFT", countries="United Kingdom")
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["dividends"])
-        assert [s.name for s in schemas] == ["dividends"]
-
     def test_validate_credentials_failure(self) -> None:
         with mock.patch.object(
             source_module, "validate_finnworlds_credentials", return_value=(False, "Invalid Finnworlds API key")

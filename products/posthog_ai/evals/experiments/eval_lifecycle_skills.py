@@ -30,7 +30,7 @@ To run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall, RequiredToolCall
@@ -40,16 +40,10 @@ from products.posthog_ai.evals.experiments.scorers import (
     RecommendsShipVariant,
 )
 from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
-# Cases are bundled into one suite function rather than one function per case
-# because the harness wraps a list of cases in a single SandboxedPrivateEval
-# call: one Braintrust experiment, with concurrency bounded by the harness's
-# global sandbox semaphore and per-case filtering via --eval. Splitting into
-# one function per case would create N separate Braintrust experiments and break
-# cross-case comparison. Every existing sandboxed eval (eval_funnel,
-# eval_retention, eval_insight_retrieval, eval_rollout_skill) follows this same
-# single-function-multiple-cases shape.
+# Keep the cases in one experiment so their scores can be compared together.
 async def eval_lifecycle_skills(ctx: EvalContext) -> None:
     cases: list[SandboxedEvalCase] = [
         # Case 1: Ship variant must require confirmation.
@@ -89,8 +83,19 @@ async def eval_lifecycle_skills(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
+    await SandboxedEval(
         experiment_name="sandboxed-experiments-lifecycle-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_lifecycle_skills::eval_lifecycle_skills",
+            metrics=[
+                "resolved_experiment_by_name",
+                "no_unconfirmed_ship",
+                "asked_for_confirmation",
+                "duplicate_unique_flag_key",
+                "recommends_ship_variant",
+            ],
+        ),
         cases=cases,
         scorers=[
             # Agent must look up the named experiment.

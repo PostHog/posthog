@@ -1,9 +1,11 @@
 import json
 import pickle
+from datetime import timedelta
 
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
+from django.utils import timezone
 
 import redis as redis_lib
 import zstandard as zstd
@@ -190,6 +192,32 @@ class TestAuthTokenCacheVerifier(TestCase):
             {
                 "type": "personal",
                 "user_id": inactive_user.id,
+                "key_id": str(pak.id),
+                "org_ids": [str(self.org.id)],
+                "scoped_teams": None,
+                "scoped_orgs": None,
+                "scopes": ["feature_flag:read"],
+            },
+        )
+
+        verify_and_fix_auth_token_cache(self.redis, batch_size=10)
+
+        assert not self.redis.exists(key)
+
+    def test_personal_token_for_expired_key_is_removed(self):
+        pak = PersonalAPIKey.objects.create(
+            user=self.user,
+            label="test-pak-expired",
+            secure_value=hash_key_value("phx_pak_expired", mode="sha256"),
+            scopes=["feature_flag:read"],
+            expires_at=timezone.now() - timedelta(minutes=1),
+        )
+
+        key = self._set_cache(
+            pak.secure_value,
+            {
+                "type": "personal",
+                "user_id": self.user.id,
                 "key_id": str(pak.id),
                 "org_ids": [str(self.org.id)],
                 "scoped_teams": None,

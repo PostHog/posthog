@@ -179,8 +179,11 @@ def _fanout_source(
     job_id: str,
 ) -> SourceResponse:
     assert config.fanout is not None
-    # No resume state: the parent lists (invoices, LKE clusters) are small, so a restarted run
-    # re-walks them cheaply.
+    child_endpoint_extra: Endpoint = (
+        {"data_selector": "$", "paginator": "single_page"} if config.single_object else {"data_selector": "data"}
+    )
+    # No resume state: the parent lists (invoices, LKE clusters, volume quotas) are small, so a
+    # restarted run re-walks them cheaply.
     dependent_resource = cast(
         Iterable[Any],
         build_dependent_resource(
@@ -193,8 +196,8 @@ def _fanout_source(
             job_id=job_id,
             db_incremental_field_last_value=None,
             parent_endpoint_extra={"data_selector": "data"},
-            child_endpoint_extra={"data_selector": "data"},
-            page_size_param="page_size",
+            child_endpoint_extra=child_endpoint_extra,
+            page_size_param=None if config.single_object else "page_size",
         ),
     )
     return _make_source_response(config, endpoint, lambda: dependent_resource)

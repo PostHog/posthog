@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import pytest
@@ -26,10 +26,12 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.dags.groups_backfill import (
     GROUPS_JOB_NAME,
+    GROUPS_REFRESH_DATE_TAG,
     GROUPS_SNAPSHOT_TAG,
     MAX_TEAMS_PER_TICK,
     RETRY_BASE_SECONDS,
     duckling_groups_backfill,
+    duckling_groups_daily_backfill_sensor,
     duckling_groups_full_backfill_sensor,
     ensure_groups_table,
     export_groups_to_duckling_s3,
@@ -37,8 +39,16 @@ from products.managed_warehouse.dags.groups_backfill import (
     run_groups_backfill,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
-def test_groups_snapshot_deduplicates_keys_within_each_team_and_group_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    from dagster import RunRequest
+
+
+@pytest.mark.parametrize("partition_date", [None, datetime(2025, 1, 1), datetime(2025, 1, 2), datetime(2025, 1, 3)])
+def test_groups_snapshot_deduplicates_keys_within_each_team_and_group_type(
+    monkeypatch: pytest.MonkeyPatch, partition_date: datetime | None
+) -> None:
     monkeypatch.setattr(settings, "CLICKHOUSE_USE_HTTP", False)
     table_name = f"test_groups_snapshot_{uuid4().hex}"
     with get_client_from_pool() as client:
@@ -69,19 +79,27 @@ def test_groups_snapshot_deduplicates_keys_within_each_team_and_group_type(monke
                     (7, 0, "tied", '{"name":"last insert"}', created, latest, 1),
                 ],
             )
-            query = groups_snapshot_select_sql(7).replace("FROM groups FINAL", f"FROM {table_name} FINAL")
+            query = groups_snapshot_select_sql(7, partition_date).replace(
+                "FROM groups FINAL", f"FROM {table_name} FINAL"
+            )
             rows = client.execute(query)
         finally:
             client.execute(f"DROP TABLE {table_name}")
-    assert sorted(row[:6] for row in rows) == [
+    expected = [
         (7, 0, "company", '{"name":"latest"}', created, latest),
         (7, 0, "tied", '{"name":"last insert"}', created, latest),
         (7, 1, "company", '{"name":"another type"}', created, latest),
     ]
+    assert sorted(row[:6] for row in rows) == [
+        row for row in expected if partition_date is None or row[5] == partition_date
+    ]
 
 
 @pytest.mark.parametrize("memory_override", [None, 20 * 1024**3])
-def test_groups_export_memory_default_and_operator_override(memory_override: int | None) -> None:
+@pytest.mark.parametrize("partition_date", [None, datetime(2025, 1, 2)])
+def test_groups_export_memory_default_and_operator_override(
+    memory_override: int | None, partition_date: datetime | None
+) -> None:
     client = MagicMock()
     client.execute.return_value = [(100,)]
     context = MagicMock()
@@ -94,11 +112,12 @@ def test_groups_export_memory_default_and_operator_override(memory_override: int
     with patch(
         "products.managed_warehouse.dags.groups_backfill.get_s3_url_for_clickhouse", return_value="https://example.com"
     ):
-        result = export_groups_to_duckling_s3(context, client, config, target)
+        result = export_groups_to_duckling_s3(context, client, config, target, partition_date)
 
     export_query = client.execute.call_args.args[0]
     export_settings = client.execute.call_args.kwargs["settings"]
-    assert result == "s3://unused/backfill/groups/7/synthetic-run/*.parquet"
+    period = "/2025-01-02" if partition_date is not None else ""
+    assert result == f"s3://unused/backfill/groups/7{period}/synthetic-run/*.parquet"
     assert "FROM groups FINAL" in export_query
     assert "ORDER BY" not in export_query
     assert export_settings["max_memory_usage"] == (memory_override if memory_override is not None else 100 * 1024**3)
@@ -157,15 +176,31 @@ def lake(tmp_path: Path) -> Iterator[psycopg.Connection[tuple[object, ...]]]:
         "skip_registration",
     ],
 )
-def test_groups_full_backfill_cleans_team_and_replays_registration(
-    lake: psycopg.Connection[tuple[object, ...]], tmp_path: Path, scenario: str
+@pytest.mark.parametrize("daily", [False, True])
+@time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
+def test_groups_backfill_cleans_only_its_partition_and_replays_registration(
+    lake: psycopg.Connection[tuple[object, ...]], tmp_path: Path, scenario: str, daily: bool
 ) -> None:
     table = f"{DUCKLAKE_ALIAS}.posthog.groups_production"
     target = DucklingTarget(team_id=7, organization_id="org", bucket="unused", bucket_region="us-east-1")
-    lake.execute(f"INSERT INTO {table} (team_id, group_type_index, group_key) VALUES (7, 0, 'old'), (8, 0, 'other')")
+    date = datetime(2025, 12, 31, tzinfo=UTC)
+    lake.execute(
+        f"INSERT INTO {table} (team_id, group_type_index, group_key, _timestamp) VALUES (%s, %s, %s, %s)",
+        (7, 0, "old", date),
+    )
+    for team, key, timestamp in [
+        (7, "before", date - timedelta(microseconds=1)),
+        (7, "after", date + timedelta(days=1)),
+        (8, "other", date),
+    ]:
+        lake.execute(
+            f"INSERT INTO {table} (team_id, group_type_index, group_key, _timestamp) VALUES (%s, %s, %s, %s)",
+            (team, 0, key, timestamp),
+        )
+    untouched = [(7, "after"), (7, "before"), (8, "other")] if daily else [(8, "other")]
     for name in ("a", "b"):
         lake.execute(
-            f"COPY (SELECT * REPLACE ('{name}' AS group_key) FROM {table} WHERE team_id = 7) TO %s (FORMAT PARQUET)",
+            f"COPY (SELECT * REPLACE ('{name}' AS group_key) FROM {table} WHERE team_id = 7 AND group_key = 'old') TO %s (FORMAT PARQUET)",
             (str(tmp_path / f"{name}.parquet"),),
         )
     valid_second_file = (tmp_path / "b.parquet").read_bytes()
@@ -177,7 +212,7 @@ def test_groups_full_backfill_cleans_team_and_replays_registration(
         skip_ducklake_registration=scenario == "skip_registration",
     )
     context = MagicMock()
-    context.partition_key = "7"
+    context.partition_key = "7_2025-12-31" if daily else "7"
     context.run.run_id = "synthetic-run"
     cluster = MagicMock()
     preview = config.dry_run or config.skip_ducklake_registration
@@ -188,7 +223,10 @@ def test_groups_full_backfill_cleans_team_and_replays_registration(
 
     def export_result(**kwargs: object) -> MagicMock:
         if not preview and config.cleanup_existing_partition_data:
-            assert lake.execute(f"SELECT group_key FROM {table} WHERE team_id = 7").fetchall() == []
+            assert (
+                lake.execute(f"SELECT team_id, group_key FROM {table} ORDER BY team_id, group_key").fetchall()
+                == untouched
+            )
         if failing_export:
             raise RuntimeError("export failed")
         result = MagicMock()
@@ -224,7 +262,7 @@ def test_groups_full_backfill_cleans_team_and_replays_registration(
         if scenario in ("invalid_file", "export_failure"):
             with pytest.raises(duckdb.Error if scenario == "invalid_file" else RuntimeError):
                 run_groups_backfill(context, config)
-            expected = [(7, "a"), (8, "other")] if scenario == "invalid_file" else [(8, "other")]
+            expected = sorted(untouched + ([(7, "a")] if scenario == "invalid_file" else []))
             assert (
                 lake.execute(f"SELECT team_id, group_key FROM {table} ORDER BY team_id, group_key").fetchall()
                 == expected
@@ -234,16 +272,20 @@ def test_groups_full_backfill_cleans_team_and_replays_registration(
         run_groups_backfill(context, config)
         assert bool(connect.call_count) is not preview
 
-    expected_rows = [(8, "other")]
+    expected_rows = list(untouched)
     if scenario not in ("empty", "dry_run", "skip_registration"):
         expected_rows.extend([(7, "a"), (7, "b")])
     if scenario in ("append", "dry_run", "skip_registration"):
         expected_rows.append((7, "old"))
+        if not daily:
+            expected_rows.extend([(7, "before"), (7, "after")])
     assert lake.execute(f"SELECT team_id, group_key FROM {table} ORDER BY team_id, group_key").fetchall() == sorted(
         expected_rows
     )
     expected_files = 0 if scenario in ("empty", "dry_run", "skip_registration") else 2
-    assert context.add_output_metadata.call_args.args[0]["files_registered"] == expected_files
+    metadata = context.add_output_metadata.call_args.args[0]
+    assert metadata["files_registered"] == expected_files
+    assert metadata["export_mode"] == ("daily" if daily else "full")
 
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -274,19 +316,23 @@ def _add_run(
     *,
     snapshot: bool = True,
     age_seconds: int = RETRY_BASE_SECONDS + 1,
+    partition_key: str | None = None,
 ) -> None:
-    instance.add_run(
-        DagsterRun(
-            job_name=GROUPS_JOB_NAME,
-            run_id=run_id,
-            status=status,
-            tags={"dagster/partition": str(team_id), GROUPS_SNAPSHOT_TAG: "true" if snapshot else "false"},
+    with time_machine.travel(datetime.now(UTC) - timedelta(seconds=age_seconds), tick=False):
+        instance.add_run(
+            DagsterRun(
+                job_name=GROUPS_JOB_NAME,
+                run_id=run_id,
+                status=status,
+                tags={
+                    "dagster/partition": partition_key or str(team_id),
+                    GROUPS_SNAPSHOT_TAG: "true" if snapshot else "false",
+                },
+            )
         )
-    )
-    if status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
-        run = instance.get_run_by_id(run_id)
-        assert run is not None
-        with time_machine.travel(_NOW - timedelta(seconds=age_seconds), tick=False):
+        if status in (DagsterRunStatus.FAILURE, DagsterRunStatus.CANCELED):
+            run = instance.get_run_by_id(run_id)
+            assert run is not None
             instance.report_run_failed(run)
 
 
@@ -341,12 +387,23 @@ def test_preview_after_snapshot_or_during_active_snapshot_does_not_schedule_anot
         assert not result.run_requests
 
 
+@pytest.mark.parametrize("daily", [False, True])
 @time_machine.travel(_NOW, tick=False)
-def test_failed_teams_do_not_starve_discovery_and_storage_reads_are_bounded() -> None:
+def test_failed_teams_do_not_starve_discovery_and_storage_reads_are_bounded(daily: bool) -> None:
     memberships = [_membership(i) for i in range(1, MAX_TEAMS_PER_TICK + 10)]
+    evaluate = duckling_groups_daily_backfill_sensor if daily else duckling_groups_full_backfill_sensor
     with DagsterInstance.ephemeral() as instance:
+        if daily:
+            for row in memberships:
+                _add_run(instance, row.team_id, f"initial-{row.team_id}", DagsterRunStatus.SUCCESS, age_seconds=86400)
         for team_id in range(1, 4):
-            _add_run(instance, team_id, f"failure-{team_id}", DagsterRunStatus.FAILURE)
+            _add_run(
+                instance,
+                team_id,
+                f"failure-{team_id}",
+                DagsterRunStatus.FAILURE,
+                partition_key=f"{team_id}_2025-12-31" if daily else None,
+            )
         with (
             patch(
                 "products.managed_warehouse.dags.groups_backfill.list_enabled_backfill_team_memberships",
@@ -354,30 +411,57 @@ def test_failed_teams_do_not_starve_discovery_and_storage_reads_are_bounded() ->
             ),
             patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
         ):
-            first = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+            first = evaluate(build_sensor_context(instance=instance))
             assert isinstance(first, SensorResult)
-            second = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance, cursor=first.cursor))
+            second = evaluate(build_sensor_context(instance=instance, cursor=first.cursor))
             assert isinstance(second, SensorResult)
-            assert [r.partition_key for r in second.run_requests or []] == ["4", "5", "6"]
+            assert [r.partition_key for r in second.run_requests or []] == [
+                f"{team_id}_2025-12-31" if daily else str(team_id) for team_id in (4, 5, 6)
+            ]
             for row in memberships:
-                _add_run(instance, row.team_id, f"success-{row.team_id}", DagsterRunStatus.SUCCESS)
+                _add_run(
+                    instance,
+                    row.team_id,
+                    f"success-{row.team_id}",
+                    DagsterRunStatus.SUCCESS,
+                    age_seconds=0,
+                    partition_key=f"{row.team_id}_2025-12-31" if daily else None,
+                )
             with patch.object(instance, "get_run_records", wraps=instance.get_run_records) as reads:
-                scanned = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+                scanned = evaluate(build_sensor_context(instance=instance))
             assert isinstance(scanned, SensorResult)
             assert scanned.cursor == str(MAX_TEAMS_PER_TICK)
-            assert reads.call_count <= MAX_TEAMS_PER_TICK
-            wrapped = duckling_groups_full_backfill_sensor(
-                build_sensor_context(instance=instance, cursor=str(memberships[-1].team_id))
-            )
+            assert reads.call_count <= MAX_TEAMS_PER_TICK * (2 if daily else 1)
+            wrapped = evaluate(build_sensor_context(instance=instance, cursor=str(memberships[-1].team_id)))
             assert isinstance(wrapped, SensorResult)
             assert wrapped.cursor == str(MAX_TEAMS_PER_TICK)
 
 
-@pytest.mark.parametrize("age_seconds,expected", [(0, False), (RETRY_BASE_SECONDS + 1, True)])
+@pytest.mark.parametrize("daily", [False, True])
+@pytest.mark.parametrize(
+    "failures,age_seconds,expected",
+    [
+        (1, 0, False),
+        (1, RETRY_BASE_SECONDS + 1, True),
+        (6, RETRY_BASE_SECONDS + 1, False),
+        (6, RETRY_BASE_SECONDS * 32 + 1, True),
+    ],
+)
 @time_machine.travel(_NOW, tick=False)
-def test_failed_snapshot_observes_retry_backoff(age_seconds: int, expected: bool) -> None:
+def test_failed_snapshot_observes_retry_backoff(daily: bool, failures: int, age_seconds: int, expected: bool) -> None:
+    evaluate = duckling_groups_daily_backfill_sensor if daily else duckling_groups_full_backfill_sensor
     with DagsterInstance.ephemeral() as instance:
-        _add_run(instance, 7, "failed", DagsterRunStatus.FAILURE, age_seconds=age_seconds)
+        if daily:
+            _add_run(instance, 7, "initial", DagsterRunStatus.SUCCESS, age_seconds=86400)
+        for i in range(failures):
+            _add_run(
+                instance,
+                7,
+                f"failed-{i}",
+                DagsterRunStatus.FAILURE,
+                age_seconds=age_seconds,
+                partition_key="7_2025-12-31" if daily else None,
+            )
         with (
             patch(
                 "products.managed_warehouse.dags.groups_backfill.list_enabled_backfill_team_memberships",
@@ -385,20 +469,110 @@ def test_failed_snapshot_observes_retry_backoff(age_seconds: int, expected: bool
             ),
             patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
         ):
-            result = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+            result = evaluate(build_sensor_context(instance=instance))
         assert isinstance(result, SensorResult)
         assert bool(result.run_requests) == expected
 
 
-@pytest.mark.parametrize("config", [{"dry_run": True}, {"skip_ducklake_registration": True}])
-def test_preview_clears_inherited_snapshot_tag(config: dict[str, bool]) -> None:
+@pytest.mark.parametrize(
+    "initial_age,status,age_seconds,run_kind,expected",
+    [
+        (None, None, 0, "daily", False),
+        (None, DagsterRunStatus.SUCCESS, 0, "preview", False),
+        (None, DagsterRunStatus.FAILURE, RETRY_BASE_SECONDS + 1, "daily", False),
+        (86400, None, 0, "daily", True),
+        (0, None, 0, "daily", True),
+        (86400, DagsterRunStatus.SUCCESS, 0, "preview", True),
+        (86400, DagsterRunStatus.STARTED, 0, "daily", False),
+        (86400, DagsterRunStatus.STARTED, 0, "full", False),
+        (86400, DagsterRunStatus.SUCCESS, 0, "daily", False),
+        (86400, DagsterRunStatus.FAILURE, 0, "daily", False),
+        (86400, DagsterRunStatus.FAILURE, RETRY_BASE_SECONDS + 1, "daily", True),
+        (86400, DagsterRunStatus.CANCELED, RETRY_BASE_SECONDS + 1, "daily", True),
+    ],
+)
+@time_machine.travel(_NOW, tick=False)
+def test_daily_groups_topup_requires_initial_full_success_and_observes_its_own_runs(
+    initial_age: int | None, status: DagsterRunStatus | None, age_seconds: int, run_kind: str, expected: bool
+) -> None:
     with DagsterInstance.ephemeral() as instance:
-        instance.add_dynamic_partitions("duckling_groups_backfill", ["7"])
+        if initial_age is not None:
+            _add_run(instance, 7, "initial", DagsterRunStatus.SUCCESS, age_seconds=initial_age)
+        if status is not None:
+            _add_run(
+                instance,
+                7,
+                "latest",
+                status,
+                age_seconds=age_seconds,
+                snapshot=run_kind != "preview",
+                partition_key="7" if run_kind == "full" else "7_2025-12-31",
+            )
+        with (
+            patch(
+                "products.managed_warehouse.dags.groups_backfill.list_enabled_backfill_team_memberships",
+                return_value=[_membership(7)],
+            ),
+            patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
+        ):
+            result = duckling_groups_daily_backfill_sensor(build_sensor_context(instance=instance))
+            assert isinstance(result, SensorResult)
+            assert bool(result.run_requests) == expected
+            if initial_age is not None:
+                initial = duckling_groups_full_backfill_sensor(build_sensor_context(instance=instance))
+                assert isinstance(initial, SensorResult)
+                assert not initial.run_requests
+
+
+@time_machine.travel(_NOW, tick=False)
+def test_daily_groups_topup_is_partitioned_by_yesterday_and_retries_with_a_new_run_key() -> None:
+    with (
+        DagsterInstance.ephemeral() as instance,
+        patch(
+            "products.managed_warehouse.dags.groups_backfill.list_enabled_backfill_team_memberships",
+            return_value=[_membership(7)],
+        ),
+        patch("products.managed_warehouse.dags.groups_backfill._repair_stale_running_statuses"),
+    ):
+        _add_run(instance, 7, "initial", DagsterRunStatus.SUCCESS, age_seconds=86400)
+
+        def requests() -> Sequence[RunRequest]:
+            result = duckling_groups_daily_backfill_sensor(build_sensor_context(instance=instance))
+            assert isinstance(result, SensorResult)
+            return result.run_requests or []
+
+        first = requests()[0]
+        assert first.partition_key == "7_2025-12-31"
+        result = duckling_groups_daily_backfill_sensor(build_sensor_context(instance=instance))
+        assert isinstance(result, SensorResult)
+        assert result.dynamic_partitions_requests is not None
+        assert result.dynamic_partitions_requests[0].partition_keys == ["7_2025-12-31"]
+        assert first.tags[GROUPS_REFRESH_DATE_TAG] == "2025-12-31"
+        assert requests()[0].run_key == first.run_key
+        _add_run(instance, 7, "failed", DagsterRunStatus.FAILURE, partition_key="7_2025-12-31")
+        assert requests()[0].run_key != first.run_key
+        _add_run(instance, 7, "refreshed", DagsterRunStatus.SUCCESS, age_seconds=0, partition_key="7_2025-12-31")
+        assert not requests()
+        with time_machine.travel(_NOW + timedelta(hours=1), tick=False):
+            _add_run(instance, 7, "failed-rerun", DagsterRunStatus.FAILURE, partition_key="7_2025-12-31")
+            assert requests()[0].run_key not in (first.run_key, "7_2025-12-31_groups_failed")
+        with time_machine.travel(_NOW + timedelta(days=1), tick=False):
+            tomorrow = requests()[0]
+            assert tomorrow.run_key != first.run_key
+            assert tomorrow.partition_key == "7_2026-01-01"
+            assert tomorrow.tags[GROUPS_REFRESH_DATE_TAG] == "2026-01-01"
+
+
+@pytest.mark.parametrize("config", [{"dry_run": True}, {"skip_ducklake_registration": True}])
+@pytest.mark.parametrize("partition_key", ["7", "7_2025-12-31"])
+def test_preview_clears_inherited_snapshot_tag(config: dict[str, bool], partition_key: str) -> None:
+    with DagsterInstance.ephemeral() as instance:
+        instance.add_dynamic_partitions("duckling_groups_backfill", [partition_key])
         with patch("products.managed_warehouse.dags.groups_backfill.run_groups_backfill"):
             result = materialize(
                 [duckling_groups_backfill],
                 instance=instance,
-                partition_key="7",
+                partition_key=partition_key,
                 tags={GROUPS_SNAPSHOT_TAG: "true"},
                 run_config={"ops": {"duckling_groups_backfill": {"config": config}}},
             )

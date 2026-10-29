@@ -11,7 +11,6 @@ import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
-import { getResultSeriesName } from 'scenes/insights/utils/resultSeriesName'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -26,6 +25,7 @@ import {
     SeriesDatum,
 } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 
+import { getResultSeriesName } from './resultSeriesName'
 import { getSeriesIdentification, type SeriesIdentification } from './seriesIdentification'
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -38,7 +38,6 @@ type InsightSeriesMetaBase = {
     compare_label?: SeriesDatum['compare_label']
     days?: string[]
     order?: number
-    filter?: SeriesDatum['filter']
 }
 
 type InsightSeriesTooltipEntry<Meta extends InsightSeriesMetaBase> = TooltipContext<Meta>['seriesData'][number]
@@ -263,7 +262,6 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                 breakdown_value: meta.breakdown_value ?? undefined,
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
-                filter: meta.filter,
             })
         })
         return m

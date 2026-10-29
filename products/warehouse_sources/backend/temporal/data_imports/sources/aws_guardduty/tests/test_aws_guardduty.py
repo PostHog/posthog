@@ -143,6 +143,128 @@ def test_detector_details(config: AwsGuarddutySourceConfig) -> None:
 
 
 @pytest.mark.parametrize(
+    "endpoint,path,items_key,item,timestamp_column,partition_keys",
+    [
+        (
+            "coverage",
+            "/detector/detector-example/coverage",
+            "resources",
+            {
+                "resourceId": "i-example",
+                "accountId": "111111111111",
+                "coverageStatus": "HEALTHY",
+                "updatedAt": 1735689600.0,
+            },
+            "updated_at",
+            None,
+        ),
+        (
+            "malware_scans",
+            "/detector/detector-example/malware-scans",
+            "scans",
+            {"scanId": "scan-example", "scanStatus": "COMPLETED", "scanStartTime": 1735689600, "totalBytes": 10},
+            "scan_start_time",
+            ["scan_start_time"],
+        ),
+    ],
+)
+def test_detector_list_endpoints_page_and_parse_epoch_timestamps(
+    config: AwsGuarddutySourceConfig,
+    endpoint: str,
+    path: str,
+    items_key: str,
+    item: dict[str, Any],
+    timestamp_column: str,
+    partition_keys: list[str] | None,
+) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        endpoint,
+        [
+            ScriptedResponse(json={"detectorIds": ["detector-example"]}),
+            ScriptedResponse(json={items_key: [item], "nextToken": "page-2"}),
+            ScriptedResponse(json={items_key: [item]}),
+        ],
+        api_version=VERSION,
+    )
+    assert result.raised is None
+    assert len(result.items) == 2
+    row = result.items[0][0]
+    assert row[timestamp_column] == UPDATED_AT
+    assert row["source_detector_id"] == "detector-example"
+    assert all(request.path.endswith(path) for request in result.requests[1:])
+    assert result.requests[1].json() == {"maxResults": 50}
+    assert result.requests[2].json() == {"maxResults": 50, "nextToken": "page-2"}
+    assert result.saved_states[-1].detector_ids == []
+    assert result.response is not None and result.response.partition_keys == partition_keys
+
+
+def test_usage_statistics_walks_every_statistic_type_per_detector(config: AwsGuarddutySourceConfig) -> None:
+    total = {"amount": "1.5", "unit": "USD"}
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "usage_statistics",
+        [
+            ScriptedResponse(json={"detectorIds": ["detector-a", "detector-b"]}),
+            ScriptedResponse(
+                json={
+                    "usageStatistics": {"sumByAccount": [{"accountId": "111111111111", "total": total}]},
+                    "nextToken": "next",
+                }
+            ),
+            ScriptedResponse(
+                json={"usageStatistics": {"sumByAccount": [{"accountId": "222222222222", "total": total}]}}
+            ),
+            ScriptedResponse(json={"usageStatistics": {"sumByFeature": [{"feature": "FLOW_LOGS", "total": total}]}}),
+            ScriptedResponse(json={"usageStatistics": {"sumByResource": []}}),
+            ScriptedResponse(json={"usageStatistics": {}}),
+            ScriptedResponse(json={"usageStatistics": {}}),
+            ScriptedResponse(
+                json={"usageStatistics": {"sumByResource": [{"resource": "bucket-example", "total": total}]}}
+            ),
+        ],
+        api_version=VERSION,
+    )
+    assert result.raised is None
+    rows = [row for batch in result.items for row in batch]
+    assert [(row["source_detector_id"], row["usage_statistic_type"], row["usage_key"]) for row in rows] == [
+        ("detector-a", "SUM_BY_ACCOUNT", "111111111111"),
+        ("detector-a", "SUM_BY_ACCOUNT", "222222222222"),
+        ("detector-a", "SUM_BY_FEATURES", "FLOW_LOGS"),
+        ("detector-b", "SUM_BY_RESOURCE", "bucket-example"),
+    ]
+    assert rows[0]["total"] == total
+    payloads = [request.json() for request in result.requests[1:]]
+    assert [payload["usageStatisticsType"] for payload in payloads] == [
+        "SUM_BY_ACCOUNT",
+        "SUM_BY_ACCOUNT",
+        "SUM_BY_FEATURES",
+        "SUM_BY_RESOURCE",
+        "SUM_BY_ACCOUNT",
+        "SUM_BY_FEATURES",
+        "SUM_BY_RESOURCE",
+    ]
+    assert payloads[1]["nextToken"] == "next"
+    assert "FLOW_LOGS" in payloads[0]["usageCriteria"]["features"]
+    assert result.requests[-1].path.endswith("/detector/detector-b/usage/statistics")
+    assert result.saved_states[-1].detector_ids == []
+
+
+def test_usage_statistics_resumes_at_saved_statistic_type(config: AwsGuarddutySourceConfig) -> None:
+    result = SourceDriver(AwsGuarddutySource(), config).run(
+        "usage_statistics",
+        [ScriptedResponse(json={"usageStatistics": {"sumByResource": [{"resource": "bucket-example"}]}})],
+        api_version=VERSION,
+        resume_state=AwsGuarddutyResumeConfig(
+            detector_ids=["detector-example"], usage_statistic_types=["SUM_BY_RESOURCE"], next_token="resume-token"
+        ),
+    )
+    assert result.raised is None
+    assert result.items[0][0]["usage_key"] == "bucket-example"
+    assert len(result.requests) == 1
+    assert result.requests[0].json()["usageStatisticsType"] == "SUM_BY_RESOURCE"
+    assert result.requests[0].json()["nextToken"] == "resume-token"
+
+
+@pytest.mark.parametrize(
     "value,expected",
     [
         (None, None),
@@ -259,7 +381,15 @@ def test_no_detector_validation(config: AwsGuarddutySourceConfig, schema_name: s
 
 
 @pytest.mark.parametrize(
-    "schema_name,path", [("findings", "/findings"), ("members", "/member"), ("detectors", "/detector/detector-example")]
+    "schema_name,path",
+    [
+        ("findings", "/findings"),
+        ("members", "/member"),
+        ("detectors", "/detector/detector-example"),
+        ("coverage", "/coverage"),
+        ("malware_scans", "/malware-scans"),
+        ("usage_statistics", "/usage/statistics"),
+    ],
 )
 def test_endpoint_validation_calls_its_read_operation(
     config: AwsGuarddutySourceConfig, schema_name: str, path: str
@@ -284,10 +414,12 @@ def test_findings_validation_checks_hydration_permission(config: AwsGuarddutySou
     assert network.requests_log[-1].path.endswith("/findings/get")
 
 
-def test_server_errors_propagate_from_validation(config: AwsGuarddutySourceConfig) -> None:
+def test_server_errors_report_an_unreachable_vendor(config: AwsGuarddutySourceConfig) -> None:
     with scripted_network(always(ScriptedResponse(status=500, json={"__type": "InternalServerErrorException"}))):
-        with pytest.raises(AwsGuarddutyError, match="InternalServerErrorException"):
-            validate_credentials(config, VERSION)
+        assert validate_credentials(config, VERSION) == (
+            False,
+            "Couldn't reach AWS GuardDuty to check your credentials. Try again in a few minutes.",
+        )
 
 
 @pytest.mark.parametrize(

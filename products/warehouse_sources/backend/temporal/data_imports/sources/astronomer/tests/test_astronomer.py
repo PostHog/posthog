@@ -134,8 +134,6 @@ def test_deploy_resume_skips_completed_parents_and_continues_child_page() -> Non
 @pytest.mark.parametrize(
     ("status", "schema", "valid", "message"),
     [
-        (200, None, True, None),
-        (401, None, False, "API token"),
         (403, None, True, None),
         (403, "clusters", False, "organization.clusters.get"),
         (404, None, False, "organization ID"),

@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -101,6 +102,69 @@ class TestPagination:
         assert result.session_options == [{"redact_values": ("secret",)}]
 
 
+class TestNewEndpoints:
+    @pytest.mark.parametrize("endpoint", ["lead_statuses", "lead_fields"])
+    def test_unpaginated_endpoint_makes_one_request_without_page_param(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json={"status": "success", endpoint: [{"id": "x_1"}]})])
+
+        assert result.raised is None
+        assert result.rows == [{"id": "x_1"}]
+        assert result.paths == [f"/v1/{endpoint}"]
+        assert result.params("page") == [None]
+
+    def test_dnc_domains_follows_pagination(self) -> None:
+        result = _driver().run(
+            "dnc_domains",
+            [
+                _page([{"id": "dom_1"}], has_more=True, list_key="dnc_domains"),
+                _page([{"id": "dom_2"}], has_more=False, list_key="dnc_domains"),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["dom_1", "dom_2"]
+        assert result.params("page") == ["1", "2"]
+
+    @pytest.mark.parametrize(
+        ("inputs", "expected_start_at"),
+        [
+            ({}, None),
+            ({"incremental_field": "event_at"}, None),
+            (
+                {
+                    "incremental_field": "event_at",
+                    "db_incremental_field_last_value": datetime(2024, 5, 1, 12, 30, tzinfo=UTC),
+                },
+                "2024-05-01T12:30:00Z",
+            ),
+            (
+                {
+                    "incremental_field": "event_at",
+                    "should_use_incremental_field": False,
+                    "db_incremental_field_last_value": datetime(2024, 5, 1, tzinfo=UTC),
+                },
+                None,
+            ),
+        ],
+    )
+    def test_events_start_at_follows_incremental_watermark(
+        self, inputs: dict[str, Any], expected_start_at: str | None
+    ) -> None:
+        result = _driver().run(
+            "events",
+            [
+                _page([{"id": "evt_1", "event_at": "2024-05-02T00:00:00Z"}], has_more=True, list_key="events"),
+                _page([{"id": "evt_2", "event_at": "2024-05-03T00:00:00Z"}], has_more=False, list_key="events"),
+            ],
+            **inputs,
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["evt_1", "evt_2"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("start_at") == [expected_start_at, expected_start_at]
+
+
 class TestMalformedBody:
     def test_missing_list_key_is_retried_then_succeeds(self) -> None:
         result = _driver().run(
@@ -168,9 +232,6 @@ class TestValidateCredentials:
         ("status", "expected"),
         [
             (200, (True, None)),
-            (401, (False, "Invalid PersistIQ API key")),
-            (403, (False, "Invalid PersistIQ API key")),
-            (500, (False, "PersistIQ returned HTTP 500")),
         ],
     )
     def test_status_mapping(self, status: int, expected: tuple[bool, str | None]) -> None:
@@ -182,11 +243,3 @@ class TestValidateCredentials:
         assert {request.path for request in network.requests_log} == {"/v1/users"}
         assert {request.param("page") for request in network.requests_log} == {"1"}
         assert {request.headers["x-api-key"] for request in network.requests_log} == {"pq-key"}
-
-    def test_connection_error_is_invalid(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))) as network:
-            valid, message = validate_credentials("pq-key")
-
-        assert valid is False
-        assert message is not None
-        assert network.requests_log

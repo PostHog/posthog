@@ -7,4 +7,5 @@ export type DashboardWidgetProductAccess =
     | 'experiment'
     | 'survey'
     | 'logs'
+    | 'metrics'
     | 'ticket'

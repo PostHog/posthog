@@ -10,7 +10,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 
-from products.exports.backend.models.subscription import Subscription
 from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,
@@ -20,6 +19,7 @@ from products.subscriptions.backend.logic.auto_disable import (
     disable_invalid_subscription,
 )
 from products.subscriptions.backend.logic.slack_subscriptions import SlackDeliveryResult, get_slack_integration_for_team
+from products.subscriptions.backend.models.subscription import Subscription
 from products.subscriptions.backend.temporal.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
@@ -32,26 +32,6 @@ LOGGER = get_logger(__name__)
 # details into history events capped at the gRPC payload limit, and an oversized non-retryable
 # error can't be recorded, leaving the workflow unable to complete its failing task.
 _MAX_ERROR_DETAIL_RESULTS = 50
-
-
-def strip_null_bytes(value: Any) -> Any:
-    """Recursively remove NUL (\\x00) from strings — Postgres text/jsonb columns cannot store it.
-
-    Anything written to ``SubscriptionDelivery.content_snapshot`` that originates outside a Postgres
-    text column (ClickHouse query results, LLM output, user-supplied prompts) must pass through this
-    first, or the NUL surfaces as a unicode escape that fails the whole delivery write with a DataError.
-    """
-    if isinstance(value, str):
-        return value.replace("\x00", "")
-    if isinstance(value, list):
-        return [strip_null_bytes(v) for v in value]
-    if isinstance(value, tuple):
-        return tuple(strip_null_bytes(v) for v in value)
-    if isinstance(value, dict):
-        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
-        # and Postgres rejects it in a jsonb key just as it does in a value.
-        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
-    return value
 
 
 def error_detail_results(recipient_results: list[RecipientResult]) -> list[dict[str, Any]]:

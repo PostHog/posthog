@@ -5,8 +5,8 @@ from rest_framework import response, serializers
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 
-from ee.api.scim.utils import mask_email, mask_string
-from ee.models.scim_request_log import SCIMRequestLog
+from posthog.api.scim.utils import mask_email, mask_string
+from posthog.models.scim_request_log import SCIMRequestLog
 
 
 class SCIMRequestLogSerializer(serializers.ModelSerializer):

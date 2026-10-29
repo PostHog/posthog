@@ -10,8 +10,8 @@ use crate::types::SerializedKafkaMessage;
 pub const DEFAULT_MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
 
 /// Approximate serialized size of one message within a frame. Field names and
-/// punctuation are a small constant; escaping of the embedded JSON text is
-/// absorbed by the headroom between the split cap and the worker's hard limit.
+/// punctuation are a small constant; JSON string escaping is ignored (see
+/// [`DEFAULT_MAX_BODY_BYTES`]).
 fn approx_message_size(msg: &SerializedKafkaMessage) -> usize {
     const PER_MESSAGE_OVERHEAD: usize = 96;
     msg.topic.len()
@@ -62,9 +62,8 @@ pub enum SendOutcome {
     },
 }
 
-/// Failure from a worker stream send, carrying back the sub-batch's messages
-/// so the caller can requeue and replay them (the worker may have died
-/// mid-send and the messages were never accepted).
+/// Failure from a worker stream send. It hands back every message of the
+/// sub-batch, in send order, so the caller can requeue and replay them.
 #[derive(Debug)]
 pub struct SendError {
     pub error: TransportError,
@@ -124,9 +123,6 @@ pub enum TransportError {
 }
 
 impl TransportError {
-    /// Worker stream failures resolve through the deferral path and are never
-    /// retried in place. A busy worker stream is transient backpressure, so the
-    /// fenced work re-routes as retriable rather than as a worker fault.
     pub fn is_retriable(&self) -> bool {
         matches!(self, TransportError::WorkerStreamBusy(_))
     }
@@ -161,6 +157,7 @@ mod tests {
             key: None,
             value: Some("x".repeat(value_len)),
             headers: std::collections::HashMap::new(),
+            generation: 0,
         }
     }
 

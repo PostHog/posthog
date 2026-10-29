@@ -44,7 +44,7 @@ _GENERATED_CONFIG_REFERENCE = re.compile(r"(?:[\w.]+\.)?sources\.generated_confi
 
 def _repo_root() -> Path:
     for parent in Path(__file__).resolve().parents:
-        if (parent / ".github" / "workflows" / "ci-backend.yml").exists():
+        if (parent / ".depot" / "workflows" / "ci-backend.yml").exists():
             return parent
     raise RuntimeError("repo root not found")
 

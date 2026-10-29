@@ -5,10 +5,13 @@ from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.zapier_supported_storage.settings import (
     ZAPIER_SUPPORTED_STORAGE_ENDPOINTS,
@@ -41,7 +44,7 @@ def _stringify_value(value: Any) -> str | None:
     return json.dumps(value)
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (ZapierSupportedStorageRetryableError, requests.ReadTimeout, requests.ConnectionError)
     ),

@@ -22,6 +22,7 @@ and a per-span `is_current` flag drives conditional aggregates for each bucket.
 
 import math
 import datetime as dt
+from functools import cached_property
 from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo
 
@@ -47,7 +48,6 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.tracing.backend.logic import TIME_BUCKET_DATE_RANGE_WHERE
 from products.tracing.backend.span_identity import str_attr_field

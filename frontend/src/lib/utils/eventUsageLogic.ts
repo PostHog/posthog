@@ -2,16 +2,16 @@ import { MakeLogicType, actions, connect, kea, listeners, path } from 'kea'
 import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import type { Dayjs } from 'lib/dayjs'
-import { now } from 'lib/dayjs'
 import type { IntegrationConnectSurface, IntegrationLinkExistingCounts } from 'lib/integrations/utils'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { ExperimentWizardStepNavigation } from 'scenes/experiments/ExperimentWizard/experimentWizardLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
+import type { InstallationErrorKind } from 'scenes/onboarding/shared/wizard-sync/installationProgressLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
-import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
 
 import {
@@ -54,30 +54,21 @@ import {
 import {
     ChartDisplayType,
     CohortType,
-    DashboardTileSpacing,
-    DashboardMode,
-    DashboardTile,
-    DashboardType,
     Experiment,
     ExperimentHoldoutType,
     ExperimentIdType,
     ExperimentStatsMethod,
-    FunnelCorrelation,
-    MultipleSurveyQuestion,
-    OnboardingStepKey,
     ProductTour,
     PropertyFilterType,
     InsightModel,
     type SDK,
-    Survey,
-    SurveyQuestionType,
 } from '~/types'
 
 import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 
 import type { ExperimentMetricUnion } from '../../queries/schema/schema-general'
-import type { FunnelCorrelationResultsType, Realm, UserType } from '../../types'
+import type { Realm, UserType } from '../../types'
 
 export enum DashboardEventSource {
     LongPress = 'long_press',
@@ -99,16 +90,6 @@ export enum DashboardEventSource {
     DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
     DashboardVariableOverride = 'dashboard_variable_override',
 }
-
-export type DashboardFilterChangeType =
-    | 'date'
-    | 'properties'
-    | 'breakdown'
-    | 'variable'
-    | 'interval'
-    | 'test_accounts'
-    | 'compare'
-    | 'metric_labels'
 
 export enum InsightEventSource {
     LongPress = 'long_press',
@@ -441,15 +422,6 @@ export type SDKSetupInstructionsSurface =
     | 'settings_reverse_proxy_setup'
     | 'onboarding_ai_observability'
 
-// pinned: event property values. Onboarding funnel insights filter and break down on these, so
-// they keep the values the flow sent while it was one of two experiment arms. `entry_point` rides
-// along with every funnel event, not only `started`, so a breakdown by it stays populated.
-const ONBOARDING_EVENT_PROPS = {
-    version: 1,
-    flow_variant: 'legacy',
-    entry_point: 'product_selection',
-} as const
-
 function retentionWindowDays(metric: ExperimentRetentionMetric): number | undefined {
     const unitToDays: Record<string, number> = { day: 1, week: 7, month: 30 }
     const multiplier = unitToDays[metric.retention_window_unit]
@@ -469,6 +441,15 @@ function getSourceProperties(source: ExperimentMetricSource | ExperimentExposure
             is_data_warehouse: false,
             property_filter_count: 0,
             math_type: undefined,
+            has_math_hogql: false,
+        }
+    }
+    if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+        return {
+            source_kind: source.kind,
+            is_data_warehouse: false,
+            property_filter_count: 0,
+            math_type: source.math,
             has_math_hogql: false,
         }
     }
@@ -582,13 +563,32 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
     }
 }
 
+// Metric variable definitions hold queries and option lists, which do not belong in analytics.
+export function filtersForAnalytics(filters: Record<string, any>): Record<string, any> {
+    const { metricVariables, ...rest } = filters
+    return metricVariables ? { ...rest, metric_variable_count: metricVariables.length } : rest
+}
+
 export function sanitizeInsight(insight: Partial<InsightModel> | null): object | undefined {
     if (!insight) {
         return undefined
     }
 
     // Remove results
-    const { result, ...sanitizedInsight } = insight
+    const { result, ...rest } = insight
+    const context = rest.filter_override_context
+    const sanitizedInsight = context
+        ? {
+              ...rest,
+              filter_override_context: {
+                  ...context,
+                  dashboard: context.dashboard ? filtersForAnalytics(context.dashboard) : context.dashboard,
+                  overridden_dashboard: context.overridden_dashboard
+                      ? filtersForAnalytics(context.overridden_dashboard)
+                      : context.overridden_dashboard,
+              },
+          }
+        : rest
 
     if (sanitizedInsight.query) {
         return {
@@ -598,32 +598,6 @@ export function sanitizeInsight(insight: Partial<InsightModel> | null): object |
     }
 
     return sanitizedInsight
-}
-
-function sanitizeTile(tile: DashboardTile | null): object | undefined {
-    if (!tile) {
-        return undefined
-    }
-
-    return {
-        ...tile,
-        insight: tile.insight ? sanitizeInsight(tile.insight) : undefined,
-    }
-}
-
-export function sanitizeDashboard(dashboard: DashboardType | null): object | null {
-    if (!dashboard) {
-        return null
-    }
-
-    // Remove breakdown color entries, as they carry raw breakdown values (user data) — report only their count
-    const { breakdown_colors, ...sanitizedDashboard } = dashboard
-
-    return {
-        ...sanitizedDashboard,
-        breakdown_colors_count: breakdown_colors?.length ?? 0,
-        tiles: dashboard.tiles?.map((tile) => sanitizeTile(tile)) || [],
-    }
 }
 
 function countBehavioralFilters(value: unknown): number {
@@ -702,58 +676,6 @@ function funnelProperties(querySource: InsightQueryNode): SanitizedQuery {
     }
 }
 
-function increment(counts: Record<string, any>, key: string): void {
-    counts[key] = (counts[key] || 0) + 1
-}
-
-function insightTileCountKey(tile: DashboardTile): string {
-    const query = isNodeWithSource(tile.insight?.query) ? tile.insight.query.source : tile.insight?.query
-    return `${query?.kind || !!tile.text ? 'text' : 'empty'}_count`
-}
-
-function countDashboardTiles(tiles: DashboardTile[], properties: Record<string, any>): void {
-    for (const tile of tiles) {
-        if (tile.insight) {
-            increment(properties, insightTileCountKey(tile))
-            properties.sample_items_count += tile.insight.is_sample ? 1 : 0
-            if (queryUsesDataWarehouse(tile.insight.query)) {
-                properties.uses_data_warehouse_source = true
-                properties.data_warehouse_tiles_count += 1
-            }
-        } else if (tile.widget) {
-            increment(properties, 'widget_tiles_count')
-        } else {
-            increment(properties, 'text_tiles_count')
-        }
-    }
-}
-
-export function dashboardViewedProperties(
-    dashboard: DashboardType,
-    lastRefreshed: Dayjs | null,
-    viewerUuid: string | undefined
-): Record<string, any> {
-    const { created_at, is_shared, pinned, creation_mode, id } = dashboard
-    const properties: Record<string, any> = {
-        created_at,
-        is_shared,
-        pinned,
-        creation_mode,
-        viewer_is_creator:
-            dashboard.created_by?.uuid && viewerUuid ? dashboard.created_by.uuid === viewerUuid : undefined,
-        sample_items_count: 0,
-        item_count: dashboard.tiles?.length || 0,
-        created_by_system: !dashboard.created_by,
-        dashboard_id: id,
-        lastRefreshed: lastRefreshed?.toISOString(),
-        refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
-        uses_data_warehouse_source: false,
-        data_warehouse_tiles_count: 0,
-    }
-    countDashboardTiles(dashboard.tiles || [], properties)
-    return properties
-}
-
 /** Takes a query and returns an object with "useful" properties that don't contain sensitive data. */
 export function sanitizeQuery(query: Node | null): SanitizedQuery {
     const payload: SanitizedQuery = {
@@ -824,24 +746,6 @@ export interface eventUsageLogicActions {
     }
     reportBounceRatePageViewModeUpdated: (mode: string) => {
         mode: string
-    }
-    reportCorrelationInteraction: (
-        correlationType: FunnelCorrelation['result_type'],
-        action: string,
-        props?: Record<string, any>
-    ) => {
-        action: string
-        correlationType: FunnelCorrelationResultsType
-        props: Record<string, any> | undefined
-    }
-    reportCorrelationViewed: (
-        query: Node | null,
-        delay?: number,
-        propertiesTable?: boolean
-    ) => {
-        delay: number | undefined
-        propertiesTable: boolean | undefined
-        query: Node<Record<string, any>> | null
     }
     reportCreatedDashboardFromModal: () => {
         value: true
@@ -934,95 +838,6 @@ export interface eventUsageLogicActions {
         journeyId: string
         journeyName: string
         stepCount: number
-    }
-    reportDashboardAddMenuOpened: (
-        source: 'header',
-        dashboardId: number
-    ) => {
-        dashboardId: number
-        source: 'header'
-    }
-    reportDashboardEditModeDiscardPrompt: (
-        dashboard: DashboardType | null,
-        action: 'discarded' | 'kept_editing' | 'shown'
-    ) => {
-        action: 'discarded' | 'kept_editing' | 'shown'
-        dashboard: DashboardType | null
-    }
-    reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
-        dashboardId: number | undefined
-    }
-    reportDashboardEmptyAiPromptSubmitted: (
-        dashboardId: number | undefined,
-        promptType: 'custom_prompt' | 'starter_question'
-    ) => {
-        dashboardId: number | undefined
-        promptType: 'custom_prompt' | 'starter_question'
-    }
-    reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => {
-        dashboardId: number | undefined
-    }
-    reportDashboardFiltersChanged: (
-        dashboard: DashboardType | null,
-        changeType: DashboardFilterChangeType,
-        properties: Record<string, boolean | number | string | null | undefined>
-    ) => {
-        changeType: DashboardFilterChangeType
-        dashboard: DashboardType | null
-        properties: Record<string, boolean | number | string | null | undefined>
-    }
-    reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => {
-        otherDashboardCount: number
-    }
-    reportDashboardInsightMetaUpdated: (
-        dashboardId: number | undefined,
-        insightId: number,
-        attribute: 'description' | 'name'
-    ) => {
-        attribute: 'description' | 'name'
-        dashboardId: number | undefined
-        insightId: number
-    }
-    reportDashboardLayoutEditModeEntered: (
-        dashboard: DashboardType | null,
-        source: DashboardEventSource,
-        layoutZoom: number | null
-    ) => {
-        dashboard: DashboardType | null
-        layoutZoom: number | null
-        source: DashboardEventSource
-    }
-    reportDashboardModeToggled: (
-        dashboard: DashboardType | null,
-        mode: DashboardMode | null,
-        source: DashboardEventSource | null,
-        layoutZoom: number | null,
-        layoutEditMode?: boolean
-    ) => {
-        dashboard: DashboardType | null
-        layoutEditMode: boolean | undefined
-        layoutZoom: number | null
-        mode: DashboardMode | null
-        source: DashboardEventSource | null
-    }
-    reportDashboardMoveInitiated: (
-        method: 'bulk' | 'single',
-        count: number
-    ) => {
-        count: number
-        method: 'bulk' | 'single'
-    }
-    reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => {
-        tileDensity: DashboardTileSpacing
-    }
-    reportDashboardTileRepositioned: (
-        dashboardId: number,
-        action: 'moved' | 'resized',
-        layoutZoom: number
-    ) => {
-        action: 'moved' | 'resized'
-        dashboardId: number
-        layoutZoom: number
     }
     reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => {
         type: TaxonomicFilterGroupType
@@ -1229,6 +1044,17 @@ export interface eventUsageLogicActions {
     reportExperimentWizardStarted: () => {
         value: true
     }
+    reportExperimentWizardStepViewed: (
+        step: string,
+        stepNumber: number,
+        previousStep: string | null,
+        navigation: ExperimentWizardStepNavigation
+    ) => {
+        navigation: ExperimentWizardStepNavigation
+        previousStep: string | null
+        step: string
+        stepNumber: number
+    }
     reportExperimentsListAiBadgeClicked: () => {
         value: true
     }
@@ -1403,42 +1229,6 @@ export interface eventUsageLogicActions {
         itemType: string | null | undefined
         section: string
     }
-    reportOnboardingCompleted: (productKey: string) => {
-        productKey: string
-    }
-    reportOnboardingProductToggled: (
-        productKey: string,
-        selected: boolean,
-        recommendationSource: string
-    ) => {
-        productKey: string
-        recommendationSource: string
-        selected: boolean
-    }
-    reportOnboardingStarted: () => {
-        value: true
-    }
-    reportOnboardingStepCompleted: (
-        stepKey: OnboardingStepKey,
-        productKey?: string
-    ) => {
-        productKey: string | undefined
-        stepKey: OnboardingStepKey
-    }
-    reportOnboardingStepSkipped: (
-        stepKey: OnboardingStepKey,
-        productKey?: string
-    ) => {
-        productKey: string | undefined
-        stepKey: OnboardingStepKey
-    }
-    reportOnboardingUseCaseSelected: (
-        useCase: string,
-        recommendedProducts: readonly string[]
-    ) => {
-        recommendedProducts: readonly string[]
-        useCase: string
-    }
     reportPersonOpenedFromNewlySeenPersonsList: () => {
         value: true
     }
@@ -1541,58 +1331,6 @@ export interface eventUsageLogicActions {
     }
     reportSessionTableVersionUpdated: (version: string) => {
         version: string
-    }
-    reportSurveyAiPromptSubmitted: (source: string) => {
-        source: string
-    }
-    reportSurveyConsolidatedResultsQuery: (
-        survey: Survey,
-        totalDurationMs: number,
-        queryDurations: {
-            aggregate: number
-            openEnded: number
-        }
-    ) => {
-        queryDurations: {
-            aggregate: number
-            openEnded: number
-        }
-        survey: Survey
-        totalDurationMs: number
-    }
-    reportSurveyCreated: (
-        survey: Survey,
-        isDuplicate?: boolean,
-        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard',
-        createdFrom?: SURVEY_CREATED_SOURCE
-    ) => {
-        createdFrom: SURVEY_CREATED_SOURCE | undefined
-        creationSource:
-            | 'form_builder'
-            | 'full_editor'
-            | 'llm_analytics'
-            | 'quick_create'
-            | 'template'
-            | 'wizard'
-            | undefined
-        isDuplicate: boolean | undefined
-        survey: Survey
-    }
-    reportSurveyCycleDetected: (survey: NewSurvey | Survey) => {
-        survey: NewSurvey | Survey
-    }
-    reportSurveyEdited: (survey: Survey) => {
-        survey: Survey
-    }
-    reportSurveyTemplateClicked: (
-        template: SurveyTemplateType,
-        source?: string
-    ) => {
-        source: string | undefined
-        template: SurveyTemplateType
-    }
-    reportSurveyViewed: (survey: Survey) => {
-        survey: Survey
     }
     reportTaxonomicFilterCategorySelected: (
         groupType: TaxonomicFilterGroupType,
@@ -1732,6 +1470,7 @@ export interface eventUsageLogicActions {
     reportWizardSyncSessionFinished: (props: {
         completedTaskCount: number
         elapsedSeconds: number
+        errorKind: InstallationErrorKind | null
         outcome: string
         skillId: string
         taskCount: number
@@ -1739,6 +1478,7 @@ export interface eventUsageLogicActions {
     }) => {
         completedTaskCount: number
         elapsedSeconds: number
+        errorKind: 'usage_limit' | null
         outcome: string
         skillId: string
         taskCount: number
@@ -1798,61 +1538,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             excludedDaysOfWeekCount: number
         ) => ({ queryKind, excludeIncompletePeriods, excludedDaysOfWeekCount }),
         reportInsightDatePickerOpened: (queryKind: string | undefined) => ({ queryKind }),
-        // insight funnel correlation
-        reportCorrelationViewed: (query: Node | null, delay?: number, propertiesTable?: boolean) => ({
-            query,
-            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
-            propertiesTable,
-        }),
-        reportCorrelationInteraction: (
-            correlationType: FunnelCorrelation['result_type'],
-            action: string,
-            props?: Record<string, any>
-        ) => ({ correlationType, action, props }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
         reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportProjectNoticeShown: (variant: string) => ({ variant }),
-        reportDashboardModeToggled: (
-            dashboard: DashboardType | null,
-            mode: DashboardMode | null,
-            source: DashboardEventSource | null,
-            layoutZoom: number | null,
-            layoutEditMode?: boolean
-        ) => ({ dashboard, mode, source, layoutZoom, layoutEditMode }),
-        reportDashboardLayoutEditModeEntered: (
-            dashboard: DashboardType | null,
-            source: DashboardEventSource,
-            layoutZoom: number | null
-        ) => ({ dashboard, source, layoutZoom }),
-        reportDashboardFiltersChanged: (
-            dashboard: DashboardType | null,
-            changeType: DashboardFilterChangeType,
-            properties: Record<string, string | number | boolean | null | undefined>
-        ) => ({ dashboard, changeType, properties }),
-        reportDashboardTileDensityConfigured: (tileDensity: DashboardTileSpacing) => ({ tileDensity }),
-        reportDashboardEditModeDiscardPrompt: (
-            dashboard: DashboardType | null,
-            action: 'shown' | 'discarded' | 'kept_editing'
-        ) => ({ dashboard, action }),
-        reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
-        reportDashboardInsightDeleteAfterRemovalClicked: (otherDashboardCount: number) => ({ otherDashboardCount }),
-        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
-            dashboardId,
-            action,
-            layoutZoom,
-        }),
-        reportDashboardInsightMetaUpdated: (
-            dashboardId: number | undefined,
-            insightId: number,
-            attribute: 'name' | 'description'
-        ) => ({ dashboardId, insightId, attribute }),
-        /** Empty-state AI prompt chips (ai-first empty dashboard only). */
-        reportDashboardEmptyAiPromptSubmitted: (
-            dashboardId: number | undefined,
-            promptType: 'custom_prompt' | 'starter_question'
-        ) => ({ dashboardId, promptType }),
-        reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => ({ dashboardId }),
-        reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => ({ dashboardId }),
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
@@ -1865,7 +1553,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSessionTableVersionUpdated: (version: string) => ({ version }),
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddMenuOpened: (source: 'header', dashboardId: number) => ({ source, dashboardId }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportSavedInsightToDashboard: (insight: Partial<InsightModel> | null, dashboardId: number | null) => ({
             insight,
@@ -1913,6 +1600,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             breakdown,
             isPrimary,
         }),
+        reportExperimentWizardStepViewed: (
+            step: string,
+            stepNumber: number,
+            previousStep: string | null,
+            navigation: ExperimentWizardStepNavigation
+        ) => ({ step, stepNumber, previousStep, navigation }),
         reportExperimentMetricBreakdownRemoved: (
             experiment: Experiment,
             metricUuid: string,
@@ -2049,28 +1742,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportFlagsCodeExampleLanguage: (language: string) => ({
             language,
         }),
-        reportSurveyViewed: (survey: Survey) => ({
-            survey,
-        }),
-        reportSurveyCreated: (
-            survey: Survey,
-            isDuplicate?: boolean,
-            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics' | 'form_builder',
-            createdFrom?: SURVEY_CREATED_SOURCE
-        ) => ({ survey, isDuplicate, creationSource, createdFrom }),
         reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
             source,
             meta,
         }),
-        reportSurveyEdited: (survey: Survey) => ({ survey }),
-        reportSurveyTemplateClicked: (template: SurveyTemplateType, source?: string) => ({ template, source }),
-        reportSurveyCycleDetected: (survey: Survey | NewSurvey) => ({ survey }),
-        reportSurveyConsolidatedResultsQuery: (
-            survey: Survey,
-            totalDurationMs: number,
-            queryDurations: { aggregate: number; openEnded: number }
-        ) => ({ survey, totalDurationMs, queryDurations }),
-        reportSurveyAiPromptSubmitted: (source: string) => ({ source }),
         reportProductTourViewed: (tour: ProductTour) => ({ tour }),
         reportProductTourCreated: (tour: ProductTour, creationSource?: 'app' | 'toolbar') => ({
             tour,
@@ -2078,25 +1753,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         }),
         reportProductTourListViewed: true,
         reportProductUnsubscribed: (product: string) => ({ product }),
-        reportOnboardingStarted: true,
-        reportOnboardingStepCompleted: (stepKey: OnboardingStepKey, productKey?: string) => ({
-            stepKey,
-            productKey,
-        }),
-        reportOnboardingStepSkipped: (stepKey: OnboardingStepKey, productKey?: string) => ({
-            stepKey,
-            productKey,
-        }),
-        reportOnboardingCompleted: (productKey: string) => ({ productKey }),
-        reportOnboardingUseCaseSelected: (useCase: string, recommendedProducts: readonly string[]) => ({
-            useCase,
-            recommendedProducts,
-        }),
-        reportOnboardingProductToggled: (productKey: string, selected: boolean, recommendationSource: string) => ({
-            productKey,
-            selected,
-            recommendationSource,
-        }),
         reportBillingCTAShown: true,
         reportBillingUsageInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
         reportBillingSpendInteraction: (properties: BillingUsageInteractionProps) => ({ properties }),
@@ -2117,6 +1773,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             workflowId: string
             skillId: string
             outcome: string
+            errorKind: InstallationErrorKind | null
             taskCount: number
             completedTaskCount: number
             elapsedSeconds: number
@@ -2333,82 +1990,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDataTableColumnsUpdated: async ({ context_type }) => {
             posthog.capture('data table columns updated', { context_type })
         },
-        reportDashboardModeToggled: async ({ dashboard, mode, source, layoutZoom, layoutEditMode }) => {
-            posthog.capture('dashboard mode toggled', {
-                dashboard_id: dashboard?.id,
-                dashboard: sanitizeDashboard(dashboard),
-                mode,
-                source,
-                layout_zoom: layoutZoom ?? undefined,
-                layout_edit_mode: layoutEditMode ?? undefined,
-            })
-        },
-        reportDashboardLayoutEditModeEntered: async ({ dashboard, source, layoutZoom }) => {
-            posthog.capture('dashboard layout edit mode entered', {
-                dashboard_id: dashboard?.id,
-                dashboard: sanitizeDashboard(dashboard),
-                source,
-                layout_zoom: layoutZoom ?? undefined,
-            })
-        },
-        reportDashboardFiltersChanged: async ({ dashboard, changeType, properties }) => {
-            posthog.capture('dashboard filters changed', {
-                dashboard_id: dashboard?.id,
-                change_type: changeType,
-                ...properties,
-            })
-        },
-        reportDashboardTileDensityConfigured: async ({ tileDensity }) => {
-            posthog.capture('dashboard tile density configured', { tile_density: tileDensity })
-        },
-        reportDashboardEditModeDiscardPrompt: async ({ dashboard, action }) => {
-            posthog.capture('dashboard edit mode discard prompt', {
-                dashboard_id: dashboard?.id,
-                dashboard: sanitizeDashboard(dashboard),
-                action,
-            })
-        },
-        reportDashboardMoveInitiated: async ({ method, count }) => {
-            posthog.capture('dashboard move initiated', { method, count })
-        },
-        reportDashboardTileRepositioned: async ({ dashboardId, action, layoutZoom }) => {
-            posthog.capture('dashboard tile repositioned', {
-                dashboard_id: dashboardId,
-                action,
-                layout_zoom: layoutZoom,
-            })
-        },
-        reportDashboardInsightMetaUpdated: async ({ dashboardId, insightId, attribute }) => {
-            posthog.capture('dashboard insight meta updated', {
-                dashboard_id: dashboardId,
-                insight_id: insightId,
-                attribute,
-            })
-        },
-        reportDashboardInsightDeleteAfterRemovalClicked: async ({ otherDashboardCount }) => {
-            posthog.capture('dashboard insight delete after removal clicked', {
-                other_dashboard_count: otherDashboardCount,
-            })
-        },
-        reportDashboardEmptyAiPromptSubmitted: async ({ dashboardId, promptType }) => {
-            posthog.capture('dashboard empty ai prompt submitted', {
-                dashboard_id: dashboardId,
-                prompt_type: promptType,
-                source: 'web',
-            })
-        },
-        reportDashboardEmptyAddChartClicked: async ({ dashboardId }) => {
-            posthog.capture('dashboard empty add chart clicked', {
-                dashboard_id: dashboardId,
-                source: 'web',
-            })
-        },
-        reportDashboardEmptyWebAnalyticsClicked: async ({ dashboardId }) => {
-            posthog.capture('dashboard empty web analytics clicked', {
-                dashboard_id: dashboardId,
-                source: 'web',
-            })
-        },
         reportTimezoneComponentViewed: async (payload) => {
             posthog.capture('timezone component viewed', payload)
         },
@@ -2441,9 +2022,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
-        },
-        reportDashboardAddMenuOpened: async ({ source, dashboardId }) => {
-            posthog.capture('dashboard add menu opened', { source, dashboard_id: dashboardId })
         },
         reportSavedInsightToDashboard: async ({ insight, dashboardId }) => {
             if (isBIVisualizationNode(insight?.query)) {
@@ -2481,20 +2059,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 insight_type: insightType,
                 ...(presetKey ? { preset_key: presetKey } : {}),
             })
-        },
-        reportCorrelationInteraction: ({ correlationType, action, props }) => {
-            posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
-        },
-        reportCorrelationViewed: ({ delay, query, propertiesTable }) => {
-            const payload = sanitizeQuery(query)
-            if (delay === 0) {
-                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, payload)
-            } else {
-                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, {
-                    ...payload,
-                    delay,
-                })
-            }
         },
         reportExperimentWizardStarted: () => {
             posthog.capture('experiment wizard started')
@@ -2535,6 +2099,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 breakdown_type: breakdown.type,
                 breakdown_property: breakdown.property,
                 is_primary_metric: isPrimary,
+            })
+        },
+        reportExperimentWizardStepViewed: ({ step, stepNumber, previousStep, navigation }) => {
+            posthog.capture('experiment wizard step viewed', {
+                step,
+                step_number: stepNumber,
+                previous_step: previousStep,
+                navigation,
             })
         },
         reportExperimentMetricBreakdownRemoved: ({ experiment, metricUuid, breakdown, index, isPrimary }) => {
@@ -2800,114 +2372,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey, isDuplicate, creationSource, createdFrom }) => {
-            const questionsWithShuffledOptions = survey.questions.filter((question) => {
-                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
-            })
-
-            posthog.capture('survey created', {
-                // The web app is the only place this event is emitted from — there is no backend
-                // equivalent — so stamping the surface here is what puts surveys in a `source`
-                // breakdown at all, rather than showing up as unattributed.
-                source: 'web',
-                name: survey.name,
-                id: survey.id,
-                survey_type: survey.type,
-                questions_length: survey.questions.length,
-                question_types: survey.questions.map((question) => question.type),
-                is_duplicate: isDuplicate ?? false,
-                creation_source: creationSource ?? 'full_editor',
-                created_from: createdFrom,
-                linked_insight_id: survey.linked_insight_id,
-                events_count: survey.conditions?.events?.values.length,
-                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
-                recurring_survey_iteration_interval:
-                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
-                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
-                has_branching_logic: survey.questions.some(
-                    (question) => question.branching && Object.keys(question.branching).length > 0
-                ),
-                has_partial_responses: survey.enable_partial_responses,
-                skipping_submit_button: survey.questions.some((question) => {
-                    if (
-                        question.type === SurveyQuestionType.SingleChoice ||
-                        question.type === SurveyQuestionType.MultipleChoice
-                    ) {
-                        return question.skipSubmitButton
-                    }
-                    return false
-                }),
-            })
-        },
-        reportSurveyViewed: ({ survey }) => {
-            posthog.capture('survey viewed', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-            })
-        },
-        reportSurveyEdited: ({ survey }) => {
-            const questionsWithShuffledOptions = survey.questions.filter((question) => {
-                return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
-            })
-
-            posthog.capture('survey edited', {
-                name: survey.name,
-                id: survey.id,
-                created_at: survey.created_at,
-                start_date: survey.start_date,
-                events_count: survey.conditions?.events?.values.length,
-                recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,
-                recurring_survey_iteration_interval:
-                    survey.iteration_frequency_days == undefined ? 0 : survey.iteration_frequency_days,
-                shuffle_questions_enabled: !!survey.appearance?.shuffleQuestions,
-                shuffle_question_options_enabled_count: questionsWithShuffledOptions.length,
-                has_branching_logic: survey.questions.some(
-                    (question) => question.branching && Object.keys(question.branching).length > 0
-                ),
-                has_partial_responses: survey.enable_partial_responses,
-                skipping_submit_button: survey.questions.some((question) => {
-                    if (
-                        question.type === SurveyQuestionType.SingleChoice ||
-                        question.type === SurveyQuestionType.MultipleChoice
-                    ) {
-                        return question.skipSubmitButton
-                    }
-                    return false
-                }),
-            })
-        },
-        reportSurveyTemplateClicked: ({ template, source }) => {
-            posthog.capture('survey template clicked', {
-                template,
-                source,
-            })
-        },
-        reportSurveyAiPromptSubmitted: ({ source }) => {
-            posthog.capture('survey AI prompt submitted', {
-                source,
-            })
-        },
-        reportSurveyCycleDetected: ({ survey }) => {
-            posthog.capture('survey cycle detected', {
-                name: survey.name,
-                id: survey.id,
-                start_date: survey.start_date,
-                end_date: survey.end_date,
-            })
-        },
-        reportSurveyConsolidatedResultsQuery: ({ survey, totalDurationMs, queryDurations }) => {
-            posthog.capture('survey consolidated results query completed', {
-                name: survey.name,
-                id: survey.id,
-                duration: totalDurationMs,
-                aggregate_duration: queryDurations.aggregate,
-                open_ended_duration: queryDurations.openEnded,
-            })
-        },
         reportProductTourViewed: ({ tour }) => {
             posthog.capture(ProductTourEvent.VIEWED, {
                 tour_id: tour.id,
@@ -2945,47 +2409,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 $set: { [property_key]: true },
             })
         },
-        // onboarding
-        reportOnboardingStarted: () => {
-            posthog.capture('onboarding started', ONBOARDING_EVENT_PROPS)
-        },
-        reportOnboardingStepCompleted: ({ stepKey, productKey }) => {
-            posthog.capture('onboarding step completed', {
-                step_key: stepKey,
-                // Optional — only set when the caller knows which product owns the step.
-                // Lets dashboards split step funnels by product without joining elsewhere.
-                ...(productKey ? { product_key: productKey } : {}),
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingStepSkipped: ({ stepKey, productKey }) => {
-            posthog.capture('onboarding step skipped', {
-                step_key: stepKey,
-                ...(productKey ? { product_key: productKey } : {}),
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingCompleted: ({ productKey }) => {
-            posthog.capture('onboarding completed', {
-                product_key: productKey,
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingUseCaseSelected: ({ useCase, recommendedProducts }) => {
-            posthog.capture('onboarding use case selected', {
-                use_case: useCase,
-                recommended_products: recommendedProducts,
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
-        reportOnboardingProductToggled: ({ productKey, selected, recommendationSource }) => {
-            posthog.capture('onboarding product toggled', {
-                product_key: productKey,
-                selected,
-                recommendation_source: recommendationSource,
-                ...ONBOARDING_EVENT_PROPS,
-            })
-        },
         reportSDKSelected: ({ sdk }) => {
             posthog.capture('sdk selected', {
                 sdk: sdk.key,
@@ -3009,6 +2432,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             workflowId,
             skillId,
             outcome,
+            errorKind,
             taskCount,
             completedTaskCount,
             elapsedSeconds,
@@ -3017,6 +2441,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 workflow_id: workflowId,
                 skill_id: skillId,
                 outcome,
+                error_kind: errorKind,
                 task_count: taskCount,
                 completed_task_count: completedTaskCount,
                 elapsed_seconds: elapsedSeconds,

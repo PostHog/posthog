@@ -21,12 +21,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token, request_direct_query_cancellation
-from posthog.errors import (
-    ExposedCHQueryError,
-    InternalCHQueryError,
-    internal_ch_error_user_message,
-    look_up_clickhouse_error_code_meta,
-)
+from posthog.errors import ExposedCHQueryError, InternalCHQueryError, error_code_from_type, unwrap_exposed_hogql_error
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.renderers import SafeJSONRenderer
@@ -318,11 +313,13 @@ def execute_process_query(
         is_user_safe_error = isinstance(
             err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError
         )
-        error_code = (
-            look_up_clickhouse_error_code_meta(err).name.lower() if isinstance(err, InternalCHQueryError) else None
-        )
-        if internal_ch_error_user_message(error_code):
-            query_status.error_code = error_code
+        if isinstance(err, InternalCHQueryError) or not is_user_safe_error:
+            query_status.error_code = error_code_from_type(err)
+        elif isinstance(err, ExposedHogQLError):
+            cause = unwrap_exposed_hogql_error(err)
+            query_status.error_code = (
+                cause.code_name if isinstance(cause, ExposedHogQLError) else error_code_from_type(cause)
+            )
         # A stopped run's scan rides on the status so a dead tile can show the advice, with the cache key
         # for polling. Only for a real user: a shared link must not see the project's data volume.
         if user_id:

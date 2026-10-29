@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
@@ -27,8 +28,11 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.oauth import find_oauth_access_token
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.scopes import APIScopeObject
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -39,6 +43,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.engineering_analytics.backend.facade.contracts import GitHubTeamMembership, GitHubTeamRoster
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
@@ -54,6 +59,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.quota import SelfDrivingQuotaGate
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
@@ -71,6 +77,7 @@ from products.signals.backend.scout_harness.note_targets import PIPELINE_AUDIENC
 from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigUpdateSerializer,
+    SignalScoutRunSummarySerializer,
     SignalScoutSlackDestinationSerializer,
 )
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
@@ -201,7 +208,90 @@ def _make_run(team: Team, *, task_run_status: str | None = None, **overrides) ->
     return SignalScoutRun.objects.create(team=team, **defaults)
 
 
+class TestScoutRunMetadataSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [("absent", {}), ("denied", {"may_read_reports": False}), ("allowed", {"may_read_reports": True})]
+    )
+    def test_report_briefs_require_explicit_permission_context(self, _name: str, context: dict[str, bool]) -> None:
+        metadata = {"triggered_by": "check", "run_note": "Report context", "model": "example-model"}
+        result = SignalScoutRunSummarySerializer(context=context).fields["metadata"].to_representation(metadata)
+        assert ("run_note" in result) is context.get("may_read_reports", False)
+        assert result["model"] == "example-model"
+        assert metadata["run_note"] == "Report context"
+
+
 class TestScoutHarnessRunsAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("scout_only", ["signal_scout:read"], False, False),
+            ("report_scope", ["signal_scout:read", "task:read"], False, True),
+            ("rbac_denied", None, True, False),
+            ("session", None, False, True),
+        ]
+    )
+    def test_history_respects_report_permissions_for_check_briefs(
+        self, _name: str, scopes: list[str] | None, deny_reports: bool, allowed: bool
+    ) -> None:
+        check_run = _make_run(
+            self.team, metadata={"triggered_by": "check", "run_note": "Checkout report: resolution note"}
+        )
+        monitoring_run = _make_run(
+            self.team, metadata={"triggered_by": "monitoring", "run_note": "Monitoring report context"}
+        )
+        manual_run = _make_run(self.team, metadata={"triggered_by": "manual", "run_note": "Ordinary scout steering"})
+        if scopes is not None:
+            raw = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="history", user=self.user, secure_value=hash_key_value(raw), scopes=scopes
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        real_check = UserAccessControl.check_access_level_for_resource
+
+        def resource_access(
+            access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+        ) -> bool:
+            return False if deny_reports and resource == "task" else real_check(access, resource, required_level)
+
+        with patch.object(
+            UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=resource_access
+        ):
+            for url in [self._list_url(), self._list_url() + "recent-per-scout/", self._detail_url(str(check_run.id))]:
+                response = self.client.get(url)
+                assert response.status_code == status.HTTP_200_OK, response.content
+                rows = response.json() if isinstance(response.json(), list) else [response.json()]
+                by_id = {row["run_id"]: row for row in rows}
+                assert ("run_note" in by_id[str(check_run.id)]["metadata"]) is allowed
+                if str(monitoring_run.id) in by_id:
+                    assert ("run_note" in by_id[str(monitoring_run.id)]["metadata"]) is allowed
+                    assert by_id[str(manual_run.id)]["metadata"]["run_note"] == "Ordinary scout steering"
+
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_runs_are_available_through_the_api(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-first-report", enabled=False
+        )
+        run = _make_run(self.team, skill_name=config.skill_name, scout_config=config)
+        run.task_run.task.internal = True
+        run.task_run.task.save(update_fields=["internal"])
+        ordinary = _make_run(self.team)
+        response = self.client.get(self._list_url())
+        assert response.status_code == 200
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        assert self.client.get(self._detail_url(str(run.id))).status_code == 200
+        assert (
+            self.client.get(
+                f"/api/projects/{self.team.id}/tasks/{run.task_run.task_id}/runs/{run.task_run_id}/"
+            ).status_code
+            == 200
+        )
+        response = self.client.get(self._list_url() + "recent-per-scout/")
+        assert {row["run_id"] for row in response.json()} == {str(run.id), str(ordinary.id)}
+        response = self.client.post(self._list_url() + "emissions/batch/", {"run_ids": [str(run.id)]}, format="json")
+        assert response.status_code == 200
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/"
 
@@ -790,10 +880,16 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         response = self.client.get(self._url(), HTTP_IF_MATCH='"stale"')
         assert response.status_code == status.HTTP_412_PRECONDITION_FAILED
 
-    @parameterized.expand(["emit_tally", "task_run_settles", "total_spend", "report_deleted", "new_run"])
+    @parameterized.expand(
+        ["emit_tally", "task_run_settles", "total_spend", "report_deleted", "new_run", "report_scope", "report_rbac"]
+    )
     def test_a_change_the_summary_shows_moves_the_etag(self, change: str) -> None:
         report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
-        run = _make_run(self.team, emitted_report_ids=[str(report.id)])
+        run = _make_run(
+            self.team,
+            emitted_report_ids=[str(report.id)],
+            metadata={"triggered_by": "check", "run_note": "Report context"},
+        )
         first = self.client.get(self._url())
 
         if change == "emit_tally":
@@ -808,6 +904,26 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
             run.save(update_fields=["total_spend"])
         elif change == "report_deleted":
             SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.DELETED)
+        elif change == "report_scope":
+            raw = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="history", user=self.user, secure_value=hash_key_value(raw), scopes=["signal_scout:read"]
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw}")
+        elif change == "report_rbac":
+            real_check = UserAccessControl.check_access_level_for_resource
+
+            def deny_reports(
+                access: UserAccessControl, resource: APIScopeObject, required_level: AccessControlLevel
+            ) -> bool:
+                return resource != "task" and real_check(access, resource, required_level)
+
+            self.enterContext(
+                patch.object(
+                    UserAccessControl, "check_access_level_for_resource", autospec=True, side_effect=deny_reports
+                )
+            )
         else:
             _make_run(self.team)
 
@@ -816,6 +932,9 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         assert second["ETag"] != first["ETag"]
         if change == "total_spend":
             assert second.json()[0]["total_spend"] == 16.3456
+        if change in {"report_scope", "report_rbac"}:
+            assert first.json()[0]["metadata"]["run_note"] == "Report context"
+            assert "run_note" not in second.json()[0]["metadata"]
 
 
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
@@ -2196,10 +2315,9 @@ class TestWriteScopesValidation(SimpleTestCase):
         assert not serializer.is_valid()
         assert "not both" in str(serializer.errors)
 
-    def test_support_notes_preset_is_rejected_until_its_write_scope_is_grantable(self) -> None:
+    def test_support_notes_preset_is_accepted_once_its_write_scope_is_grantable(self) -> None:
         serializer = SignalScoutConfigUpdateSerializer(data={"tool_preset": "support_notes"}, partial=True)
-        assert not serializer.is_valid()
-        assert "conversations-tickets-notes-create" in str(serializer.errors)
+        assert serializer.is_valid(), serializer.errors
 
 
 class TestScoutHarnessConfigModelAPI(APIBaseTest):
@@ -2327,6 +2445,17 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert second.status_code == status.HTTP_200_OK
         assert SignalScratchpad.objects.filter(team=self.team, key="k1").count() == 1
         assert SignalScratchpad.objects.get(team=self.team, key="k1").content == "v2"
+
+    def test_search_filters_by_creating_skill(self) -> None:
+        errors_run = _make_run(self.team, skill_name="signals-scout-errors")
+        flags_run = _make_run(self.team, skill_name="signals-scout-flags")
+        SignalScratchpad.objects.create(team=self.team, key="errors", content="v", created_by_run=errors_run)
+        SignalScratchpad.objects.create(team=self.team, key="flags", content="v", created_by_run=flags_run)
+
+        response = self.client.get(self._list_url(), {"skill_name": "signals-scout-errors"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["key"] for row in response.json()] == ["errors"]
 
     def test_search_returns_team_entries(self) -> None:
         SignalScratchpad.objects.create(team=self.team, key="active", content="still relevant")
@@ -2800,9 +2929,8 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         # notes instead — writes consult the same `llm_skill` RBAC gate as skill edits.
         # Deny only the `llm_skill` resource: a blanket False would also fail unrelated
         # resource checks in the request cycle and 403 the read path for the wrong reason.
-        from posthog.scopes import APIScopeObject
 
-        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         note = SignalScoutNote.objects.create(team=self.team, content="pre-existing")
         real_check = UserAccessControl.check_access_level_for_resource
@@ -3166,6 +3294,19 @@ class TestPrecheckQueryValidation(SimpleTestCase):
 
 
 class TestScoutHarnessConfigAPI(APIBaseTest):
+    @parameterized.expand([(False,), (True,)])
+    def test_first_report_config_is_available_but_cannot_be_rerun(self, is_staff: bool) -> None:
+        self.user.is_staff = is_staff
+        self.user.save()
+        self._make_skill("signals-scout-first-report")
+        config = SignalScoutConfig.objects.create(
+            team=self.team, skill_name="signals-scout-first-report", enabled=False
+        )
+        response = self.client.get(self._list_url())
+        assert response.status_code == 200
+        assert [row["skill_name"] for row in response.json()] == [config.skill_name]
+        assert self.client.post(f"{self._detail_url(str(config.id))}run/").status_code == 400
+
     def _list_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/"
 
@@ -3895,6 +4036,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "users": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3915,6 +4057,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.json()["output_destinations"] == {
             "slack": {**destination["slack"], "channel": None, "thread_reports": True},
             "webhook": None,
+            "inbox": True,
         }
         config.refresh_from_db()
         assert config.output_destinations == destination
@@ -3942,6 +4085,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         config.refresh_from_db()
         assert config.output_destinations["slack"]["thread_reports"] is False
+
+    def test_partial_update_inbox_opt_out_survives_a_write_that_omits_it(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": False}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["output_destinations"]["inbox"] is False
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"webhook": None}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": False}
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)), data={"output_destinations": {"inbox": True}}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        config.refresh_from_db()
+        assert config.output_destinations == {"inbox": True}
 
     @parameterized.expand(
         [
@@ -4299,15 +4465,18 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
 
-    def test_sync_materializes_fleet_for_fresh_team(self) -> None:
+    @parameterized.expand([(None, True), ("onboarding", False)])
+    def test_sync_materializes_fleet_for_fresh_team(self, surface: str | None, enabled: bool) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
-        scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
+        scout_names = {
+            n for n in canonical_names if n.startswith("signals-scout-") and n != "signals-scout-first-report"
+        }
         companion_names = canonical_names - scout_names
         assert scout_names, "expected canonical signals-scout-* skills on disk"
         assert "authoring-scouts" in companion_names
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-        response = self.client.post(self._sync_url())
+        response = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -4315,10 +4484,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # into the team's LLMSkill namespace below but never materialize a scout config.
         assert {c["skill_name"] for c in body} == scout_names
         assert [c["skill_name"] for c in body] == sorted(scout_names)
-        assert all(c["enabled"] is True for c in body)
+        assert all(c["enabled"] is enabled for c in body)
         assert all(c["emit"] is True for c in body)
         assert all(c["run_interval_minutes"] == 1440 for c in body)
         assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
+        register_missing_configs(self.team.id)
+        assert not SignalScoutConfig.objects.filter(team=self.team).exclude(enabled=enabled).exists()
         # Every canonical skill — fleet and companions — was seeded into the team's
         # LLMSkill namespace.
         assert (
@@ -4477,7 +4648,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-    def test_sync_is_idempotent_and_preserves_tuned_configs(self) -> None:
+    @parameterized.expand([(None,), ("onboarding",)])
+    def test_sync_is_idempotent_and_preserves_tuned_configs(self, surface: str | None) -> None:
         first = self.client.post(self._sync_url())
         assert first.status_code == status.HTTP_200_OK
         fleet_size = len(first.json())
@@ -4488,13 +4660,14 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         tuned.enabled = False
         tuned.save(update_fields=["enabled"])
 
-        second = self.client.post(self._sync_url())
+        second = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert second.status_code == status.HTTP_200_OK
         assert len(second.json()) == fleet_size
         assert SignalScoutConfig.objects.filter(team=self.team).count() == fleet_size
         tuned.refresh_from_db()
         assert tuned.enabled is False, "sync must not reset existing configs"
+        assert sum(config["enabled"] for config in second.json()) == fleet_size - 1
 
     def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
         # The list MCP tool is annotated readOnly — a scout skill without a config must not
@@ -4886,6 +5059,17 @@ class TestScoutHarnessToolCatalogueAPI(APIBaseTest):
 
         assert not superseded & set(self._tools())
 
+    def test_catalogue_context_tools_can_be_removed_from_a_saved_selection_before_editing(self) -> None:
+        body = self.client.get(self._url()).json()
+        selected = ["skill-get", "skill-file-get", "dashboard-update"]
+        serializer = SignalScoutConfigUpdateSerializer(
+            data={"allowed_mcp_tools": [name for name in selected if name not in body["run_context_tools"]]},
+            partial=True,
+        )
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["allowed_mcp_tools"] == ["dashboard-update"]
+
     def test_reports_what_a_scout_would_have_to_be_granted(self) -> None:
         # `holdable` has to be measured against the scout postures, not against the full MCP scope
         # set: a picker built on the wrong set offers tools a scout is refused for at call time.
@@ -5128,9 +5312,8 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
 
     def test_run_with_a_note_requires_skill_editor_access(self) -> None:
         # A note clears the scout-note RBAC bar; triggering a run without one stays on the config write.
-        from posthog.scopes import APIScopeObject
 
-        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         real_check = UserAccessControl.check_access_level_for_resource
@@ -5752,6 +5935,9 @@ _LIGHTHOUSE_REPORT = {
 class TestScoutHarnessLighthouseAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(
+            patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+        )
         # lighthouse-audit requires `signal_scout_internal:write` — session auth is rejected.
         _authenticate_as_scout(self)
 

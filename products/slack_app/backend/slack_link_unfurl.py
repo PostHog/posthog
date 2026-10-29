@@ -27,7 +27,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.comment import Comment
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.user_integration import UserIntegration
 from posthog.object_tags.kinds import OBJECT_URL_TEMPLATES, ObjectRef, object_ref_for_url
 from posthog.redis import get_client
@@ -45,6 +45,8 @@ from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import api as error_tracking_facade
+from products.experiments.backend.facade import api as experiments_facade
+from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
 from products.experiments.backend.models.experiment import Experiment
 from products.exports.backend.facade import api as exports_facade
 from products.feature_flags.backend.facade.config import ConfigFormatError
@@ -55,6 +57,8 @@ from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_access import may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
 from products.slack_app.backend.logic.link_unfurl_charts import (
     UNFURL_IMAGE_ASSET_TTL,
     UNFURL_IMAGE_URL_TTL,
@@ -63,8 +67,11 @@ from products.slack_app.backend.logic.link_unfurl_charts import (
     slack_fetchable_image_url,
     with_chart_images,
 )
+from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
+from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
     SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
     SlackAppUnfurlChartsWorkflow,
@@ -125,8 +132,12 @@ _KIND_EMOJI: dict[str, str] = {
     "survey": "📝",
     "cohort": "👥",
     "error": "🐞",
-    "report": "📥",
     ADHOC_INSIGHT_KIND: "📈",
+}
+
+# A kind with a product logo shows it in the card summary instead of an emoji in the title.
+_KIND_ICON_PATH: dict[str, str] = {
+    "report": "/static/icons/self-driving.png",
 }
 
 _SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access", "public_sharing_disabled"]
@@ -146,7 +157,6 @@ _INVITE_REDIS_TIMEOUT_SECONDS = 0.3
 _QUERY_KIND_TO_SHORT_NAME: dict[str, str] = {
     "TrendsQuery": "Trends",
     "FunnelsQuery": "Funnel",
-    "FunnelCorrelationQuery": "Funnel correlation",
     "RetentionQuery": "Retention",
     "PathsQuery": "Paths",
     "PathsV2Query": "Journeys",
@@ -409,6 +419,8 @@ class _UnfurlCard:
     timestamp_label: str = "Updated"
     button: _CardButton | None = None
     chart_insight_id: int | None = None
+    # Set for a saved insight link with unsaved edits. The chart renders this query instead of the saved one.
+    chart_edited_query: dict | None = None
     # Set for an ad hoc insight. Its card goes out only together with its chart.
     chart_query: dict | None = None
     artifact_image: bool = False
@@ -439,10 +451,17 @@ def _card_summary(card: _UnfurlCard, *, compact: bool) -> str:
 
 def _card_blocks(card: _UnfurlCard, *, kind: str, url: str, compact: bool) -> list[dict]:
     link = _tracked_url(card.open_url or url, kind)
-    title = f"{_KIND_EMOJI[kind]}  *<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
+    title = f"*<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
+    summary: list[dict] = [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]
+    icon_path = _KIND_ICON_PATH.get(kind)
+    if icon_path:
+        icon_url = slack_fetchable_image_url(f"{settings.SITE_URL}{icon_path}")
+        summary.insert(0, {"type": "image", "image_url": icon_url, "alt_text": card.label})
+    else:
+        title = f"{_KIND_EMOJI[kind]}  {title}"
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]},
+        {"type": "context", "elements": summary},
     ]
     if compact:
         return blocks
@@ -490,7 +509,7 @@ def _claim_invite_slot(slack_team_id: str, channel: str) -> bool:
     return bool(claimed)
 
 
-def _build_unfurl_invite(integration: Integration, kind: str, channel: str) -> dict | None:
+def _build_unfurl_invite(integration: WorkspaceIntegration, kind: str, channel: str) -> dict | None:
     """The invite block for the first resource we unfurled, or None when it should stay quiet.
 
     Consent is checked before the slot is claimed: the other way round, a workspace that never
@@ -534,7 +553,7 @@ def _is_normal_public_channel(slack: SlackIntegration, channel: str, cache: dict
 
 def _task_owner_can_view_public_slack_channel(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     task: TaskSlackUnfurlDTO,
     cache: dict[str, bool],
 ) -> bool:
@@ -568,7 +587,7 @@ def _task_owner_can_view_public_slack_channel(
 def _attach_public_slack_thread_reference(
     *,
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     task: TaskSlackUnfurlDTO,
     event: dict,
     shared_by_slack_user_id: str,
@@ -609,7 +628,7 @@ def _attach_public_slack_thread_reference(
 @frozen
 class _UnfurlContext:
     slack: SlackIntegration
-    integration: Integration
+    integration: WorkspaceIntegration
     team: Team
     user: User
     uac: UserAccessControl
@@ -738,13 +757,19 @@ def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     level = ctx.uac.get_user_access_level(insight)
     if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
         return "no_access"
+    # A link copied from the insight editor carries unsaved edits in `#q`, such as another date
+    # range or hidden series. The person who opens the link sees these edits, so the card shows them too.
+    edited_query = adhoc_insight_query(url)
+    if edited_query == insight.query:
+        edited_query = None
     return _UnfurlCard(
         label=_insight_resource_label(insight),
         title=insight.name or insight.derived_name or "Untitled",
-        details=(*filter(None, [_date_range(insight.query)]), *_by(insight.created_by)),
+        details=(*filter(None, [_date_range(edited_query or insight.query)]), *_by(insight.created_by)),
         body=insight.description,
         timestamp=insight.last_modified_at,
         chart_insight_id=insight.id,
+        chart_edited_query=edited_query,
     )
 
 
@@ -984,18 +1009,87 @@ def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _
     if experiment.start_date:
         days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
         details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
-    metric = _primary_metric(experiment.metrics)
+    stats = _stored_primary_result(experiment)
+    metric = stats.metric_name if stats else _primary_metric(experiment.metrics)
     if metric:
         details.append(f"Metric: {metric}")
+    variants = _flag_variants(experiment.feature_flag)
+    if stats:
+        details.append(f"Split {'/'.join(str(variant['rollout_percentage']) for variant in variants)}")
     return _UnfurlCard(
         label="Experiment",
         title=experiment.name,
         status=_humanize(experiment.status_label),
         details=tuple(details),
-        chart=_chart_rows(_variant_rows(_flag_variants(experiment.feature_flag))),
-        body=experiment.description,
+        chart=_experiment_chart(stats) if stats else _chart_rows(_variant_rows(variants)),
+        body="\n\n".join(
+            part for part in (_experiment_verdict(stats) if stats else None, experiment.description) if part
+        ),
         timestamp=experiment.updated_at,
     )
+
+
+def _stored_primary_result(experiment: Experiment) -> StoredPrimaryResult | None:
+    try:
+        stats = experiments_facade.get_stored_primary_result(team_id=experiment.team_id, experiment_id=experiment.pk)
+    except Exception:
+        logger.exception("slack_app_unfurl_experiment_results_failed", experiment_id=experiment.pk)
+        return None
+    if (
+        stats is None
+        or stats.metric_type not in ("funnel", "mean")
+        or stats.baseline.mean is None
+        or not stats.variants
+    ):
+        return None
+    return stats
+
+
+def _variant_delta(stats: StoredPrimaryResult, variant: StoredArmResult) -> float | None:
+    if variant.change is not None:
+        return variant.change
+    if variant.mean is None or stats.baseline.mean is None or stats.baseline.mean <= 0:
+        return None
+    return variant.mean / stats.baseline.mean - 1
+
+
+def _experiment_verdict(stats: StoredPrimaryResult) -> str:
+    control = stats.baseline.key
+    if all(variant.change is None for variant in stats.variants):
+        exposed = stats.baseline.number_of_samples + sum(variant.number_of_samples for variant in stats.variants)
+        return f"⏳ *Too early to call.* {exposed:,} exposed so far."
+    direction = -1 if stats.goal == "decrease" else 1
+    ranked = sorted(
+        ((variant, delta) for variant in stats.variants if (delta := _variant_delta(stats, variant)) is not None),
+        key=lambda pair: pair[1] * direction,
+        reverse=True,
+    )
+    significant = [(variant, delta) for variant, delta in ranked if variant.significant]
+    if significant and significant[0][1] * direction > 0:
+        return f"🏆 *Winner so far: {significant[0][0].key}.* {significant[0][1]:+.1%} vs {control}."
+    if significant:
+        return f"🔻 *Losing: {significant[-1][0].key}.* {significant[-1][1]:+.1%} vs {control}."
+    if ranked and ranked[0][1] * direction > 0:
+        return f"⚖️ *No clear winner yet.* {ranked[0][0].key} leads at {ranked[0][1]:+.1%} vs {control}, but it is not significant."
+    return f"⚖️ *No clear winner yet.* No variant beats {control}."
+
+
+def _experiment_chart(stats: StoredPrimaryResult) -> str | None:
+    arms = [stats.baseline, *stats.variants]
+    means = [arm.mean for arm in arms if arm.mean is not None]
+    show_bars = all(mean >= 0 for mean in means)
+    top = max(means, default=0.0)
+    rows = []
+    for arm in arms:
+        if arm.mean is None:
+            value = "—"
+        else:
+            value = f"{arm.mean:.1%}" if stats.proportion else f"{arm.mean:,.2f}"
+        if arm is not stats.baseline and (delta := _variant_delta(stats, arm)) is not None:
+            value += f"  {delta:+.1%}{' ✓' if arm.significant else ''}"
+        bar = _bar((arm.mean or 0.0) / top if top else 0.0) if show_bars else ""
+        rows.append(_ChartRow(label=_chart_label(arm.key), bar=bar, value=value))
+    return _chart_rows(rows)
 
 
 def _survey_status(survey: Survey) -> str:
@@ -1078,7 +1172,6 @@ def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         title=report.title or "Untitled report",
         status=_humanize(report.status),
         details=(_count(report.signal_count, "signal"),),
-        body=report.summary,
         timestamp=report.updated_at,
     )
 
@@ -1133,7 +1226,7 @@ def _post_unfurls(slack: SlackIntegration, event: dict, unfurls: dict[str, dict]
 
 def start_unfurl_charts(
     *,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     user: User,
     event: dict,
     unfurls: dict[str, dict],
@@ -1181,7 +1274,7 @@ def start_unfurl_charts(
 
 def _queue_unfurl_charts(
     *,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     user: User,
     event: dict,
     unfurls: dict[str, dict],
@@ -1208,7 +1301,7 @@ def _queue_unfurl_charts(
 
 
 def _queue_unfurl_artifact_image(
-    *, integration: Integration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+    *, integration: WorkspaceIntegration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
 ) -> bool:
     """Reading and storing the file is too slow for the webhook's ack budget, so it runs on Celery."""
     # noqa reason: the task module imports api, which imports this module at load time.
@@ -1239,7 +1332,7 @@ class _ImageLink:
     failure: _ImageFailure | None = None
 
 
-def _artifact_image_link(*, integration: Integration, user: User, url: str, title: str) -> _ImageLink:
+def _artifact_image_link(*, integration: WorkspaceIntegration, user: User, url: str, title: str) -> _ImageLink:
     # The link opens without a PostHog login, so it follows the public sharing setting like chart images do.
     team = integration.team
     if not team.organization.allow_publicly_shared_resources:
@@ -1277,7 +1370,7 @@ def _artifact_image_link(*, integration: Integration, user: User, url: str, titl
 
 
 def add_artifact_image_to_unfurl(
-    *, integration: Integration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+    *, integration: WorkspaceIntegration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
 ) -> None:
     """Post a task artifact card again with its image. Best effort: a failure keeps the text card."""
     link = _artifact_image_link(integration=integration, user=user, url=url, title=title)
@@ -1306,7 +1399,31 @@ def add_artifact_image_to_unfurl(
     )
 
 
-def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
+def _bot_reply_actor(integration: WorkspaceIntegration, event: dict) -> str | None:
+    """The Slack user steering the run in this thread, when that run was told to share chart links.
+
+    Slack credits a message our app posts to our bot user, and some bot-posted messages to the
+    placeholder author. Neither resolves to a PostHog user, so a thread whose run shares links is
+    the signal that such a message is our reply, written for that person with their PostHog
+    access. The run state holds the decision, so no flag call here."""
+    if not event.get("thread_ts"):
+        return None
+    actors = (
+        SlackThreadTaskMapping.objects.filter(
+            integration_id=integration.id,
+            channel=event["channel"],
+            thread_ts=event["thread_ts"],
+            task_run__state__slack_chart_links=True,
+        )
+        .values_list(
+            "task_run__state__slack_actor_slack_user_id", "latest_actor_slack_user_id", "mentioning_slack_user_id"
+        )
+        .first()
+    )
+    return next((actor for actor in actors or () if actor), None)
+
+
+def handle_posthog_link_unfurl(event: dict, integration: WorkspaceIntegration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
 
@@ -1326,7 +1443,15 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         return
 
     # Imported here to avoid circular import with api (api imports this module at load time).
-    from products.slack_app.backend.api import resolve_slack_user
+    from products.slack_app.backend.api import SLACK_PLACEHOLDER_USER_ID, resolve_slack_user
+
+    bot_authors = {SLACK_PLACEHOLDER_USER_ID, get_cached_bot_user_id(slack, integration)}
+    shared_by_person = slack_user_id not in bot_authors
+    bot_reply_actor = None if shared_by_person else _bot_reply_actor(integration, event)
+    if bot_reply_actor:
+        slack_user_id = bot_reply_actor
+        # Everything downstream, the chart workflow included, reads the sharer from the event.
+        event = {**event, "user": bot_reply_actor}
 
     user_context = resolve_slack_user(
         slack,
@@ -1436,6 +1561,7 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             kinds=kinds,
             compact=compact,
             error=error,
+            bot_reply=bot_reply_actor is not None,
         )
         if error not in _REJECTED_PAYLOAD_ERRORS:
             return
@@ -1443,7 +1569,9 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         return
 
     chart_requests = [
-        SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
+        SlackUnfurlChartRequest(url=url, query=card.chart_edited_query, title=card.title)
+        if card.chart_edited_query is not None
+        else SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
         for url, (_, card) in cards.items()
         if card.chart_insight_id is not None and not compact
     ]
@@ -1463,6 +1591,8 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
             integration=integration, user=user, event=event, unfurls=unfurls, url=first_url, title=first_card.title
         )
     )
+    if shared_by_person:
+        record_feature_used(integration.integration_id, slack_user_id, SlackFeature.INSIGHT_UNFURL)
     capture_slack_event(
         integration,
         "slack app link unfurled",
@@ -1475,4 +1605,5 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         followup_invite_shown=invite is not None,
         charts_queued=charts_queued,
         artifact_image_queued=artifact_image_queued,
+        bot_reply=bot_reply_actor is not None,
     )

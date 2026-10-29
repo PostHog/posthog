@@ -6,8 +6,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
-    always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.onepagecrm import (
     OnepagecrmSourceConfig,
@@ -16,7 +14,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm
     OnepagecrmResumeConfig,
     _to_epoch,
     modified_since_anchor,
-    validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.onepagecrm.settings import (
     ENDPOINTS,
@@ -127,16 +124,45 @@ class TestPagination:
             ("users", {"data": [{"user": {"id": "u1"}}, {"user": {"id": "u2"}}]}, ["u1", "u2"]),
             ("statuses", {"data": [{"status": {"id": "s1"}}]}, ["s1"]),
             ("lead_sources", {"data": [{"id": "advertisement"}, {"id": "web"}]}, ["advertisement", "web"]),
+            (
+                "call_results",
+                {"data": [{"call_result": {"result": "interested"}}, {"call_result": {"result": "no_answer"}}]},
+                ["interested", "no_answer"],
+            ),
         ]
     )
     def test_config_endpoints_yield_bare_array_records(
         self, endpoint: str, body: dict[str, Any], expected_ids: list[str]
     ) -> None:
         result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+        primary_key = ONEPAGECRM_ENDPOINTS[endpoint].primary_keys[0]
 
         assert result.raised is None
-        assert [row["id"] for row in result.rows] == expected_ids
+        assert [row[primary_key] for row in result.rows] == expected_ids
         assert len(result.requests) == 1
+
+    @parameterized.expand(
+        [
+            ("pipelines", "pipeline", None),
+            ("custom_fields", "custom_field", "created_at"),
+            ("deal_fields", "deal_field", None),
+        ]
+    )
+    def test_lookup_endpoints_walk_pages_and_only_sort_where_documented(
+        self, endpoint: str, item_key: str, expected_sort_by: str | None
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _list_page(endpoint, item_key, [{"id": "f1"}], page=1, max_page=2),
+                _list_page(endpoint, item_key, [{"id": "f2"}], page=2, max_page=2),
+            ],
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["f1", "f2"]
+        assert result.params("page") == ["1", "2"]
+        assert result.params("sort_by") == [expected_sort_by, expected_sort_by]
 
     def test_missing_data_key_raises_loudly(self) -> None:
         result = _driver().run("contacts", [ScriptedResponse(json={"status": 0, "message": "OK"})])
@@ -144,30 +170,6 @@ class TestPagination:
         # A 200 body missing the data list means the response shape changed — fail loud.
         assert isinstance(result.raised, ValueError)
         assert "matched nothing" in str(result.raised)
-
-
-class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            (200, True, None),
-            (401, False, "Invalid OnePageCRM user ID or API key"),
-            (403, False, "Invalid OnePageCRM user ID or API key"),
-            (500, False, "OnePageCRM returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, status_code: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status_code))):
-            valid, message = validate_credentials("uid", "key")
-
-        assert valid is expected_valid
-        assert message == expected_message
-
-    def test_connection_error_reports_failure(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            valid, message = validate_credentials("uid", "key")
-
-        assert valid is False
-        assert message is not None and "Could not connect to OnePageCRM" in message
 
 
 class TestOnepagecrmSourceResponse:

@@ -133,6 +133,8 @@ _BREAKDOWN_METRIC_FIELDS = [
     "action_values",
     "purchase_roas",
     "website_purchase_roas",
+    "video_play_actions",
+    "video_thruplay_watched_actions",
     # The attribution window Meta actually applied to these rows, so imported numbers can be
     # reconciled against Ads Manager (see the source's attribution-window config).
     "attribution_setting",
@@ -141,6 +143,25 @@ _BREAKDOWN_METRIC_FIELDS = [
 CAMPAIGN_BREAKDOWN_STATS_FIELDS = ["campaign_id", *_BREAKDOWN_METRIC_FIELDS]
 ADSET_BREAKDOWN_STATS_FIELDS = ["adset_id", "campaign_id", *_BREAKDOWN_METRIC_FIELDS]
 AD_BREAKDOWN_STATS_FIELDS = ["ad_id", "adset_id", "campaign_id", *_BREAKDOWN_METRIC_FIELDS]
+
+# How far into a video people watched. Only the country and platform breakdown tables request
+# these. Meta rejects the whole request when the `region` breakdown asks for some of them:
+# "video_avg_time_watched_actions field cannot be requested with the region breakdown", and the
+# p25 to p100 fields "do not support region breakdown".
+_VIDEO_WATCH_DEPTH_FIELDS = [
+    "video_30_sec_watched_actions",
+    "video_p25_watched_actions",
+    "video_p50_watched_actions",
+    "video_p75_watched_actions",
+    "video_p95_watched_actions",
+    "video_p100_watched_actions",
+    "video_avg_time_watched_actions",
+]
+
+
+def _with_video_watch_depth(field_names: list[str]) -> list[str]:
+    return [*field_names, *_VIDEO_WATCH_DEPTH_FIELDS]
+
 
 # Meta: "Hourly breakdowns do not support unique fields, which are any fields prepended with
 # `unique_*`, `reach` or `frequency`." `cpp` and `cost_per_unique_click` are derived from those.
@@ -158,12 +179,20 @@ _UNIQUE_METRIC_FIELDS = {
 }
 
 
-def _without_unique_metrics(field_names: list[str]) -> list[str]:
-    return [f for f in field_names if f not in _UNIQUE_METRIC_FIELDS]
+# Hourly and creative-asset breakdowns do not support these video metrics.
+_VIDEO_METRIC_FIELDS = {"video_play_actions", "video_thruplay_watched_actions", *_VIDEO_WATCH_DEPTH_FIELDS}
 
 
-HOURLY_BREAKDOWN_STATS_FIELDS = _without_unique_metrics(CAMPAIGN_BREAKDOWN_STATS_FIELDS)
-AD_ASSET_BREAKDOWN_STATS_FIELDS = _without_unique_metrics(AD_BREAKDOWN_STATS_FIELDS)
+def _without_metrics(field_names: list[str], excluded_fields: set[str]) -> list[str]:
+    return [f for f in field_names if f not in excluded_fields]
+
+
+HOURLY_BREAKDOWN_STATS_FIELDS = _without_metrics(
+    CAMPAIGN_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS
+)
+AD_ASSET_BREAKDOWN_STATS_FIELDS = _without_metrics(
+    AD_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS
+)
 
 
 @frozen
@@ -251,6 +280,9 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         # The Ad node returns its creative as a nested object. Without a scalar id there is no join
         # from an ad to `ad_creatives`, where the destination URL and the URL tags live.
         "hoisted_columns": (HoistedColumn(source_field="creative", key="id", column="creative_id"),),
+        # These fields come from the ad's creative. Meta can refuse them for one ad with an invalid
+        # Advantage+ creative, and that ad then syncs without them instead of failing the table.
+        "refusable_fields": ("creative", "tracking_specs", "conversion_specs"),
     },
     MetaAdsResource.AdStats: {
         "primary_keys": ["ad_id", "account_id", "date_start"],
@@ -291,11 +323,16 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "website_purchase_roas",
             "attribution_setting",
             "video_30_sec_watched_actions",
+            "video_play_actions",
+            "video_thruplay_watched_actions",
             "video_p25_watched_actions",
             "video_p50_watched_actions",
             "video_p75_watched_actions",
             "video_p95_watched_actions",
             "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+            "video_continuous_2_sec_watched_actions",
+            "video_play_curve_actions",
         ],
         "partition_mode": "datetime",
         "partition_format": "week",
@@ -330,6 +367,8 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
         "partition_mode": "datetime",
         "partition_format": "week",
         "partition_keys": ["created_time"],
+        # An adset's targeting spec can be large enough that Meta refuses even the smallest page.
+        "refusable_fields": ("targeting", "promoted_object"),
     },
     MetaAdsResource.AdsetStats: {
         "primary_keys": ["adset_id", "account_id", "date_start"],
@@ -368,6 +407,17 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "purchase_roas",
             "website_purchase_roas",
             "attribution_setting",
+            "video_30_sec_watched_actions",
+            "video_play_actions",
+            "video_thruplay_watched_actions",
+            "video_p25_watched_actions",
+            "video_p50_watched_actions",
+            "video_p75_watched_actions",
+            "video_p95_watched_actions",
+            "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+            "video_continuous_2_sec_watched_actions",
+            "video_play_curve_actions",
         ],
         "partition_mode": "datetime",
         "partition_format": "week",
@@ -436,6 +486,17 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "purchase_roas",
             "website_purchase_roas",
             "attribution_setting",
+            "video_30_sec_watched_actions",
+            "video_play_actions",
+            "video_thruplay_watched_actions",
+            "video_p25_watched_actions",
+            "video_p50_watched_actions",
+            "video_p75_watched_actions",
+            "video_p95_watched_actions",
+            "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+            "video_continuous_2_sec_watched_actions",
+            "video_play_curve_actions",
         ],
         "partition_mode": "datetime",
         "partition_format": "week",
@@ -507,6 +568,27 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
             "degrees_of_freedom_spec",
             "effective_authorization_category",
         ],
+        # Meta does not say which field triggers a refusal, so every spec-derived field is refusable.
+        "refusable_fields": (
+            "object_type",
+            "object_story_id",
+            "effective_object_story_id",
+            "object_story_spec",
+            "thumbnail_url",
+            "image_url",
+            "image_hash",
+            "video_id",
+            "body",
+            "title",
+            "call_to_action_type",
+            "link_url",
+            "url_tags",
+            "instagram_permalink_url",
+            "actor_id",
+            "asset_feed_spec",
+            "degrees_of_freedom_spec",
+            "effective_authorization_category",
+        ),
     },
     # `hash` rather than `id` as the key: Meta documents it as AdImage's default field, and the
     # `id` it returns is just the account and hash joined.
@@ -583,33 +665,47 @@ RESOURCE_SCHEMAS: dict[MetaAdsResource, dict[str, Any]] = {
     MetaAdsResource.CampaignStatsByAgeGender: _breakdown_stats(
         "campaign", ["age", "gender"], CAMPAIGN_BREAKDOWN_STATS_FIELDS
     ),
-    MetaAdsResource.CampaignStatsByCountry: _breakdown_stats("campaign", ["country"], CAMPAIGN_BREAKDOWN_STATS_FIELDS),
+    MetaAdsResource.CampaignStatsByCountry: _breakdown_stats(
+        "campaign", ["country"], _with_video_watch_depth(CAMPAIGN_BREAKDOWN_STATS_FIELDS)
+    ),
     MetaAdsResource.CampaignStatsByRegion: _breakdown_stats("campaign", ["region"], CAMPAIGN_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.CampaignStatsByPlatform: _breakdown_stats(
-        "campaign", ["publisher_platform", "platform_position", "impression_device"], CAMPAIGN_BREAKDOWN_STATS_FIELDS
+        "campaign",
+        ["publisher_platform", "platform_position", "impression_device"],
+        _with_video_watch_depth(CAMPAIGN_BREAKDOWN_STATS_FIELDS),
     ),
     MetaAdsResource.CampaignStatsHourly: _breakdown_stats(
         "campaign", ["hourly_stats_aggregated_by_advertiser_time_zone"], HOURLY_BREAKDOWN_STATS_FIELDS
     ),
     MetaAdsResource.AdsetStatsByAgeGender: _breakdown_stats("adset", ["age", "gender"], ADSET_BREAKDOWN_STATS_FIELDS),
-    MetaAdsResource.AdsetStatsByCountry: _breakdown_stats("adset", ["country"], ADSET_BREAKDOWN_STATS_FIELDS),
+    MetaAdsResource.AdsetStatsByCountry: _breakdown_stats(
+        "adset", ["country"], _with_video_watch_depth(ADSET_BREAKDOWN_STATS_FIELDS)
+    ),
     MetaAdsResource.AdsetStatsByRegion: _breakdown_stats("adset", ["region"], ADSET_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.AdsetStatsByPlatform: _breakdown_stats(
-        "adset", ["publisher_platform", "platform_position", "impression_device"], ADSET_BREAKDOWN_STATS_FIELDS
+        "adset",
+        ["publisher_platform", "platform_position", "impression_device"],
+        _with_video_watch_depth(ADSET_BREAKDOWN_STATS_FIELDS),
     ),
     MetaAdsResource.AdsetStatsHourly: _breakdown_stats(
         "adset",
         ["hourly_stats_aggregated_by_advertiser_time_zone"],
-        _without_unique_metrics(ADSET_BREAKDOWN_STATS_FIELDS),
+        _without_metrics(ADSET_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS),
     ),
     MetaAdsResource.AdStatsByAgeGender: _breakdown_stats("ad", ["age", "gender"], AD_BREAKDOWN_STATS_FIELDS),
-    MetaAdsResource.AdStatsByCountry: _breakdown_stats("ad", ["country"], AD_BREAKDOWN_STATS_FIELDS),
+    MetaAdsResource.AdStatsByCountry: _breakdown_stats(
+        "ad", ["country"], _with_video_watch_depth(AD_BREAKDOWN_STATS_FIELDS)
+    ),
     MetaAdsResource.AdStatsByRegion: _breakdown_stats("ad", ["region"], AD_BREAKDOWN_STATS_FIELDS),
     MetaAdsResource.AdStatsByPlatform: _breakdown_stats(
-        "ad", ["publisher_platform", "platform_position", "impression_device"], AD_BREAKDOWN_STATS_FIELDS
+        "ad",
+        ["publisher_platform", "platform_position", "impression_device"],
+        _with_video_watch_depth(AD_BREAKDOWN_STATS_FIELDS),
     ),
     MetaAdsResource.AdStatsHourly: _breakdown_stats(
-        "ad", ["hourly_stats_aggregated_by_advertiser_time_zone"], _without_unique_metrics(AD_BREAKDOWN_STATS_FIELDS)
+        "ad",
+        ["hourly_stats_aggregated_by_advertiser_time_zone"],
+        _without_metrics(AD_BREAKDOWN_STATS_FIELDS, _UNIQUE_METRIC_FIELDS | _VIDEO_METRIC_FIELDS),
     ),
     # Spend against the landing page an ad sent people to. Meta reports the destination URL only
     # as a creative asset, and `ad_creatives.link_url` alone cannot carry spend, so this is the

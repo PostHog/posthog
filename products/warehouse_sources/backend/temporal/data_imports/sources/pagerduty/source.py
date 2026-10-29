@@ -23,6 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     PagerDutySourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pagerduty.pagerduty import (
+    ANALYTICS_PERSONAL_KEY_ERROR,
+    ANALYTICS_READ_ONLY_KEY_ERROR,
     PagerDutyResumeConfig,
     pagerduty_source,
     validate_credentials as validate_pagerduty_credentials,
@@ -62,7 +64,7 @@ class PagerDutySource(ResumableSource[PagerDutySourceConfig, PagerDutyResumeConf
             label="PagerDuty",
             caption="""Enter your PagerDuty REST API key to pull your PagerDuty data into the PostHog Data warehouse.
 
-You can create a read-only API key in your PagerDuty account under **Integrations → API Access Keys**. Select the **Read-only** option — that's all this source needs.""",
+You can create an account-level API key in your PagerDuty account under **Integrations → API Access Keys**. A **Read-only** key syncs every table except `incident_analytics`, because the PagerDuty Analytics API only accepts POST requests. To sync `incident_analytics`, create a full access key instead.""",
             iconPath="/static/services/pagerduty.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/pagerduty",
             fields=cast(
@@ -78,7 +80,7 @@ You can create a read-only API key in your PagerDuty account under **Integration
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -97,8 +99,11 @@ You can create a read-only API key in your PagerDuty account under **Integration
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # incidents mutates after creation, so it merges (incremental) but is never append-only.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"incidents"})
+        # Incidents and their analytics rows mutate after creation, so they merge (incremental) but are
+        # never append-only.
+        return build_endpoint_schemas(
+            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only={"incidents", "incident_analytics"}
+        )
 
     def validate_credentials(
         self,
@@ -132,7 +137,10 @@ You can create a read-only API key in your PagerDuty account under **Integration
         return False, error
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # The Analytics entries come first: the first matching entry supplies the message.
         return {
+            "403 Client Error: Forbidden for url: https://api.pagerduty.com/analytics": ANALYTICS_READ_ONLY_KEY_ERROR,
+            "400 Client Error: Bad Request for url: https://api.pagerduty.com/analytics": ANALYTICS_PERSONAL_KEY_ERROR,
             "401 Client Error: Unauthorized for url: https://api.pagerduty.com": "Your PagerDuty API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error: Forbidden for url: https://api.pagerduty.com": "Your PagerDuty API key does not have the required permissions. Please check the key's access and try again.",
         }

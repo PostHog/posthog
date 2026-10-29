@@ -9,7 +9,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    ResumableSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -19,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.polar import (
+    POLAR_VERSION_2026_10,
     PolarPermissionError,
     PolarResumeConfig,
     polar_source,
@@ -38,8 +43,8 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         go=("github.com/polarsource/polar-go",),
     )
 
-    supported_versions = ("v1",)
-    default_version = "v1"
+    supported_versions = (UNVERSIONED_API_VERSION, POLAR_VERSION_2026_10)
+    default_version = POLAR_VERSION_2026_10
     api_docs_url = "https://docs.polar.sh/api-reference"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
@@ -92,13 +97,30 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         return {
             "401 Client Error: Unauthorized for url: https://api.polar.sh": "Your Polar Organization Access Token is invalid or expired. Please generate a new token in Polar and reconnect.",
             "403 Client Error: Forbidden for url: https://api.polar.sh": "Your Polar Organization Access Token does not have the required permissions. Please check the token's scopes in Polar and reconnect.",
+            # Polar answers a removed or unknown `Polar-Version` with a 404; the list endpoints are static.
+            "404 Client Error: Not Found for url: https://api.polar.sh": "The Polar API version this source uses is no longer supported by Polar. Please contact support to move it to a newer version.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows` calls `response.raise_for_status()` directly rather than through the shared REST
+        # engine, so a 5xx that survives `_get_polar_session`'s `DEFAULT_RETRY` (status_forcelist
+        # 429/500/502/503/504) isn't wrapped as a retryable exception type either — it's still a
+        # transient Polar-side outage, and Temporal retries the whole activity next. Match status,
+        # reason and host, not the path or query string, since every endpoint and page can hit this.
+        # Mirrors Microsoft Clarity's and Checkout.com's equivalent classification of the same
+        # already-retried status codes.
+        return {
+            "500 Server Error: Internal Server Error for url: https://api.polar.sh",
+            "502 Server Error: Bad Gateway for url: https://api.polar.sh",
+            "503 Server Error: Service Unavailable for url: https://api.polar.sh",
+            "504 Server Error: Gateway Timeout for url: https://api.polar.sh",
         }
 
     def validate_credentials(
         self, config: PolarSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
         try:
-            validate_polar_credentials(config.polar_api_key, schema_name)
+            validate_polar_credentials(config.polar_api_key, self.resolve_api_version(api_version), schema_name)
             return True, None
         except PolarPermissionError as e:
             return False, f"Polar Organization Access Token lacks permissions: {e}"
@@ -163,5 +185,6 @@ class PolarSource(ResumableSource[PolarSourceConfig, PolarResumeConfig]):
         return polar_source(
             api_key=config.polar_api_key,
             endpoint=inputs.schema_name,
+            api_version=self.resolve_api_version(inputs.api_version),
             resumable_source_manager=resumable_source_manager,
         )

@@ -8,12 +8,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 # Billomat's documented maximum; requesting the largest page size keeps the per-15-minute
@@ -23,7 +27,12 @@ _PER_PAGE = 1000
 
 @dataclasses.dataclass(frozen=False)
 class BillomatResumeConfig:
-    next_page: int
+    next_page: int | None = None
+    # ClientContacts fans out over clients and resumes by parent — see
+    # `common.rest_source.__init__._make_paginate_dependent_resource` for the state shape.
+    completed: list[str] | None = None
+    current: str | None = None
+    child_state: dict[str, Any] | None = None
 
 
 def _extract_total_count(response: Response) -> Optional[int]:
@@ -177,6 +186,50 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
             },
             "table_format": "delta",
         },
+        "InvoicePayments": {
+            "name": "InvoicePayments",
+            "table_name": "invoice_payments",
+            "write_disposition": write_disposition,
+            "endpoint": {
+                "data_selector": '"invoice-payments"."invoice-payment"',
+                "path": "/invoice-payments",
+                "params": {
+                    "per_page": _PER_PAGE,
+                    "order_by": "date ASC",
+                    "from": _incremental_param() if should_use_incremental_field else None,
+                },
+            },
+            "table_format": "delta",
+        },
+        "Confirmations": {
+            "name": "Confirmations",
+            "table_name": "confirmations",
+            "write_disposition": write_disposition,
+            "endpoint": {
+                "data_selector": '"confirmations"."confirmation"',
+                "path": "/confirmations",
+                "params": {
+                    "per_page": _PER_PAGE,
+                    "order_by": "date ASC",
+                    "from": _incremental_param() if should_use_incremental_field else None,
+                },
+            },
+            "table_format": "delta",
+        },
+        "Recurrings": {
+            "name": "Recurrings",
+            "table_name": "recurrings",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": '"recurrings"."recurring"',
+                "path": "/recurrings",
+                "params": {
+                    "per_page": _PER_PAGE,
+                    "order_by": "id ASC",
+                },
+            },
+            "table_format": "delta",
+        },
         "Incomings": {
             "name": "Incomings",
             "table_name": "incomings",
@@ -194,6 +247,29 @@ def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResou
         },
     }
     return resources[name]
+
+
+def _client_contacts_resources() -> list[str | EndpointResource]:
+    return [
+        get_resource("Clients", should_use_incremental_field=False),
+        {
+            "name": "ClientContacts",
+            "table_name": "client_contacts",
+            "write_disposition": "replace",
+            "endpoint": {
+                "data_selector": '"contacts"."contact"',
+                # The contacts list only answers for one client at a time (client_id is mandatory),
+                # and resolve binds into paths only, so the placeholder rides in the query string.
+                "path": "/contacts?client_id={client_id}",
+                "params": {
+                    "client_id": {"type": "resolve", "resource": "Clients", "field": "id"},
+                    "per_page": _PER_PAGE,
+                    "order_by": "id ASC",
+                },
+            },
+            "table_format": "delta",
+        },
+    ]
 
 
 def billomat_source(
@@ -216,22 +292,52 @@ def billomat_source(
         headers=headers, redact_values=tuple(v for v in (api_key, app_secret) if v), allow_redirects=False
     )
 
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    client: ClientConfig = {
+        "base_url": f"https://{billomat_id}.billomat.net/api",
+        "session": session,
+        "paginator": BillomatPaginator(per_page=_PER_PAGE, base_page=1, page=1, page_param="page"),
+    }
+
+    if endpoint == "ClientContacts":
+        fanout_state: Optional[dict[str, Any]] = None
+        if resume_config is not None and (resume_config.completed or resume_config.current):
+            fanout_state = {
+                "completed": resume_config.completed or [],
+                "current": resume_config.current,
+                "child_state": resume_config.child_state,
+            }
+
+        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            if state is not None:
+                resumable_source_manager.save_state(
+                    BillomatResumeConfig(
+                        completed=state.get("completed"),
+                        current=state.get("current"),
+                        child_state=state.get("child_state"),
+                    )
+                )
+
+        resources = rest_api_resources(
+            {"client": client, "resources": _client_contacts_resources()},
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=fanout_state,
+        )
+        return next(resource for resource in resources if resource.name == "ClientContacts")
+
     initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"page": resume_config.next_page}
+    if resume_config is not None and resume_config.next_page is not None:
+        initial_paginator_state = {"page": resume_config.next_page}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("page") is not None:
             resumable_source_manager.save_state(BillomatResumeConfig(next_page=int(state["page"])))
 
     config: RESTAPIConfig = {
-        "client": {
-            "base_url": f"https://{billomat_id}.billomat.net/api",
-            "session": session,
-            "paginator": BillomatPaginator(per_page=_PER_PAGE, base_page=1, page=1, page_param="page"),
-        },
+        "client": client,
         "resources": [get_resource(endpoint, should_use_incremental_field)],
     }
 

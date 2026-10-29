@@ -154,7 +154,7 @@ class OneHundredMsSource(ResumableSource[OneHundredMsSourceConfig, OneHundredMsR
                 "[100ms dashboard](https://dashboard.100ms.live/). Only completed sessions are imported."
             ),
             iconPath="/static/services/onehundredms.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

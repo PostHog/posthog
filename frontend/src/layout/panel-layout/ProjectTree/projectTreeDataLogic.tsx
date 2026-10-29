@@ -41,6 +41,7 @@ import {
     convertFileSystemEntryToTreeDataItem,
     escapePath,
     formatUrlAsName,
+    isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
     matchesRefType,
@@ -295,8 +296,12 @@ export interface projectTreeDataLogicActions {
     addLoadedUsers: (users: UserBasicType[]) => {
         users: UserBasicType[]
     }
-    addShortcutItem: (item: FileSystemEntry) => {
+    addShortcutItem: (
+        item: FileSystemEntry,
+        successMessage?: string
+    ) => {
         item: FileSystemEntry
+        successMessage: string | undefined
     }
     addShortcutItemFailure: (
         error: string,
@@ -309,11 +314,13 @@ export interface projectTreeDataLogicActions {
         shortcutData: FileSystemEntry[],
         payload?: {
             item: FileSystemEntry
+            successMessage: string | undefined
         }
     ) => {
         shortcutData: FileSystemEntry[]
         payload?: {
             item: FileSystemEntry
+            successMessage: string | undefined
         }
     }
     createSavedItem: (savedItem: FileSystemEntry) => {
@@ -329,8 +336,12 @@ export interface projectTreeDataLogicActions {
     deleteSavedItem: (savedItem: FileSystemEntry) => {
         savedItem: FileSystemEntry
     }
-    deleteShortcut: (id: FileSystemEntry['id']) => {
+    deleteShortcut: (
+        id: FileSystemEntry['id'],
+        successMessage?: string
+    ) => {
         id: string
+        successMessage: string | undefined
     }
     deleteShortcutFailure: (
         error: string,
@@ -343,11 +354,13 @@ export interface projectTreeDataLogicActions {
         shortcutData: FileSystemEntry[],
         payload?: {
             id: string
+            successMessage: string | undefined
         }
     ) => {
         shortcutData: FileSystemEntry[]
         payload?: {
             id: string
+            successMessage: string | undefined
         }
     }
     deleteTypeAndRef: (
@@ -601,7 +614,7 @@ export interface projectTreeDataLogicMeta {
             homeFolder: FileSystemHomeFolderApi | null,
             viableItems: FileSystemEntry[]
         ) => FileSystemHomeFolderApi | null
-        savedItems: (folders: Record<string, FileSystemEntry[]>) => FileSystemEntry[]
+        savedItems: (folders: Record<string, FileSystemEntry[]>, featureFlags: FeatureFlagsSet) => FileSystemEntry[]
         shortcutEntryIdMap: (shortcutData: FileSystemEntry[]) => Map<string, string>
         savedItemsLoading: (folderStates: Record<string, FolderState>) => boolean
         viableItems: (savedItems: FileSystemEntry[], pendingActions: ProjectTreeAction[]) => FileSystemEntry[]
@@ -746,8 +759,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
 
         setLastNewFolder: (folder: string | null) => ({ folder }),
 
-        addShortcutItem: (item: FileSystemEntry) => ({ item }),
-        deleteShortcut: (id: FileSystemEntry['id']) => ({ id }),
+        addShortcutItem: (item: FileSystemEntry, successMessage?: string) => ({ item, successMessage }),
+        deleteShortcut: (id: FileSystemEntry['id'], successMessage?: string) => ({ id, successMessage }),
         loadShortcuts: true,
         reorderShortcuts: (orderedIds: NonNullable<FileSystemEntry['id']>[]) => ({ orderedIds }),
         // Resolves a sibling drag ('before' / 'after' a target row) into a new ordered list and
@@ -1076,14 +1089,17 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     )
                     return response.results.map(withProductShortcutHref)
                 },
-                addShortcutItem: async ({ item }) => {
+                addShortcutItem: async ({ item, successMessage }) => {
                     const shortcutItem = shortcutFromEntry(item)
-                    const response = await api.fileSystemShortcuts.create(shortcutItem)
-                    posthog.capture('navbar starred item added', {
-                        item_type: shortcutItem.type ?? 'unknown',
-                        item_name: shortcutItem.path,
-                    })
-                    lemonToast.success('Added to starred')
+                    const { shortcut: response, created } = await api.fileSystemShortcuts.create(shortcutItem)
+                    // A star the user already has, for example from another tab, is not a new add.
+                    if (created) {
+                        posthog.capture('navbar starred item added', {
+                            item_type: shortcutItem.type ?? 'unknown',
+                            item_name: shortcutItem.path,
+                        })
+                    }
+                    lemonToast.success(successMessage ?? 'Added to starred')
                     // The API returns the existing shortcut when the item is already starred, so
                     // appending it unconditionally would show the same star twice until a reload.
                     if (values.shortcutData.some((shortcut) => shortcut.id === response.id)) {
@@ -1103,14 +1119,14 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     // when kea-loaders' success handler sets `shortcutData` to the resolved value.
                     return values.shortcutData
                 },
-                deleteShortcut: async ({ id }) => {
+                deleteShortcut: async ({ id, successMessage }) => {
                     const shortcut = values.shortcutData.find((s) => s.id === id)
                     await api.fileSystemShortcuts.delete(id)
                     posthog.capture('navbar starred item removed', {
                         item_type: shortcut?.type ?? 'unknown',
                         item_name: shortcut?.path ?? 'unknown',
                     })
-                    lemonToast.success('Removed from starred')
+                    lemonToast.success(successMessage ?? 'Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
                 },
             },
@@ -1332,9 +1348,11 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             },
         ],
         savedItems: [
-            (s) => [s.folders],
-            (folders: Record<string, FileSystemEntry[]>): FileSystemEntry[] =>
-                Object.entries(folders).reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[]),
+            (s) => [s.folders, s.featureFlags],
+            (folders: Record<string, FileSystemEntry[]>, featureFlags: FeatureFlagsSet): FileSystemEntry[] =>
+                Object.entries(folders)
+                    .reduce((acc, [_, items]) => acc.concat(items), [] as FileSystemEntry[])
+                    .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags)),
         ],
         // Maps each top-level Starred row's tree id to the underlying FileSystemEntry id, so the
         // drag handler can resolve sibling drops without rebuilding the lookup on every render.

@@ -4,6 +4,8 @@ from datetime import date
 import pytest
 from unittest import mock
 
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import VersionDeprecation
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linkedinads import (
     LinkedinAdsSourceConfig,
@@ -16,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_a
     LINKEDIN_ADS_VERSION_202607,
     LINKEDIN_ADS_VERSION_202608,
     LINKEDIN_ADS_VERSION_202609,
+    LINKEDIN_ADS_VERSION_202610,
     LinkedInAdsSource,
 )
 
@@ -89,20 +92,21 @@ class TestLinkedInAdsSource:
         retryable_errors = self.source.get_retryable_errors()
         assert not any(pattern in other_error for pattern in retryable_errors)
 
-    def test_defaults_new_sources_to_202609(self):
-        assert self.source.default_version == LINKEDIN_ADS_VERSION_202609
+    def test_defaults_new_sources_to_202610(self):
+        assert self.source.default_version == LINKEDIN_ADS_VERSION_202610
         assert set(self.source.supported_versions) == {
             "v1",
             LINKEDIN_ADS_VERSION_202606,
             LINKEDIN_ADS_VERSION_202607,
             LINKEDIN_ADS_VERSION_202608,
             LINKEDIN_ADS_VERSION_202609,
+            LINKEDIN_ADS_VERSION_202610,
         }
 
     def test_deprecated_versions_carry_sunset_dates(self):
         # "v1" backs the sunset 202508 header (see client.API_VERSION); 202606 sunsets 2027-06-15.
         # The in-product deprecation banner depends on this metadata staying declared, and the default
-        # (202609) must never appear here.
+        # (202610) must never appear here.
         assert self.source.deprecated_versions == (
             VersionDeprecation(version="v1", sunset_at=date(2026, 8, 1)),
             VersionDeprecation(version=LINKEDIN_ADS_VERSION_202606, sunset_at=date(2027, 6, 15)),
@@ -119,8 +123,9 @@ class TestLinkedInAdsSource:
             (LINKEDIN_ADS_VERSION_202607, "202607"),
             (LINKEDIN_ADS_VERSION_202608, "202608"),
             (LINKEDIN_ADS_VERSION_202609, "202609"),
+            (LINKEDIN_ADS_VERSION_202610, "202610"),
             # No pin resolves to the new default.
-            (None, "202609"),
+            (None, "202610"),
             # An undeclared pin is honored verbatim and passed straight through for LinkedIn to validate.
             ("209901", "209901"),
         ],
@@ -149,7 +154,7 @@ class TestLinkedInAdsSource:
 
         self.source.get_oauth_accounts(integration_id=456, team_id=self.team_id)
 
-        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202609"
+        assert mock_client_for_integration.call_args.kwargs["api_version"] == "202610"
 
     def test_demographic_breakdowns_are_offered_but_not_enabled_by_default(self):
         # These fan out to one row per day per demographic value on top of the performance tables,
@@ -199,31 +204,25 @@ class TestLinkedInAdsSource:
         assert error_message is not None
         assert "numeric account ID" in error_message
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.IntegrationManager"
+    )
     def test_validate_credentials_integration_not_found(self, mock_integration_model):
-        # Mock DoesNotExist exception
-        class MockDoesNotExist(Exception):
-            pass
-
-        mock_integration_model.DoesNotExist = MockDoesNotExist
-        mock_integration_model.objects.get.side_effect = MockDoesNotExist()
+        mock_integration_model.linkedin_ads.oauth.get.side_effect = IntegrationNotFound()
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert error_message == _MISSING_INTEGRATION_ERROR
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.IntegrationManager"
+    )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.capture_exception"
     )
     def test_validate_credentials_unexpected_error(self, mock_capture_exception, mock_integration_model):
-        # Mock DoesNotExist exception
-        class MockDoesNotExist(Exception):
-            pass
-
-        mock_integration_model.DoesNotExist = MockDoesNotExist
-        mock_integration_model.objects.get.side_effect = Exception("Database error")
+        mock_integration_model.linkedin_ads.oauth.get.side_effect = Exception("Database error")
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 

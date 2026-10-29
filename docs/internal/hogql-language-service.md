@@ -411,7 +411,7 @@ API contract.
 
 ## Deployment and rollout
 
-The production container builds a static binary with Go 1.27.1 and runs as a non-root user. A non-loopback listener
+The production container builds a static binary with Go 1.27.3 and runs as a non-root user. A non-loopback listener
 fails startup unless dedicated signing keys are configured.
 
 Local and debug environments may use the service directly. Production integration remains behind a server-side

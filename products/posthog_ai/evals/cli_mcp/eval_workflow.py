@@ -26,7 +26,7 @@ To run a single eval:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.scorers import (
@@ -39,6 +39,7 @@ from products.posthog_ai.evals.cli_mcp.scorers import (
     UsedJsonOutputFormat,
     VerifiedEventBeforeQuery,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 async def eval_typo_recovery(ctx: EvalContext) -> None:
@@ -67,8 +68,12 @@ async def eval_typo_recovery(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-typo-recovery-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_workflow::eval_typo_recovery",
+            metrics=["recovered_to_correct_tool"],
+        ),
         cases=cases,
         scorers=[RecoveredToCorrectTool()],
         ctx=ctx,
@@ -100,8 +105,12 @@ async def eval_schema_drilldown(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-schema-drilldown-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_workflow::eval_schema_drilldown",
+            metrics=["called_target_tool", "drilled_into_schema"],
+        ),
         cases=cases,
         scorers=[CalledTargetTool(), DrilledIntoSchema()],
         ctx=ctx,
@@ -122,8 +131,12 @@ async def eval_search_first(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-search-first-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_workflow::eval_search_first",
+            metrics=["called_target_tool", "preferred_search_over_tools"],
+        ),
         cases=cases,
         scorers=[CalledTargetTool(), PreferredSearchOverTools()],
         ctx=ctx,
@@ -152,8 +165,12 @@ async def eval_info_before_call(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-info-before-call-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_workflow::eval_info_before_call",
+            metrics=["called_target_tool", "info_before_call"],
+        ),
         cases=cases,
         scorers=[CalledTargetTool(), InfoBeforeCall()],
         ctx=ctx,
@@ -188,8 +205,12 @@ async def eval_json_for_post_processing(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-json-postprocess-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_workflow::eval_json_for_post_processing",
+            metrics=["called_target_tool", "used_json_output_format", "ran_python_post_processing"],
+        ),
         cases=cases,
         scorers=[
             CalledTargetTool(),
@@ -214,8 +235,12 @@ async def eval_verify_event_before_query(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-verify-event-cli",
+        offline_suite=offline_suite(
+            "cli_mcp/eval_workflow::eval_verify_event_before_query",
+            metrics=["called_target_tool", "verified_event_before_query"],
+        ),
         cases=cases,
         scorers=[CalledTargetTool(), VerifiedEventBeforeQuery()],
         ctx=ctx,

@@ -1,6 +1,20 @@
 {
     "name": "NGINX",
     "description": "Requests and connections of NGINX servers that run the NGINX Prometheus exporter.",
+    "variables": [
+        {
+            "name": "instance",
+            "label": "Instance",
+            "source": "sql",
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'instance' AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "requests",
@@ -11,7 +25,14 @@
                     {
                         "name": "a",
                         "metricName": "nginx_http_requests_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -36,7 +57,14 @@
                     {
                         "name": "a",
                         "metricName": "nginx_connections_active",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -60,12 +88,26 @@
                     {
                         "name": "a",
                         "metricName": "nginx_connections_accepted",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "b",
                         "metricName": "nginx_connections_handled",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -101,7 +143,14 @@
                     {
                         "name": "a",
                         "metricName": "nginx_up",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -130,6 +179,13 @@
                             {
                                 "key": "instance"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -154,17 +210,38 @@
                     {
                         "name": "reading",
                         "metricName": "nginx_connections_reading",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "writing",
                         "metricName": "nginx_connections_writing",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "waiting",
                         "metricName": "nginx_connections_waiting",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -187,12 +264,26 @@
                     {
                         "name": "accepted",
                         "metricName": "nginx_connections_accepted",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "handled",
                         "metricName": "nginx_connections_handled",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -220,6 +311,13 @@
                         "groupBy": [
                             {
                                 "key": "instance"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     }

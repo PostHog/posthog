@@ -3,14 +3,13 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { openDismissReportDialog } from '../components/shell/DismissReportDialog'
+import { openRemoveYourselfDialog } from '../components/shell/RemoveYourselfDialog'
 import { openResolveReportDialog } from '../components/shell/ResolveReportDialog'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, SignalReport, SignalReportStatus } from '../types'
 import { inboxFiltersLogic } from './inboxFiltersLogic'
@@ -18,6 +17,10 @@ import { inboxTriageLogic } from './inboxTriageLogic'
 
 jest.mock('../components/shell/DismissReportDialog', () => ({ openDismissReportDialog: jest.fn() }))
 jest.mock('../components/shell/ResolveReportDialog', () => ({ openResolveReportDialog: jest.fn() }))
+// Confirms at once without a reason, so the navigation cases below exercise the removal itself.
+jest.mock('../components/shell/RemoveYourselfDialog', () => ({
+    openRemoveYourselfDialog: jest.fn(({ onConfirm }) => onConfirm(undefined)),
+}))
 
 const REPORTS_URL = '/api/projects/:team_id/signals/reports/'
 // Matches the list logic's server page size, so a spot past it needs a second page.
@@ -74,11 +77,6 @@ describe('inboxTriageLogic', () => {
             },
         })
         initKeaTests()
-        // Triage mode is a redesign surface: with the flag off the scene redirects its URL to the list.
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
-            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
-        })
     })
 
     afterEach(() => {
@@ -143,6 +141,27 @@ describe('inboxTriageLogic', () => {
             expect(deleted).toEqual(unassigned)
         }
     )
+
+    it('sends the reason picked in the remove yourself dialog', async () => {
+        jest.mocked(openRemoveYourselfDialog).mockImplementationOnce(({ onConfirm }) => onConfirm('wrong_area'))
+        const reports = FIRST_PAGE.slice(0, 5).map((r) => ({ ...r, is_suggested_reviewer: true }))
+        const bodies: unknown[] = []
+        useMocks({
+            get: { [REPORTS_URL]: { count: reports.length, next: null, previous: null, results: reports } },
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/reviewers/me/': async ({ request }) => {
+                    bodies.push(await request.json())
+                    return [204, null]
+                },
+            },
+        })
+        await mountAt({ report: 'r-2', at: 2 })
+
+        logic.actions.unassignCurrent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(bodies).toEqual([{ removal_reason: 'wrong_area' }])
+    })
 
     it('sends one unassign request for the last report while the first one is pending', async () => {
         const report = { ...makeReport('last'), is_suggested_reviewer: true }

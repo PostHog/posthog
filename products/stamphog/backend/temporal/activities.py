@@ -51,11 +51,14 @@ from prometheus_client import Counter
 from temporalio import activity
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
 from posthog.models import User
 from posthog.ph_client import ph_background_capture, ph_scoped_capture
+from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import asyncify
 
+from products.stamphog.backend.facade.contracts import StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
     ReviewMode,
@@ -95,6 +98,7 @@ from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import request_rereview_after_external_review
 from products.stamphog.backend.temporal.constants import (
+    ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
     NETWORK_RESTRICTED_AGENT_ENV,
     PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS,
@@ -167,11 +171,26 @@ def _load_run(input: StamphogReviewInput) -> ReviewRun:
     )
 
 
+def _without_nul(value: Any) -> Any:
+    """Drop NUL characters from every string in ``value``.
+
+    The context holds PR text, and Postgres refuses ``\\u0000`` in jsonb. One NUL in a PR body or
+    comment fails the whole write, and every retry and re-review of that PR fails the same way.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, dict):
+        return {_without_nul(key): _without_nul(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_without_nul(item) for item in value]
+    return value
+
+
 def _output_merge(updates: dict[str, Any]) -> Func:
     """Postgres ``output || updates``: a top-level key merge that the database performs."""
     return Func(
         Coalesce(F("output"), Cast(Value("{}"), output_field=JSONField())),
-        Cast(Value(json.dumps(updates, cls=DjangoJSONEncoder)), output_field=JSONField()),
+        Cast(Value(json.dumps(_without_nul(updates), cls=DjangoJSONEncoder)), output_field=JSONField()),
         template="%(expressions)s",
         arg_joiner=" || ",
         output_field=JSONField(),
@@ -189,7 +208,7 @@ def _merge_run_output(run: ReviewRun, updates: dict[str, Any]) -> None:
     ReviewRun.objects.for_team(run.team_id).using(router.db_for_write(ReviewRun)).filter(id=run.id).update(
         output=_output_merge(updates), updated_at=timezone.now()
     )
-    run.output = {**(run.output or {}), **updates}
+    run.output = {**(run.output or {}), **_without_nul(updates)}
 
 
 # aio_ continues the series the Action-era runs emitted; the engine blob carries the same word.
@@ -486,6 +505,56 @@ class _StepTimer:
             self.timings_ms[name] = int((time.monotonic() - started) * 1000)
 
 
+class TransientGitHubError(NonReportableError):
+    """A GitHub 5xx or timeout on an attempt that Temporal still retries. The activity still fails,
+    so a review never runs with incomplete context, but only the final attempt reaches error tracking."""
+
+
+# The head-fetch command exits with this code when the pull ref names a newer commit. Git does not
+# use it, so a moved head stays apart from a git failure.
+_HEAD_MOVED_EXIT_CODE = 75
+_HEAD_MOVED_OUTPUT_KEY = "head_moved"
+
+
+class PullRequestHeadMovedError(RuntimeError):
+    """The PR head moved after this run was queued."""
+
+
+def _is_transient_github_error(error: Exception) -> bool:
+    if isinstance(error, requests.Timeout):
+        return True
+    return isinstance(error, StamphogGitHubError) and error.status_code is not None and error.status_code >= 500
+
+
+# GitHub asks for at least a minute before a retry when a limit gives no reset time (a secondary limit).
+# The cap keeps the wait inside the review's time budget.
+_GITHUB_RATE_LIMIT_MIN_RETRY_SECONDS = 60
+_GITHUB_RATE_LIMIT_MAX_RETRY_SECONDS = 5 * 60
+
+
+@contextmanager
+def _wait_out_github_rate_limit() -> Iterator[None]:
+    """Make Temporal's next attempt wait until the GitHub budget allows the call again.
+
+    The budget is GitHub's own rate limit, or the egress limiter that sheds a call before it is sent.
+    The activity retry policy backs off for seconds, and either limit lasts a minute or more, so
+    every attempt fails inside the same window. The last attempt raises the original error, so the
+    failure names the limit and not a retry that will not happen.
+    """
+    try:
+        yield
+    except (GitHubRateLimitError, GitHubEgressBudgetExhausted) as error:
+        if activity.info().attempt >= ACTIVITY_RETRY_POLICY.maximum_attempts:
+            raise
+        retry_after = error.retry_after if isinstance(error, GitHubRateLimitError) else None
+        delay = min(max(retry_after or 0, _GITHUB_RATE_LIMIT_MIN_RETRY_SECONDS), _GITHUB_RATE_LIMIT_MAX_RETRY_SECONDS)
+        raise NonReportableApplicationError(
+            f"GitHub rate limited the call, retrying in {delay}s",
+            type="GitHubRateLimitError",
+            next_retry_delay=timedelta(seconds=delay),
+        ) from error
+
+
 @activity.defn
 @asyncify
 def fetch_review_context(input: StamphogReviewInput) -> dict:
@@ -494,6 +563,16 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     The reads are independent GitHub round trips, so they run concurrently. Only the reads that need
     the PR's author or its file list wait for those two.
     """
+    try:
+        with _wait_out_github_rate_limit():
+            return _fetch_review_context(input)
+    except (StamphogGitHubError, requests.Timeout) as error:
+        if _is_transient_github_error(error) and activity.info().attempt < ACTIVITY_RETRY_POLICY.maximum_attempts:
+            raise TransientGitHubError(str(error)) from error
+        raise
+
+
+def _fetch_review_context(input: StamphogReviewInput) -> dict:
     run = _load_run(input)
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
@@ -806,14 +885,13 @@ def refresh_review_evidence(input: StamphogReviewInput) -> dict:
     repo = repo_config.repository
     number = run.pull_request.pr_number
     client = StamphogGitHubClient(repo_config.installation_id)
-    _merge_run_output(
-        run,
-        {
+    with _wait_out_github_rate_limit():
+        evidence = {
             "reviews": client.get_pr_reviews(repo, number),
             "discussion": client.get_pr_discussion(repo, number),
             "review_threads": client.get_pr_review_threads(repo, number),
-        },
-    )
+        }
+    _merge_run_output(run, evidence)
     return {"refreshed": True}
 
 
@@ -1138,6 +1216,8 @@ def _create_review_sandbox(
             )
     except Exception as exc:
         _destroy_sandbox_in_background(sandbox, str(run.id))
+        if isinstance(exc, PullRequestHeadMovedError):
+            _merge_run_output(run, {_HEAD_MOVED_OUTPUT_KEY: True})
         raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
     return sandbox
 
@@ -1205,6 +1285,7 @@ def _run_reviewer(
     token_path = shlex.quote(STAMPHOG_SANDBOX_GATEWAY_TOKEN_PATH)
     command = (
         f'export AI_GATEWAY_API_KEY="$(cat {token_path})" && rm -f {token_path} && '
+        f'{_SANDBOX_PYTHON_VAR}="$(command -v python3)" && '
         f"cd {shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} && "
         f"STAMPHOG_REPO_ROOT={shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)} "
         f"STAMPHOG_LAUNCHED_AT_MS=$(date +%s%3N) {_harden_reviewer_command(invocation.command)}"
@@ -1941,6 +2022,17 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     client = StamphogGitHubClient(run.pull_request.repo_config.installation_id)
     if run.verdict != ReviewVerdict.APPROVED and run.posted_review_id and run.approval_dismissed_at is None:
         _dismiss_orphaned_approval(client, run, input.team_id)
+    # A moved head is a supersession, not a failure. The push that moved it queues the review of the
+    # new head, so the run reports no failure event and posts no failure notice. A notice here would
+    # ask the author to push again for a review that is already queued.
+    if (run.output or {}).get(_HEAD_MOVED_OUTPUT_KEY):
+        now = timezone.now()
+        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
+            status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now
+        )
+        _remove_own_eyes_reaction(client, run)
+        _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
+        return
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
     # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is
@@ -1997,6 +2089,9 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         _post_failure_notice(client, run, input.team_id)
 
 
+_SANDBOX_PYTHON_VAR = "STAMPHOG_PYTHON"
+
+
 def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     """Turn the reviewer invocation into a shell string that runs uv in isolation.
 
@@ -2006,10 +2101,17 @@ def _harden_reviewer_command(command: Sequence[str] | str) -> str:
     to a hostile package index — arbitrary code execution inside a sandbox that holds a live
     installation token. ``--no-config`` ignores discovered uv config, ``--no-project`` ignores
     the surrounding project/lockfile; the engine's own PEP 723 script pins its deps.
+
+    Interpreter discovery reads the checkout too: uv looks for a virtual environment in the working
+    directory and its parents, and it executes each candidate to query it before any version or
+    ``--managed-python`` filter applies. Only an absolute ``--python`` path skips that discovery, so
+    the caller resolves the image's ``python3`` into ``_SANDBOX_PYTHON_VAR`` before it changes into
+    the checkout.
     """
     parts = shlex.split(command) if isinstance(command, str) else list(command)
     if len(parts) >= 2 and parts[0] == "uv" and parts[1] == "run":
-        parts = [*parts[:2], "--no-config", "--no-project", *parts[2:]]
+        uv_run = shlex.join([*parts[:2], "--no-config", "--no-project"])
+        return f'{uv_run} --python "${_SANDBOX_PYTHON_VAR}" {shlex.join(parts[2:])}'
     return shlex.join(parts)
 
 
@@ -2094,8 +2196,12 @@ def _clone_pr(
             result = sandbox.execute(command, timeout_seconds=_step_timeout(deadline, CLONE_STEP_TIMEOUT_SECONDS))
         except Exception as exc:
             raise RuntimeError(scrub_credentials(str(exc), token, credential.secret)) from None
-        if result.exit_code != 0:
-            raise RuntimeError(f"{failure_prefix}: {scrub_credentials(result.stderr, token, credential.secret)[:500]}")
+        if result.exit_code == 0:
+            return
+        message = f"{failure_prefix}: {scrub_credentials(result.stderr, token, credential.secret)[:500]}"
+        if result.exit_code == _HEAD_MOVED_EXIT_CODE:
+            raise PullRequestHeadMovedError(message)
+        raise RuntimeError(message)
 
     if step == "head":
         fetch_head = (
@@ -2103,7 +2209,7 @@ def _clone_pr(
             f"git remote add origin {shlex.quote(repo_url)} && "
             f"{auth} fetch --quiet --depth=1 --no-tags origin {shlex.quote(f'pull/{pr_number}/head')} && "
             f'fetched=$(git rev-parse FETCH_HEAD) && if [ "$fetched" != {shlex.quote(head_sha)} ]; then '
-            f'echo "the PR head is now $fetched" >&2; exit 1; fi'
+            f'echo "the PR head is now $fetched" >&2; exit {_HEAD_MOVED_EXIT_CODE}; fi'
         )
         _execute_or_raise(fetch_head, f"Failed to fetch the PR head {head_sha}")
 
@@ -2258,11 +2364,18 @@ def _review_payload_command() -> str:
     attacker-controlled files beside our engine (e.g. tools/pr-approval-agent/yaml.py), which Python
     would import ahead of uv's installed dependency, which is arbitrary code execution with the
     sandbox's LLM creds. Overwriting only our known modules would leave those shadow files in place.
+
+    The command fails before it removes or extracts anything when a parent directory of a payload
+    destination is a symlink, such as a PR that commits `tools` as a link. tar follows a symlink in
+    a parent path, so the trusted files would land wherever the PR points, beside files the PR chose.
     """
     repo_dir = shlex.quote(STAMPHOG_SANDBOX_REPO_DIR)
     policy_paths = " ".join(shlex.quote(path) for path in (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS))
+    destinations = (*STAMPHOG_POLICY_PATHS, *STAMPHOG_OPTIONAL_POLICY_PATHS, _ENGINE_RELATIVE_DIR, _OWNERS_RELATIVE_DIR)
+    parent_dirs = sorted({parent.as_posix() for path in destinations for parent in PurePosixPath(path).parents} - {"."})
+    no_symlinked_parents = " && ".join(f"test ! -L {shlex.quote(parent)}" for parent in parent_dirs)
     return (
-        f"cd {repo_dir} && rm -f {policy_paths} && "
+        f"cd {repo_dir} && {no_symlinked_parents} && rm -f {policy_paths} && "
         f"rm -rf {shlex.quote(_ENGINE_RELATIVE_DIR)} {shlex.quote(_OWNERS_RELATIVE_DIR)} && "
         f"tar -xzf {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)} --no-same-owner && "
         f"rm -f {shlex.quote(STAMPHOG_SANDBOX_PAYLOAD_PATH)}"

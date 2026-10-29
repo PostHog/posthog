@@ -1,6 +1,4 @@
-"""Gemini API key resolution and error classification for Replay Vision."""
-
-from django.conf import settings
+"""Gemini error classification for Replay Vision."""
 
 import httpx
 import aiohttp
@@ -8,12 +6,6 @@ from google.genai import types
 from google.genai.errors import APIError
 
 from products.replay_vision.backend.error_kinds import FailureKind
-
-
-def gemini_api_key() -> str:
-    """Replay Vision's dedicated key (own GCP project), falling back to the shared key where unset."""
-    return settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
-
 
 # 408 request timeout and 409 conflict join the usual rate-limit/5xx set: all clear on their own.
 _TRANSIENT_STATUS_CODES = frozenset({408, 409, 429, 500, 502, 503, 504})
@@ -26,6 +18,19 @@ _PROVIDER_TRANSPORT_ERRORS: tuple[type[BaseException], ...] = (
     httpx.TransportError,
     aiohttp.ClientConnectionError,
 )
+
+
+# Gateway refusals a retry can clear: key, binding, budget and rate limits. Others repeat on every attempt.
+_GATEWAY_CLEARING_CODES = frozenset({401, 402, 403, 408, 409, 429})
+
+
+def is_gateway_refusal(error: BaseException) -> bool:
+    """A 4xx the AI gateway wrote itself, marked with a `google.rpc.ErrorInfo` in the posthog.com domain."""
+    if not isinstance(error, APIError) or not isinstance(error.code, int) or not 400 <= error.code < 500:
+        return False
+    body = error.details.get("error") if isinstance(error.details, dict) else None
+    details = body.get("details") if isinstance(body, dict) else None
+    return isinstance(details, list) and any(isinstance(d, dict) and d.get("domain") == "posthog.com" for d in details)
 
 
 def describe_gemini_error(error: BaseException) -> str:
@@ -52,6 +57,9 @@ def classify_gemini_error(error: BaseException) -> FailureKind | None:
         return FailureKind.PROVIDER_TRANSIENT
     if not isinstance(error, APIError):
         return None
+    # A gateway refusal is a PostHog-side fault, never the input's.
+    if is_gateway_refusal(error):
+        return FailureKind.INFRA_TRANSIENT if error.code in _GATEWAY_CLEARING_CODES else FailureKind.INTERNAL_ERROR
     if error.code in _TRANSIENT_STATUS_CODES:
         return FailureKind.PROVIDER_TRANSIENT
     # A 4xx we didn't list is the provider refusing this input (unsupported video, too large, safety block).

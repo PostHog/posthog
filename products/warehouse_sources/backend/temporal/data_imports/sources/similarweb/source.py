@@ -66,7 +66,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "403 Client Error: Forbidden for url": (
+            "Similarweb API returned status 403": (
                 "Similarweb rejected the API key, or the account is out of data credits. "
                 "Check both on the API management page in your Similarweb account."
             ),
@@ -168,6 +168,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="domains",
+                        sync_setting=True,
                         label="Domains",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -180,6 +181,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="country",
+                        sync_setting=True,
                         label="Country",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -191,6 +193,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldSelectConfig(
                         name="granularity",
+                        sync_setting=True,
                         label="Granularity",
                         required=True,
                         defaultValue="monthly",
@@ -202,6 +205,7 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start month",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -214,5 +218,5 @@ class SimilarwebSource(ResumableSource[SimilarwebSourceConfig, SimilarwebResumeC
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

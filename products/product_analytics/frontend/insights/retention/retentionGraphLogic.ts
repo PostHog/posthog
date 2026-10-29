@@ -44,6 +44,7 @@ export interface retentionGraphLogicValues {
         | null // insightVizDataLogic
     retentionFilter: RetentionFilter | null // insightVizDataLogic
     breakdownDisplayNames: Record<string, string> // retentionLogic
+    excludeIncompletePeriods: boolean // retentionLogic
     filteredResults: ProcessedRetentionPayload[] // retentionLogic
     getRetentionColor: (
         rawBreakdownValue: number | string | null | undefined,
@@ -98,7 +99,8 @@ export interface retentionGraphLogicMeta {
             dateRange: DateRange | null | undefined,
             retentionFilter: RetentionFilter | null,
             trendSeries: RetentionTrendPayload[],
-            timezone: string
+            timezone: string,
+            excludeIncompletePeriods: boolean
         ) => number
         shouldShowMeanPerBreakdown: (
             hasValidBreakdown: boolean,
@@ -155,6 +157,7 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
                 'breakdownDisplayNames',
                 'isPropertyValueAggregation',
                 'getRetentionColor',
+                'excludeIncompletePeriods',
             ],
             teamLogic,
             ['timezone'],
@@ -283,18 +286,19 @@ export const retentionGraphLogic = kea<retentionGraphLogicType>([
         ],
 
         incompletenessOffsetFromEnd: [
-            (s) => [s.dateRange, s.retentionFilter, s.trendSeries, s.timezone],
+            (s) => [s.dateRange, s.retentionFilter, s.trendSeries, s.timezone, s.excludeIncompletePeriods],
             (
                 dateRange: DateRange | null | undefined,
                 retentionFilter: RetentionFilter | null | undefined,
                 trendSeries: RetentionTrendPayload[],
-                timezone: string
+                timezone: string,
+                excludeIncompletePeriods: boolean
             ) => {
                 const { date_to } = dateRange || {}
                 const { period } = retentionFilter || {}
 
                 // Returns negative number of points to paint over starting from end of array
-                if (!trendSeries?.[0]?.days) {
+                if (!trendSeries?.[0]?.days || excludeIncompletePeriods) {
                     return 0
                 } else if (!date_to) {
                     return -1

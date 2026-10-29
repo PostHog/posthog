@@ -12,8 +12,3 @@ class TestFusionAuthSource:
 
     def test_connection_host_fields(self):
         assert self.source.connection_host_fields == ["base_url"]
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Users"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "Users"

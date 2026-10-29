@@ -148,7 +148,7 @@ jobs:
               uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
               with:
                   context: products/metrics/agent
-                  push: ${{ github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' }}
+                  push: ${{ github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' && vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   tags: |
                       ${{ steps.docker-meta.outputs.tags }}
                       ${{ steps.release-tag.outputs.tags }}
@@ -158,7 +158,7 @@ jobs:
     publish-chart:
         name: Publish Helm chart to GHCR
         needs: build
-        if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true'
+        if: github.repository_owner == 'PostHog' && github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' && vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:

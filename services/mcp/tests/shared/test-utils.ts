@@ -686,14 +686,13 @@ export function makeToolExecutorState(
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
-            isClaudeUiHost: vi.fn(() => false),
             isInlineExecUiHost: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
             isAnthropicConnector: vi.fn(() => false),
         } as any,
         requestContext: {
             authMethod: 'personal_api_key',
-            sessionId: 'sess-1',
+            mcpSessionId: 'sess-1',
             mcpClientName: 'test',
             mcpClientVersion: '1.0',
             mcpProtocolVersion: '2025-03-26',

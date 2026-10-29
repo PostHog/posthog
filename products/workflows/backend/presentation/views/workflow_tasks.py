@@ -14,6 +14,7 @@ from posthog.models.team.team import Team
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_ATTACHED_SKILLS,
     OUTPUT_FIELD_TYPES,
+    WorkflowTaskAICreditsExhausted,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
@@ -295,6 +296,17 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             return _rejected(
                 "The workflow owner is over the AI usage limit, so no task was created. "
                 "Task creation resumes when the limit resets.",
+                status.HTTP_409_CONFLICT,
+            )
+        except WorkflowTaskAICreditsExhausted:
+            logger.info(
+                "workflow_task_create_ai_credits_exhausted",
+                team_id=team_id,
+                hog_flow_id=str(hog_flow_id),
+            )
+            return _rejected(
+                "This project has used its monthly PostHog AI credits, so no task was created. "
+                "Raise the AI credit limit in billing settings, or wait for the next billing period.",
                 status.HTTP_409_CONFLICT,
             )
 

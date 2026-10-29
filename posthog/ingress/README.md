@@ -79,6 +79,7 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                                                                                                   | `products/workflows/backend/webhook_consumers.py`                                                          |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                                                                                                         | `products/messaging/backend/api/customerio_webhook.py`                                                     |
 | `vercel`     | `/webhooks/vercel`                                      | `marketplace`              | `vercel_marketplace`                                                                                                                                                                                                     | `ee/api/vercel/webhook_consumers.py`                                                                       |
+| `linear`     | `/webhooks/linear`                                      | `posthog`                  | none                                                                                                                                                                                                                     | none                                                                                                       |
 
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
@@ -107,6 +108,7 @@ The HTTP response is a transport receipt: the verification result, the method, a
 If a provider's protocol needs the response body to say something, the incarnation answers that handshake before dispatch.
 A verification that could not run is its own answer rather than a verdict: a scheme with a network step returns `UNAVAILABLE` when that step fails on transport, and the view answers 503 with outcome `verify_unavailable`, so a sender that retries a server error sends the delivery again.
 `BearerJwt` answers it when the JWKS could not be fetched, and `SnsSignature` when its verifier raises `VerifierUnavailable` because the signing certificate could not be fetched.
+`HmacSignature` answers it when its secret getter could not read the secret, because the database or the credentials service failed.
 
 What the transport does decide is whether it can vouch that the delivery was taken.
 It cannot when an ownership lookup failed, when the forward to the owning region failed, when a consumer raised, or when the budget skipped a consumer — in each case some of the work never ran, or ingress cannot tell whether it ran in the right region.
@@ -259,7 +261,7 @@ webhook_urlpatterns: list[URLPattern] = [
 The route is relative to the mount, so this one serves `/webhooks/stamphog/github`.
 
 An App several products consume has no single owner, so it stays in `posthog/urls.py`.
-The customer-facing GitHub App is the only one today.
+The customer-facing GitHub App and the Linear App are the cases.
 [docs/internal/url-routing.md](../../docs/internal/url-routing.md) has the slot and the prefix rule.
 
 Secrets and verifiers that belong to a product are **passed into the builder**.

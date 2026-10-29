@@ -722,6 +722,18 @@ jobs:
                   password: ${{ secrets.GITHUB_TOKEN }}
                   logout: false
 
+            # The canary image also goes to feature-flags-prs in the shared-services ECR.
+            # The charts canary pulls it from there. ECR replication copies it to eu-central-1.
+            - name: Configure AWS credentials for the shared-services ECR
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_PRS_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to the shared-services ECR
+              id: ecr
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
@@ -740,7 +752,10 @@ jobs:
                   context: ./rust/
                   file: ./rust/Dockerfile
                   push: true
-                  tags: ghcr.io/posthog/posthog/feature-flags:${{ needs.preflight.outputs.image_tag }}
+                  # One push writes the same digest to both registries.
+                  tags: |
+                      ghcr.io/posthog/posthog/feature-flags:${{ needs.preflight.outputs.image_tag }}
+                      ${{ steps.ecr.outputs.registry }}/feature-flags-prs:${{ needs.preflight.outputs.image_tag }}
                   platforms: linux/arm64
                   build-args: |
                       SCCACHE_LOG=warn
@@ -764,6 +779,7 @@ jobs:
               env:
                   PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
                   IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
+                  IMAGE_DIGEST: ${{ steps.docker_build.outputs.digest }}
                   CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
                   TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
                   STARTED_BY: ${{ github.actor }}
@@ -777,6 +793,8 @@ jobs:
                           client_payload: {
                               pr_number: process.env.PR_NUMBER,
                               image_tag: process.env.IMAGE_TAG,
+                              // The charts canary pins this digest. A later push cannot move the mutable -prs tag under it.
+                              image_digest: process.env.IMAGE_DIGEST,
                               canary_weight: process.env.CANARY_WEIGHT,
                               target_environment: process.env.TARGET_ENVIRONMENT,
                               started_by: process.env.STARTED_BY
@@ -787,13 +805,15 @@ jobs:
               env:
                   PR_NUMBER: ${{ needs.preflight.outputs.pr_number }}
                   IMAGE_TAG: ${{ needs.preflight.outputs.image_tag }}
+                  IMAGE_DIGEST: ${{ steps.docker_build.outputs.digest }}
                   CANARY_WEIGHT: ${{ needs.preflight.outputs.canary_weight }}
                   TARGET_ENVIRONMENT: ${{ needs.preflight.outputs.target_environment }}
               run: |
                   echo "## Canary Flags - Build & Dispatch" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- **PR**: #${PR_NUMBER}" >> $GITHUB_STEP_SUMMARY
-                  echo "- **Image**: ghcr.io/posthog/posthog/feature-flags:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Image**: feature-flags-prs:${IMAGE_TAG} (shared-services ECR) and ghcr.io/posthog/posthog/feature-flags:${IMAGE_TAG}" >> $GITHUB_STEP_SUMMARY
+                  echo "- **Digest**: ${IMAGE_DIGEST}" >> $GITHUB_STEP_SUMMARY
                   echo "- **Weight**: ${CANARY_WEIGHT}" >> $GITHUB_STEP_SUMMARY
                   echo "- **Environment**: ${TARGET_ENVIRONMENT}" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY

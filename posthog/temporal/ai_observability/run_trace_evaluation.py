@@ -67,10 +67,17 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
     WorkflowResult,
+    build_skipped_workflow_result,
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
-from posthog.temporal.ai_observability.team_capture import capture_ai_internal_for_team
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+    capture_ai_internal_for_team,
+    raise_emit_failure,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -841,10 +848,10 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
             logger.info("Skipping eval event emission; team over billing quota", team_id=inputs.team_id)
             return
         increment_emit_event_outcome("failed")
-        raise
-    except Exception:
+        raise_emit_failure(e)
+    except Exception as e:
         increment_emit_event_outcome("failed")
-        raise
+        raise_emit_failure(e)
 
 
 @temporalio.workflow.defn(name="run-trace-evaluation")
@@ -880,15 +887,11 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
         # The evaluation may have been paused or deleted during the aggregation window —
         # bail out instead of running against config the user just turned off.
         if evaluation["deleted"] or not evaluation["enabled"]:
-            disabled_result: WorkflowResult = {
-                "skipped": True,
-                "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
-                "evaluation_id": inputs.evaluation_id,
-                "evaluation_type": evaluation_type,
-            }
-            if evaluation.get("output_type") not in ("numeric", "categorical"):
-                disabled_result["verdict"] = None
-            return disabled_result
+            return build_skipped_workflow_result(
+                evaluation=evaluation,
+                evaluation_type=evaluation_type,
+                skip_reason="evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
+            )
 
         execute_inputs = ExecuteTraceEvaluationInputs(
             evaluation=evaluation,
@@ -940,8 +943,9 @@ class RunTraceEvaluationWorkflow(PostHogWorkflow):
                     result=result,
                     start_time=eval_start,
                 ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                retry_policy=EMIT_EVENT_RETRY_POLICY,
             )
         except Exception:
             increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))

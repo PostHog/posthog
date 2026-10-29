@@ -102,7 +102,15 @@ A single command handles both desktop/server formats:
 - **macOS (Apple `.dSYM`):** dSYM bundles are packaged through the same path as `posthog-cli dsym upload`. That path shells out to `dwarfdump` (bundled with Xcode), so it only runs on macOS — if `dwarfdump` is missing, the bundle is reported and skipped while any ELF symbols in the same directory still upload.
 - **macOS (Mach-O executables):** binaries that embed their own DWARF upload directly, keyed by their `LC_UUID`; universal (fat) binaries upload one symbol set per architecture slice. This branch is cross-platform. It exists mainly for Go, which never produces a dSYM (`dsymutil` reports "no debug symbols in executable") — but note Go compresses the embedded DWARF by default, which symbolication can't read yet, so build with `-ldflags=-compressdwarf=false`. C/Swift/Rust executables normally carry no embedded DWARF; upload their dSYMs instead.
 
-Pass `--include-source` to bundle the referenced source files for richer context around frames.
+Pass `--include-source` to bundle referenced source files for context around frames.
+For Flutter `.symbols` files, add `--source-root <app-directory>` to include only source files inside your app directory:
+
+```bash
+posthog-cli symbol-sets upload --directory ./build/debug-info --include-source --source-root ./lib
+```
+
+This option limits uploaded source files, not the debug symbols scanned under `--directory`.
+Upload from the build machine while those source files are still available.
 
 The standalone `posthog-cli dsym upload` command is unchanged and still recommended for dSYM-only Xcode build phases, where it also reads release and version metadata from each bundle's `Info.plist`.
 
@@ -191,6 +199,20 @@ posthog-cli api agents-md install
 ```
 
 Destructive tools require `--confirm` when executed. Use `--dry-run` before mutations.
+
+### Concurrent agents and project targeting
+
+Give each API call its own target with `--project-id` and optionally `--organization-id`:
+
+```bash
+posthog-cli api call --project-id 123 --json feature-flag-get-all '{"limit":5}'
+posthog-cli api call --project-id 456 --json feature-flag-get-all '{"limit":5}'
+posthog-cli api call --organization-id 00000000-0000-0000-0000-000000000001 --json projects-get '{}'
+```
+
+These calls can run concurrently with the same API key, including against projects in different organizations. The key must already grant access to both targets. A project-only target derives its organization from the project. An organization-only target never falls back to a project in another organization; pass a project ID for project-scoped tools.
+
+Explicit target flags replace both inherited target defaults, so an organization override does not inherit the project from your saved login, and a project override does not inherit another organization. Targets apply to one invocation and do not update your saved login or website selection. Repeat the flags on each call, or set `POSTHOG_CLI_PROJECT_ID` and `POSTHOG_CLI_ORGANIZATION_ID` separately in each agent's environment. The API bundle also accepts `POSTHOG_PROJECT_ID` and `POSTHOG_ORGANIZATION_ID`, which take precedence over the `POSTHOG_CLI_*` aliases. Switch tools do not persist a selection across CLI invocations.
 
 `posthog-cli api --agent-help` prints the full agent-facing guide — the same exec tool reference the PostHog MCP server serves, rewritten for CLI invocation — so agents can load it into context before interacting with PostHog APIs.
 
