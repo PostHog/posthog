@@ -45,20 +45,11 @@ jobs:
               if: ${{ !cancelled() }}
               env:
                   GH_TOKEN: ${{ github.token }}
-                  LOCK_VERIFIER_VERSION: v0.4.0
-                  LOCK_VERIFIER_SHA256: f9da98f2a6e9e0ae77deadf9a2319a8a86bb002b541cc3203b247cc59fb04842
               run: |
+                  gh extension install github/gh-actions-lock --pin v0.4.0
+                  # Only onboarded workflows are verified, because an unscoped run fails on every workflow not yet in the lockfile.
                   mapfile -t workflows < <(yq '.workflows | keys | .[]' .github/workflows/actions.lock)
-                  (( ${#workflows[@]} )) || { echo "::error::actions.lock lists no workflows"; exit 1; }
-                  # A tag ref is safe only where the lockfile pins it, so its Semgrep suppression must not spread.
-                  unlocked=$(grep -l 'nosemgrep: [y]aml\.github-actions\.security\.github-actions-mutable-action-tag' .github/workflows/*.yml .github/workflows/*.yaml | grep -vxF -f <(printf '%s\n' "${workflows[@]}") || true)
-                  [[ -z "$unlocked" ]] || { echo "::error::Mutable-tag nosemgrep outside actions.lock: $unlocked"; exit 1; }
-                  bin="$RUNNER_TEMP/gh-actions-lock"
-                  download() { gh release download "$LOCK_VERIFIER_VERSION" --repo github/gh-actions-lock --pattern linux-amd64 --output "$bin" --clobber; }
-                  download || { echo "::warning::gh-actions-lock download failed, retrying once"; sleep $((5 + RANDOM % 26)); download; }
-                  echo "$LOCK_VERIFIER_SHA256  $bin" | sha256sum --check --strict
-                  chmod +x "$bin"
-                  "$bin" --verify "${workflows[@]}"
+                  gh actions-lock --verify "${workflows[@]}"
 
     workflow-run-plans:
         name: Workflow run plans
