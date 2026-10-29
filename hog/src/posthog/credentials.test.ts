@@ -5,8 +5,8 @@ import { fakeRuntime } from '@/testing'
 
 import { DEFAULT_HOST, resolveCredentials } from './credentials'
 
-const ENV = { POSTHOG_CLI_API_KEY: 'phx_env', POSTHOG_CLI_PROJECT_ID: '1', POSTHOG_CLI_HOST: 'https://env.example.com' }
-const DOTENV = 'POSTHOG_CLI_API_KEY="phx_dotenv"\n# comment\nPOSTHOG_CLI_PROJECT_ID=2\n'
+const ENV = { HOG_API_KEY: 'phx_env', HOG_PROJECT_ID: '1', HOG_HOST: 'https://env.example.com' }
+const DOTENV = 'HOG_API_KEY="phx_dotenv"\n# comment\nHOG_PROJECT_ID=2\n'
 const STORED = JSON.stringify({ token: 'phx_stored', env_id: '3', host: 'https://stored.example.com' })
 
 describe('resolveCredentials', () => {
@@ -22,30 +22,10 @@ describe('resolveCredentials', () => {
             'https://env.example.com',
         ],
         [
-            'legacy env aliases still work',
-            { POSTHOG_CLI_TOKEN: 'phx_old', POSTHOG_CLI_ENV_ID: '9' },
-            {},
-            undefined,
-            undefined,
-            'phx_old',
-            '9',
-            DEFAULT_HOST,
-        ],
-        [
             'the dotenv file is next',
             {},
             { '/x/.env': DOTENV, '/home/test/.posthog/credentials.json': STORED },
             '/x/.env',
-            undefined,
-            'phx_dotenv',
-            '2',
-            DEFAULT_HOST,
-        ],
-        [
-            'POSTHOG_CLI_DOTENV_FILE names the dotenv file',
-            { POSTHOG_CLI_DOTENV_FILE: '/x/.env' },
-            { '/x/.env': DOTENV },
-            undefined,
             undefined,
             'phx_dotenv',
             '2',
@@ -97,27 +77,39 @@ describe('resolveCredentials', () => {
     })
 
     test.each([
-        ['nothing configured', {}, 'not_authenticated', {}],
+        ['nothing configured', {}, 'not_authenticated', {}, undefined],
+        [
+            "posthog-cli's variable names",
+            { POSTHOG_CLI_API_KEY: 'phx_a', POSTHOG_CLI_PROJECT_ID: '1' },
+            'not_authenticated',
+            {},
+            undefined,
+        ],
         [
             'a key without the phx_ prefix',
-            { POSTHOG_CLI_API_KEY: 'abc', POSTHOG_CLI_PROJECT_ID: '1' },
+            { HOG_API_KEY: 'abc', HOG_PROJECT_ID: '1' },
             'invalid_credentials',
             {},
+            undefined,
         ],
         [
             'a project ID that is not a number',
-            { POSTHOG_CLI_API_KEY: 'phx_a', POSTHOG_CLI_PROJECT_ID: 'two' },
+            { HOG_API_KEY: 'phx_a', HOG_PROJECT_ID: 'two' },
             'invalid_credentials',
             {},
+            undefined,
         ],
         [
             'a dotenv file without the credentials',
-            { POSTHOG_CLI_DOTENV_FILE: '/x/.env' },
+            {},
             'not_authenticated',
             { '/x/.env': 'OTHER=1\n', '/home/test/.posthog/credentials.json': STORED },
+            '/x/.env',
         ],
-    ] as const)('fails on %s', async (_name, env, code, files: Record<string, string>) => {
-        const error = await resolveCredentials(fakeRuntime({ env, files }), {}).catch((caught: unknown) => caught)
+    ] as const)('fails on %s', async (_name, env, code, files: Record<string, string>, dotenvFile) => {
+        const error = await resolveCredentials(fakeRuntime({ env, files }), { dotenvFile }).catch(
+            (caught: unknown) => caught
+        )
         expect(error).toBeInstanceOf(HogError)
         expect((error as HogError).code).toBe(code)
     })

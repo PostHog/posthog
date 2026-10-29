@@ -40,6 +40,8 @@ export interface Runtime {
     // Resolves to false when no browser could be started, for example on a server without one.
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
+    // Accepts any TLS certificate from here on, for every request, including the API tools' own.
+    skipTlsVerification: () => void
     // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
     loadApiTools: () => Promise<ApiToolLibrary>
 }
@@ -137,6 +139,9 @@ export function processRuntime(): Runtime {
             }
         },
         prompts: clackPrompts(),
+        skipTlsVerification: () => {
+            process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0'
+        },
         loadApiTools: async () => {
             try {
                 const { createApiToolLibrary } = await import('@posthog/mcp/dist/cli-library.mjs')

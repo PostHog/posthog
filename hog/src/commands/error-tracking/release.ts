@@ -1,6 +1,6 @@
 import { defineCommand } from '@/core/command'
 import { resolveJsRelease } from '@/error-tracking/js-flow'
-import { fetchOrCreateRelease, type Release } from '@/error-tracking/release'
+import { fetchOrCreateRelease, findRelease, releaseHashId, type Release } from '@/error-tracking/release'
 import { releaseFields } from '@/error-tracking/run'
 import { SymbolSetClient } from '@/error-tracking/upload'
 
@@ -8,6 +8,7 @@ import { readOptions, RELEASE_OPTIONS } from './shared'
 
 export default defineCommand({
     description: 'Find or create the release this build belongs to',
+    writes: true,
     options: {
         releaseName: {
             type: 'string',
@@ -21,6 +22,10 @@ export default defineCommand({
         },
         build: RELEASE_OPTIONS.build,
         infoPlist: RELEASE_OPTIONS.infoPlist,
+        dryRun: {
+            type: 'boolean',
+            description: 'Look the release up without creating it. The ID is null when PostHog has no such release yet',
+        },
     },
     scopes: ['error_tracking:write'],
     notes: [
@@ -33,7 +38,7 @@ export default defineCommand({
         'hog et release --info-plist ios/App/Info.plist',
     ],
 
-    async run({ options, ctx }): Promise<Release | null> {
+    async run({ options, ctx }): Promise<(Omit<Release, 'id'> & { id: string | null }) | null> {
         const settings = readOptions(options, ctx.runtime.env)
         const fields = await releaseFields(ctx, settings)
         const resolved = resolveJsRelease(fields, ctx.runtime.env, ctx.runtime.cwd(), [])
@@ -41,6 +46,16 @@ export default defineCommand({
             return null
         }
         const client = new SymbolSetClient(ctx.runtime, await ctx.credentials())
+        if (options.dryRun) {
+            const existing = await findRelease(client, resolved.name, resolved.version)
+            const { id, hash_id, version, project } = existing ?? {
+                id: null,
+                hash_id: releaseHashId(resolved.name, resolved.version),
+                version: resolved.version,
+                project: resolved.name,
+            }
+            return { id, hash_id, version, project }
+        }
         const release = await fetchOrCreateRelease(
             client,
             resolved.name,
@@ -52,7 +67,7 @@ export default defineCommand({
 
     // Just the ID, so `$(hog error-tracking release -o text)` gives what a build script needs.
     human({ result, out }) {
-        if (result) {
+        if (result?.id) {
             out.line(result.id)
         }
     },

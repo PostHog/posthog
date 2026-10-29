@@ -63,7 +63,30 @@ export type SchemaLanguage = z.infer<typeof SchemaLanguage>
 export const PostHogConfig = z
     .strictObject({
         $schema: z.string().optional().describe('The JSON schema for this file.'),
+        host: z
+            .url()
+            .optional()
+            .describe(
+                'The PostHog host for this project, like https://eu.posthog.com. --host and HOG_HOST override it, and it overrides the host your credentials carry.'
+            ),
         errorTracking: ErrorTracking.optional(),
+        cli: z
+            .strictObject({
+                noFail: z
+                    .boolean()
+                    .optional()
+                    .describe('Exit with code 0 when a command fails, like --no-fail. HOG_NO_FAIL overrides it.'),
+                rateLimit: z
+                    .number()
+                    .int()
+                    .positive()
+                    .optional()
+                    .describe(
+                        'The most requests hog sends per minute, like --rate-limit. HOG_RATE_LIMIT overrides it.'
+                    ),
+            })
+            .optional()
+            .describe('Defaults for global options. Flags and HOG_ environment variables override them.'),
         endpoints: z
             .strictObject({
                 dir: z

@@ -4,7 +4,7 @@ import { checkAuthStatus } from '@/posthog/auth-status'
 import type { CredentialSource } from '@/posthog/credentials'
 
 const SOURCE_LABELS: Record<CredentialSource, string> = {
-    env: 'the POSTHOG_CLI_API_KEY environment variable',
+    env: 'the HOG_API_KEY environment variable',
     'dotenv-file': 'the --dotenv-file file',
     'credentials-file': 'the credentials file',
 }

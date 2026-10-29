@@ -4,36 +4,11 @@ import { PostHogApi } from '@/posthog/api'
 import { resolveCredentials, type ResolvedCredentials } from '@/posthog/credentials'
 
 import type { Mode } from './agent'
-import type { CommandTree, OptionSpec, OptionValues } from './command'
+import type { CommandTree } from './command'
 import { loadConfig, type LoadedConfig } from './config'
+import type { GlobalOptions } from './globals'
 import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
-
-export const GLOBAL_OPTIONS = {
-    host: {
-        type: 'string',
-        placeholder: 'url',
-        description: 'The PostHog host to use instead of the one in your credentials',
-    },
-    dotenvFile: {
-        type: 'string',
-        placeholder: 'path',
-        description: 'Read POSTHOG_CLI_* credentials from this file when the environment has none',
-    },
-    output: {
-        type: 'string',
-        short: 'o',
-        placeholder: 'format',
-        choices: ['text', 'json'],
-        description: 'Output format, json by default for agents and pipes',
-    },
-    raw: {
-        type: 'boolean',
-        description: 'Print the full result as JSON, without the formatting for people or agents',
-    },
-} as const satisfies Record<string, OptionSpec>
-
-export type GlobalOptions = OptionValues<typeof GLOBAL_OPTIONS>
 
 // What a command's `run` gets besides its own arguments and options. It has no output on
 // purpose: `run` returns data, and the command's `human` and `agent` views print it.
@@ -47,8 +22,11 @@ export class Context {
         readonly runtime: Runtime,
         readonly globals: GlobalOptions,
         readonly mode: Mode,
-        readonly tree: CommandTree
-    ) {}
+        readonly tree: CommandTree,
+        loaded?: Promise<LoadedConfig | undefined>
+    ) {
+        this.loaded = loaded
+    }
 
     // Undefined unless a person is at the terminal, so a command can ask questions only when
     // someone can answer them. Agents, pipes and `-o json` never get prompts.

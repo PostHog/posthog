@@ -12,8 +12,10 @@ import {
     type Legacy,
     type OptionSpec,
 } from '@/core/command'
-import { Context, GLOBAL_OPTIONS, type GlobalOptions } from '@/core/context'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { loadConfig } from '@/core/config'
+import { Context } from '@/core/context'
+import { EXIT_FAILURE, EXIT_USAGE, HogError } from '@/core/errors'
+import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, resolveGlobals } from '@/core/globals'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { kebabCase } from '@/core/text'
@@ -22,12 +24,19 @@ import { VERSION } from '@/version'
 
 const ROOT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
-Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.`
+Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.
+HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.`
 
 const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
 
 function toOption(name: string, spec: OptionSpec): Option {
-    const option = new Option(optionFlags(name, spec), spec.description)
+    const sources = [
+        spec.env?.length ? `env: ${spec.env.join(', ')}` : '',
+        spec.config ? `posthog.json: ${spec.config}` : '',
+    ]
+        .filter(Boolean)
+        .join('; ')
+    const option = new Option(optionFlags(name, spec), sources ? `${spec.description} (${sources})` : spec.description)
     if (spec.type === 'string' && spec.multiple) {
         option.argParser((value: string, previous: string[] | undefined) => [...(previous ?? []), value])
     }
@@ -107,7 +116,20 @@ async function readArgument(runtime: Runtime, name: string, value: string): Prom
     return text
 }
 
-function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }): Commander {
+function commandPath(command: Commander): string {
+    const names: string[] = []
+    for (let current: Commander | null = command; current?.parent; current = current.parent) {
+        names.unshift(current.name())
+    }
+    return names.join(' ')
+}
+
+interface RunState {
+    exitCode: number
+    noFail?: boolean
+}
+
+function createProgram(runtime: Runtime, mode: Mode, state: RunState): Commander {
     const out = new Output(runtime, mode)
 
     function addRunnable(command: Commander, node: Command): void {
@@ -125,8 +147,26 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
 
         command.action(async (...params: unknown[]) => {
             const self = params.at(-1) as Commander
-            const globals = self.optsWithGlobals() as GlobalOptions
+            const flags = self.optsWithGlobals()
+            // commander reads `--no-fail` as turning off an option named `fail`.
+            flags.noFail = flags.fail === false ? true : undefined
+            const config = node.allowsInvalidConfig ? undefined : loadConfig(runtime)
+            const globals = resolveGlobals(flags, runtime.env, (await config)?.config)
+            state.noFail = globals.noFail === true
+            const commandRuntime = networkRuntime(runtime, globals)
             const options = self.opts()
+            if (envFlag(runtime.env, DRY_RUN_ENV)) {
+                if (Object.hasOwn(node.options ?? {}, 'dryRun')) {
+                    options.dryRun = true
+                } else if (node.writes) {
+                    throw new HogError(
+                        'dry_run_unsupported',
+                        `\`hog ${commandPath(self)}\` has no dry run, and HOG_DRY_RUN is set.`,
+                        'Unset HOG_DRY_RUN to run it, or leave the command out of the dry run.',
+                        EXIT_USAGE
+                    )
+                }
+            }
             // Optional arguments stay undefined. The command's own types allow that, the tree's types don't.
             const args = {} as Record<string, string>
             for (const [index, [name, spec]] of argEntries.entries()) {
@@ -134,7 +174,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: { exitCode: number }
                 args[name] = spec.stdin && value !== undefined ? await readArgument(runtime, name, value) : value
             }
 
-            const ctx = new Context(runtime, globals, mode, COMMANDS)
+            const ctx = new Context(commandRuntime, globals, mode, COMMANDS, config)
             let result: unknown
             try {
                 result = await node.run({ args, options, ctx })
@@ -205,6 +245,7 @@ type Token = ReturnType<typeof parseArgs>['tokens'] extends (infer T)[] | undefi
 
 interface PreParsed {
     format: OutputFormat | undefined
+    noFail: boolean
     tokens: Token[]
 }
 
@@ -227,7 +268,7 @@ function preParse(argv: readonly string[]): PreParsed {
     })
     const output = values.output
     const format = GLOBAL_OPTIONS.output.choices.find((choice) => choice === output)
-    return { format, tokens }
+    return { format, noFail: values['no-fail'] === true, tokens }
 }
 
 function findLegacy(tokens: Token[]): LegacyRoute | undefined {
@@ -326,11 +367,20 @@ function toHogError(caught: unknown): HogError {
     return new HogError('internal_error', caught instanceof Error ? caught.message : String(caught))
 }
 
+function safeEnvFlag(env: Runtime['env'], names: readonly string[]): boolean {
+    try {
+        return envFlag(env, names) === true
+    } catch {
+        return false
+    }
+}
+
 export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
-    const { format, tokens } = preParse(argv)
+    const { format, noFail, tokens } = preParse(argv)
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
-    const mode = resolveMode(runtime.env, terminal, format)
-    const state = { exitCode: 0 }
+    const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
+    const mode = resolveMode(runtime.env, terminal, format ?? envFormat)
+    const state: RunState = { exitCode: 0 }
     const program = createProgram(runtime, mode, state)
     if (argv.length === 0) {
         program.outputHelp()
@@ -346,13 +396,15 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
             throw notPorted(args, legacy)
         }
         await program.parseAsync(args, { from: 'user' })
-        return state.exitCode
+        // --no-fail also covers a result that reports a problem, like a failed push or a stale SDK.
+        return state.noFail && state.exitCode === EXIT_FAILURE ? 0 : state.exitCode
     } catch (caught) {
         if (caught instanceof CommanderError && caught.exitCode === 0) {
             return 0
         }
         const error = toHogError(caught)
         new Output(runtime, mode).error(error)
-        return error.exitCode
+        const ignore = state.noFail ?? (noFail || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.noFail.env))
+        return ignore && error.exitCode === EXIT_FAILURE ? 0 : error.exitCode
     }
 }

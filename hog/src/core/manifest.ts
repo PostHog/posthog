@@ -1,5 +1,5 @@
 import { optionFlags, type CommandTree, type OptionSpec } from './command'
-import { GLOBAL_OPTIONS } from './context'
+import { GLOBAL_OPTIONS } from './globals'
 import { kebabCase } from './text'
 
 interface OptionEntry {
@@ -8,6 +8,8 @@ interface OptionEntry {
     takesValue: boolean
     choices?: readonly string[]
     repeatable?: boolean
+    env?: readonly string[]
+    config?: string
 }
 
 export interface ManifestEntry {
@@ -29,6 +31,8 @@ function describeOptions(options: Readonly<Record<string, OptionSpec>>): OptionE
         takesValue: spec.type === 'string',
         choices: spec.type === 'string' ? spec.choices : undefined,
         repeatable: spec.type === 'string' && spec.multiple === true ? true : undefined,
+        env: spec.env,
+        config: spec.config,
     }))
 }
 

@@ -12,6 +12,7 @@ import { renderExtracted } from './extract'
 
 export default defineCommand({
     description: 'Download a symbol set from PostHog and unpack it',
+    writes: true,
     args: {
         symbolSet: { description: 'The symbol set ID, or its ref, such as static/chunks/app.js.map' },
     },
@@ -21,6 +22,7 @@ export default defineCommand({
             type: 'boolean',
             description: 'Look the argument up as a ref, for refs that look like IDs, such as chunk IDs and debug IDs',
         },
+        dryRun: { type: 'boolean', description: 'Download the symbol set and list its files without writing them' },
     },
     scopes: ['error_tracking:read'],
     notes: 'A sourcemap becomes a .js and a .js.map file, a Hermes map a .hbc.map file, a ProGuard mapping a .txt file, and a dSYM or ELF symbol set a folder.',
@@ -35,13 +37,16 @@ export default defineCommand({
         const byId = !options.ref && isSymbolSetId(args.symbolSet)
         const id = byId ? args.symbolSet : await resolveRef(client, args.symbolSet)
         const data = await downloadSymbolSet(client, id, ctx.runtime.fetch)
+        const dryRun = options.dryRun === true
         return {
             id,
+            dryRun,
             ...extractSymbolSet(
                 data,
                 byId ? id : deriveBaseName(args.symbolSet),
                 options.outputDir ?? '.',
-                ctx.runtime.cwd()
+                ctx.runtime.cwd(),
+                dryRun
             ),
         }
     },

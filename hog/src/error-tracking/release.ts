@@ -47,6 +47,16 @@ function gitMetadata(git: GitInfo): Record<string, string> {
     )
 }
 
+// Looks the release up without creating it, for a dry run.
+export async function findRelease(
+    client: SymbolSetClient,
+    name: string,
+    version: string
+): Promise<Release | undefined> {
+    const existing = await lookup(client, releaseHashId(name, version))
+    return existing && { ...existing, id: existing.id.toLowerCase() }
+}
+
 async function lookup(client: SymbolSetClient, hashId: string): Promise<Release | undefined> {
     try {
         return (await client.api('GET', `error_tracking/releases/hash/${hashId}`)) as Release

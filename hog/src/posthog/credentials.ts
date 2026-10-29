@@ -22,17 +22,17 @@ interface RawCredentials {
     host: string | undefined
 }
 
-export const API_KEY_ENV_VARS = ['POSTHOG_CLI_API_KEY', 'POSTHOG_CLI_TOKEN'] as const
+export const API_KEY_ENV_VAR = 'HOG_API_KEY'
 
-// Same variables and aliases as posthog-cli. The host only counts when it comes from the
-// same source as the key, so a stray host cannot redirect a key from somewhere else.
+// The host only counts when it comes from the same source as the key, so a stray host cannot
+// redirect a key from somewhere else.
 function fromLookup(lookup: (name: string) => string | undefined): RawCredentials | undefined {
-    const apiKey = lookup(API_KEY_ENV_VARS[0]) ?? lookup(API_KEY_ENV_VARS[1])
-    const projectId = lookup('POSTHOG_CLI_PROJECT_ID') ?? lookup('POSTHOG_CLI_ENV_ID')
+    const apiKey = lookup(API_KEY_ENV_VAR)
+    const projectId = lookup('HOG_PROJECT_ID')
     if (!apiKey || !projectId) {
         return undefined
     }
-    return { apiKey, projectId, host: lookup('POSTHOG_CLI_HOST') || undefined }
+    return { apiKey, projectId, host: lookup('HOG_HOST') || undefined }
 }
 
 function parseDotenv(contents: string, path: string): Map<string, string> {
@@ -143,7 +143,8 @@ export async function saveCredentials(runtime: Runtime, credentials: Credentials
 }
 
 // Lookup order matches posthog-cli: process env, then --dotenv-file, then the credentials
-// file `hog auth login` and `posthog-cli login` write. --host overrides whichever host the source carried.
+// file `hog auth login` and `posthog-cli login` write. The global host overrides whichever host the
+// source carried.
 export async function resolveCredentials(
     runtime: Runtime,
     options: { host?: string; dotenvFile?: string }
@@ -158,7 +159,7 @@ export async function resolveCredentials(
         return withHost(fromEnv, 'env')
     }
 
-    const dotenvFile = options.dotenvFile ?? (runtime.env.POSTHOG_CLI_DOTENV_FILE || undefined)
+    const dotenvFile = options.dotenvFile
     if (dotenvFile) {
         const contents = await readDotenv(runtime, dotenvFile)
         if (contents !== undefined) {
@@ -167,7 +168,7 @@ export async function resolveCredentials(
             if (!fromFile) {
                 throw new HogError(
                     'not_authenticated',
-                    `hog couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in the environment or in ${dotenvFile}.`,
+                    `hog couldn't find HOG_API_KEY and HOG_PROJECT_ID in the environment or in ${dotenvFile}.`,
                     'Add both variables to the file, or remove --dotenv-file.'
                 )
             }
@@ -196,6 +197,6 @@ export async function resolveCredentials(
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",
-        'Run `hog auth login`, or set POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID.'
+        'Run `hog auth login`, or set HOG_API_KEY and HOG_PROJECT_ID.'
     )
 }

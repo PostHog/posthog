@@ -222,10 +222,10 @@ describe('hog auth login', () => {
         [
             'a key in the environment',
             { [CREDENTIALS_FILE]: STORED },
-            { POSTHOG_CLI_API_KEY: 'phx_env' },
+            { HOG_API_KEY: 'phx_env' },
             'logged_out',
             'https://eu.posthog.com/settings/user-api-keys',
-            ['POSTHOG_CLI_API_KEY'],
+            ['HOG_API_KEY'],
         ],
     ])('logout with %s removes what hog stored', async (_name, files, env, status, revokeUrl, stillSet) => {
         const result = await runHog(['auth', 'logout'], { env: { CLAUDECODE: '1', ...env }, files })

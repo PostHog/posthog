@@ -48,7 +48,6 @@ First, the commands that make hog a complete CLI:
 
 Then, once the commands above work:
 
-- [ ] Global options from posthog-cli: `--dry-run` and `POSTHOG_CLI_DRY_RUN`, which skip the whole command without credentials, `--no-fail`, `--skip-ssl-verification`, and `--rate-limit` with `POSTHOG_CLIENT_RATE_LIMIT`.
 - [ ] Telemetry: the `posthog cli command run` and `error_tracking_cli_sourcemaps_upload_*` events posthog-cli sends.
 - [ ] Callers: the SDKs, build plugins and scripts that run `posthog-cli` with its arguments. Move them to hog, or give hog a `posthog-cli` entry point that translates the arguments.
 - [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, and CI on Linux and Windows.
@@ -73,10 +72,32 @@ Not planned:
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
 Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 
+## Global options
+
+Every option below works on any command, and each has an environment variable.
+A flag beats the environment variable, which beats `posthog.json`.
+
+| Option                    | Environment                 | `posthog.json`  | What it does                                                                                                                  |
+| ------------------------- | --------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `--host <url>`            | `HOG_HOST`                  | `host`          | The PostHog host to use instead of the one in your credentials                                                                |
+| `--dotenv-file <path>`    | `HOG_DOTENV_FILE`           |                 | Read credentials from this file when the environment has none                                                                 |
+| `-o, --output <format>`   | `HOG_OUTPUT`                |                 | `text` or `json`                                                                                                              |
+| `--raw`                   | `HOG_RAW`                   |                 | Print a command's full result as JSON                                                                                         |
+| `--debug`                 | `HOG_DEBUG`                 |                 | Print each HTTP request, its status and duration to stderr                                                                    |
+| `--no-fail`               | `HOG_NO_FAIL`               | `cli.noFail`    | Exit with code 0 when a command fails or reports a problem, such as `diff` finding drift. Usage errors still exit with code 2 |
+| `--skip-ssl-verification` | `HOG_SKIP_SSL_VERIFICATION` |                 | Accept any TLS certificate, for a self-signed self-hosted PostHog                                                             |
+| `--rate-limit <requests>` | `HOG_RATE_LIMIT`            | `cli.rateLimit` | The most requests per minute. No limit by default                                                                             |
+|                           | `HOG_DRY_RUN`               |                 | Turns on `--dry-run` for every command that has one, and fails the commands that write without one                            |
+
+`--host`, `HOG_HOST` and `host` in `posthog.json` override the host of every credential source.
+Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
+hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables don't count.
+
 ## posthog.json
 
 Project settings live in `posthog.json`, which hog looks for from the current folder up to the git root.
 It never holds API keys.
+When the file isn't valid, every command stops with `invalid_config` except `hog config check`, which lists the problems.
 Point `$schema` at the published schema to get validation in your editor:
 
 ```json
@@ -134,13 +155,13 @@ hog uploads the same bytes and content hashes as posthog-cli, so either CLI can 
 
 ## Credentials
 
-`hog` reads the same credentials as `posthog-cli`, in the same order:
+`hog` reads credentials in the same order as `posthog-cli`, with `HOG_` variable names:
 
-1. `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` in the environment, plus an optional `POSTHOG_CLI_HOST`
-2. The same variables in the file `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
+1. `HOG_API_KEY` and `HOG_PROJECT_ID` in the environment, plus an optional `HOG_HOST`
+2. The same variables in the file `--dotenv-file` or `HOG_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
 3. `~/.posthog/credentials.json`, which `hog auth login` and `posthog-cli login` write (`POSTHOG_HOME` moves the folder). `hog auth login` makes it readable only by you.
 
-`--host` overrides the host from any of these.
+`--host`, `HOG_HOST` and `host` in `posthog.json` override the host from any of these.
 
 ### Logging in and out
 

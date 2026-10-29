@@ -7,6 +7,11 @@
             "description": "The JSON schema for this file.",
             "type": "string"
         },
+        "host": {
+            "description": "The PostHog host for this project, like https://eu.posthog.com. --host and HOG_HOST override it, and it overrides the host your credentials carry.",
+            "type": "string",
+            "format": "uri"
+        },
         "errorTracking": {
             "type": "object",
             "properties": {
@@ -64,6 +69,23 @@
             },
             "additionalProperties": false,
             "description": "Settings for `hog error-tracking`."
+        },
+        "cli": {
+            "description": "Defaults for global options. Flags and HOG_ environment variables override them.",
+            "type": "object",
+            "properties": {
+                "noFail": {
+                    "description": "Exit with code 0 when a command fails, like --no-fail. HOG_NO_FAIL overrides it.",
+                    "type": "boolean"
+                },
+                "rateLimit": {
+                    "description": "The most requests hog sends per minute, like --rate-limit. HOG_RATE_LIMIT overrides it.",
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                }
+            },
+            "additionalProperties": false
         },
         "endpoints": {
             "description": "Settings for `hog endpoints`.",

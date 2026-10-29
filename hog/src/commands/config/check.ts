@@ -8,6 +8,7 @@ type CheckResult =
 
 export default defineCommand({
     description: 'Check posthog.json against its schema and list every problem',
+    allowsInvalidConfig: true,
     notes: `hog looks for ${CONFIG_FILE} in the current folder, then in each parent up to the git root. Exits with code 1 when the file is missing or has problems.`,
     examples: ['hog config check'],
 

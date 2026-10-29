@@ -68,6 +68,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
 
 export default defineCommand({
     description: 'Log in to PostHog and store a personal API key on this machine',
+    writes: true,
     options: {
         region: {
             type: 'string',
@@ -84,7 +85,7 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'In CI, skip login and set POSTHOG_CLI_API_KEY, POSTHOG_CLI_PROJECT_ID and POSTHOG_CLI_HOST.',
+        'In CI, skip login and set HOG_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
 
@@ -108,7 +109,7 @@ export default defineCommand({
             throw new HogError(
                 'login_needs_a_person',
                 'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
-                'Set POSTHOG_CLI_API_KEY, POSTHOG_CLI_PROJECT_ID and POSTHOG_CLI_HOST instead.'
+                'Set HOG_API_KEY, HOG_PROJECT_ID and HOG_HOST instead.'
             )
         }
 

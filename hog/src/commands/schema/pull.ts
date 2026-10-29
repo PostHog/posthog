@@ -9,13 +9,14 @@ import { chosenFile, configRoot, fetchDefinitions, isLanguage, LANGUAGE_INFO, LA
 interface PulledLanguage {
     language: Language
     file: string
-    status: 'written' | 'unchanged'
+    status: 'written' | 'would_write' | 'unchanged'
     eventCount: number
     schemaHash: string
 }
 
 export default defineCommand({
     description: 'Generate a typed PostHog SDK from your event definitions',
+    writes: true,
     options: {
         language: {
             type: 'string',
@@ -27,6 +28,10 @@ export default defineCommand({
             type: 'string',
             placeholder: 'path',
             description: 'Where to write the module. posthog.json remembers it for the next run',
+        },
+        dryRun: {
+            type: 'boolean',
+            description: 'Fetch the event definitions and show what would change, without writing',
         },
     },
     scopes: ['event_definition:read'],
@@ -98,7 +103,7 @@ export default defineCommand({
                 saved?.output_path === outputPath &&
                 saved.schema_hash === definitions.schema_hash &&
                 (await ctx.runtime.exists(file))
-            if (!unchanged) {
+            if (!unchanged && !options.dryRun) {
                 await ctx.runtime.writeFile(file, definitions.content)
                 entries[language] = {
                     output_path: outputPath,
@@ -110,19 +115,20 @@ export default defineCommand({
             pulled.push({
                 language,
                 file: outputPath,
-                status: unchanged ? 'unchanged' : 'written',
+                status: unchanged ? 'unchanged' : options.dryRun ? 'would_write' : 'written',
                 eventCount: definitions.event_count,
                 schemaHash: definitions.schema_hash,
             })
         }
 
+        const dryRun = options.dryRun === true
         if (Object.keys(entries).length === 0) {
-            return { config: loaded?.path ?? null, configUpdated: false, languages: pulled }
+            return { config: loaded?.path ?? null, configUpdated: false, dryRun, languages: pulled }
         }
         const config = await updateConfig(ctx.runtime, loaded, (raw) => {
             raw.languages = { ...(raw.languages as object | undefined), ...entries }
         })
-        return { config: storedPath(ctx.runtime.cwd(), config), configUpdated: true, languages: pulled }
+        return { config: storedPath(ctx.runtime.cwd(), config), configUpdated: true, dryRun, languages: pulled }
     },
 
     human({ result, out }) {
@@ -133,6 +139,10 @@ export default defineCommand({
                 out.line(`${out.style('Up to date', 'green', 'bold')}  ${name} in ${pulled.file} (${events})`)
                 continue
             }
+            if (pulled.status === 'would_write') {
+                out.line(`${out.style('Would generate', 'yellow', 'bold')}  ${name} in ${pulled.file} (${events})`)
+                continue
+            }
             out.line(`${out.style('Generated', 'green', 'bold')}  ${name} in ${pulled.file} (${events})`)
             out.line()
             out.line(out.style('Next steps:', 'bold'))
@@ -141,6 +151,9 @@ export default defineCommand({
         }
         if (result.configUpdated) {
             out.line(out.style(`Saved the settings in ${result.config}`, 'dim'))
+        }
+        if (result.dryRun) {
+            out.line(out.style('Dry run: no files written.', 'dim'))
         }
     },
 

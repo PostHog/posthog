@@ -14,20 +14,23 @@ const KIND_LABELS: Record<ExtractReport['kind'], string> = {
     dsym: 'dSYM',
 }
 
-export function renderExtracted(out: Output, result: ExtractReport): void {
+export function renderExtracted(out: Output, result: ExtractReport & { dryRun: boolean }): void {
     for (const file of result.files) {
         out.line(file)
     }
-    out.line(out.style(`Extracted the ${KIND_LABELS[result.kind]} symbol set to ${result.output}.`, 'dim'))
+    const verb = result.dryRun ? 'Dry run: would extract' : 'Extracted'
+    out.line(out.style(`${verb} the ${KIND_LABELS[result.kind]} symbol set to ${result.output}.`, 'dim'))
 }
 
 export default defineCommand({
     description: 'Unpack a symbol set file, such as one PostHog stored',
+    writes: true,
     args: {
         file: { description: 'The symbol set file' },
     },
     options: {
         outputDir: { type: 'string', placeholder: 'folder', description: 'Where to write the files (default .)' },
+        dryRun: { type: 'boolean', description: 'List the files without writing them' },
     },
     examples: ['hog error-tracking extract symbol-set.bin --output-dir symbols'],
 
@@ -38,12 +41,17 @@ export default defineCommand({
         } catch (error) {
             throw new HogError('file_unreadable', `hog couldn't read ${args.file}: ${(error as Error).message}`)
         }
-        return extractSymbolSet(
-            data,
-            deriveBaseName(basename(args.file) || 'symbol_set'),
-            options.outputDir ?? '.',
-            ctx.runtime.cwd()
-        )
+        const dryRun = options.dryRun === true
+        return {
+            dryRun,
+            ...extractSymbolSet(
+                data,
+                deriveBaseName(basename(args.file) || 'symbol_set'),
+                options.outputDir ?? '.',
+                ctx.runtime.cwd(),
+                dryRun
+            ),
+        }
     },
 
     human({ result, out }) {

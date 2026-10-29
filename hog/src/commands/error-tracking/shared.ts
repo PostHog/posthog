@@ -79,7 +79,11 @@ export const UPLOAD_OPTIONS = {
         placeholder: 'count',
         description: 'Symbol sets per upload request (default 50, 10 for native symbols)',
     },
-    concurrency: { type: 'string', placeholder: 'count', description: 'Parallel file uploads (default 10)' },
+    concurrency: {
+        type: 'string',
+        placeholder: 'count',
+        description: 'Parallel file uploads (default HOG_UPLOAD_CONCURRENCY, then 10)',
+    },
 } as const satisfies Record<string, OptionSpec>
 
 export const DRY_RUN_OPTION = {
@@ -123,7 +127,7 @@ function count(flag: string, value: string | undefined, fallback: number): numbe
     return parsed
 }
 
-// posthog-cli reads the release mode and the upload concurrency from these variables too.
+// posthog-cli reads the release mode from this variable too.
 export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions {
     if (options.force && options.skipOnConflict) {
         throw new HogError(
@@ -152,7 +156,7 @@ export function readOptions(options: RawOptions, env: Env): ErrorTrackingOptions
         force: options.force === true,
         skipOnConflict: options.skipOnConflict === true,
         batchSize: options.batchSize === undefined ? undefined : count('--batch-size', options.batchSize, 50),
-        concurrency: count('--concurrency', options.concurrency ?? env.POSTHOG_CLI_SOURCEMAP_UPLOAD_CONCURRENCY, 10),
+        concurrency: count('--concurrency', options.concurrency ?? env.HOG_UPLOAD_CONCURRENCY, 10),
         deleteAfter: options.deleteAfter === true,
         includeSource: options.includeSource === true,
         dryRun: options.dryRun === true,
