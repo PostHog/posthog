@@ -138,6 +138,9 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     deleteProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     loadEvaluationResults: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view's Evals tab shows the error
     loadClusters: 'products.ai_observability.frontend.redesign.trace.traceClustersLogic', // The trace view hides the clusters chip
+    // The trace view's Summary mode shows the error
+    loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
+    requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.

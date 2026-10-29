@@ -17,6 +17,7 @@ export function TraceModeTabs({ mode, onModeChange }: TraceModeTabsProps): JSX.E
                 { key: 'spans', label: 'Spans', 'data-attr': 'trace-view-mode-spans' },
                 { key: 'thread', label: 'Thread', 'data-attr': 'trace-view-mode-thread' },
                 { key: 'timeline', label: 'Timeline', 'data-attr': 'trace-view-mode-timeline' },
+                { key: 'summary', label: 'Summary', 'data-attr': 'trace-view-mode-summary' },
             ]}
         />
     )
