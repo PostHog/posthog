@@ -4,6 +4,12 @@ on:
     push:
         branches:
             - master
+    workflow_dispatch:
+        inputs:
+            pr_number:
+                description: Merged PostHog/posthog pull request to check again
+                required: true
+                type: number
 
 permissions: {}
 
@@ -13,15 +19,26 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 2
         if: github.repository == 'PostHog/posthog' && vars.KNOWLEDGE_WRITER_MERGE_PUSHES_URL != ''
+        permissions:
+            pull-requests: read
         steps:
             - name: Post every merged commit sha
               env:
+                  GH_TOKEN: ${{ github.token }}
+                  PR_NUMBER: ${{ inputs.pr_number }}
                   KNOWLEDGE_WRITER_API_TOKEN: ${{ secrets.KNOWLEDGE_WRITER_API_TOKEN }}
                   KNOWLEDGE_WRITER_MERGE_PUSHES_URL: ${{ vars.KNOWLEDGE_WRITER_MERGE_PUSHES_URL }}
               run: |
                   set -euo pipefail
+                  if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+                      commit_shas=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json state,baseRefName,mergeCommit \
+                          --jq 'select(.state == "MERGED" and .baseRefName == "master") | .mergeCommit.oid')
+                      [ -n "$commit_shas" ] || { echo "::error::Pull request #$PR_NUMBER is not merged into master"; exit 1; }
+                  else
+                      commit_shas=$(jq -r '.commits[].id' "$GITHUB_EVENT_PATH")
+                  fi
                   failed_commit_shas=()
-                  for commit_sha in $(jq -r '.commits[].id' "$GITHUB_EVENT_PATH"); do
+                  for commit_sha in $commit_shas; do
                       curl --fail-with-body --silent --show-error --retry 3 --retry-all-errors --max-time 10 \
                           -H "Authorization: Bearer $KNOWLEDGE_WRITER_API_TOKEN" -H "Content-Type: application/json" \
                           --data "{\"commit_sha\": \"$commit_sha\"}" "$KNOWLEDGE_WRITER_MERGE_PUSHES_URL" \
