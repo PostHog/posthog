@@ -163,6 +163,15 @@ describe("buildSessionOptions", () => {
     },
   );
 
+  it.each([
+    ["the default window", undefined, ["context-1m-2025-08-07"]],
+    ["a 200K window", "200k" as const, undefined],
+  ])("sets the 1M context beta for %s", (_label, contextWindow, expected) => {
+    const options = buildSessionOptions({ ...makeParams(), contextWindow });
+
+    expect(options.betas).toEqual(expected);
+  });
+
   it("preserves a caller-provided fallbackModel", () => {
     const options = buildSessionOptions({
       ...makeParams(),

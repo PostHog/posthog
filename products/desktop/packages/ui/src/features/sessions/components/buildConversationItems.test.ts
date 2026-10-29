@@ -349,28 +349,36 @@ describe("buildConversationItems", () => {
     },
   );
 
-  it("clears the compacting spinner on a successful completion status, without duplicating the row", () => {
-    // A successful compaction sends a terminal `status: compacting, isComplete:
-    // true`. It must flip the existing status row, not append a second one.
-    const result = buildConversationItems(
-      [
-        userPromptMsg(1, 1, "hi"),
-        statusMsg(2, "compacting"),
-        statusMsg(3, "compacting", true),
-      ],
-      null,
-    );
+  it.each([
+    { name: "one start signal", starts: 1 },
+    { name: "a repeated start signal", starts: 3 },
+  ])(
+    "clears the compacting spinner on a successful completion status, without duplicating the row, for $name",
+    ({ starts }) => {
+      // A successful compaction sends a terminal `status: compacting, isComplete:
+      // true`. It must flip the existing status row, not append a second one.
+      const result = buildConversationItems(
+        [
+          userPromptMsg(1, 1, "hi"),
+          ...Array.from({ length: starts }, (_, i) =>
+            statusMsg(2 + i, "compacting"),
+          ),
+          statusMsg(10, "compacting", true),
+        ],
+        null,
+      );
 
-    const statusItems = result.items.filter(
-      (i): i is Extract<ConversationItem, { type: "session_update" }> =>
-        i.type === "session_update" && i.update.sessionUpdate === "status",
-    );
-    expect(statusItems).toHaveLength(1);
-    expect((statusItems[0].update as { isComplete?: boolean }).isComplete).toBe(
-      true,
-    );
-    expect(result.isCompacting).toBe(false);
-  });
+      const statusItems = result.items.filter(
+        (i): i is Extract<ConversationItem, { type: "session_update" }> =>
+          i.type === "session_update" && i.update.sessionUpdate === "status",
+      );
+      expect(statusItems).toHaveLength(1);
+      expect(
+        (statusItems[0].update as { isComplete?: boolean }).isComplete,
+      ).toBe(true);
+      expect(result.isCompacting).toBe(false);
+    },
+  );
 
   it("builds a compact boundary without optional metadata", () => {
     const result = buildConversationItems(

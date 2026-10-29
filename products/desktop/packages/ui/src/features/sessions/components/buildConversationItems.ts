@@ -958,6 +958,7 @@ function handleRuntimeStatus(
       markRuntimeStatusComplete(b, "compacting");
       return;
     }
+    if (b.isCompacting) return;
     b.isCompacting = true;
   } else if (status.status === "compacting_failed") {
     markRuntimeStatusComplete(b, "compacting");

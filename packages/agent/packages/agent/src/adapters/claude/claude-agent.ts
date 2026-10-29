@@ -1423,6 +1423,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               // dedupe the duplicate terminal status the SDK emits for failed
               // compactions.
               if (message.status === "compacting") {
+                if (session.compacting) break;
                 session.compacting = true;
                 // Fall through to handleSystemMessage so the COMPACTING
                 // extNotification still fires.
@@ -3307,6 +3308,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       onProcessExited: this.options?.onProcessExited,
       onStartupOutput: (stdout) => initialization.observe(stdout),
       effort,
+      contextWindow: meta?.contextWindow,
       enrichmentDeps: this.enrichment?.deps,
       enrichedReadCache: this.enrichedReadCache,
       cloudMode: cloudRun,

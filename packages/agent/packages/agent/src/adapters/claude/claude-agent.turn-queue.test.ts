@@ -234,6 +234,44 @@ describe("ClaudeAcpAgent turn queue input dispatch", () => {
     await expect(first).resolves.toBeDefined();
   });
 
+  it("sends one compacting status when the SDK repeats the compacting signal", async () => {
+    const sessionId = "s-compacting-repeat";
+    const harness = installHarness(sessionId);
+    const first = harness.agent.prompt({
+      sessionId,
+      prompt: [{ type: "text", text: "first" }],
+    });
+    await tick();
+    echoTurn(harness.query, sessionOf(harness.agent).turnQueue[0].promptUuid);
+    await tick();
+    for (let i = 0; i < 3; i++) {
+      harness.query._mockHelpers.sendMessage({
+        type: "system",
+        subtype: "status",
+        status: "compacting",
+      } as unknown as SDKMessage);
+      await tick();
+    }
+
+    const extNotification = (
+      harness.agent as unknown as {
+        client: { extNotification: ReturnType<typeof vi.fn> };
+      }
+    ).client.extNotification;
+    const compactingStarts = extNotification.mock.calls.filter(
+      ([method, params]) =>
+        method === "_posthog/status" &&
+        params.status === "compacting" &&
+        !params.isComplete,
+    );
+    expect(compactingStarts).toHaveLength(1);
+
+    harness.query._mockHelpers.sendMessage(createSuccessResult());
+    await tick();
+    harness.query._mockHelpers.complete();
+    await expect(first).resolves.toBeDefined();
+  });
+
   it("resends a declined budget steer while the turn keeps working", async () => {
     const sessionId = "s-steer-retry";
     const guard = budgetGuard();
