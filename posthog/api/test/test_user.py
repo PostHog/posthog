@@ -3368,7 +3368,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.assertEqual(mail.outbox[0].subject, "Verify your email address")
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
 
-        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        html_message = cast(str, mail.outbox[0].alternatives[0][0])  # type: ignore
         code = re.search(r"(\d{6}) is your code\.", html_message).group(1)  # type: ignore[union-attr]
         self.validate_basic_html(html_message, "https://my.posthog.net", preheader=f"{code} is your code.")
 

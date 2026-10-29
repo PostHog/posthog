@@ -22,8 +22,9 @@ from products.signals.backend.models import (
     SignalReportMonitoringResult,
 )
 from products.signals.backend.report_check_execution import run_due_report_checks
+from products.signals.backend.report_check_final_candidates import FinalCheck
 from products.signals.backend.report_check_final_metrics import collect_due_final_metrics, run_due_final_metrics
-from products.signals.backend.report_check_metric_evaluation import FinalMetricCheck, metric_evidence_source
+from products.signals.backend.report_check_metric_evaluation import metric_evidence_source
 from products.signals.backend.report_checks import MAX_CONSECUTIVE_CHECK_ERRORS, MetricThresholdConfig
 from products.signals.backend.report_metric_refresh import MetricMeasurement, MetricQueryBudgetExhausted
 from products.signals.backend.report_monitoring_attempts import check_definition_version, complete_implementation
@@ -104,7 +105,7 @@ class TestFinalMetricExecution(BaseTest):
         formula: bool = False,
         scaling: str = "fixed",
         event: str = "checkout",
-    ) -> FinalMetricCheck:
+    ) -> FinalCheck:
         config = {
             "query": trends_metric_query(
                 series=[{"kind": "EventsNode", "event": event, "math": math, "math_property": math_property}]
@@ -133,7 +134,7 @@ class TestFinalMetricExecution(BaseTest):
         assert attempt is not None
         check.refresh_from_db()
         check.report.refresh_from_db()
-        return FinalMetricCheck(
+        return FinalCheck(
             check=check,
             attempt_id=attempt.id,
             definition_version=attempt.check_versions[str(check.id)],
