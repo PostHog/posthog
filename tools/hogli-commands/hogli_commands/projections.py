@@ -106,7 +106,11 @@ PROJECTIONS: tuple[Projection, ...] = (
     Projection(
         name="integration-kinds",
         renderer="products/integrations/backend/kinds_projection.py",
-        inputs=("products/integrations/backend/facade/catalogue.py",),
+        inputs=(
+            "products/integrations/backend/facade/catalogue.py",
+            "products/integrations/backend/facade/contracts.py",
+            "products/integrations/backend/facade/enums.py",
+        ),
         outputs=("products/integrations/backend/facade/kinds_generated.py",),
     ),
 )

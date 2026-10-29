@@ -7,6 +7,7 @@ from django.db.models import Q
 
 from temporalio import activity
 
+from posthog.comment.tiptap import markdown_to_tiptap_doc
 from posthog.models.comment import Comment
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -119,6 +120,7 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             scope="conversations_ticket",
             item_id=input.ticket_id,
             content=content,
+            rich_content=markdown_to_tiptap_doc(content),
             item_context=item_context,
         )
         if input.require_awaiting_clarification and ticket is not None:

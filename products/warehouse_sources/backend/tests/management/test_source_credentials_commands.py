@@ -133,7 +133,7 @@ class TestBackfillWarehouseSourceCredentials(_CredentialsCommandTestCase):
         output = self._run("backfill_warehouse_source_credentials", "--execute")
 
         assert "skipped_no_row=1" in output
-        assert IntegrationManager.any.list(self.team.pk) == []
+        assert IntegrationManager.any.with_source_rows().list(self.team.pk) == []
         assert self._reference(source) is None
 
     @parameterized.expand(

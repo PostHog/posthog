@@ -548,6 +548,16 @@ export interface GitHubReposRefreshResponseApi {
     installation_status: InstallationStatusEnumApi
 }
 
+export interface GitHubRepositoryAccessResponseApi {
+    /** Whether a live GitHub request confirmed repository access. */
+    available: boolean
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 export interface GitHubTeamApi {
     /** GitHub team numeric identifier. */
     id: number
@@ -1258,6 +1268,14 @@ export type IntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type IntegrationsGithubRepositoryAccessRetrieveParams = {
+    /**
+     * Repository in owner/repo format. Omit to check access to any repository.
+     * @minLength 1
+     */
+    repository?: string
 }
 
 export type IntegrationsGithubTeamsRetrieveParams = {

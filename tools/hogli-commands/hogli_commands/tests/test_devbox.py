@@ -10,6 +10,7 @@ import hashlib
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -1125,6 +1126,31 @@ class TestWorkspaceCreation:
         else:
             coder.update_workspace("devbox-test-user")
 
+    @pytest.mark.parametrize(
+        "returncode, build_status, output, shortage",
+        [
+            (1, "failed", "api error InsufficientInstanceCapacity: Insufficient capacity.", True),
+            (1, "failed", "Error: Missing required provider", False),
+            (0, "failed", "api error InsufficientInstanceCapacity: Insufficient capacity.", True),
+        ],
+        ids=["start-capacity", "start-other-error", "update-exits-0-on-capacity"],
+    )
+    def test_failed_build_reports_a_capacity_shortage_only_for_capacity_errors(
+        self, monkeypatch: pytest.MonkeyPatch, returncode: int, build_status: str, output: str, shortage: bool
+    ) -> None:
+        monkeypatch.setattr(
+            coder, "_run_build", lambda args, verbose=False: subprocess.CompletedProcess(args, returncode, output, "")
+        )
+        monkeypatch.setattr(
+            coder, "get_workspace", lambda name: {"name": name, "latest_build": {"status": build_status}}
+        )
+        build = coder.update_workspace if returncode == 0 else coder.start_workspace
+
+        with pytest.raises(SystemExit) as raised:
+            build("devbox-test-user")
+
+        assert isinstance(raised.value, coder.CapacityShortage) is shortage
+
     def test_clone_workspace_forwards_source_and_creation_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
         captured: dict[str, object] = {}
         monkeypatch.setattr(coder, "_run_build", _fake_run_build_capturing(captured))
@@ -1237,6 +1263,154 @@ class TestWorkspaceCreation:
 
         assert len(calls) == len(outputs)
         assert dropped.isdisjoint(_parse_parameter_flags(calls[-1]))
+
+
+_CAPACITY_LOG = "api error InsufficientInstanceCapacity: Insufficient capacity."
+
+
+class TestCapacityFallback:
+    @pytest.mark.parametrize(
+        "first_build_shortage, fallback_results, expected_starts, exits",
+        [
+            (False, {}, [], False),
+            (True, {"m7g.4xlarge": ("succeeded", "", "")}, ["m7g.4xlarge"], False),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", _CAPACITY_LOG, ""), "m6g.4xlarge": ("succeeded", "", "")},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                False,
+            ),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", "", _CAPACITY_LOG), "m6g.4xlarge": ("succeeded", "", "")},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                False,
+            ),
+            (
+                True,
+                {"m7g.4xlarge": ("failed", _CAPACITY_LOG, ""), "m6g.4xlarge": ("failed", _CAPACITY_LOG, "")},
+                ["m7g.4xlarge", "m6g.4xlarge"],
+                True,
+            ),
+            (True, {"m7g.4xlarge": ("failed", "Error: Missing required provider", "")}, ["m7g.4xlarge"], True),
+        ],
+        ids=[
+            "no-shortage",
+            "next-type-starts",
+            "last-type-starts",
+            "shortage-only-in-job-error",
+            "every-type-short",
+            "other-error-stops",
+        ],
+    )
+    def test_shortage_starts_the_box_on_the_template_s_other_instance_types(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        first_build_shortage: bool,
+        fallback_results: dict[str, tuple[str, str, str]],
+        expected_starts: list[str],
+        exits: bool,
+    ) -> None:
+        starts: list[str] = []
+        build_results: dict[str, tuple[str, str, str]] = {}
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> MagicMock:
+            path = url.removeprefix("https://coder.example.com/api/v2")
+            if path == "/workspacebuilds/b-failed/parameters":
+                body: object = [{"name": "instance_type", "value": "m8g.4xlarge"}, {"name": "repo", "value": _REPO}]
+            elif path == "/templateversions/tv-1/rich-parameters":
+                options = [{"value": t} for t in ("m8g.4xlarge", "m7g.4xlarge", "m6g.4xlarge")]
+                body = [{"name": "instance_type", "options": options}]
+            elif method == "POST" and path == "/workspaces/ws-1/builds":
+                instance_type = kwargs["json"]["rich_parameter_values"][0]["value"]
+                starts.append(instance_type)
+                status, _, job_error = build_results[f"b-{instance_type}"] = fallback_results[instance_type]
+                body = {"id": f"b-{instance_type}", "job": {"status": status, "error": job_error}}
+            elif path.endswith("/logs"):
+                status, log_output, _ = build_results[path.split("/")[2]]
+                assert status != "succeeded", "a successful build must not need its logs"
+                body = [{"output": log_output}]
+            else:
+                raise AssertionError(f"unexpected {method} {path}")
+            return MagicMock(ok=True, json=MagicMock(return_value=body))
+
+        def first_build() -> None:
+            if first_build_shortage:
+                raise coder.CapacityShortage(1)
+
+        monkeypatch.setattr(coder.requests, "request", fake_request)
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(
+                args, 0, '[{"url": "https://coder.example.com"}]' if "whoami" in args else "token\n", ""
+            ),
+        )
+        monkeypatch.setattr(
+            coder,
+            "get_workspace",
+            lambda name: {"id": "ws-1", "latest_build": {"id": "b-failed", "template_version_id": "tv-1"}},
+        )
+
+        if exits:
+            with pytest.raises(SystemExit):
+                coder.run_with_capacity_fallback("devbox-test-user", first_build)
+        else:
+            coder.run_with_capacity_fallback("devbox-test-user", first_build)
+
+        assert starts == expected_starts
+
+    @pytest.mark.parametrize(
+        "transient",
+        [coder.requests.ConnectionError("reset"), MagicMock(ok=False, status_code=503)],
+        ids=["connection-error", "http-503"],
+    )
+    def test_build_wait_polls_again_after_a_transient_failure(
+        self, monkeypatch: pytest.MonkeyPatch, transient: object
+    ) -> None:
+        polls = iter(
+            [transient, MagicMock(ok=True, status_code=200, json=lambda: {"id": "b-1", "job": {"status": "succeeded"}})]
+        )
+
+        def fake_request(method: str, url: str, **kwargs: Any) -> object:
+            if method == "POST":
+                return MagicMock(ok=True, json=lambda: {"id": "b-1", "job": {"status": "running"}})
+            reply = next(polls)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        monkeypatch.setattr(coder.requests, "request", fake_request)
+        monkeypatch.setattr(coder, "BUILD_POLL_INTERVAL", 0)
+        monkeypatch.setattr(coder._CoderApi, "__init__", lambda self: None)
+        api = coder._CoderApi()
+        api._base_url, api._headers = "https://coder.example.com/api/v2", {}
+
+        assert api.start_on_instance_type("ws-1", "m7g.4xlarge").job_status == "succeeded"
+
+    @pytest.mark.parametrize(
+        "env_token, expected", [("env-token", "env-token"), (None, "stored-token")], ids=["env", "stored-login"]
+    )
+    def test_api_authenticates_with_the_token_the_cli_uses(
+        self, monkeypatch: pytest.MonkeyPatch, env_token: str | None, expected: str
+    ) -> None:
+        if env_token is None:
+            monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+        else:
+            monkeypatch.setenv("CODER_SESSION_TOKEN", env_token)
+        monkeypatch.setattr(
+            coder,
+            "_run",
+            lambda args, **kw: subprocess.CompletedProcess(
+                args, 0, '[{"url": "https://coder.example.com"}]' if "whoami" in args else "stored-token\n", ""
+            ),
+        )
+        request = MagicMock(return_value=MagicMock(ok=True, json=MagicMock(return_value=[])))
+        monkeypatch.setattr(coder.requests, "request", request)
+
+        coder._CoderApi().instance_type("b-1")
+
+        assert request.call_args.kwargs["headers"] == {"Coder-Session-Token": expected}
 
 
 class TestTemplatePresetResolution:

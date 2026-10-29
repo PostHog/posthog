@@ -163,8 +163,8 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             # A typed-in row on a kind with an OAuth default is invisible to code that did not ask for it.
             ("stripe_token", ExternalDataSourceType.STRIPE, STRIPE_FIELDS, "stripe", False),
             ("github_token", ExternalDataSourceType.GITHUB, {"auth_method": {"selection": "pat"}}, "github", False),
-            # A row with the default auth type of its kind passes the runtime filter. The SDK still skips it.
-            ("postgres_credentials", ExternalDataSourceType.POSTGRES, PG_FIELDS, "postgresql", True),
+            # A row with the default auth type of its kind: the unqualified manager skips it for its marker.
+            ("postgres_credentials", ExternalDataSourceType.POSTGRES, PG_FIELDS, "postgresql", False),
         ]
     )
     def test_named_accessors_skip_source_rows(
@@ -180,7 +180,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         assert Integration.objects.filter(id=pk).exists() == visible_unqualified
         assert IntegrationManager.kinds(kind).get_many(self.team.id, [pk]) == {}
         assert list(IntegrationManager.source(kind).any.get_many(self.team.id, [pk])) == [pk]
-        assert list(IntegrationManager.any.get_many(self.team.id, [pk])) == [pk]
+        assert list(IntegrationManager.any.with_source_rows().get_many(self.team.id, [pk])) == [pk]
 
     @parameterized.expand(
         [
@@ -464,7 +464,7 @@ class TestWarehouseSourceUsageProvider(BaseTest):
         source = self._source({key: str(row.id)}, prefix=prefix)
         self._source({key: str(row.id)}, deleted=True)
 
-        assert IntegrationManager.any.usages(self.team.id, row.id) == [
+        assert IntegrationManager.any.with_source_rows().usages(self.team.id, row.id) == [
             IntegrationUsage(type="warehouse_source", id=str(source.id), name=name)
         ]
 
@@ -476,7 +476,7 @@ class TestWarehouseSourceUsageProvider(BaseTest):
             IntegrationManager.source("postgresql").any.delete(self.team.id, row.id)
 
         assert [usage.type for usage in raised.exception.usages] == ["warehouse_source"]
-        assert IntegrationManager.any.get(self.team.id, row.id).id == row.id
+        assert IntegrationManager.any.with_source_rows().get(self.team.id, row.id).id == row.id
 
 
 def _typed_in_source_types() -> list[str]:

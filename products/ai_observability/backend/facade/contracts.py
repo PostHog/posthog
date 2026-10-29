@@ -4,6 +4,8 @@ from typing import Annotated, Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from posthog.dataclasses import frozen
+
 
 class Contract(BaseModel):
     # Without `json_schema_serialization_defaults_required`, fields with defaults generate as optional in TypeScript.
@@ -165,6 +167,64 @@ class TraceEvaluationSummary(Contract):
 class TraceEvaluationResults(Contract):
     results: list[TraceEvaluationResult]
     summary: TraceEvaluationSummary
+
+
+TraceSummaryStatus = Literal["pending", "ready", "failed"]
+TraceSummaryFailureReason = Literal[
+    "trace_not_found", "too_large", "timeout", "provider_error", "not_approved", "access_changed", "error"
+]
+
+
+@frozen
+class TraceSummaryJob:
+    """What the trace summary job needs to write one summary. Ids only, so the workflow history stays small.
+    `requested_at` is when the pending entry the job fills was written."""
+
+    team_id: int
+    trace_id: str
+    timestamp_hint: datetime | None
+    fingerprint: str
+    requester_id: int
+    requested_at: datetime
+
+
+class TraceSummaryItem(Contract):
+    text: str
+    node_id: str | None = Field(description="The step the item refers to, or null when it names none.")
+
+
+class TraceSummaryContent(Contract):
+    title: str
+    bullets: list[TraceSummaryItem]
+    notes: list[TraceSummaryItem] = Field(description="Details worth a second look, or empty.")
+    flow: str = Field(description="The main steps of the trace as a small text diagram.")
+    model: str = Field(description="The model that wrote the summary.")
+    generated_at: datetime
+
+
+class TraceSummaryFailure(Contract):
+    reason: TraceSummaryFailureReason
+    message: str = Field(description="Why the summary failed, ready to show to the user.")
+
+
+class TraceSummary(Contract):
+    status: TraceSummaryStatus = Field(description="`pending` while the summary is written, then `ready` or `failed`.")
+    content: TraceSummaryContent | None = Field(description="The summary when `status` is `ready`, else null.")
+    failure: TraceSummaryFailure | None = Field(description="Why it failed when `status` is `failed`, else null.")
+
+
+@frozen
+class TraceSummaryRun:
+    """What one run of the trace summary job did, for usage reporting."""
+
+    status: Literal["ready", "failed"]
+    failure_reason: TraceSummaryFailureReason | None
+    duration_ms: int
+    input_characters: int
+    model: str
+    was_sampled: bool
+    distinct_id: str
+    groups: dict[str, str]
 
 
 AttentionReason = Literal["errored", "silent", "worse"]

@@ -431,6 +431,8 @@ Override `credential_auth_type` in your `source.py` only when this rule gives th
 
 The result is frozen in `facade/credential_auth_types.py` (`CREDENTIAL_AUTH_TYPES`), because a row stores its auth type only when it is not the default. The product registers these kinds with the integrations SDK at startup. Read and write their rows with `IntegrationManager.source(kind)` from `products/integrations/backend/facade/api.py`. A kind that is also in the integrations catalogue (`stripe`, `postgresql`) keeps the default of the catalogue.
 
+Both generated files are append-only. A new source adds its entry. A removed source keeps its entry, because rows of its kind can exist. When a change to a source would change a committed kind or default auth type, `generate_source_field_classification` fails and writes nothing. Keep the old value with an override in the source class. If the change is necessary, write a data migration for the stored rows first, then rerun the command with `--allow-changed-defaults`.
+
 #### Reading and writing `job_inputs`
 
 Read and write a source's `job_inputs` only through `SourceInputsStore` (`products/warehouse_sources/backend/logic/source_inputs.py`). Code outside the product, and code in its presentation layer, imports it from `facade/source_inputs.py`. The store lets the connection fields move to their own storage without a change to your code.
