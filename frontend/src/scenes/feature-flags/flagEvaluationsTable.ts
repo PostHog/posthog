@@ -87,21 +87,17 @@ export function reachesPastFlagEvaluationsRetention(dateFrom: string | null): bo
     return !parsed || parsed.isBefore(flagEvaluationsRetentionStart())
 }
 
-function earliestRead(range: ResolvedDateRangeResponse): dayjs.Dayjs {
-    return dayjs(range.read_from ?? range.date_from)
-}
-
 // Trends sends the compared range it resolved in the team timezone. The Metric display's change pill gets one
 // even though its query has no compareFilter. Stickiness and funnels send none, so this estimates the range in the
 // browser's timezone. Across a DST change, the estimate can move the start to the previous day.
-function comparedPeriodEarliestRead(
+function comparedPeriodStart(
     start: dayjs.Dayjs,
     response: FlagCallsInsightResponse | null | undefined,
     compareFilter: CompareFilter | null | undefined
 ): dayjs.Dayjs {
     const resolvedCompareDateRange = response?.resolved_compare_date_range
     if (resolvedCompareDateRange?.date_from) {
-        return earliestRead(resolvedCompareDateRange)
+        return dayjs(resolvedCompareDateRange.date_from)
     }
     if (!compareFilter?.compare) {
         return start
@@ -113,10 +109,14 @@ function comparedPeriodEarliestRead(
 }
 
 /**
- * Whether an insight read rows from before the table's oldest day, for its range or the period it compares against.
- * Some queries read before their range starts, such as lifecycle and weekly or monthly active users.
+ * Which part of an insight reads days the table no longer holds.
+ * `periods`: its range, or the period it compares against, starts before the table's oldest day.
+ * `first-period`: only the rows the query reads before its range are gone. Lifecycle reads the interval before
+ * its first one, so that first interval can count a returning person as resurrecting.
  */
-export function insightReachesPastFlagEvaluationsRetention({
+export type FlagCallsRetentionGap = 'periods' | 'first-period'
+
+export function flagCallsRetentionGap({
     dateFrom,
     response,
     compareFilter,
@@ -125,20 +125,26 @@ export function insightReachesPastFlagEvaluationsRetention({
     dateFrom: string | null | undefined
     response: FlagCallsInsightResponse | null | undefined
     compareFilter: CompareFilter | null | undefined
-}): boolean {
+}): FlagCallsRetentionGap | null {
     // All time resolves to the oldest row the table still holds, so the resolved range never shows the cutoff.
     if (dateFrom === 'all') {
-        return true
+        return 'periods'
     }
     const resolvedDateRange = response?.resolved_date_range
     if (!resolvedDateRange?.date_from) {
-        return false
+        return null
     }
-    const comparedRead = comparedPeriodEarliestRead(dayjs(resolvedDateRange.date_from), response, compareFilter)
-    const currentRead = earliestRead(resolvedDateRange)
-    const firstRead = currentRead.isBefore(comparedRead) ? currentRead : comparedRead
     // The window covers whole days in the team timezone. This compares dates, not instants. A DST change can
     // repeat midnight. The backend starts the 90-day preset at the first midnight. An instant comparison against
     // the second midnight would show the notice for the preset.
-    return dateInTimezone(firstRead, insightTimezone(response)) < flagEvaluationsRetentionStartDate(response)
+    const retentionStartDate = flagEvaluationsRetentionStartDate(response)
+    const isBeforeRetention = (instant: dayjs.Dayjs): boolean =>
+        dateInTimezone(instant, insightTimezone(response)) < retentionStartDate
+    if (isBeforeRetention(comparedPeriodStart(dayjs(resolvedDateRange.date_from), response, compareFilter))) {
+        return 'periods'
+    }
+    if (resolvedDateRange.read_from && isBeforeRetention(dayjs(resolvedDateRange.read_from))) {
+        return 'first-period'
+    }
+    return null
 }
