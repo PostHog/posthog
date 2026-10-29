@@ -1,7 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -380,8 +379,6 @@ export const supabaseAuthEmailsLogic = kea<supabaseAuthEmailsLogicType>([
         const syncSetupWithUrl = (_: Record<string, string | undefined>, searchParams: Record<string, any>): void => {
             const wantsSetup = searchParams[SETUP_PARAM] === SETUP_PARAM_VALUE
             if (wantsSetup && !values.isSetupOpen) {
-                // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('supabase auth emails setup opened from link')
                 actions.openSetup()
             } else if (!wantsSetup && values.isSetupOpen) {
                 actions.closeSetup()
