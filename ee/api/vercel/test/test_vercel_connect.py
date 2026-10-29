@@ -10,13 +10,12 @@ from django.test import Client, SimpleTestCase, override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
-
-from products.integrations.backend.facade.api import IntegrationManager
 
 from ee.api.vercel.crypto import encrypt_payload
 from ee.api.vercel.vercel_connect import (

@@ -39,13 +39,11 @@ from posthog.auth import (
     is_mcp_request,
 )
 from posthog.clickhouse.query_tagging import tag_queries
-from posthog.models.integration import OauthIntegration, posthog_connect_base_url
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
 from posthog.permissions import get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
-
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 logger = structlog.get_logger(__name__)
 
@@ -86,11 +84,8 @@ class ForwardResult:
 
 
 def _connection_access_token(integration: IntegrationRecord) -> str:
-    oauth = OauthIntegration(integration)
-    if oauth.access_token_expired():
-        oauth.refresh_access_token()
-        integration.refresh_from_db()
-    token = integration.sensitive_config.get("access_token")
+    refreshed = IntegrationManager.posthog.oauth.refresh_access_token(integration.team_id, integration.id)
+    token = refreshed.sensitive_config.get("access_token")
     if not token:
         raise ValidationError("This PostHog connection has no usable access token — reconnect it.")
     return token

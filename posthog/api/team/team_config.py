@@ -5,6 +5,7 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team, TeamRevenueAnalyticsConfig
 from posthog.models.filters.utils import validate_group_type_index
 
@@ -27,8 +28,6 @@ from products.feature_flags.backend.facade.request_blocklist import (
     normalize_blocked_ips,
 )
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.replay_vision.backend.facade.workflow_scan_limits import (
     MAX_SELF_SERVE_WORKFLOW_SCAN_RATE_CAP_PER_DAY,
     MAX_SELF_SERVE_WORKFLOW_SCAN_TEAM_RATE_CAP_PER_DAY,

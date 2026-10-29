@@ -61,6 +61,7 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
@@ -74,7 +75,6 @@ from posthog.permissions import APIScopePermission, TimeSensitiveActionPermissio
 from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url
 

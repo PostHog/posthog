@@ -71,6 +71,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
+from posthog.integrations import IntegrationNotFound, IntegrationRecord
 from posthog.models import OrganizationMembership, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
@@ -149,7 +150,6 @@ from posthog.utils import absolute_uri, is_relative_url
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
@@ -2580,7 +2580,7 @@ class IntegrationViewSet(
             "link_completed",
             discovery_id=discovery_id,
             installation_id=instance.integration_id,
-            linked_integration_id=instance.pk,
+            linked_integration_id=instance.id,
             after_commit=True,
         )
         return Response(self.get_serializer(instance).data)
@@ -2774,7 +2774,7 @@ class IntegrationViewSet(
         integration = self.get_object()
         if not push_channel_app_id(integration):
             raise ValidationError("Device tokens can only be imported into an APNs or Firebase push channel.")
-        result = import_push_tokens(integration, request.validated_data["subscriptions"])
+        result = import_push_tokens(integration, request.validated_data["subscriptions"], integration.team.api_token)
         return Response(
             PushTokenImportResponseSerializer(
                 {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
@@ -2837,7 +2837,7 @@ class IntegrationViewSet(
             raise EmailProviderUnavailable() from error
         return Response(EmailDomainStatusSerializer(report).data)
 
-    def _report_email_domain_verified(self, request: Request, instance: Integration) -> None:
+    def _report_email_domain_verified(self, request: Request, instance: IntegrationRecord) -> None:
         report_user_action(
             request.user,
             "email domain verified",
@@ -2849,7 +2849,7 @@ class IntegrationViewSet(
         )
 
     @staticmethod
-    def _email_domain_setup_method(request: Request, instance: Integration) -> str:
+    def _email_domain_setup_method(request: Request, instance: IntegrationRecord) -> str:
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
             return "agent"
         return instance.config.get("setup_method", "manual")

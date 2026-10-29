@@ -36,6 +36,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import Team
 from posthog.models.integration import (
     GitHubInstallationAccess,
@@ -51,8 +52,6 @@ from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, user_github_integration_from_installation
 from posthog.utils import is_relative_url
 
-from products.integrations.backend.facade.api import IntegrationManager
-
 logger = structlog.get_logger(__name__)
 
 GITHUB_LINK_EXISTING_ERROR_ORPHAN_INSTALLATION = "github_link_existing_orphan_installation"
@@ -67,7 +66,7 @@ PERSONAL_GITHUB_REQUIRED_MESSAGE = (
 class TeamGitHubFinishSetupResult:
     next_url: str
     installation_id: str
-    integration: Integration | None = None
+    integration: IntegrationRecord | None = None
     oauth_url: str | None = None
 
 
@@ -267,7 +266,7 @@ def finish_team_github_setup_update(
     team_id: int,
     request: Request,
     installation_id: str,
-    existing: Integration,
+    existing: IntegrationRecord,
     state_raw: str | None,
     fallback_next_url: str | None,
 ) -> TeamGitHubFinishSetupResult:
@@ -329,7 +328,9 @@ def execute_team_github_finish_setup(
                 user=user, team=team, source_installation_id=str(source_installation_id)
             )
 
-            integration = GitHubIntegration.integration_from_installation_id(str(source_installation_id), team.id, user)
+            integration: IntegrationRecord = GitHubIntegration.integration_from_installation_id(
+                str(source_installation_id), team.id, user
+            )
 
             source_login = (existing_install.config or {}).get("connecting_user_github_login")
             if source_login and not (integration.config or {}).get("connecting_user_github_login"):
@@ -392,8 +393,8 @@ def refresh_team_github_integration(
     team_id: int,
     installation_id: str,
     *,
-    existing: Integration,
-) -> Integration:
+    existing: IntegrationRecord,
+) -> IntegrationRecord:
     try:
         return GitHubIntegration.integration_from_installation_id(installation_id, team_id, user)
     except GitHubInstallationAccessFetchError:
@@ -490,7 +491,7 @@ def link_existing_team_github_integration(
     source_team_id: Any | None,
     installation_id_param: Any | None,
     discovery_id: str | None = None,
-) -> Integration:
+) -> IntegrationRecord:
     if installation_id_param and not is_valid_github_installation_id(installation_id_param):
         raise ValidationError("Invalid installation_id")
 
@@ -579,7 +580,9 @@ def link_existing_team_github_integration(
     ).record("link_path", path="sibling", source_team_id=source.team_id, discovery_id=discovery_id)
     authorize_link_existing_installation(user=user, team=target_team, source_installation_id=str(installation_id))
 
-    instance = GitHubIntegration.integration_from_installation_id(str(installation_id), team_id, user)
+    instance: IntegrationRecord = GitHubIntegration.integration_from_installation_id(
+        str(installation_id), team_id, user
+    )
 
     source_login = (source.config or {}).get("connecting_user_github_login")
     if source_login and not (instance.config or {}).get("connecting_user_github_login"):

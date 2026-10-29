@@ -30,7 +30,7 @@ from posthog.schema import DomainConnectProviderName
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
-    from products.integrations.backend.facade.api import IntegrationRecord
+    from posthog.integrations import IntegrationRecord
 
 logger = logging.getLogger(__name__)
 
@@ -263,9 +263,8 @@ def resolve_email_context(
     Raises `IntegrationNotFound` before any SES call when the team has no email
     integration with this id.
     """
+    from posthog.integrations import IntegrationManager
     from posthog.models.integration import EmailIntegration
-
-    from products.integrations.backend.facade.api import IntegrationManager
 
     instance = IntegrationManager.email.credentials.get(team_id, integration_id)
 

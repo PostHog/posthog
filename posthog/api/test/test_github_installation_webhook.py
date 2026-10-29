@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
+from posthog.integrations import IntegrationReader
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
@@ -17,8 +18,6 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
-
-from products.integrations.backend.facade.api import IntegrationReader
 
 
 def _signature(payload: bytes, secret: str) -> str:

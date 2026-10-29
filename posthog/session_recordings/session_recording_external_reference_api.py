@@ -12,6 +12,8 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import groups
+from posthog.integrations import IntegrationRecord
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.integration import (
     GitHubIntegration,
     GitLabIntegration,
@@ -21,8 +23,6 @@ from posthog.models.integration import (
 )
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_external_reference import SessionRecordingExternalReference
-
-from products.integrations.backend.presentation.fields import IntegrationReferenceField
 
 logger = structlog.get_logger(__name__)
 
@@ -159,7 +159,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
         """
         team = self.context["get_team"]()
         session_recording: SessionRecording = validated_data.get("session_recording")
-        integration: Integration = validated_data.get("integration")
+        integration: IntegrationRecord = validated_data.get("integration")
         config: dict[str, Any] = validated_data.get("config")
 
         recording_url = self._build_recording_url(team.pk, session_recording.session_id, config)
@@ -206,7 +206,7 @@ class SessionRecordingExternalReferenceSerializer(serializers.ModelSerializer):
 
         instance = SessionRecordingExternalReference.objects.create(
             session_recording=session_recording,
-            integration=integration,
+            integration_id=integration.id,
             external_context=external_context,
         )
 

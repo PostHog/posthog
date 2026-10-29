@@ -11,11 +11,10 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.permissions import OrganizationAdminWritePermissions
-
-from products.integrations.backend.facade.api import IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -192,7 +191,7 @@ class OrganizationIntegrationViewSet(
             client = VercelAPIClient(bearer_token=access_token)
             client.import_resource(
                 integration_config_id=integration.integration_id,
-                resource_id=str(production_resource.pk),
+                resource_id=str(production_resource.id),
                 product_id="posthog",
                 name=production_team.name,
                 secrets=secrets,

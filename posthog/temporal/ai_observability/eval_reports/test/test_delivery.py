@@ -570,7 +570,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         ]
     )
     @patch("posthog.models.integration.SlackIntegration")
-    @patch("products.integrations.backend.facade.api.IntegrationManager")
+    @patch("posthog.integrations.IntegrationManager")
     def test_channel_id_is_used(self, _name, sections, expected_call_count, mock_integration, mock_slack_integration):
         # Regression: the channel picker stores "<id>|#<name>" (e.g. "C0B5CHB0JQH|#tech-devops-cron").
         # chat.postMessage only accepts the channel ID, so the "|#name" suffix must be stripped or
@@ -598,7 +598,7 @@ class TestDeliverSlackReport(SimpleTestCase):
             self.assertEqual(call.kwargs["channel"], "C0B5CHB0JQH")
 
     @patch("posthog.models.integration.SlackIntegration")
-    @patch("products.integrations.backend.facade.api.IntegrationManager")
+    @patch("posthog.integrations.IntegrationManager")
     def test_several_targets_read_the_team_once(self, mock_integration, mock_slack_integration):
         client = MagicMock()
         client.chat_postMessage.return_value = {"ts": "123.456"}
@@ -627,7 +627,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertEqual(client.chat_postMessage.call_count, 2)
 
     @patch("posthog.models.integration.SlackIntegration")
-    @patch("products.integrations.backend.facade.api.IntegrationManager")
+    @patch("posthog.integrations.IntegrationManager")
     def test_root_message_carries_the_followup_invite(self, mock_integration, mock_slack_integration):
         # The invite goes on the root message only, so a reader meets it once per report rather
         # than under every section. Which of its two variants renders is the shared builder's
@@ -658,7 +658,7 @@ class TestDeliverSlackReport(SimpleTestCase):
         self.assertNotIn("blocks", client.chat_postMessage.call_args_list[1].kwargs)
 
     @patch("posthog.models.integration.SlackIntegration")
-    @patch("products.integrations.backend.facade.api.IntegrationManager")
+    @patch("posthog.integrations.IntegrationManager")
     def test_empty_channel_id_fails_gracefully(self, mock_integration, mock_slack_integration):
         # A malformed target like "|#name" passes the non-empty channel check but splits to an
         # empty channel ID, which Slack rejects with channel_not_found. Skip the send, record an

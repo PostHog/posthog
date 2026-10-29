@@ -26,12 +26,10 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationPatch
 from posthog.models.integration import invalidate_github_repository_caches_for_installation
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
-
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound, IntegrationPatch
 
 logger = structlog.get_logger(__name__)
 

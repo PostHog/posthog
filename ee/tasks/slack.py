@@ -4,10 +4,10 @@ from urllib.parse import urlparse
 
 import structlog
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.subscriptions.backend.facade.api import render_shared_insight_image
 
 logger = structlog.get_logger(__name__)

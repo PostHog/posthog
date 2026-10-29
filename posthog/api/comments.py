@@ -26,6 +26,7 @@ from posthog.comment.access import task_comment_target_is_accessible
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
@@ -53,8 +54,6 @@ from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
 from products.conversations.backend import reply_dedupe
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.replay_vision.backend.facade.api import (
     can_view_observation,
     observation_note_write_rejection,

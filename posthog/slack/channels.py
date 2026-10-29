@@ -15,9 +15,8 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import SlackIntegration
-
-from products.integrations.backend.facade.api import IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 

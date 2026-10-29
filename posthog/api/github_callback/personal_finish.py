@@ -21,6 +21,7 @@ from posthog.api.github_callback.types import (
 )
 from posthog.egress.github.transport import github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import User
 from posthog.models.integration import GitHubInstallationAccessFetchError, GitHubIntegration
 from posthog.models.user_integration import (
@@ -28,8 +29,6 @@ from posthog.models.user_integration import (
     refresh_user_github_installation_access,
     user_github_integration_from_installation,
 )
-
-from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 
@@ -213,7 +212,7 @@ def finish_personal(request: HttpRequest) -> FinishResult:
     if flow.creates_team_integration and authorize_state.team_id is not None:
         installation_id = str(installation_ids[0])
         try:
-            team_integration = GitHubIntegration.integration_from_installation_id(
+            team_integration: IntegrationRecord = GitHubIntegration.integration_from_installation_id(
                 installation_id, authorize_state.team_id, user
             )
         except (GitHubInstallationAccessFetchError, requests.RequestException):

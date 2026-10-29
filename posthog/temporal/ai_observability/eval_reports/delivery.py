@@ -353,9 +353,9 @@ def deliver_slack_report(
     Main message = agent title (Block Kit header) + metrics context + first section.
     Thread replies = sections[1:]. If there's only one section, no thread replies.
     """
+    from posthog.integrations import IntegrationManager
     from posthog.models.integration import SlackIntegration
 
-    from products.integrations.backend.facade.api import IntegrationManager
     from products.slack_app.backend.facade.api import slack_followup_invite
 
     content = EvalReportContent.from_dict(report_run.content)

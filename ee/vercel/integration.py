@@ -25,6 +25,7 @@ from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.two_factor_session import has_passkeys
+from posthog.integrations import IntegrationConflict, IntegrationManager, IntegrationRecord
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -38,8 +39,6 @@ from posthog.utils import absolute_uri
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationConflict
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
 from ee.api.authentication import VercelAuthentication
@@ -598,17 +597,17 @@ class VercelIntegration:
         logger.info(
             "Successfully created Vercel resource",
             installation_id=installation_id,
-            resource_id=resource.pk,
+            resource_id=resource.id,
             team_id=team.pk,
             integration="vercel",
         )
 
-        return VercelIntegration._build_resource_response(resource, installation)
+        return VercelIntegration._build_resource_response(resource, team, installation)
 
     @staticmethod
     def get_resource(resource_id: str) -> dict[str, Any]:
         resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
-        return VercelIntegration._build_resource_response(resource, installation)
+        return VercelIntegration._build_resource_response(resource, resource.team, installation)
 
     @staticmethod
     def update_resource(resource_id: str, resource_data: dict[str, Any]) -> dict[str, Any]:
@@ -623,7 +622,7 @@ class VercelIntegration:
         resource.save(update_fields=["config"])
 
         logger.info("Successfully updated Vercel resource", resource_id=resource_id, integration="vercel")
-        return VercelIntegration._build_resource_response(resource, installation)
+        return VercelIntegration._build_resource_response(resource, resource.team, installation)
 
     @staticmethod
     def delete_resource(resource_id: str) -> None:
@@ -633,18 +632,20 @@ class VercelIntegration:
         logger.info("Successfully deleted Vercel resource", resource_id=resource_id, integration="vercel")
 
     @staticmethod
-    def _build_resource_response(resource: Integration, installation: OrganizationIntegration) -> dict[str, Any]:
+    def _build_resource_response(
+        resource: IntegrationRecord, team: Team, installation: OrganizationIntegration
+    ) -> dict[str, Any]:
         billing_plans = VercelIntegration.get_vercel_plans()
         current_plan_id = installation.config.get("billing_plan_id", "posthog-usage-based")
         current_plan = next((plan for plan in billing_plans if plan["id"] == current_plan_id), None)
 
         return {
-            "id": str(resource.pk),
+            "id": str(resource.id),
             "productId": resource.config.get("productId", ""),
-            "name": resource.config.get("name", resource.team.name),
+            "name": resource.config.get("name", team.name),
             "metadata": resource.config.get("metadata", {}),
             "status": "ready",
-            "secrets": VercelIntegration._build_secrets(resource.team),
+            "secrets": VercelIntegration._build_secrets(team),
             "billingPlan": current_plan,
         }
 
@@ -743,7 +744,7 @@ class VercelIntegration:
             )
             return None
 
-        resource_id = str(resource.pk)
+        resource_id = str(resource.id)
 
         logger.debug(
             "Successfully set up Vercel client",
@@ -1460,7 +1461,7 @@ def _safe_vercel_sync(
                     client = VercelAPIClient(bearer_token=access_token)
                     client.import_resource(
                         integration_config_id=installation.integration_id,
-                        resource_id=str(resource.pk),
+                        resource_id=str(resource.id),
                         product_id="posthog",
                         name=team.name,
                         secrets=VercelIntegration._build_secrets(team),

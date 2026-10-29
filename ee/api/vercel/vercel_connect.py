@@ -18,13 +18,12 @@ from rest_framework.response import Response
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.oauth_pending_connection import shared_cookie_domain
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.team import Team
 from posthog.models.user import User
-
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 
 from ee.api.vercel.crypto import decrypt_payload, encrypt_payload, mark_token_used
 from ee.vercel.client import APIError, VercelAPIClient
@@ -497,13 +496,13 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
         client = VercelAPIClient(bearer_token=cached_data["access_token"])
         import_result = client.import_resource(
             integration_config_id=installation_id,
-            resource_id=str(production_resource.pk),
+            resource_id=str(production_resource.id),
             product_id="posthog",
             name=production_team.name,
             secrets=env_secrets,
         )
         if not import_result.success:
-            resource_id = str(production_resource.pk)
+            resource_id = str(production_resource.id)
             logger.error(
                 "Failed to import resource to Vercel",
                 error=import_result.error,
@@ -516,7 +515,7 @@ class VercelConnectLinkViewSet(viewsets.GenericViewSet):
             with transaction.atomic():
                 org_integration.delete()
                 for resource in resources.values():
-                    resource.delete()
+                    IntegrationManager.vercel.oauth.delete(resource.team_id, resource.id, ignore_usages=True)
             capture_exception(
                 VercelImportError("Vercel did not accept the resource import"),
                 {

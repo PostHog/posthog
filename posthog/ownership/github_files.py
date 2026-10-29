@@ -23,6 +23,7 @@ from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.observability.observability import scope_fingerprint
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
 from posthog.models.integration.github import _is_safe_github_repo_path, _is_safe_github_sha
@@ -40,9 +41,6 @@ from posthog.ownership.repo_files import (
     pooled_session,
 )
 from posthog.utils import get_safe_cache, safe_cache_set
-
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 logger = structlog.get_logger(__name__)
 

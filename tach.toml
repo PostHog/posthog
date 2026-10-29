@@ -63,7 +63,6 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.ai_observability",
-    "products.integrations",
     "products.mcp_store",
     "products.notebooks",
     "products.notifications",

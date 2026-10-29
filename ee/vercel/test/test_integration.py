@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import exceptions
 from rest_framework.exceptions import NotFound, ValidationError
 
+from posthog.integrations import IntegrationConflict, IntegrationReader
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
@@ -28,8 +29,6 @@ from posthog.models.webauthn_credential import WebauthnCredential
 
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.integrations.backend.facade.api import IntegrationReader
-from products.integrations.backend.facade.contracts import IntegrationConflict
 
 from ee.api.vercel.types import VercelUserClaims
 from ee.vercel.integration import (
