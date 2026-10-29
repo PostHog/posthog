@@ -1,9 +1,11 @@
 import React, { useCallback, useMemo } from 'react'
 
+import { originatesInInteractiveOverlay } from '../dom-events'
 import { sliceAt } from '../radial-layout'
 import type { PieLayout, PieSlice } from '../radial-layout'
 import type { ResolvedSeries, TooltipContext } from '../types'
 import { useLatest } from './useLatest'
+import { useTapTracking } from './useTapTracking'
 import { useTooltipLifecycle } from './useTooltipLifecycle'
 
 export interface RadialSlicePayload<Meta = unknown> {
@@ -31,7 +33,8 @@ interface UseRadialInteractionResult<Meta> {
     handlers: {
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseLeave: () => void
-        onClick: () => void
+        onClick: (e: React.MouseEvent<HTMLDivElement>) => void
+        onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
     }
 }
 
@@ -96,6 +99,18 @@ export function useRadialInteraction<Meta = unknown>({
 
     const hoverIndexRef = useLatest(hoverIndex)
 
+    const showSlice = useCallback(
+        (idx: number, cursor: { x: number; y: number }) => {
+            setHover(idx, cursor)
+            const lo = layoutRef.current
+            if (showTooltip && lo) {
+                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+                setTooltipCtx(buildPieTooltipCtx(lo.slices[idx], lo, cursor, canvasBounds))
+            }
+        },
+        [layoutRef, showTooltip, setHover, setTooltipCtx, canvasRef]
+    )
+
     const onMouseMove = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
             if (isPinned) {
@@ -105,22 +120,20 @@ export function useRadialInteraction<Meta = unknown>({
             if (!lo || lo.slices.length === 0) {
                 return
             }
+            if (originatesInInteractiveOverlay(e)) {
+                clearTooltip()
+                return
+            }
             const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-            const mouseX = e.clientX - rect.left
-            const mouseY = e.clientY - rect.top
-            const cursor = { x: mouseX, y: mouseY }
+            const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
             const idx = sliceAt(lo, cursor, { outerSlack: hitOuterSlack })
             if (idx < 0) {
                 clearTooltip()
                 return
             }
-            setHover(idx, cursor)
-            if (showTooltip) {
-                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-                setTooltipCtx(buildPieTooltipCtx(lo.slices[idx], lo, cursor, canvasBounds))
-            }
+            showSlice(idx, cursor)
         },
-        [isPinned, layoutRef, hitOuterSlack, showTooltip, setHover, setTooltipCtx, clearTooltip, canvasRef]
+        [isPinned, layoutRef, hitOuterSlack, showSlice, clearTooltip]
     )
 
     const onMouseLeave = useCallback(() => {
@@ -130,28 +143,69 @@ export function useRadialInteraction<Meta = unknown>({
         clearTooltip()
     }, [isPinned, clearTooltip])
 
-    const onClick = useCallback(() => {
-        const idx = hoverIndexRef.current
-        if (idx < 0 || !onSliceClick) {
-            return
-        }
-        const lo = layoutRef.current
-        if (!lo) {
-            return
-        }
-        const slice = lo.slices[idx]
-        if (!slice) {
-            return
-        }
-        onSliceClick({
-            sliceIndex: idx,
-            series: slice.series,
-            value: slice.value,
-            fraction: slice.fraction,
-        })
-    }, [hoverIndexRef, layoutRef, onSliceClick])
+    // As on the cartesian charts, the first tap on a slice shows its tooltip and only a tap on
+    // the slice already showing one fires the click handler.
+    const { lastPointerTypeRef, tapDownTooltipIndexRef, onPointerDown } = useTapTracking(tooltipCtx)
 
-    const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
+    const onClick = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            const isTouch = lastPointerTypeRef.current === 'touch'
+            // A click or tap meant for an overlay control must not act on the slice behind it.
+            if (originatesInInteractiveOverlay(e)) {
+                if (isTouch) {
+                    clearTooltip()
+                }
+                return
+            }
+            const lo = layoutRef.current
+            if (!lo) {
+                return
+            }
+            let idx = hoverIndexRef.current
+            if (isTouch) {
+                const rect = e.currentTarget.getBoundingClientRect()
+                const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+                idx = sliceAt(lo, cursor, { outerSlack: hitOuterSlack })
+                if (idx < 0) {
+                    clearTooltip()
+                    return
+                }
+                // The tooltip's `dataIndex` is the slice's series index, not its slice index.
+                if (lo.slices[idx].seriesIndex !== tapDownTooltipIndexRef.current) {
+                    showSlice(idx, cursor)
+                    if (showTooltip) {
+                        return
+                    }
+                }
+            }
+            const slice = lo.slices[idx]
+            if (!slice || !onSliceClick) {
+                return
+            }
+            onSliceClick({
+                sliceIndex: idx,
+                series: slice.series,
+                value: slice.value,
+                fraction: slice.fraction,
+            })
+        },
+        [
+            lastPointerTypeRef,
+            tapDownTooltipIndexRef,
+            layoutRef,
+            hoverIndexRef,
+            hitOuterSlack,
+            showSlice,
+            showTooltip,
+            clearTooltip,
+            onSliceClick,
+        ]
+    )
+
+    const handlers = useMemo(
+        () => ({ onMouseMove, onMouseLeave, onClick, onPointerDown }),
+        [onMouseMove, onMouseLeave, onClick, onPointerDown]
+    )
 
     return { hoverIndex, hoverPosition, tooltipCtx, handlers }
 }

@@ -12,7 +12,7 @@ from products.replay_vision.backend.watch_rank_consumer import WatchRankConsumer
 
 
 class Command(BaseCommand):
-    help = "Rank Replay Vision observations for What to watch from the embedding worker's results topic"
+    help = "Rank Replay Vision observations for the highlight feed from the embedding worker's results topic"
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--health-port", type=int, default=8090, help="Port for /healthz and /readyz")

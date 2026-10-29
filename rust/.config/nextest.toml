@@ -51,3 +51,12 @@ threads-required = "num-cpus"
 [[profile.ci.overrides]]
 filter = 'package(cohort-stream-processor) & kind(test)'
 slow-timeout = { period = "60s", terminate-after = 2 }
+
+# The persons DB stall tests each run for up to a minute by design. A retry of every failing one
+# would push the shard past its job timeout, so they get none. Fail a hung one at 2 minutes, and
+# keep the measurements each one prints in the job log.
+[[profile.ci.overrides]]
+filter = 'package(feature-flags) & binary(stall_recovery)'
+retries = 0
+slow-timeout = { period = "60s", terminate-after = 2 }
+success-output = "final"

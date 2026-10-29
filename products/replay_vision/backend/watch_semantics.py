@@ -22,6 +22,7 @@ import numpy as np
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import (
@@ -38,7 +39,6 @@ from products.replay_vision.backend.semantic_space import (
     semantic_vector,
     unpack,
 )
-from products.replay_vision.backend.watch_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import current_rank
 from products.replay_vision.backend.watch_themes import ThemeAssignment, ThemeBatch, belongs_in_theme
 

@@ -64,6 +64,10 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
         return ExternalDataSourceType.AMAZONS3
 
     @property
+    def credential_kind(self) -> str | None:
+        return "aws-s3"
+
+    @property
     def connection_host_fields(self) -> list[str]:
         # The URL picks the bucket and region the stored key is sent to, so changing it must re-require the key.
         return ["url_pattern"]

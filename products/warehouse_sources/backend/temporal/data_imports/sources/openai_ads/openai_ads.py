@@ -189,10 +189,14 @@ def _insights_window(db_incremental_field_last_value: Optional[Any]) -> SyncWind
 
     Incremental runs start at the watermark (the pipeline already rewinds it by the configured
     lookback); full refreshes start at the oldest day the API still reports. A watermark older than
-    that day is moved up to it too. `until` is today — the API rejects future dates.
+    that day is moved up to it too. `until` is yesterday: the API reads a `date_range` `until` as
+    inclusive and moves it to the next midnight, and it rejects a bound in the future with a 400. So
+    `until` set to today asks for a range that ends tomorrow, and every request fails. The trailing
+    lookback re-reads the day once it is complete.
     """
-    until = datetime.now(tz=UTC).date()
-    earliest = until - timedelta(days=INSIGHTS_HISTORY_DAYS)
+    today = datetime.now(tz=UTC).date()
+    until = today - timedelta(days=1)
+    earliest = today - timedelta(days=INSIGHTS_HISTORY_DAYS)
     since = earliest
     if db_incremental_field_last_value is not None:
         since = max(_to_utc_date(db_incremental_field_last_value), earliest)
@@ -312,7 +316,8 @@ def openai_ads_source(
         client = _make_client(api_key)
         return _source_response(config, lambda: _retry_forbidden_server_errors(_fan_out_rows(client, endpoint)))
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    can_resume = resumable_source_manager.can_resume() and not config.single_object
+    resume = resumable_source_manager.load_state() if can_resume else None
 
     data_map: Callable[[dict[str, Any]], dict[str, Any]] | None = None
     if config.aggregation_level is not None:
@@ -332,12 +337,17 @@ def openai_ads_source(
                 {"type": "date_range", "since": window.start, "until": window.end, "timezone": "UTC"}
             ),
         }
+        if config.segment is not None:
+            params["segments[]"] = config.segment
         currency = _account_currency(api_key)
 
         def enrich_insights(row: dict[str, Any]) -> dict[str, Any]:
             return {**_convert_insights_times(_stable_insights_id(row)), "currency_code": currency}
 
         data_map = enrich_insights
+    elif config.single_object:
+        window = SyncWindow(start="", end="")
+        params = {}
     else:
         window = SyncWindow(start="", end="")
         # An explicit stable sort prevents page-boundary skips/duplicates while paginating the
@@ -357,8 +367,8 @@ def openai_ads_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    "data_selector": "data",
-                    "paginator": _ListPaginator(),
+                    "data_selector": "$" if config.single_object else "data",
+                    "paginator": SinglePagePaginator() if config.single_object else _ListPaginator(),
                 },
                 "data_map": data_map,
             }

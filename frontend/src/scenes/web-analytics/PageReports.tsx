@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
+import { PageReportDetail } from 'products/web_analytics/frontend/pageReports/PageReportDetail'
 import { PageReportsDirectory } from 'products/web_analytics/frontend/pageReports/PageReportsDirectory'
 import { pageReportsTeaserLogic } from 'products/web_analytics/frontend/pageReports/pageReportsTeaserLogic'
 
@@ -73,7 +74,7 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
                         dateOptions={webAnalyticsDateMapping}
                     />
                     <WebAnalyticsCompareFilter />
-                    {isDirectoryEnabled && !pageUrl ? (
+                    {isDirectoryEnabled ? (
                         <div className="flex-1" />
                     ) : (
                         <LemonInputSelect
@@ -112,13 +113,7 @@ export function PageReports(): JSX.Element {
     })
 
     if (isDirectoryEnabled) {
-        return pageUrl ? (
-            <div className="space-y-2 mt-2 h-full min-h-0">
-                <Tiles tiles={tiles} compact={true} />
-            </div>
-        ) : (
-            <PageReportsDirectory />
-        )
+        return pageUrl ? <PageReportDetail pageUrl={pageUrl} /> : <PageReportsDirectory />
     }
 
     if (!hasPageUrl) {
