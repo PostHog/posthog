@@ -107,10 +107,11 @@ describe('modelsOverviewLogic', () => {
         expect(logic.values.overviewStats).toMatchObject({ materializationIssues: 3, failingChecks: 1 })
     })
 
-    it('counts models from the list the Models tab shows and each materialized view or endpoint once across DAGs', async () => {
+    it('counts saved queries past the first page and each materialized view or endpoint once across DAGs', async () => {
+        useMocks(apiMocks(NODES, [], { ...SAVED_QUERIES, count: 1003 }))
         await mountLoaded()
 
-        expect(logic.values.overviewStats).toMatchObject({ models: 3, materialized: 4 })
+        expect(logic.values.overviewStats).toMatchObject({ models: 1003, materialized: 4 })
     })
 
     it('reports failing checks as unknown, not zero, when checks fail to load', async () => {

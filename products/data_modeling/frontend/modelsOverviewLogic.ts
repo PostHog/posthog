@@ -1,6 +1,9 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 
-import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
+import {
+    type DataWarehouseSavedQuerySummary,
+    dataWarehouseViewsLogic,
+} from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { DataModelingNode } from '~/types'
 
@@ -47,6 +50,7 @@ export interface modelsOverviewLogicValues {
     attentionModels: AttentionModel[] // modelsSceneLogic
     behindSchedule: BehindScheduleModel[] // modelsSceneLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // modelsSceneLogic
+    dataWarehouseSavedQueriesPastFirstPage: number // dataWarehouseViewsLogic
     modelsFailed: boolean // modelsSceneLogic
     modelsResolved: boolean // modelsSceneLogic
     noModelsYet: boolean // modelsSceneLogic
@@ -86,6 +90,7 @@ export interface modelsOverviewLogicMeta {
             modelsKnown: boolean,
             checksKnown: boolean,
             dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
+            dataWarehouseSavedQueriesPastFirstPage: number,
             nodes: DataModelingNode[],
             materializationIssues: OverviewIssue[],
             failingCheckCount: number,
@@ -130,6 +135,8 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
             ],
             dataQualityOverviewLogic,
             ['checks', 'failingCheckCount', 'checksTruncated', 'checksStatus', 'snapshotLoaded', 'overviewError'],
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueriesPastFirstPage'],
         ],
         actions: [
             modelsSceneLogic,
@@ -182,6 +189,7 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
                 s.modelsKnown,
                 s.checksKnown,
                 s.dataWarehouseSavedQueries,
+                s.dataWarehouseSavedQueriesPastFirstPage,
                 s.nodes,
                 s.materializationIssues,
                 s.failingCheckCount,
@@ -191,12 +199,13 @@ export const modelsOverviewLogic = kea<modelsOverviewLogicType>([
                 modelsKnown: boolean,
                 checksKnown: boolean,
                 savedQueries: DataWarehouseSavedQuerySummary[],
+                savedQueriesPastFirstPage: number,
                 nodes: DataModelingNode[],
                 materializationIssues: OverviewIssue[],
                 failingCheckCount: number,
                 checksTruncated: boolean
             ): OverviewStats => ({
-                models: modelsKnown ? savedQueries.length : null,
+                models: modelsKnown ? savedQueries.length + savedQueriesPastFirstPage : null,
                 materialized: modelsKnown ? materializedModelCount(nodes) : null,
                 materializationIssues: modelsKnown ? materializationIssues.length : null,
                 failingChecks: checksKnown ? failingCheckCount : null,
