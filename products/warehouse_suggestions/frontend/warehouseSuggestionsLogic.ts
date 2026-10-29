@@ -18,6 +18,7 @@ import posthog from 'posthog-js'
 import { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isNotNil } from 'lib/utils/guards'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
 
 import { DataModelingSyncInterval } from '~/types'
@@ -47,12 +48,13 @@ import type { WarehouseSuggestionDismissalReasonEnumApi } from './generated/api.
 import { INTERVAL_SECONDS, intervalForSeconds } from './refreshIntervals'
 import { subjectUrl } from './subjectUrl'
 import {
-    MonthlySaving,
+    MAIN_SAVING_KINDS,
     SavingsSummary,
     isMaterializePayload,
+    mainSaving,
     monthlySaving,
     notNowCondition,
-    savesTime,
+    waitingSaving,
 } from './suggestionCopy'
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
@@ -110,11 +112,11 @@ function assignedMessage({ assignee }: WarehouseSuggestionApi): string {
 }
 
 function suggestionWorth(suggestion: WarehouseSuggestionApi): [number, number] {
-    const saving = monthlySaving(suggestion.payload)
-    if (!saving) {
+    const main = mainSaving(suggestion.payload)
+    if (!main) {
         return [KIND_ORDER[suggestion.kind] ?? 0, 0]
     }
-    return savesTime(saving) ? [0, -saving.seconds] : [1, -saving.bytes]
+    return [MAIN_SAVING_KINDS.indexOf(main.kind), -main.amount]
 }
 
 function compareSuggestions(a: WarehouseSuggestionApi, b: WarehouseSuggestionApi): number {
@@ -627,15 +629,18 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             savingsSummary: [
                 (s) => [s.surfaceSuggestions],
                 (open: WarehouseSuggestionApi[]): SavingsSummary => {
-                    const savings = open
-                        .map(({ payload }) => monthlySaving(payload))
-                        .filter((saving): saving is MonthlySaving => saving !== null)
+                    const savings = open.flatMap(({ payload }) => {
+                        const saving = monthlySaving(payload)
+                        return saving ? [{ saving, waiting: waitingSaving(payload) }] : []
+                    })
+                    const waiting = savings.map((entry) => entry.waiting)
                     return {
                         views: savings.length,
                         saving: {
-                            seconds: sum(savings.map((saving) => saving.seconds)),
-                            bytes: sum(savings.map((saving) => saving.bytes)),
+                            seconds: sum(savings.map((entry) => entry.saving.seconds)),
+                            bytes: sum(savings.map((entry) => entry.saving.bytes)),
                         },
+                        waitingSeconds: waiting.includes(null) ? null : sum(waiting.filter(isNotNil)),
                     }
                 },
             ],

@@ -26,6 +26,7 @@ from ...facade.contracts import MaterializePayload, SourceRef
 from ...facade.enums import (
     WarehouseSuggestionAssetOutcome,
     WarehouseSuggestionKind,
+    WarehouseSuggestionMainSaving,
     WarehouseSuggestionRefreshIntervalBasis,
     WarehouseSuggestionRefreshMode,
     WarehouseSuggestionSubjectKind,
@@ -63,6 +64,9 @@ class SavingsEstimate:
     read_seconds: float
     read_bytes: float
     seconds_saved: float
+    waiting_seconds_saved: float
+    background_seconds_saved: float
+    main_saving: WarehouseSuggestionMainSaving
     bytes_saved: float
     clears_a_floor: bool
     score: float
@@ -271,6 +275,10 @@ class MaterializeCandidate(Candidate):
             refresh_interval_seconds=interval_seconds,
             saves_seconds_per_month=estimate.seconds_saved,
             saves_bytes_per_month=estimate.bytes_saved,
+            waiting_seconds_saved_per_month=estimate.waiting_seconds_saved,
+            background_seconds_saved_per_month=estimate.background_seconds_saved,
+            main_saving=estimate.main_saving,
+            read_seconds=_read_seconds(reads),
             freshness_today_seconds=freshness_today,
             freshness_after_seconds=interval_seconds + (freshness_today or 0),
             live_sources=sources.live,
@@ -332,6 +340,10 @@ class MaterializeCandidate(Candidate):
             refresh_interval_seconds=interval_seconds,
             saves_seconds_per_month=estimate.seconds_saved,
             saves_bytes_per_month=estimate.bytes_saved,
+            waiting_seconds_saved_per_month=estimate.waiting_seconds_saved,
+            background_seconds_saved_per_month=estimate.background_seconds_saved,
+            main_saving=estimate.main_saving,
+            read_seconds=_read_seconds(reads),
             freshness_today_seconds=freshness_today,
             freshness_after_seconds=interval_seconds + (freshness_today or 0),
             live_sources=sources.live,
@@ -421,9 +433,9 @@ def estimate_savings(
         context.rules.materialize,
         interval,
         cost_without=read_costs.observed,
-        saved=QueryCost(
-            seconds=read_costs.saved.seconds - refreshes_per_month * refresh.seconds,
-            read_bytes=read_costs.saved.read_bytes - refreshes_per_month * refresh.read_bytes,
+        waiting_saved=read_costs.saved,
+        background_saved=QueryCost(
+            seconds=-refreshes_per_month * refresh.seconds, read_bytes=-refreshes_per_month * refresh.read_bytes
         ),
     )
 
@@ -497,16 +509,23 @@ def recomputation_savings(
             seconds=runs * cost.seconds + read_costs.observed.seconds,
             read_bytes=runs * cost.read_bytes + read_costs.observed.read_bytes,
         ),
-        saved=QueryCost(
-            seconds=runs_saved * cost.seconds + read_costs.saved.seconds,
-            read_bytes=runs_saved * cost.read_bytes + read_costs.saved.read_bytes,
-        ),
+        waiting_saved=read_costs.saved,
+        background_saved=QueryCost(seconds=runs_saved * cost.seconds, read_bytes=runs_saved * cost.read_bytes),
     )
 
 
 def _estimate(
-    rules: MaterializeRules, interval: timedelta, *, cost_without: QueryCost, saved: QueryCost
+    rules: MaterializeRules,
+    interval: timedelta,
+    *,
+    cost_without: QueryCost,
+    waiting_saved: QueryCost,
+    background_saved: QueryCost,
 ) -> SavingsEstimate:
+    saved = QueryCost(
+        seconds=waiting_saved.seconds + background_saved.seconds,
+        read_bytes=waiting_saved.read_bytes + background_saved.read_bytes,
+    )
     clears_time = (
         saved.seconds >= rules.min_seconds_saved and saved.seconds >= rules.min_saved_share * cost_without.seconds
     )
@@ -514,15 +533,35 @@ def _estimate(
         saved.read_bytes >= rules.min_bytes_saved
         and saved.read_bytes >= rules.min_saved_share * cost_without.read_bytes
     )
+    time_ratio = saved.seconds / rules.min_seconds_saved
+    bytes_ratio = saved.read_bytes / rules.min_bytes_saved
+    bytes_lead = clears_bytes and (not clears_time or bytes_ratio > time_ratio)
     return SavingsEstimate(
         interval=interval,
         read_seconds=cost_without.seconds,
         read_bytes=cost_without.read_bytes,
         seconds_saved=saved.seconds,
+        waiting_seconds_saved=waiting_saved.seconds,
+        background_seconds_saved=background_saved.seconds,
+        main_saving=_main_saving(bytes_lead, waiting_saved.seconds, background_saved.seconds),
         bytes_saved=saved.read_bytes,
         clears_a_floor=clears_time or clears_bytes,
-        score=max(saved.seconds / rules.min_seconds_saved, saved.read_bytes / rules.min_bytes_saved),
+        score=max(time_ratio, bytes_ratio),
     )
+
+
+def _main_saving(bytes_lead: bool, waiting_seconds: float, background_seconds: float) -> WarehouseSuggestionMainSaving:
+    if bytes_lead:
+        return WarehouseSuggestionMainSaving.SCANNED
+    if waiting_seconds >= background_seconds:
+        return WarehouseSuggestionMainSaving.WAITING
+    return WarehouseSuggestionMainSaving.BACKGROUND
+
+
+def _read_seconds(reads: SubjectReads | None) -> float | None:
+    if reads is None or reads.alone_reads == 0:
+        return None
+    return reads.alone_duration_ms_median / MILLISECONDS_PER_SECOND
 
 
 def _most_recomputed(unmeasured: list[tuple[Subject, Recomputations]], limit: int) -> tuple[Subject, ...]:
