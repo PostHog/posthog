@@ -3,7 +3,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { router } from 'kea-router'
-import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { Profiler } from 'react'
 
@@ -11,7 +10,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { PullRequestCiStatusEnumApi, type ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
@@ -142,28 +140,6 @@ describe('ReportCard', () => {
 
         expect(openedReport()).toBe(false)
         expect(logic.values.selectedReportIds).toEqual([])
-    })
-
-    // The bulk claim clears the selection when it finishes, so a selection edit made while it runs is lost.
-    it('ignores a selection click while a bulk claim runs', async () => {
-        let release: () => void = () => {}
-        const claimHeld = new Promise<void>((resolve) => (release = resolve))
-        useMocks({
-            post: {
-                '/api/projects/:team_id/signals/reports/:id/claim/': async () => {
-                    await claimHeld
-                    return [200, { id: 'r-2', assignee: null }]
-                },
-            },
-        })
-        act(() => logic.actions.setSelectedReportIds(['r-2']))
-        act(() => logic.actions.bulkClaim([makeReport('r-2')]))
-
-        fireEvent.click(cardLink())
-
-        expect(logic.values.selectedReportIds).toEqual(['r-2'])
-        release()
-        await expectLogic(logic).toDispatchActions(['bulkClaimSuccess'])
     })
 
     it('selects on a press and hold, and swallows the click that ends it', () => {

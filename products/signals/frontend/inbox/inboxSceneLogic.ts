@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { reconcileById } from 'lib/utils/objects'
+import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -887,21 +887,18 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     listeners(({ actions, values, cache, selectors }) => ({
-        // A claim from a list row or the bulk bar can change the open report. A fetch that started before
-        // the claim saved can still hold the old assignee, so load it again: the newest load wins.
-        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId }: { reportId: string }) => {
-            if (values.selectedReportId === reportId) {
-                actions.loadSelectedReport({ id: reportId })
-            }
-        },
-        [inboxBulkActionsLogic.actionTypes.bulkClaimSuccess]: () => {
-            if (values.selectedReportId) {
-                actions.loadSelectedReport({ id: values.selectedReportId })
-            }
-        },
-        [inboxBulkActionsLogic.actionTypes.bulkClaimFailure]: () => {
-            if (values.selectedReportId) {
-                actions.loadSelectedReport({ id: values.selectedReportId })
+        // A claim from a list row can change the open report. Patch it the way the detail pane's own claim
+        // does, which also skips the copy that pane already patched.
+        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({
+            reportId,
+            assignee,
+        }: {
+            reportId: string
+            assignee: SignalReport['assignee']
+        }) => {
+            const report = values.selectedReport
+            if (report?.id === reportId && !objectsEqual(report.assignee ?? null, assignee ?? null)) {
+                actions.seedSelectedReport({ ...report, assignee })
             }
         },
         setRunsOpen: ({ open }) => {

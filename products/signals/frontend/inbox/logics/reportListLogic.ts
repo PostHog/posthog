@@ -5,7 +5,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig, CountedPaginatedResponse } from 'lib/api'
-import { ApiError } from 'lib/api-error'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { derivePrState } from 'lib/signals/prState'
@@ -15,7 +14,6 @@ import { userLogic } from 'scenes/userLogic'
 import type { UserType } from '~/types'
 
 import {
-    signalsReportsClaim,
     signalsReportsRefreshMetricsCreate,
     signalsReportsReviewersMeCreate,
     signalsReportsReviewersMeDestroy,
@@ -40,7 +38,7 @@ import {
 } from '../types'
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
-import { reportClaimRequest } from '../utils/reportClaim'
+import { requestReportClaim } from '../utils/reportClaim'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -573,8 +571,8 @@ export const reportListLogic = kea<reportListLogicType>([
                         offset: current.length,
                         limit: PAGE_SIZE,
                     })
-                    // A first-page load started meanwhile, for a changed query or a refresh after a claim. Its
-                    // rows win, so this older page must not land on top of them.
+                    // A first-page load for a changed query started meanwhile. Its rows win, so this
+                    // page of the old query must not land on top of them.
                     if (cache.firstPageRequestId !== firstPageRequestId && values.reportsResponse) {
                         return values.reportsResponse
                     }
@@ -995,10 +993,6 @@ export const reportListLogic = kea<reportListLogicType>([
         // the affected reports leave it and the counts settle.
         [inboxBulkActionsLogic.actionTypes.bulkDismissSuccess]: () => actions.refresh(),
         [inboxBulkActionsLogic.actionTypes.bulkResolveSuccess]: () => actions.refresh(),
-        // A bulk claim reloads after a total failure too: a request that timed out may still have saved,
-        // and a conflicted report may have a new holder or a new status.
-        [inboxBulkActionsLogic.actionTypes.bulkClaimSuccess]: () => actions.refresh(),
-        [inboxBulkActionsLogic.actionTypes.bulkClaimFailure]: () => actions.refresh(),
         // A single report dismissed, resolved, or refunded elsewhere (e.g. the detail pane) – reconcile
         // this section against the server so the report leaves its section and joins Resolved or
         // Dismissed, counts included.
@@ -1019,18 +1013,8 @@ export const reportListLogic = kea<reportListLogicType>([
         },
         // The Claimed by you list holds only the user's claims: a release drops the row in place, and a
         // new claim reloads the list so the row joins it. Every other list updates the claim tag.
-        // The Claimed by you list holds only the user's claims: a release drops the row in place, and a
-        // new claim reloads the list so the row joins it. Every other list updates the claim tag.
         [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId, assignee }) => {
             const isLoaded = values.reports.some((r) => r.id === reportId)
-            // A claim does not change the report row on the server, so a page that was requested before the
-            // claim saved can still answer with the old assignee. A refresh makes that request discard itself,
-            // and every request that starts after the claim already sees it.
-            if (values.reportsResponseLoading) {
-                actions.setReportAssignee(reportId, assignee)
-                actions.refresh()
-                return
-            }
             if (values.scopeAssignee) {
                 const isMine = !!values.user?.uuid && assignee?.responsible_user?.uuid === values.user.uuid
                 if (!isMine && isLoaded) {
@@ -1077,35 +1061,22 @@ export const reportListLogic = kea<reportListLogicType>([
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
         },
         setReportClaimed: async ({ report, claimed, surface }) => {
-            const reportId = report.id
             captureInboxReportAction({ report, actionType: claimed ? 'claim' : 'unclaim', surface })
-            let assignee: SignalReport['assignee']
-            try {
-                const updated = await signalsReportsClaim(
-                    String(values.currentTeamId),
-                    reportId,
-                    reportClaimRequest(report, claimed)
-                )
-                assignee = updated.assignee
-            } catch (error) {
-                lemonToast.error(
-                    error instanceof ApiError && error.status === 409
-                        ? 'Someone else is already working on this report.'
-                        : "Couldn't update who's working on this report. Try again."
-                )
+            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed)
+            actions.setReportClaimedFinished(report.id)
+            if (!outcome.ok) {
+                lemonToast.error(outcome.message)
                 // Reload so the row shows who holds the claim now. A request that failed without an answer
                 // may still have saved the claim.
                 actions.refresh()
                 return
-            } finally {
-                actions.setReportClaimedFinished(reportId)
             }
             // Every mounted list updates the row, and the Claimed by you list gains or drops it.
             const bulkActions = inboxBulkActionsLogic.findMounted()
             if (bulkActions) {
-                bulkActions.actions.reportClaimChanged(reportId, assignee)
+                bulkActions.actions.reportClaimChanged(report.id, outcome.updated.assignee)
             } else {
-                actions.setReportAssignee(reportId, assignee)
+                actions.setReportAssignee(report.id, outcome.updated.assignee)
             }
         },
     })),

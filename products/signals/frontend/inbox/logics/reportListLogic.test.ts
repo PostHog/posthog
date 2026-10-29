@@ -123,11 +123,7 @@ describe('reportListLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
         })
 
-        afterEach(() => {
-            logic.unmount()
-            // The list scope persists to localStorage, so a test that changes it would leak into the next.
-            localStorage.clear()
-        })
+        afterEach(() => logic.unmount())
 
         it('appends the next server page from the loaded offset, then stops', async () => {
             logic.actions.loadMore()
@@ -184,81 +180,6 @@ describe('reportListLogic', () => {
                 bulkLogic.unmount()
             }
         )
-
-        // A bulk claim has no per-report results to apply, so the end of the batch is the only point where a
-        // list learns about new holders, conflicts, and requests that timed out after the server saved them.
-        it.each(['bulkClaimSuccess', 'bulkClaimFailure'] as const)(
-            'reloads the first page once after %s',
-            async (end) => {
-                const bulkLogic = inboxBulkActionsLogic()
-                bulkLogic.mount()
-                requestedOffsets = []
-
-                bulkLogic.actions[end]()
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(requestedOffsets).toEqual(['0'])
-                bulkLogic.unmount()
-            }
-        )
-
-        // A claim does not change the report row on the server, so a page requested before the claim saved
-        // answers with the old assignee. That older answer must never be what the list shows at the end.
-        it.each([
-            { name: 'a loaded row while the next page loads', load: 'loadMore', rowId: FIRST_PAGE[0].id },
-            { name: 'a row in the page that is loading', load: 'loadMore', rowId: SECOND_PAGE[0].id },
-            { name: 'a loaded row while the first page reloads', load: 'refresh', rowId: FIRST_PAGE[0].id },
-        ] as const)('shows the server claim on $name', async ({ load, rowId }) => {
-            let claimSaved = false
-            let release: () => void = () => {}
-            const olderRequestsHeld = new Promise<void>((resolve) => (release = resolve))
-            let reachedServer: () => void = () => {}
-            const olderRequestReachedServer = new Promise<void>((resolve) => (reachedServer = resolve))
-            useMocks({
-                get: {
-                    [REPORTS_URL]: async ({ request }) => {
-                        const seesClaim = claimSaved
-                        if (!seesClaim) {
-                            reachedServer()
-                            await olderRequestsHeld
-                        }
-                        const offset = new URL(request.url).searchParams.get('offset')
-                        const page = offset === '0' || offset === null ? FIRST_PAGE : SECOND_PAGE
-                        return [
-                            200,
-                            {
-                                count: FIRST_PAGE.length + SECOND_PAGE.length,
-                                next:
-                                    page === FIRST_PAGE
-                                        ? 'http://localhost/api/projects/997/signals/reports/?offset=50'
-                                        : null,
-                                previous: null,
-                                results: page.map((r) =>
-                                    seesClaim && r.id === rowId ? { ...r, assignee: myClaim } : r
-                                ),
-                            },
-                        ]
-                    },
-                },
-            })
-            const bulkLogic = inboxBulkActionsLogic()
-            bulkLogic.mount()
-
-            logic.actions[load]()
-            await olderRequestReachedServer
-            claimSaved = true
-            bulkLogic.actions.reportClaimChanged(rowId, myClaim)
-            release()
-            await expectLogic(logic).toFinishAllListeners()
-            // The older page was dropped, so a row from it shows again only once the list loads that page.
-            if (!logic.values.reports.some((r) => r.id === rowId)) {
-                logic.actions.loadMore()
-                await expectLogic(logic).toFinishAllListeners()
-            }
-
-            expect(logic.values.reports.find((r) => r.id === rowId)?.assignee).toEqual(myClaim)
-            bulkLogic.unmount()
-        })
 
         // A failed next page keeps the loaded rows and `hasMore`, and the scroll sentinel may sit
         // inside the viewport without re-firing. The flag is what surfaces the retry control, and a

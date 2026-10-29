@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { useMocks } from '~/mocks/jest'
@@ -153,6 +155,36 @@ describe('ReportContextMenu', () => {
         fireEvent.click(screen.getByText(item))
 
         await waitFor(() => expect(claimRequests).toEqual([{ reportId: 'report-1', body }]))
+    })
+
+    // A 409 has two causes. Telling the user a teammate took the report when its status changed sends them
+    // looking for a person who does not exist.
+    it.each([
+        {
+            cause: 'a teammate claimed it',
+            current: { assignee: teammateClaim, status: SignalReportStatus.READY },
+            toast: 'Someone else is already working on this report.',
+        },
+        {
+            cause: 'its status no longer allows a claim',
+            current: { assignee: null, status: SignalReportStatus.RESOLVED },
+            toast: 'This report changed. Check it and try again.',
+        },
+    ])('explains a refused claim when $cause', async ({ current, toast }) => {
+        useMocks({
+            get: { '/api/projects/:team_id/signals/reports/:report_id/': { ...makeReport(), ...current } },
+            post: { '/api/projects/:team_id/signals/reports/:report_id/claim/': [409, {}] },
+        })
+        const errorToast = jest.spyOn(lemonToast, 'error')
+        try {
+            openMenu(makeReport())
+
+            fireEvent.click(screen.getByText('Claim'))
+
+            await waitFor(() => expect(errorToast).toHaveBeenCalledWith(toast))
+        } finally {
+            errorToast.mockRestore()
+        }
     })
 
     it('does not let the user claim a report a teammate is working on', () => {

@@ -6,7 +6,6 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { myClaim, teammateClaim } from '../../__mocks__/inboxMocks'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, type SignalReport, SignalReportStatus } from '../../types'
@@ -110,43 +109,5 @@ describe('InboxBulkSelectionBar', () => {
             .toDispatchActions([logic.actionCreators.unassignedMe(unassigned), 'bulkUnassignMeSuccess'])
             .toMatchValues({ selectedReportIds: [] })
         expect(deleted.sort()).toEqual(sent)
-    })
-
-    // A bulk claim must skip reports a person already holds, and must end even when some claims fail, so the
-    // lists reload the server state and the bar unlocks.
-    it('claims only the unclaimed reports and finishes when some claims fail', async () => {
-        const claimed: string[] = []
-        useMocks({
-            post: {
-                '/api/projects/:team_id/signals/reports/:id/claim/': ({ params }) => {
-                    claimed.push(String(params.id))
-                    if (params.id === 'c') {
-                        return [409, {}]
-                    }
-                    if (params.id === 'd') {
-                        return [500, {}]
-                    }
-                    return [200, { id: params.id, assignee: myClaim, updated_at: '2026-06-11T11:00:00Z' }]
-                },
-            },
-        })
-        logic.actions.setSelectedReportIds(['a', 'b', 'c', 'd'])
-        render(
-            <InboxBulkSelectionBar
-                reports={[
-                    makeReport('a'),
-                    makeReport('b', { assignee: teammateClaim }),
-                    makeReport('c'),
-                    makeReport('d'),
-                ]}
-            />
-        )
-
-        await expectLogic(logic, () => {
-            fireEvent.click(screen.getByText('Claim'))
-        })
-            .toDispatchActions(['bulkClaimSuccess'])
-            .toMatchValues({ selectedReportIds: [], isClaiming: false })
-        expect(claimed.sort()).toEqual(['a', 'c', 'd'])
     })
 })
