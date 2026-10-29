@@ -169,8 +169,7 @@ def resolve_flag_calls_from_flag_evaluations(node: _T_AST, context: HogQLContext
     query raises when such a scan cannot swap.
 
     A scan that the resolver adds, such as one in a saved view's body or an inline cohort, keeps reading `events`.
-    Once `events` gets no flag
-    calls, a query that reads a view whose body reads only flag calls from `events` raises.
+    Once `events` gets no flag calls, a query that reads a view whose body reads only flag calls from `events` raises.
     """
     database = context.database
     if (
