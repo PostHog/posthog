@@ -8,7 +8,8 @@ from posthog.dataclasses import frozen
 IMAGE_MIME_TYPES = frozenset({"image/png", "image/jpeg", "image/webp", "image/gif"})
 # Providers whose image blocks take a link that they download themselves.
 _URL_PROVIDERS = frozenset({"openai", "azure_openai", "anthropic", "openrouter", "gemini"})
-MAX_IMAGE_BYTES = {"anthropic": 5 * 1024 * 1024}
+# Raw bytes per image. Anthropic allows 10 MB base64-encoded, about 7.5 MB raw, so keep a margin under it.
+MAX_IMAGE_BYTES = {"anthropic": 7_000_000}
 
 
 @frozen

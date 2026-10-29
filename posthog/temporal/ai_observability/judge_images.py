@@ -22,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 JUDGE_IMAGES_FLAG = "llm-analytics-judge-images"
 
-# Each image costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image size limit.
+# Each image costs tokens on the customer's key, and above 20 images Anthropic tightens its per-image dimension limit.
 MAX_IMAGES = 20
 # Bytes sent inline in one judge request. Links don't count: the provider downloads them.
 MAX_INLINE_BYTES = 15_000_000
