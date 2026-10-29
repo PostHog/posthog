@@ -66,7 +66,7 @@ def complete_implementation(
         report._transition_actor = attribution  # type: ignore[attr-defined]
         report._transition_actor_user = actor_user  # type: ignore[attr-defined]
         report._status_from_pr_state = from_pr_merge  # type: ignore[attr-defined]
-        if report.status == SignalReport.Status.RESOLVED:
+        if report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.CLOSED}:
             return None
         enabled = team_report_monitoring_enabled(team_id)
         if report.status == SignalReport.Status.MONITORING:
@@ -132,6 +132,7 @@ def complete_implementation(
             consecutive_inconclusive=0,
             monitoring_fallback_expires_at=None,
             monitoring_dispatch_after=None,
+            legacy_monitoring_attempt_id=None,
             updated_at=now,
         )
         report.save(

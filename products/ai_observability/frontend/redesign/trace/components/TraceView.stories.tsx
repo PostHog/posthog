@@ -2,12 +2,21 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
+import type { TraceSearchResultsApi } from '../../../generated/api.schemas'
+import { toMatchingNodeIds, toSearchBox } from '../adapter/toSearch'
 import { anthropicMessagesThinkingToolUse } from '../sampleFixtures/anthropicMessagesThinkingToolUse'
 import { claudeCodePluginSession } from '../sampleFixtures/claudeCodePluginSession'
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
 import { openaiAgentsWithEvals } from '../sampleFixtures/openaiAgentsWithEvals'
 import { SampleTraceFixture } from '../sampleFixtures/sampleTraceFixture'
-import { FIXTURE_EVAL_OUTCOMES, FIXTURE_EVALS_CHIP, FIXTURE_TRACE, withWidth } from '../storyFixtures'
+import {
+    FIXTURE_EVAL_OUTCOMES,
+    FIXTURE_EVALS_CHIP,
+    FIXTURE_FEEDBACK_MODE,
+    FIXTURE_SUMMARY,
+    FIXTURE_TRACE,
+    withWidth,
+} from '../storyFixtures'
 import { EvalRollupOutcome, EvalsChipData, NodeDetailTab, TraceMode } from '../types'
 import { TraceView } from './TraceView'
 
@@ -44,15 +53,33 @@ const FIXTURE_ERROR_TRACE: SampleTraceFixture = {
     },
 }
 
+interface PlaygroundSearch {
+    query: string
+    matchCounts: Record<string, number>
+}
+
 interface PlaygroundProps {
     fixture: SampleTraceFixture
     initialMode: TraceMode
     initialNodeId?: string
     evals?: EvalsChipData
     evalOutcomes?: Record<string, EvalRollupOutcome>
+    search?: PlaygroundSearch
 }
 
-function Playground({ fixture, initialMode, initialNodeId, evals, evalOutcomes = {} }: PlaygroundProps): JSX.Element {
+function searchResults(search: PlaygroundSearch): TraceSearchResultsApi {
+    const matches = Object.entries(search.matchCounts).map(([nodeId, count]) => ({ nodeId, count }))
+    return { total: matches.reduce((sum, match) => sum + match.count, 0), matches }
+}
+
+function Playground({
+    fixture,
+    initialMode,
+    initialNodeId,
+    evals,
+    evalOutcomes = {},
+    search,
+}: PlaygroundProps): JSX.Element {
     const [mode, setMode] = useState<TraceMode>(initialMode)
     const [selectedNodeId, setSelectedNodeId] = useState(initialNodeId ?? fixture.initialNodeId)
     const [tab, setTab] = useState<NodeDetailTab>('messages')
@@ -87,6 +114,30 @@ function Playground({ fixture, initialMode, initialNodeId, evals, evalOutcomes =
             thread={fixture.thread}
             timeline={fixture.timeline}
             evalOutcomes={evalOutcomes}
+            search={
+                search
+                    ? {
+                          ...toSearchBox(search.query, 'ready', searchResults(search), null, selectedNodeId),
+                          onQueryChange: () => {},
+                          onStep: () => {},
+                      }
+                    : null
+            }
+            matchingNodeIds={search ? toMatchingNodeIds(searchResults(search)) : null}
+            highlightQuery={search?.query ?? null}
+            summaryMode={{
+                state: { status: 'ready', summary: FIXTURE_SUMMARY },
+                requesting: false,
+                requestError: null,
+                consentGiven: true,
+                onRequest: () => {},
+                onRegenerate: () => {},
+                onReload: () => {},
+                onSelectStep: selectAndShowSpans,
+            }}
+            feedbackMode={FIXTURE_FEEDBACK_MODE}
+            feedbackCount={FIXTURE_FEEDBACK_MODE.scores.length + FIXTURE_FEEDBACK_MODE.responses.length}
+            feedbackCountByNodeId={{ 'trace-1': 3, 'gen-answer': 3 }}
         />
     )
 }
@@ -107,6 +158,7 @@ export const GenerationSelected: Story = { args: { fixture: FIXTURE_TRACE, initi
 export const ErrorTrace: Story = { args: { fixture: FIXTURE_ERROR_TRACE, initialMode: 'spans' } }
 export const ThreadMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'thread' } }
 export const TimelineMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'timeline' } }
+export const FeedbackMode: Story = { args: { fixture: FIXTURE_TRACE, initialMode: 'feedback' } }
 export const Narrow: Story = {
     args: { fixture: FIXTURE_TRACE, initialMode: 'spans' },
     decorators: [withWidth(520)],
@@ -117,6 +169,14 @@ export const NarrowWithEvals: Story = {
         initialMode: 'spans',
         evals: FIXTURE_EVALS_CHIP,
         evalOutcomes: FIXTURE_EVAL_OUTCOMES,
+    },
+    decorators: [withWidth(520)],
+}
+export const NarrowWithSearch: Story = {
+    args: {
+        fixture: FIXTURE_TRACE,
+        initialMode: 'spans',
+        search: { query: 'seats', matchCounts: { 'gen-answer': 2 } },
     },
     decorators: [withWidth(520)],
 }

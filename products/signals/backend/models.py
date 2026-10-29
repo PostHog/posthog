@@ -187,6 +187,11 @@ class AutonomyPriority(models.TextChoices):
     P4 = "P4", "P4"
 
 
+class InboxOnboardingSetupMode(models.TextChoices):
+    QUICK = "quick", "Quick"
+    GUIDED = "guided", "Guided"
+
+
 # What GitHub accepts as a label name. Duplicated from the GitHub client rather than imported,
 # because that module pulls the HTTP stack in and this one is loaded on every Django start.
 GITHUB_LABEL_NAME_MAX_LENGTH = 50
@@ -357,6 +362,7 @@ class SignalReport(UUIDModel):
         READY = "ready"
         MONITORING = "monitoring"
         RESOLVED = "resolved"
+        CLOSED = "closed", "Closed"
         FAILED = "failed"
         DELETED = "deleted"
         SUPPRESSED = "suppressed"
@@ -489,6 +495,12 @@ class SignalReport(UUIDModel):
     latest_actionability = models.CharField(max_length=30, null=True, blank=True)
     latest_already_addressed = models.BooleanField(null=True, blank=True)
 
+    # Cached from `implementation_pr_report_filter`, with and without `active_only`, so the inbox
+    # filters on a column instead of evaluating five link subqueries for every report.
+    # implementation_pr_cache.py keeps them current.
+    has_implementation_pr = models.BooleanField(default=False, db_default=False)
+    has_active_implementation_pr = models.BooleanField(default=False, db_default=False)
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
@@ -600,7 +612,7 @@ class SignalReport(UUIDModel):
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 
-            case (S.MONITORING, S.RESOLVED | S.READY):
+            case (S.MONITORING, S.RESOLVED | S.READY | S.CLOSED):
                 pass
 
             # Pipeline transitions
@@ -656,7 +668,14 @@ class SignalReport(UUIDModel):
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze)
             case (
-                S.IN_PROGRESS | S.PENDING_INPUT | S.SUPPRESSED | S.READY | S.MONITORING | S.RESOLVED | S.FAILED,
+                S.IN_PROGRESS
+                | S.PENDING_INPUT
+                | S.SUPPRESSED
+                | S.READY
+                | S.MONITORING
+                | S.RESOLVED
+                | S.CLOSED
+                | S.FAILED,
                 S.POTENTIAL,
             ):
                 self.promoted_at = None
@@ -678,7 +697,7 @@ class SignalReport(UUIDModel):
             # before suppression. Title/summary/error are already set from the earlier research run,
             # so they are preserved as-is. In-flight states (candidate/in_progress) are never restored
             # here — they have no live workflow to resume and instead route back through POTENTIAL above.
-            case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.FAILED):
+            case (S.SUPPRESSED, S.PENDING_INPUT | S.READY | S.RESOLVED | S.CLOSED | S.FAILED):
                 self.status_before_suppression = None
                 updated_fields.add("status_before_suppression")
 
@@ -698,6 +717,7 @@ class SignalReport(UUIDModel):
                 | S.READY
                 | S.MONITORING
                 | S.RESOLVED
+                | S.CLOSED
                 | S.FAILED,
                 S.SUPPRESSED,
             ):
@@ -715,13 +735,14 @@ class SignalReport(UUIDModel):
                 | S.READY
                 | S.MONITORING
                 | S.RESOLVED
+                | S.CLOSED
                 | S.FAILED
                 | S.SUPPRESSED,
                 S.DELETED,
             ):
                 pass
 
-            case (S.RESOLVED, S.READY):
+            case (S.RESOLVED | S.CLOSED, S.READY):
                 pass
 
             # Only researched reports can resolve
@@ -729,7 +750,7 @@ class SignalReport(UUIDModel):
             # FAILED resolves too: a run that died in processing still describes real work, and
             # whoever fixed it needs a way to say so. Without this edge the only exit is a
             # dismissal, which used to make the report a sink for every later recurrence.
-            case (S.PENDING_INPUT | S.READY | S.FAILED, S.RESOLVED):
+            case (S.PENDING_INPUT | S.READY | S.FAILED | S.CLOSED, S.RESOLVED):
                 # Just pass through to status setting
                 pass
 
@@ -791,7 +812,7 @@ class SignalReport(UUIDModel):
         back through POTENTIAL to re-enter the pipeline.
         """
         S = self.Status
-        researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.FAILED}
+        researched = {S.READY, S.PENDING_INPUT, S.RESOLVED, S.CLOSED, S.FAILED}
         prior = self.status_before_suppression
         if prior == S.MONITORING:
             return S.MONITORING if self._monitoring_enabled() else S.RESOLVED
@@ -1147,7 +1168,11 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
 
     @property
     def work_state(self) -> SignalReportWorkState:
-        if self.report.status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
+        if self.report.status in {
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.CLOSED,
+            SignalReport.Status.MONITORING,
+        }:
             return SignalReportWorkState.DONE
         from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 
@@ -2569,6 +2594,7 @@ class SignalReportCheck(UUIDModel):
     expires_at = models.DateTimeField()
     monitoring_fallback_expires_at = models.DateTimeField(null=True, blank=True)
     monitoring_dispatch_after = models.DateTimeField(null=True, blank=True)
+    legacy_monitoring_attempt_id = models.UUIDField(null=True, blank=True)
 
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     consecutive_errors = models.PositiveIntegerField(default=0)
@@ -4056,6 +4082,8 @@ class UserActivitySummary(TeamScopedRootMixin, UUIDModel):
         FAILED = "failed"
         # No update called the model yet. The row only holds the backoff in `next_eligible_at`.
         SKIPPED = "skipped"
+        # The model answered a first summary with no profile. The row holds the cost and a skip backoff.
+        EMPTY_PROFILE = "empty_profile"
 
     # See SignalReportRefund.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012

@@ -13,6 +13,7 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
     MakeTransactionalApi,
@@ -60,6 +61,25 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging/emails/${id}/`
+}
+
+/**
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `hog_flow:read` scope.
+ * @summary Get a transactional email's status
+ */
+export const messagingEmailsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EmailStatusApi> => {
+    return apiMutator<EmailStatusApi>(getMessagingEmailsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getMessagingSendEmailCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging/send/email/`
