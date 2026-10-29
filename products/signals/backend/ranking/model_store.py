@@ -437,9 +437,14 @@ def load_user_vectors(manifest: ServingManifest, users: Collection[tuple[str, st
         if key is not None and wanted:
             logger.warning("inbox_ranking_user_vectors_missing", user_vectors_key=key)
         return UserVectors(available=False, by_user={}, hashes={})
-    organizations = sorted({organization_id for organization_id, _ in wanted})
+    # Both filters reach the Parquet reader, so only rows of the requested organizations and users are decoded.
     rows = pd.read_parquet(
-        io.BytesIO(body), columns=USER_VECTORS_COLUMNS, filters=[("organization_id", "in", organizations)]
+        io.BytesIO(body),
+        columns=USER_VECTORS_COLUMNS,
+        filters=[
+            ("organization_id", "in", sorted({organization_id for organization_id, _ in wanted})),
+            ("user_distinct_id", "in", sorted({user for _, user in wanted})),
+        ],
     )
     by_user: dict[tuple[str, str], dict[str, UserKindVector]] = {}
     hashes: dict[tuple[str, str], str] = {}
