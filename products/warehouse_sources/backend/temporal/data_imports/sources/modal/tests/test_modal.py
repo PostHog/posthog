@@ -5,7 +5,7 @@ from typing import cast
 
 import pytest
 import time_machine
-from unittest.mock import AsyncMock, MagicMock, PropertyMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import modal
 from grpclib import GRPCError, Status
@@ -208,14 +208,17 @@ def test_rides_out_rate_limit_on_report(
     rows = [billing_item(datetime(2026, 3, 15, 10, tzinfo=UTC))]
     report.side_effect = [ResourceExhaustedError("rate limit"), ResourceExhaustedError("rate limit"), rows]
 
-    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal.time.sleep") as sleep:
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal.interruptible_wait",
+        return_value=False,
+    ) as wait:
         result = list(source_items(modal_source(config, inputs, manager)))
 
     # Two rate-limit rejections were retried in-process, then the same window was served — no data lost.
     assert report.call_count == 3
     assert [item["object_id"] for item in result[0]] == ["ap-test"]
     # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st rejection, 4s after the 2nd.
-    assert sleep.call_args_list == [call(2), call(4)]
+    assert [c.args for c in wait.call_args_list] == [(2,), (4,)]
     create_client.return_value.__exit__.assert_called_once()
 
 
@@ -230,12 +233,15 @@ def test_persistent_rate_limit_is_reraised_for_temporal_to_retry(
     inputs.db_incremental_field_last_value = "2026-03-15T10:00:00Z"
     report.side_effect = ResourceExhaustedError("rate limit")
 
-    with patch("products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal.time.sleep") as sleep:
+    with patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.modal.modal.interruptible_wait",
+        return_value=False,
+    ) as wait:
         with pytest.raises(ResourceExhaustedError, match="rate limit"):
             list(source_items(modal_source(config, inputs, manager)))
 
     assert report.call_count == MAX_REPORT_RETRY_ATTEMPTS
-    assert sleep.call_args_list == [call(2), call(4), call(6)]
+    assert [c.args for c in wait.call_args_list] == [(2,), (4,), (6,)]
     manager.save_state.assert_not_called()
     create_client.return_value.__exit__.assert_called_once()
 

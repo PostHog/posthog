@@ -1,5 +1,4 @@
-import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
@@ -18,6 +17,9 @@ from modal_proto import api_pb2
 
 from posthog.dataclasses import frozen
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.modal.settings import (
@@ -180,14 +182,17 @@ def validate_credentials(config: ModalSourceConfig) -> tuple[bool, str | None]:
 # whole import activity, which would otherwise rebuild the gRPC client and resume from the last
 # saved window anyway.
 MAX_REPORT_RETRY_ATTEMPTS = 4
-
-
-def _report_backoff_sleep(attempt: int) -> None:
-    time.sleep(min(2 * attempt, 30))
+MAX_REPORT_BACKOFF_SECONDS = 30
 
 
 def _report_with_rate_limit_retry(
-    workspace: "modal.Workspace", *, start: datetime, end: datetime, resolution: str, tag_names: list[str]
+    workspace: "modal.Workspace",
+    *,
+    start: datetime,
+    end: datetime,
+    resolution: str,
+    tag_names: list[str],
+    safe_point: Callable[[], None],
 ) -> list[BillingReportItem]:
     attempt = 0
     while True:
@@ -197,7 +202,10 @@ def _report_with_rate_limit_retry(
             attempt += 1
             if attempt >= MAX_REPORT_RETRY_ATTEMPTS:
                 raise
-            _report_backoff_sleep(attempt)
+            # Every row before this window is already yielded and its cursor staged, so a worker
+            # shutdown during the backoff can hand the run off from here without losing rows.
+            if interruptible_wait(min(2 * attempt, MAX_REPORT_BACKOFF_SECONDS), safe_point=safe_point):
+                raise
 
 
 def modal_source(
@@ -246,7 +254,12 @@ def billing_report_source(
             while start < end:
                 window_end = min(start + table.window_size, end)
                 report = _report_with_rate_limit_retry(
-                    workspace, start=start, end=window_end, resolution=table.resolution, tag_names=["*"]
+                    workspace,
+                    start=start,
+                    end=window_end,
+                    resolution=table.resolution,
+                    tag_names=["*"],
+                    safe_point=resumable_source_manager.safe_point,
                 )
                 ordered = sorted(report, key=lambda item: as_utc(item.interval_start))
                 rows: list[dict[str, object]] = [
