@@ -32,6 +32,7 @@ from social_django.utils import load_strategy
 
 from posthog.api.authentication import social_identity_matches_session
 from posthog.api.oidc import MultitenantOIDCAuth
+from posthog.api.sso import CustomGoogleOAuth2, MultitenantSAMLAuth
 from posthog.constants import AvailableFeature
 from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models import OrganizationMembership, User
@@ -42,7 +43,6 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.redis import get_client
 from posthog.session.activity import session_public_id
 
-from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
 from ee.api.test.base import APILicensedTest
 from ee.models.license import License
 
@@ -1518,7 +1518,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         auth = object.__new__(MultitenantSAMLAuth)
         legacy = {"idp": str(self.organization_domain.id), "next": "/settings/organization/authentication"}
 
-        with patch("ee.api.authentication.get_client", side_effect=redis_exceptions.ConnectionError("down")):
+        with patch("posthog.api.sso.get_client", side_effect=redis_exceptions.ConnectionError("down")):
             self.assertEqual(auth.parse_relay_state(json.dumps(legacy)), legacy)
             self.assertEqual(
                 auth.parse_relay_state("https://idp.hogflix.io/launch"), {"idp": "https://idp.hogflix.io/launch"}
@@ -2076,7 +2076,7 @@ class TestCustomGoogleOAuth2(APILicensedTest):
         """Test that auth_extra_arguments appends select_account to existing prompt values."""
         self.google_oauth.strategy = self._mock_strategy({})  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
-        with patch("ee.api.authentication.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
+        with patch("posthog.api.sso.GoogleOAuth2.auth_extra_arguments", return_value={"prompt": "consent"}):
             extra_args = self.google_oauth.auth_extra_arguments()
 
         self.assertEqual(extra_args["prompt"], "consent select_account")
@@ -2162,7 +2162,7 @@ class TestSSOEnforcement(APILicensedTest):
     @override_settings(**SAML_MOCK_SETTINGS, **GOOGLE_MOCK_SETTINGS)
     def test_cannot_use_social_auth_when_saml_is_required(self):
         """Test that Google OAuth2 fails when SAML is enforced"""
-        from ee.api.authentication import social_auth_allowed
+        from posthog.api.sso import social_auth_allowed
 
         # Create domain with SAML enforcement
         domain = OrganizationDomain.objects.create(
@@ -2200,7 +2200,7 @@ class TestSSOEnforcement(APILicensedTest):
     @override_settings(**SAML_MOCK_SETTINGS, **GOOGLE_MOCK_SETTINGS)
     def test_other_social_auth_blocked_with_google_enforcement(self):
         """Test other social auth methods are blocked, including saml, when Google is enforced"""
-        from ee.api.authentication import social_auth_allowed
+        from posthog.api.sso import social_auth_allowed
 
         OrganizationDomain.objects.create(
             domain="testdomain.com",
