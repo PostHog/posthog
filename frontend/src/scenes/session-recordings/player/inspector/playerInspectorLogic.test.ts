@@ -739,7 +739,6 @@ describe('playerInspectorLogic', () => {
             jest.restoreAllMocks()
         })
 
-        // Without logs access the logs API answers 403, so the inspector must not send the request.
         it.each([
             ['sends the logs query when the user can read logs', AccessControlLevel.Viewer, 1],
             ['skips the logs query when logs access is none', AccessControlLevel.None, 0],
@@ -747,7 +746,9 @@ describe('playerInspectorLogic', () => {
             jest.spyOn(appContext, 'getAppContext').mockReturnValue({
                 effective_resource_access_control: { [AccessControlResourceType.Logs]: logsAccess },
             } as ReturnType<typeof appContext.getAppContext>)
-            const querySpy = jest.spyOn(api.logs, 'query').mockResolvedValue({ results: [], hasMore: false } as any)
+            const querySpy = jest
+                .spyOn(api.logs, 'query')
+                .mockResolvedValue({ results: [], hasMore: false, nextCursor: 'cursor', maxExportableLogs: 0 })
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS], {
                 [FEATURE_FLAGS.SESSION_REPLAY_BACKEND_LOGS]: true,
             })

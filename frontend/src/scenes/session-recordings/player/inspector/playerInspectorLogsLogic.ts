@@ -101,7 +101,7 @@ export interface playerInspectorLogsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         readyToLoadLogs: (
             featureFlags: FeatureFlagsSet,
-            logsAccessDenied: any,
+            logsAccessDenied: boolean,
             start: Dayjs | null,
             end: Dayjs | null,
             arg: any
@@ -213,7 +213,7 @@ export const playerInspectorLogsLogic = kea<playerInspectorLogsLogicType>([
         ],
     })),
     selectors(() => ({
-        // The logs API answers 403 for these users, so the request is skipped rather than sent.
+        // Users with no logs access get a 403 from the logs API, so readyToLoadLogs stays false for them.
         logsAccessDenied: [() => [], (): boolean => productHasEffectiveNoneAccess(AccessControlResourceType.Logs)],
         readyToLoadLogs: [
             (s) => [s.featureFlags, s.logsAccessDenied, s.start, s.end, (_, props) => props.sessionRecordingId],
