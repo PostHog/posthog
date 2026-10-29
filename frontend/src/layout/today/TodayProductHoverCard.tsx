@@ -20,7 +20,7 @@ export function TodayProductHoverCard({
                 <ItemContent className="min-w-0 gap-2">
                     <ItemTitle className="flex items-center gap-2 overflow-visible wrap-anywhere">
                         <span
-                            className="flex size-4 shrink-0 items-center justify-center group/colorful-product-icons colorful-product-icons-true [&_svg]:size-4"
+                            className="TodayIconBadge flex size-4 shrink-0 items-center justify-center group/colorful-product-icons colorful-product-icons-true [&_svg]:size-4"
                             aria-hidden
                         >
                             {preview.kind === 'product' ? <NavProductIcon item={preview.product} /> : preview.icon}
