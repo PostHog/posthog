@@ -314,26 +314,22 @@ function TracingSceneContents(): JSX.Element {
                         {compareActive && displayMode !== 'operations' && displayMode !== 'endpoints' && (
                             <ComparisonBar />
                         )}
-                        {displayMode === 'endpoints' ? (
-                            // No row click yet: an endpoint row can merge span names, and the
-                            // operation page opens one span name.
+                        {displayMode === 'operations' || displayMode === 'endpoints' ? (
                             <OperationsTable
                                 rows={aggregation.current}
                                 loading={aggregationLoading}
                                 windowMs={operationsWindowMs}
                                 showImpact={impactStripEnabled}
-                                groupedByEndpoint
-                            />
-                        ) : displayMode === 'operations' ? (
-                            <OperationsTable
-                                rows={aggregation.current}
-                                loading={aggregationLoading}
-                                windowMs={operationsWindowMs}
-                                showImpact={impactStripEnabled}
-                                onRowClick={(row) =>
-                                    router.actions.push(
-                                        urls.tracingOperation(row.service_name, row.name, filters.dateRange)
-                                    )
+                                groupedByEndpoint={displayMode === 'endpoints'}
+                                // No row click on endpoints yet: an endpoint row can merge span
+                                // names, and the operation page opens one span name.
+                                onRowClick={
+                                    displayMode === 'operations'
+                                        ? (row) =>
+                                              router.actions.push(
+                                                  urls.tracingOperation(row.service_name, row.name, filters.dateRange)
+                                              )
+                                        : undefined
                                 }
                             />
                         ) : compareActive ? (

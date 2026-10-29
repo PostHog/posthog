@@ -31,7 +31,7 @@ export function TracingDisplayBar(): JSX.Element {
 
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const inTracesView = displayMode !== 'operations' && displayMode !== 'endpoints'
-    // The aggregate views carry its own counts in table columns, and a comparison covers two
+    // The aggregate views carry their own counts in table columns, and a comparison covers two
     // windows while both indicators describe one.
     const showsSingleWindowCounts = inTracesView && !compareActive
     const showCount = showsSingleWindowCounts && totalMatchingFilters > 0

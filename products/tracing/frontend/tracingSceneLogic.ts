@@ -174,11 +174,13 @@ export interface tracingSceneLogicActions {
         options?:
             | {
                   fullRange?: boolean
+                  groupByEndpoint?: boolean
               }
             | null
             | undefined
     ) => {
         fullRange?: boolean
+        groupByEndpoint?: boolean
     } | null // tracingDataLogic
     fetchNextPage: () => {
         value: true
