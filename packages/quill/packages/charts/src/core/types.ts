@@ -279,7 +279,8 @@ export interface ChartConfig {
     /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
      *  line with monotone-cubic curves that pass through every point without overshooting. */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
+    /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement on the base
+     *  `Chart`. Charts that apply `DEFAULT_CHART_CONFIG` use `cursor` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
