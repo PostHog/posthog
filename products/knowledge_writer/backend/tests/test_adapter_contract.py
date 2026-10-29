@@ -23,6 +23,7 @@ SAMPLE_EVENTS: dict[DocsRequestSource, Any] = {
         head_sha="abc123",
         note="Document the new retention option.",
         requested_by="@octo",
+        requested_by_user_id=42,
     ),
     DocsRequestSource.REPO_MERGE: MergeCheckReport(
         commit_sha="a" * 40,

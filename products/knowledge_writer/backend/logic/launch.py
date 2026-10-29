@@ -35,6 +35,15 @@ def no_store_connectors_run_state() -> dict[str, Any]:
     return {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
 
 
+def rerun_state(writer: WriterSettings) -> dict[str, Any]:
+    # create_and_run_task writes pending_dispatch itself; create_run leaves it to the caller, and the reconciler needs it.
+    return {
+        **no_store_connectors_run_state(),
+        "inactivity_timeout_seconds": WRITER_IDLE_TIMEOUT_SECONDS,
+        "pending_dispatch": {"create_pr": False, "posthog_mcp_scopes": [], "user_id": writer.user_id},
+    }
+
+
 def build_writer_prompt(request: DocsRequest, routing: SectionRouting, *, is_joining: bool) -> str:
     sections = [
         "You update the PostHog docs in this repository so they match what shipped.",
@@ -68,32 +77,77 @@ def start_writer(
     writer: WriterSettings,
     joining: WriterPullRequest | None = None,
     start_workflow: bool = True,
+    rerun_task_id: UUID | None = None,
 ) -> UUID:
     state_entries = {
         REQUEST_STATE_KEY: request_json.dump_python(request, mode="json"),
         SECTION_STATE_KEY: routing.section,
+        JOIN_STATE_KEY: pull_request_json.dump_python(joining, mode="json") if joining is not None else None,
     }
-    if joining is not None:
-        state_entries[JOIN_STATE_KEY] = pull_request_json.dump_python(joining, mode="json")
+    description = build_writer_prompt(request, routing, is_joining=joining is not None)
+    branch = joining.head_branch if joining is not None else None
+    rerun_id: UUID | None = None
     with transaction.atomic():
         if routing.section:
             claim_section(writer, routing.section)
-        created = tasks_facade.create_and_run_task(
-            team=team,
-            title=f"Docs: {request.source_url}"[:255],
-            description=build_writer_prompt(request, routing, is_joining=joining is not None),
-            origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
-            user_id=writer.user_id,
-            repository=writer.docs_repository,
-            create_pr=False,
-            internal=True,
-            posthog_mcp_scopes=[],
-            extra_run_state=no_store_connectors_run_state(),
-            origin_key=request.dedupe_id,
-            branch=joining.head_branch if joining is not None else None,
-            start_workflow=start_workflow,
-            inactivity_timeout_seconds=WRITER_IDLE_TIMEOUT_SECONDS,
+        if rerun_task_id is not None:
+            rerun_id = create_writer_rerun(rerun_task_id, description, branch, team=team, writer=writer)
+        task_id = rerun_task_id or create_writer_task(
+            request, description, branch, team=team, writer=writer, start_workflow=start_workflow
         )
         for key, value in state_entries.items():
-            tasks_facade.update_task_state_entry(created.task_id, team.id, key, replace_entry_with(value))
-    return created.task_id
+            tasks_facade.update_task_state_entry(task_id, team.id, key, replace_entry_with(value))
+    if rerun_id is not None and start_workflow:
+        dispatch_rerun(task_id, rerun_id, team=team, writer=writer)
+    return task_id
+
+
+def create_writer_task(
+    request: DocsRequest,
+    description: str,
+    branch: str | None,
+    *,
+    team: Team,
+    writer: WriterSettings,
+    start_workflow: bool,
+) -> UUID:
+    return tasks_facade.create_and_run_task(
+        team=team,
+        title=f"Docs: {request.source_url}"[:255],
+        description=description,
+        origin_product=tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
+        user_id=writer.user_id,
+        repository=writer.docs_repository,
+        create_pr=False,
+        internal=True,
+        posthog_mcp_scopes=[],
+        extra_run_state=no_store_connectors_run_state(),
+        origin_key=request.dedupe_id,
+        branch=branch,
+        start_workflow=start_workflow,
+        inactivity_timeout_seconds=WRITER_IDLE_TIMEOUT_SECONDS,
+    ).task_id
+
+
+def create_writer_rerun(
+    task_id: UUID, description: str, branch: str | None, *, team: Team, writer: WriterSettings
+) -> UUID:
+    tasks_facade.update_task(task_id, team.id, writer.user_id, validated_data={"description": description})
+    return tasks_facade.create_run(
+        task_id, mode="background", branch=branch, acting_user_id=writer.user_id, extra_state=rerun_state(writer)
+    ).id
+
+
+def dispatch_rerun(task_id: UUID, run_id: UUID, *, team: Team, writer: WriterSettings) -> None:
+    from products.tasks.backend.facade.temporal import (  # noqa: PLC0415 — keeps temporalio off the intake import path
+        dispatch_task_processing_workflow,
+    )
+
+    dispatch_task_processing_workflow(
+        task_id=str(task_id),
+        run_id=str(run_id),
+        team_id=team.id,
+        user_id=writer.user_id,
+        create_pr=False,
+        posthog_mcp_scopes=[],
+    )

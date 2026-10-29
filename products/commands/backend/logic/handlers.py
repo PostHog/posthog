@@ -131,6 +131,7 @@ def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
             head_sha=pull_request.head_sha,
             note=args.note,
             requested_by=context.request.requester,
+            requested_by_user_id=context.members[0].user_id,
         ),
         team_id=context.members[0].team_id,
     )
