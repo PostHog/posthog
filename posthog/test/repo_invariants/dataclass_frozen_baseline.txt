@@ -847,7 +847,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persistiq/persistiq.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persona/persona.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/persona/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/personio/personio.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/phyllo/phyllo.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pinterest_ads/pinterest_ads.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pinterest_ads/settings.py
