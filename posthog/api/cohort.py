@@ -1037,6 +1037,12 @@ class CohortListSerializer(serializers.ListSerializer):
         return super().to_representation(cohorts)
 
 
+def _completed_calculations_newest_first(cohort: Any) -> QuerySet[CohortCalculationHistory]:
+    return CohortCalculationHistory.objects.filter(cohort=cohort, finished_at__isnull=False).order_by(
+        "-started_at", "-id"
+    )
+
+
 class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = earliest_timestamp_func
@@ -1169,14 +1175,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # and no stale error from an older failed run should be surfaced.
         # Old records may have error set but error_code=NULL; get_friendly_error_message
         # returns None for those, so they won't surface user-facing messages.
-        last_completed_calculation = (
-            CohortCalculationHistory.objects.filter(
-                cohort=cohort,
-                finished_at__isnull=False,
-            )
-            .order_by("-started_at", "-id")
-            .first()
-        )
+        last_completed_calculation = _completed_calculations_newest_first(cohort).first()
         if last_completed_calculation and last_completed_calculation.error:
             return get_friendly_error_message(last_completed_calculation.error_code, will_retry=will_retry)
         return None
@@ -2485,12 +2484,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # cohorts.
         if not is_basic_list:
             last_error_code_subquery = Subquery(
-                CohortCalculationHistory.objects.filter(
-                    cohort=OuterRef("pk"),
-                    finished_at__isnull=False,
-                )
-                .order_by("-started_at", "-id")
-                .values("error_code")[:1]
+                _completed_calculations_newest_first(OuterRef("pk")).values("error_code")[:1]
             )
             queryset = queryset.prefetch_related("experiment_set").annotate(last_error_code=last_error_code_subquery)
 

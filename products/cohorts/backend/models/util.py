@@ -460,13 +460,18 @@ def _select_list_positions_are_known(select_list: list[ast.Expr]) -> bool:
     return True
 
 
+def _is_bounded(select_query: ast.SelectQuery) -> bool:
+    return select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
+
+
 def _inline_positional_references(select_query: ast.SelectQuery) -> None:
     """Replace positional GROUP BY/ORDER BY/LIMIT BY ordinals with the SELECT expression they point at.
 
     In ClickHouse a bare integer in GROUP BY/ORDER BY/LIMIT BY (`GROUP BY 2`) is a 1-based reference
-    into the SELECT list. When `print_cohort_hogql_query` falls back to replacing that list with a single actor column, so
-    any ordinal other than 1 would dangle afterwards. Resolving each ordinal against the original
-    SELECT list up front keeps the grouping/ordering semantics intact if the fallback collapses the list.
+    into the SELECT list. The events and persons branches replace that SELECT list with a single
+    actor column, leaving any ordinal other than 1 dangling. Resolving each ordinal against the
+    original SELECT list up front keeps the grouping and ordering semantics intact if those
+    branches collapse the list.
 
     Ordinals nested inside GROUP BY GROUPING SETS are not resolved, because those entries are tuples
     of expressions rather than bare ordinals. Such a query keeps failing the way it does today.
@@ -513,7 +518,7 @@ def _wrap_select_query_with_column(
     on the outer node so root CTEs remain visible across UNION branches.
     """
     inner = copy.copy(select_query)
-    if inner.limit is None and inner.offset is None and inner.limit_by is None:
+    if not _is_bounded(inner):
         inner.distinct = None
     inner.ctes = None
     inner.select = [
@@ -523,14 +528,13 @@ def _wrap_select_query_with_column(
         for expr in inner.select
     ]
 
+    wrapper = ast.SelectQuery(
+        select=[ast.Alias(alias=target_alias, expr=ast.Field(chain=[source_column]))],
+        select_from=ast.JoinExpr(table=inner),
+        ctes=select_query.ctes,
+    )
     for field in dataclasses.fields(ast.SelectQuery):
-        if field.name in ("start", "end", "type", "ctes", "select"):
-            continue
-        default = field.default if field.default is not dataclasses.MISSING else field.default_factory()  # type: ignore[misc]
-        setattr(select_query, field.name, default)
-
-    select_query.select = [ast.Alias(alias=target_alias, expr=ast.Field(chain=[source_column]))]
-    select_query.select_from = ast.JoinExpr(table=inner)
+        setattr(select_query, field.name, getattr(wrapper, field.name))
 
 
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
@@ -549,22 +553,19 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
     for select_query in extract_select_queries(query):
         # Positional GROUP BY/ORDER BY ordinals (e.g. `GROUP BY 2`) reference the Nth SELECT
-        # expression. When the fallback branch replaces the SELECT list with a single actor column,
-        # which leaves those ordinals pointing past the end of the new one-column list, so
+        # expression. The events and persons branches replace that SELECT list with a single actor
+        # column, which leaves those ordinals pointing past the end of the new one-column list, so
         # ClickHouse rejects the query with an out-of-bounds positional argument error. Inline
-        # the referenced expression now so the reference survives if the fallback collapses the list.
+        # the referenced expressions now so the references survive if those branches collapse the list.
         _inline_positional_references(select_query)
 
         # Ordering is meaningless for an unbounded cohort, and an ORDER BY that references a
-        # computed select alias (e.g. `ai_active_days`) would dangle if the fallback replaces
-        # the SELECT with just the actor column, breaking HogQL resolution. Drop it — but only
-        # when the query is unbounded. With a LIMIT/OFFSET the ordering decides which rows
-        # survive, so dropping it would silently make membership a non-deterministic subset;
-        # keep both so a bounded "top N" cohort stays deterministic.
-        is_bounded = (
-            select_query.limit is not None or select_query.offset is not None or select_query.limit_by is not None
-        )
-        if not is_bounded:
+        # computed select alias (e.g. `ai_active_days`) would dangle if the events or persons
+        # branch replaces the SELECT with just the actor column, breaking HogQL resolution. Drop
+        # it — but only when the query is unbounded. With a LIMIT/OFFSET the ordering decides
+        # which rows survive, so dropping it would silently make membership a non-deterministic
+        # subset; keep both so a bounded "top N" cohort stays deterministic.
+        if not _is_bounded(select_query):
             select_query.order_by = None
 
         columns: dict[str, ast.Expr] = {}
@@ -576,6 +577,8 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
                 columns[str(expr.chain[-1])] = expr
 
         actor_column = next((name for name in ("person_id", "actor_id", "id") if name in columns), None)
+        distinct_id_column = columns.get("distinct_id")
+        table = select_query.select_from.table if select_query.select_from else None
         is_aggregating_or_multi_column = bool(
             select_query.group_by
             or select_query.having
@@ -588,25 +591,20 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
             else:
                 select_query.select = [ast.Alias(expr=columns[actor_column], alias="actor_id")]
             uses_actor_id = True
+        elif distinct_id_column is not None and is_aggregating_or_multi_column:
+            _wrap_select_query_with_column(select_query, "distinct_id", "distinct_id")
+            uses_distinct_id = True
+        elif isinstance(table, ast.Field) and table.chain[-1] == "events":
+            select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+            uses_actor_id = True
+        elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
+            select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+            uses_actor_id = True
+        elif distinct_id_column is not None:
+            select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
+            uses_distinct_id = True
         else:
-            distinct_id_column = columns.get("distinct_id")
-            if distinct_id_column is not None and is_aggregating_or_multi_column:
-                _wrap_select_query_with_column(select_query, "distinct_id", "distinct_id")
-                uses_distinct_id = True
-            else:
-                # Support the most common use cases
-                table = select_query.select_from.table if select_query.select_from else None
-                if isinstance(table, ast.Field) and table.chain[-1] == "events":
-                    select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
-                    uses_actor_id = True
-                elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
-                    select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
-                    uses_actor_id = True
-                elif distinct_id_column is not None:
-                    select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
-                    uses_distinct_id = True
-                else:
-                    raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
+            raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
 
     # Check for mixed ID types in UNION queries
     if uses_distinct_id and uses_actor_id:

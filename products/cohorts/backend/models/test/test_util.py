@@ -985,6 +985,18 @@ class TestCohortUtils(BaseTest):
     def test_print_cohort_hogql_query_supports_multi_column_aliased_and_aggregating_queries(
         self, _name: str, hogql_query: str
     ):
+        p_with_domain = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[f"p_domain_{_name}"],
+            properties={"email": f"with_{_name}@example.com", "domain": "example.com"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=[f"p_nodomain_{_name}"],
+            properties={"email": f"without_{_name}@example.com"},
+        )
+        flush_persons_and_events()
+
         cohort = Cohort.objects.create(
             team=self.team,
             name=f"Test Cohort {_name}",
@@ -998,6 +1010,13 @@ class TestCohortUtils(BaseTest):
         self.assertIn("as actor_id", sql.lower())
         self.assertIn("max_execution_time=1200", sql)
         insert_cohort_query_actors_into_ch(cohort, team=self.team)
+
+        if _name == "multi_column_with_where_on_select_alias":
+            rows = sync_execute(
+                f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+                {"team_id": self.team.id, "cohort_id": cohort.id},
+            )
+            self.assertEqual([str(r[0]) for r in rows], [str(p_with_domain.uuid)])
 
     def test_print_cohort_hogql_query_with_multi_column_distinct_id_query(self):
         from posthog.hogql import ast
@@ -1049,8 +1068,9 @@ class TestCohortUtils(BaseTest):
 
         sql = print_cohort_hogql_query(cohort, context, team=self.team)
 
-        self.assertIn("as actor_id", sql.lower())
+        self.assertEqual(sql.lower().count("as actor_id"), 2)
         self.assertIn("union all", sql.lower())
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
 
     def test_insert_cohort_from_multi_column_aggregating_hogql_query(self):
         p1 = _create_person(
@@ -1120,17 +1140,24 @@ class TestCohortUtils(BaseTest):
         insert_cohort_query_actors_into_ch(cohort, team=self.team)
 
     def test_wrap_select_query_preserves_inner_distinct_on_bounded_query(self):
-        cohort = Cohort.objects.create(
-            team=self.team,
-            name="Bounded Distinct Cohort",
-            is_static=True,
-            query={"kind": "HogQLQuery", "query": "SELECT DISTINCT person_id, event FROM events LIMIT 10"},
-        )
-        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
-        sql = print_cohort_hogql_query(cohort, context, team=self.team)
-        self.assertIn("DISTINCT", sql)
-        self.assertIn("LIMIT 10", sql)
-        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+        cases = [
+            ("SELECT DISTINCT person_id, event FROM events LIMIT 10", ["LIMIT 10"]),
+            ("SELECT DISTINCT person_id, event FROM events LIMIT 1 BY event", ["LIMIT 1", "BY events.event"]),
+        ]
+        for query_str, expected_tokens in cases:
+            with self.subTest(query=query_str):
+                cohort = Cohort.objects.create(
+                    team=self.team,
+                    name=f"Bounded Distinct Cohort {query_str}",
+                    is_static=True,
+                    query={"kind": "HogQLQuery", "query": query_str},
+                )
+                context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+                sql = print_cohort_hogql_query(cohort, context, team=self.team)
+                self.assertIn("DISTINCT", sql)
+                for token in expected_tokens:
+                    self.assertIn(token, sql)
+                insert_cohort_query_actors_into_ch(cohort, team=self.team)
 
 
 class TestGetNestedCohortIds(BaseTest):
