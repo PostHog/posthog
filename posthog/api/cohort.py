@@ -1005,6 +1005,10 @@ _FLAG_CALL_REALTIME_REASON = (
 )
 _FLAG_CALL_COMPILE_REASON = "PostHog can't calculate this criterion. Check its count and its event property filters."
 _FLAG_CALL_FILTER_REASON = "Use event property filters on this event instead of a SQL expression."
+_FLAG_CALL_SQL_EXPRESSION_REASON = (
+    "A SQL expression filter on another criterion in this cohort reads this event in a way PostHog can't "
+    "calculate. Change that filter, or filter on event properties instead."
+)
 
 
 def _flag_call_window_fits_retention(prop: Property) -> bool:
@@ -1032,8 +1036,8 @@ def flag_call_criterion_shape_problem(prop: Property) -> str | None:
         return _FLAG_CALL_CRITERION_TYPE_REASON
     if not _flag_call_window_fits_retention(prop):
         return _FLAG_CALL_WINDOW_REASON
-    # A SQL expression can read flag calls through a saved view, a function predicate or a subquery older than the
-    # window. The compile check counts none of these, so the guard refuses the expression.
+    # A SQL expression can read flag calls through a saved view, a function predicate, or a subquery that reads
+    # calls from before the window starts. The compile check counts none of these, so the guard refuses the expression.
     if _has_hogql_filter(prop):
         return _FLAG_CALL_FILTER_REASON
     return None
@@ -1073,8 +1077,12 @@ def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCa
     except Exception as error:
         # A malformed filter value can fail an assert in the HogQL printer. The guard refuses the save, so the API
         # returns 400 instead of 500.
-        capture_exception(error)
+        capture_exception(error, additional_properties={"team_id": team.id})
         return None
+
+
+def _is_flag_call_criterion(prop: Property) -> bool:
+    return any(event == FLAG_EVALUATIONS_SOURCE_EVENT for event, _ in _hidden_event_references([prop]))
 
 
 def _criteria_that_may_read_flag_calls(properties: Iterable[Property]) -> list[Property]:
@@ -1083,9 +1091,20 @@ def _criteria_that_may_read_flag_calls(properties: Iterable[Property]) -> list[P
     return [
         prop
         for prop in properties
-        if any(event == FLAG_EVALUATIONS_SOURCE_EVENT for event, _ in _hidden_event_references([prop]))
-        or (prop.type == "behavioral" and _has_hogql_filter(prop))
+        if _is_flag_call_criterion(prop) or (prop.type == "behavioral" and _has_hogql_filter(prop))
     ]
+
+
+def _flag_call_criteria_alone_pass(candidates: Sequence[Property], team: Team) -> bool:
+    """Whether the flag-call criteria among these candidates compile and read no flag calls from events without the
+    other candidates' SQL expression filters."""
+    flag_call_criteria = [prop for prop in candidates if _is_flag_call_criterion(prop)]
+    if len(flag_call_criteria) == len(candidates):
+        return False
+    if not flag_call_criteria:
+        return True
+    reads = _flag_call_reads_or_none(flag_call_criteria, team)
+    return reads is not None and reads.reads_from_events == 0
 
 
 def _criteria_counts(properties: Iterable[Property]) -> collections.Counter[str]:
@@ -1105,7 +1124,7 @@ def _added_unsupported_hidden_event_reference(
     reason, or None.
 
     A save may keep or edit an unsupported reference that the stored cohort already has. Only a count above the
-    stored count is an addition.
+    stored count is an addition. A compile failure that the stored cohort already has is not an addition either.
     """
     new_references = list(_hidden_event_references(new_properties))
     existing_references = list(_hidden_event_references(existing_properties))
@@ -1118,17 +1137,20 @@ def _added_unsupported_hidden_event_reference(
     if _criteria_counts(new_candidates) == _criteria_counts(existing_candidates):
         return None
     new_reads = _flag_call_reads_or_none(new_candidates, team)
-    if new_reads is None:
-        return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_COMPILE_REASON)
-    if new_reads.reads_from_events == 0:
+    if new_reads is not None and new_reads.reads_from_events == 0:
         return None
     existing_reads = _flag_call_reads_or_none(existing_candidates, team) if existing_candidates else None
-    if existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
+    if new_reads is None:
+        if existing_candidates and existing_reads is None:
+            return None
+        reason = _FLAG_CALL_COMPILE_REASON
+    elif existing_reads is not None and new_reads.reads_from_events <= existing_reads.reads_from_events:
         return None
-    return HiddenEventRefusal(
-        event=FLAG_EVALUATIONS_SOURCE_EVENT,
-        reason=_FLAG_CALL_KEY_REASON if new_reads.rewrite_enabled else HIDDEN_EVENT_REASON,
-    )
+    else:
+        reason = _FLAG_CALL_KEY_REASON if new_reads.rewrite_enabled else HIDDEN_EVENT_REASON
+    if _flag_call_criteria_alone_pass(new_candidates, team):
+        reason = _FLAG_CALL_SQL_EXPRESSION_REASON
+    return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=reason)
 
 
 def _team_from_serializer_context(context: dict[str, Any]) -> Optional[Team]:

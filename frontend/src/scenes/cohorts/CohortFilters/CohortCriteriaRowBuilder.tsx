@@ -42,7 +42,7 @@ export interface CohortCriteriaRowBuilderProps {
 
 const MOVE_NOTICE_EFFECTS: Record<FlagCallCriterionProblem, string> = {
     type: 'When the move finishes, this criterion stops matching new flag calls. To keep it matching, change it to "Completed event", "Did not complete event" or "Completed an event multiple times".',
-    window: `When the move finishes, this criterion counts every flag call only if its range goes back ${MAX_LOOKBACK_DAYS} days or less. Pick a range relative to today that fits, such as "Last 30 days".`,
+    window: `When the move finishes, this criterion counts every flag call only if its range is relative to today and goes back ${MAX_LOOKBACK_DAYS} days or less, such as "Last 30 days".`,
     filters:
         'When the move finishes, PostHog may not be able to calculate this cohort. To keep it working, filter this criterion on event properties only.',
 }

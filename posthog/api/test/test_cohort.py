@@ -22,7 +22,7 @@ from django.test import SimpleTestCase, override_settings
 from django.test.client import Client
 from django.utils import timezone
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
@@ -129,12 +129,23 @@ _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION = {
         }
     ],
 }
+_PAGEVIEW_WITH_HOGQL_FILTER_CRITERION = {
+    **_PAGEVIEW_CRITERION,
+    "event_filters": [{"key": "properties.plan = 'pro'", "type": "hogql"}],
+}
+_FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION = {
+    **_FLAG_CALLED_CRITERION,
+    "value": "performed_event_multiple",
+    "operator": "gte",
+    "operator_value": 0,
+}
 _HIDDEN_EVENT_REFUSAL = "its data is moving"
 _FLAG_CALL_TYPE_REFUSAL = "can use this event"
 _FLAG_CALL_WINDOW_REFUSAL = "88 days or less"
 _FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
 _FLAG_CALL_COMPILE_REFUSAL = "can't calculate"
 _FLAG_CALL_FILTER_REFUSAL = "SQL expression"
+_FLAG_CALL_SQL_EXPRESSION_REFUSAL = "on another criterion"
 _FLAG_CALL_REALTIME_REFUSAL = "Real-time cohorts can't use this event"
 
 
@@ -4945,14 +4956,7 @@ email@example.org,
             ),
             (
                 "multiple_times_zero",
-                [
-                    {
-                        **_FLAG_CALLED_CRITERION,
-                        "value": "performed_event_multiple",
-                        "operator": "gte",
-                        "operator_value": 0,
-                    }
-                ],
+                [_FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 True,
                 _FLAG_CALL_COMPILE_REFUSAL,
@@ -4965,6 +4969,13 @@ email@example.org,
                 _FLAG_CALL_FILTER_REFUSAL,
             ),
             (
+                "hogql_filter_on_another_criterion",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                None,
+            ),
+            (
                 "malformed_hogql_filter_on_another_criterion",
                 [
                     _FLAG_CALLED_CRITERION,
@@ -4972,11 +4983,18 @@ email@example.org,
                 ],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 True,
-                _FLAG_CALL_COMPILE_REFUSAL,
+                _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
             ),
             (
                 "unresolvable_flag_calls_in_another_criterion_in_flag_evaluations_only_mode",
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+                _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
+            ),
+            (
+                "unresolvable_flag_call_criterion_beside_hogql_filter",
+                [_FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 True,
                 _FLAG_CALL_COMPILE_REFUSAL,
@@ -5077,7 +5095,34 @@ email@example.org,
                 "adds_unresolvable_flag_calls_in_another_criterion",
                 [_FLAG_CALLED_CRITERION],
                 [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
-                _FLAG_CALL_KEY_REFUSAL,
+                _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
+            ),
+            (
+                "keeps_unresolvable_flag_calls_in_another_criterion",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
+                [{**_FLAG_CALLED_CRITERION, "time_value": 7}, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
+                None,
+            ),
+            param(
+                "edits_hogql_filter_beside_uncompilable_flag_call_criterion",
+                [_FLAG_CALLED_UNRESOLVABLE_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
+                [
+                    _FLAG_CALLED_UNRESOLVABLE_CRITERION,
+                    {**_PAGEVIEW_CRITERION, "event_filters": [{"key": "properties.plan = 'free'", "type": "hogql"}]},
+                ],
+                None,
+                mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+            param(
+                "adds_criterion_that_breaks_the_compile",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
+                [
+                    _FLAG_CALLED_CRITERION,
+                    _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION,
+                    _FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION,
+                ],
+                _FLAG_CALL_COMPILE_REFUSAL,
+                mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
             ),
             (
                 "edits_any_flag",
@@ -5095,19 +5140,30 @@ email@example.org,
     )
     @patch("posthog.api.cohort.report_user_action")
     def test_update_cohort_criteria_on_hidden_event(
-        self, _name, stored_criteria, criteria, expected_refusal, patch_capture
+        self,
+        _name,
+        stored_criteria,
+        criteria,
+        expected_refusal,
+        patch_capture,
+        mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
     ):
-        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._set_flag_evaluations_mode(mode)
+        # A cohort that filters out test accounts is a batch cohort.
+        # The realtime block refuses only realtime cohorts.
         cohort = Cohort.objects.create(
             team=self.team,
             name="flag callers",
-            filters={"properties": {"type": "OR", "values": stored_criteria}},
+            filters={"properties": {"type": "OR", "values": stored_criteria}, "filterTestAccounts": True},
         )
 
         with self._flag_calls_rewrite(True):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
-                data={"name": "flag callers renamed", "filters": {"properties": {"type": "OR", "values": criteria}}},
+                data={
+                    "name": "flag callers renamed",
+                    "filters": {"properties": {"type": "OR", "values": criteria}, "filterTestAccounts": True},
+                },
             )
 
         cohort.refresh_from_db()
