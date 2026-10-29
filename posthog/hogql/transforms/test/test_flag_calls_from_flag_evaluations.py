@@ -422,6 +422,13 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
                 _on_posthog_events(POSTHOG_EVENTS_QUALIFIED, select="properties AS posthog"),
             ),
             (
+                "posthog_events_quoted_qualifier_that_a_select_alias_shadows",
+                _on_posthog_events(
+                    POSTHOG_EVENTS_QUALIFIED.replace("posthog.events.", "`posthog.events`."),
+                    select="properties AS `posthog.events`",
+                ),
+            ),
+            (
                 "posthog_events_qualifier_that_a_cte_shadows",
                 f"WITH posthog AS (SELECT 1) {_on_posthog_events(POSTHOG_EVENTS_QUALIFIED)}",
             ),
