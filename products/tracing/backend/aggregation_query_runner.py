@@ -16,8 +16,6 @@ windows in parallel when set.
 """
 
 import datetime as dt
-import contextvars
-from concurrent.futures import ThreadPoolExecutor
 from functools import cached_property
 from typing import TYPE_CHECKING, cast
 from zoneinfo import ZoneInfo
@@ -50,6 +48,7 @@ from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -174,28 +173,19 @@ class _SpanAggregationMixin:
         if compare_range is None:
             return self._run_period(self.query_date_range, self.timings), None
 
-        # Copy contextvars to worker threads so query tags (product/feature) set by the
-        # viewset propagate. ThreadPoolExecutor does not inherit contextvars by default.
-        primary_ctx = contextvars.copy_context()
-        compare_ctx = contextvars.copy_context()
         # HogQLTimings is not thread safe, so each worker gets its own clone.
-        primary_timings = self.timings.clone_for_subquery(0)
-        compare_timings = self.timings.clone_for_subquery(1)
+        windows = [
+            (self.query_date_range, self.timings.clone_for_subquery(0)),
+            (compare_range, self.timings.clone_for_subquery(1)),
+        ]
 
-        def run_primary() -> list:
-            return primary_ctx.run(self._run_period, self.query_date_range, primary_timings)
+        def run_window(window: tuple[QueryDateRange, HogQLTimings]) -> list:
+            return self._run_period(*window)
 
-        def run_compare() -> list:
-            return compare_ctx.run(self._run_period, compare_range, compare_timings)
-
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            current_future = pool.submit(run_primary)
-            previous_future = pool.submit(run_compare)
-            results = current_future.result(), previous_future.result()
-
-        self.timings.timings.update(primary_timings.timings)
-        self.timings.timings.update(compare_timings.timings)
-        return results
+        current, previous = map_in_caller_context(run_window, windows, thread_name_prefix="tracing_aggregation")
+        for _, timings in windows:
+            self.timings.timings.update(timings.timings)
+        return current, previous
 
     def _run_period(self, query_date_range: QueryDateRange, timings: HogQLTimings) -> list:
         query = self._build_query(query_date_range)
@@ -290,13 +280,16 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         current_rows, previous_rows = self._run_with_compare()
         if self.query.includeHealth:
             self._classify(current_rows, previous_rows or [])
-            if not (self.query.compareFilter and self.query.compareFilter.compare):
+            if self.query.compareFilter and self.query.compareFilter.compare:
+                # The baseline ran unpaged, so cut it back to the page the caller asked for.
+                previous_rows = (previous_rows or [])[self._offset : self._offset + self._limit]
+            else:
                 previous_rows = None
         return TraceSpansAggregationQueryResponse(results=current_rows, compare=previous_rows)
 
     def _classify(self, current_rows: list[AggregatedSpanRow], baseline_rows: list[AggregatedSpanRow]) -> None:
-        # shortcut: rows carry no last-seen time, so silent never fires, and a row the baseline window drops
-        # through its limit or offset reads as new. Add a last_seen column if per-endpoint silence detection is needed.
+        # shortcut: rows carry no last-seen time, so silent never fires, and a row past the baseline's top _ROW_LIMIT
+        # reads as new. Add a last_seen column if per-endpoint silence detection is needed.
         baseline = {(row.service_name, row.name): row for row in baseline_rows}
         window_from = self.query_date_range.date_from()
         window_to = min(self.query_date_range.date_to(), dt.datetime.now(tz=ZoneInfo("UTC")))
@@ -319,11 +312,15 @@ class TraceSpansAggregationQueryRunner(_SpanAggregationMixin, AnalyticsQueryRunn
         if self.query.groupByEndpoint:
             where = ast.And(exprs=[where, _endpoint_scope_expr()])
             group_name = _endpoint_name_expr()
+        limit, offset = self._limit, self._offset
+        if self.query.includeHealth and query_date_range is not self.query_date_range:
+            # A row's baseline rank differs from its current rank, so the baseline must not reuse the current page.
+            limit, offset = _ROW_LIMIT, 0
         placeholders: dict[str, ast.Expr] = {
             "where": where,
             "group_name": group_name,
-            "limit": ast.Constant(value=self._limit),
-            "offset": ast.Constant(value=self._offset),
+            "limit": ast.Constant(value=limit),
+            "offset": ast.Constant(value=offset),
             **query_date_range.to_placeholders(),
         }
         # Appended rather than always present, because reading the attribute maps is the

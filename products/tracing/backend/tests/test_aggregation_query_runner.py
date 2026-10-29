@@ -325,6 +325,9 @@ class TestTraceSpansAggregationHealth(_TraceSpansTestBase):
         ("GET /items", 6, 100, 0),
         ("GET /items", 8, 100, 0),
         ("GET /new", 8, 5, 0),
+        # Ranks first in the baseline and last in the current window.
+        ("GET /legacy", 6, 300, 0),
+        ("GET /legacy", 8, 1, 0),
     ]
 
     @classmethod
@@ -356,8 +359,20 @@ class TestTraceSpansAggregationHealth(_TraceSpansTestBase):
             date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             include_health=True,
         )
+        statuses = {row.name: row.health_status for row in response.results}
         self.assertEqual(
-            {row.name: row.health_status for row in response.results},
+            {name: statuses[name] for name in ("GET /orders", "GET /items", "GET /new")},
             {"GET /orders": "regressed", "GET /items": "ok", "GET /new": "new"},
         )
         self.assertIsNone(response.compare)
+
+    def test_a_paged_row_keeps_its_baseline(self):
+        response = run_aggregation_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            include_health=True,
+            limit=1,
+            offset=3,
+        )
+        self.assertEqual([row.name for row in response.results], ["GET /legacy"])
+        self.assertNotEqual(response.results[0].health_status, "new")
