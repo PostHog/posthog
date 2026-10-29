@@ -21,7 +21,8 @@ type Story = StoryObj
 
 const retentionMocks = (
     organizationMonths: number | null,
-    projectMonths: number | null
+    projectMonths: number | null,
+    nextDeletionOn: string | null = null
 ): ReturnType<typeof mswDecorator> => {
     const organization: OrganizationEventsRetentionApi = {
         organization_retention_months: organizationMonths,
@@ -35,6 +36,7 @@ const retentionMocks = (
         retained_from: '2024-11-01',
         docs_url: 'https://posthog.com/docs/data/events-retention',
         project_retention_months: projectMonths,
+        next_deletion_on: nextDeletionOn,
     }
     return mswDecorator({
         get: {
@@ -57,6 +59,11 @@ export const OrganizationWithWindow: Story = {
 export const ProjectUsingOrganizationWindow: Story = {
     render: () => <ProjectEventsRetentionSetting />,
     decorators: [retentionMocks(24, null)],
+}
+
+export const ProjectWithPlanDeletionScheduled: Story = {
+    render: () => <ProjectEventsRetentionSetting />,
+    decorators: [retentionMocks(null, null, '2027-02-01')],
 }
 
 export const ProjectWithOwnWindow: Story = {

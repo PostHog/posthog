@@ -10,7 +10,7 @@ import { insightRetentionBannerLogic } from './insightRetentionBannerLogic'
 
 export function InsightRetentionBanner({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
     const { shouldShowBanner } = useValues(insightRetentionBannerLogic(insightProps))
-    const { retentionPeriodLabel, retentionBannerAction } = useValues(dataRetentionBannerLogic)
+    const { retentionPeriodLabel, retentionBannerAction, nextDeletionLabel } = useValues(dataRetentionBannerLogic)
     const { snooze } = useActions(dataRetentionBannerLogic)
 
     if (!shouldShowBanner || !retentionPeriodLabel) {
@@ -21,6 +21,7 @@ export function InsightRetentionBanner({ insightProps }: { insightProps: Insight
         <LemonBanner type="warning" onClose={snooze} action={retentionBannerAction ?? undefined}>
             This insight's date range goes beyond your {retentionPeriodLabel} data retention, so events older than that
             aren't included.
+            {nextDeletionLabel && <span>{` Those events will be deleted starting ${nextDeletionLabel}.`}</span>}
         </LemonBanner>
     )
 }

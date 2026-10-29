@@ -111,6 +111,7 @@ export const defaultMocks: Mocks = {
             plan_retention_months: 84,
             min_retention_months: 1,
             max_retention_months: 84,
+            next_deletion_on: null,
         },
         '/api/projects/:team_id/annotations/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/event_definitions/': EMPTY_PAGINATED_RESPONSE,
