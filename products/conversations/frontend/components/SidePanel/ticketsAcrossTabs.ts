@@ -20,11 +20,7 @@ const STORE_NAME = 'shared'
 const CHANNEL_NAME = 'posthog-conversations-tickets'
 const LOCK_WAIT_MS = 15_000
 
-/**
- * Command side. Every tab asks here before it calls the tickets endpoint. The lock lets one tab fetch
- * at a time, and the second freshness check inside the lock lets the tabs that queued behind it
- * reuse its result.
- */
+/** The second freshness check inside the lock lets the tabs that queued behind it reuse its result. */
 export async function loadTicketsAcrossTabs(
     fetchTickets: () => Promise<ConversationTicket[] | null>,
     options: { force?: boolean; maxAgeMs: number },
@@ -54,7 +50,6 @@ export async function loadTicketsAcrossTabs(
     )
 }
 
-/** Query side. Calls `onChange` with the stored tickets each time another tab writes new ones. */
 export function subscribeToSharedTickets(onChange: (tickets: ConversationTicket[]) => void): () => void {
     if (typeof BroadcastChannel === 'undefined') {
         return () => {}
