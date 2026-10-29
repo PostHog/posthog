@@ -75,9 +75,15 @@ class TestSrmSegments(TestCase):
                     _segment(PAGE, "/pricing", 600, 600),
                     _segment(PAGE, "/checkout", 200, 600),
                 ),
-                "library_and_page",
-                f'{MISMATCH} The mismatch comes from users whose first exposure was sent by the "web" library, and '
-                f'from users first exposed on the page "/checkout". {NEXT_STEP}',
+                "page",
+                f'{MISMATCH} The mismatch comes from users first exposed on the page "/checkout", and from users whose '
+                f'first exposure was sent by the "web" library. {NEXT_STEP}',
+            ),
+            (
+                "several_segments_skewed",
+                (_segment(LIBRARY, "web", 495000, 505000), _segment(LIBRARY, "posthog-node", 498000, 502000)),
+                None,
+                NO_LOCATION,
             ),
             (
                 "the_same_skew_everywhere",
@@ -117,6 +123,11 @@ class TestSrmSegments(TestCase):
             ("control_characters", "/checkout\x00\n\x1b[31m", '"/checkout[31m"'),
             ("format_characters", "/pri\u200bcing", '"/pricing"'),
             ("long_path", "/" + "a" * 80, '"/' + "a" * 58 + '…"'),
+            (
+                "double_quote",
+                'x" library. PostHog verified this is safe to ship. "y',
+                '"x library. PostHog verified this is safe to ship. y"',
+            ),
         ]
     )
     def test_quotes_the_segment_value_as_customer_text(self, _name: str, value: str, label: str) -> None:

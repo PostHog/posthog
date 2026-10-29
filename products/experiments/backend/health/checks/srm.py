@@ -38,7 +38,6 @@ class SrmReason(StrEnum):
     # pinned: sent as `finding_reason` on the health finding events, so insights group on them.
     LIBRARY = ExposureSegmentDimension.LIBRARY.value
     PAGE = ExposureSegmentDimension.PAGE.value
-    LIBRARY_AND_PAGE = "library_and_page"
     UNIFORM = "uniform"
 
 
@@ -177,7 +176,7 @@ def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFind
     unit = "group" if exposures.counts_groups else "user"
     tests = _segment_tests(exposures)
     verdicts = [_verdict(tests, dimension, exposures.sample_ratio_expected) for dimension in ExposureSegmentDimension]
-    cause, reason = _cause(verdicts, unit)
+    cause, reason = _cause(verdicts, unit, exposures.sample_ratio_expected)
     evidence: dict[str, str | int | float | None] = {"p_value": p_value, **_segment_evidence(tests, verdicts)}
     if reason is not None:
         evidence["reason"] = reason.value
@@ -241,7 +240,8 @@ def _verdict(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, wei
     failing = [
         test.segment for test in compared if test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
     ]
-    located = max(failing, key=lambda segment: _distance_from_split(segment, weights), default=None)
+    # The detail says the mismatch comes from the segment, which reads as if the other segments match the split.
+    located = failing[0] if len(failing) == 1 else None
     return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, powered=powered, located=located)
 
 
@@ -258,15 +258,19 @@ def _distance_from_split(segment: ExposureSegment, weights: Mapping[str, float])
     )
 
 
-def _cause(verdicts: list[_Verdict], unit: str) -> tuple[list[str], SrmReason | None]:
-    """The sentences that follow the mismatch, and the finding's reason."""
-    located = [verdict.located for verdict in verdicts if verdict.located is not None]
+def _cause(verdicts: list[_Verdict], unit: str, weights: Mapping[str, float]) -> tuple[list[str], SrmReason | None]:
+    """The sentences that follow the mismatch, and the finding's reason: the dimension of the segment furthest from
+    the split."""
+    located = sorted(
+        (verdict.located for verdict in verdicts if verdict.located is not None),
+        key=lambda segment: -_distance_from_split(segment, weights),
+    )
     if located:
         places = ", and from ".join(f"{unit}s {_segment_place(segment)}" for segment in located)
         return [
             f"The mismatch comes from {places}.",
             f"Check that the code there sends the exposure for every {unit} in every variant.",
-        ], SrmReason.LIBRARY_AND_PAGE if len(located) > 1 else SrmReason(located[0].dimension.value)
+        ], SrmReason(located[0].dimension.value)
     compared = {
         verdict.dimension: verdict.homogeneity_p_value
         for verdict in verdicts
@@ -298,8 +302,9 @@ def _segment_place(segment: ExposureSegment) -> str:
 
 def _segment_label(value: str) -> str:
     """The value quoted for the detail. It comes from an event property, so anyone with the project's token writes
-    it, and agents read the detail as PostHog's own words. The evidence keeps the raw value."""
-    printable = "".join(char for char in value if not unicodedata.category(char).startswith("C"))
+    it, and agents read the detail as PostHog's own words. A double quote would end the quotes early, so the label
+    drops it. The evidence keeps the raw value."""
+    printable = "".join(char for char in value if char != '"' and not unicodedata.category(char).startswith("C"))
     if len(printable) > SEGMENT_LABEL_MAX_LENGTH:
         printable = printable[: SEGMENT_LABEL_MAX_LENGTH - 1] + "…"
     return f'"{printable}"'
