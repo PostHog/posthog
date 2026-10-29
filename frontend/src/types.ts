@@ -442,6 +442,8 @@ export interface UserType extends UserBaseType {
     onboarding_delegated_to_organization_id?: string | null
     onboarding_delegation_accepted_at?: string | null
     is_organization_first_user?: boolean
+    /** How many personal API keys this user may hold, from the `personal_api_keys` entitlement. */
+    personal_api_keys_limit?: number
     pending_invites?: PendingInviteForCurrentUser[]
 }
 
