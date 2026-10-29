@@ -13565,7 +13565,7 @@ export namespace Schemas {
     }
 
     export interface AnomalyInsightResponse {
-      /** Whether anomaly scoring covers this project. */
+      /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
       scoring_enabled: boolean;
       /** The numeric id of the insight. */
       insight_id: number;
@@ -13757,7 +13757,7 @@ export namespace Schemas {
     }
 
     export interface AnomalySearchResponse {
-      /** Whether anomaly scoring covers this project. */
+      /** Whether anomaly scoring scores this project now. False when scoring does not cover the project, or when the project turned it off in its self-driving settings. Scores written before scoring was turned off are still returned. */
       scoring_enabled: boolean;
       /** Active insights that scoring checks: saved trends insights that a person viewed, that sit on a dashboard someone opened, or that were edited in the active window (90 days by default), or that have an enabled alert or subscription. */
       watched_insights: number;
@@ -46772,6 +46772,17 @@ export namespace Schemas {
 
     export interface EventsRetention {
       /**
+         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * @nullable
+         */
+      readonly organization_retention_months: number | null;
+      /** The longest window the organization's plan allows, in months. */
+      readonly plan_retention_months: number;
+      /** The shortest window an admin can set, in months. */
+      readonly min_retention_months: number;
+      /** The longest window an admin can set, in months. Never longer than the plan's window. */
+      readonly max_retention_months: number;
+      /**
          * How many months of events stay queryable, counted back from today. Null while no retention window applies to the project.
          * @nullable
          */
@@ -46783,6 +46794,20 @@ export namespace Schemas {
       readonly retained_from: string | null;
       /** Where the events retention policy is documented. */
       readonly docs_url: string;
+      /**
+         * The window, in months, set for this project. Null while the project uses the organization's window.
+         * @nullable
+         */
+      readonly project_retention_months: number | null;
+    }
+
+    export interface EventsRetentionUpdate {
+      /**
+         * The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window.
+         * @minimum 1
+         * @nullable
+         */
+      retention_months: number | null;
     }
 
     export interface ExcerptChoice {
@@ -75856,6 +75881,20 @@ export namespace Schemas {
       readonly scim_base_url: string | null;
     }
 
+    export interface OrganizationEventsRetention {
+      /**
+         * The window, in months, that every project without its own window uses. Null while the organization keeps events for its plan's window.
+         * @nullable
+         */
+      readonly organization_retention_months: number | null;
+      /** The longest window the organization's plan allows, in months. */
+      readonly plan_retention_months: number;
+      /** The shortest window an admin can set, in months. */
+      readonly min_retention_months: number;
+      /** The longest window an admin can set, in months. Never longer than the plan's window. */
+      readonly max_retention_months: number;
+    }
+
     export interface OrganizationFeatureFlagRow {
       /** ID of the representative feature flag for this key */
       id: number;
@@ -88000,7 +88039,41 @@ export namespace Schemas {
       readonly connection_warning?: string | null;
     }
 
+    /**
+     * * `errors` - Errors or bugs
+     * * `metrics` - Metrics got worse
+     * * `planned` - It was planned
+     * * `wrong_configuration` - Wrong configuration
+     * * `other` - Other
+     */
+    export type RollbackReasonEnum = typeof RollbackReasonEnum[keyof typeof RollbackReasonEnum];
+
+
+    export const RollbackReasonEnum = {
+      Errors: 'errors',
+      Metrics: 'metrics',
+      Planned: 'planned',
+      WrongConfiguration: 'wrong_configuration',
+      Other: 'other',
+    } as const;
+
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
+      /** When true, the edit lowers the flag's exposure, and the request sends no `rollback_reason`, the flag is not saved and the response is a 409 with the code `rollback_reason_required`. Send the edit again without this field to save it, with or without a `rollback_reason`. Ignored for an edit that needs approval and for a config version 2 flag. */
+      ask_rollback_reason?: boolean;
+      /** Why this edit lowers the flag's exposure, for example a rollback after errors. Stored on the activity log entry of the edit. Not stored for an edit that needs approval or for a config version 2 flag.
+       *
+       * * `errors` - Errors or bugs
+       * * `metrics` - Metrics got worse
+       * * `planned` - It was planned
+       * * `wrong_configuration` - Wrong configuration
+       * * `other` - Other */
+      rollback_reason?: RollbackReasonEnum | null;
+      /**
+         * A free-text note for `rollback_reason`. Requires `rollback_reason`.
+         * @maxLength 1000
+         * @nullable
+         */
+      rollback_reason_note?: string | null;
       /** Feature flag key. */
       key?: string;
       /** Feature flag description (stored in the `name` field for backwards compatibility). */
@@ -95073,6 +95146,8 @@ export namespace Schemas {
       product: string;
       /** Total LLM cost in USD across every `ai_product` for the user — independent of the `product` filter. */
       total_cost_usd: number;
+      /** Raw LLM cost in USD for products eligible for AI or Desktop credit billing, independent of the product filter and breakdown limit. Excludes credit markup and does not represent an invoiced amount. */
+      billable_cost_usd: number;
       /** Total $ai_generation + $ai_embedding events captured across every product. */
       event_count: number;
       /** Total cost in USD for the product filter. Matches the cost summed across `by_tool` / `by_model` for the scoped slice. */
@@ -95091,6 +95166,8 @@ export namespace Schemas {
       event_count: number;
       /** Total cost in USD for this product over the lookback window. */
       cost_usd: number;
+      /** Whether this product is eligible for PostHog AI or Desktop credit billing, independent of event-level billing rules. */
+      billable: boolean;
     }
 
     export interface _ProductBreakdown {
@@ -111687,6 +111764,10 @@ export namespace Schemas {
          * @nullable
          */
       pull_request_label?: string | null;
+      /** Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered. */
+      anomaly_scoring_enabled?: boolean;
+      /** Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. PostHog decides which projects anomaly scoring covers. */
+      readonly anomaly_scoring_available: boolean;
       /**
          * How many reports first became visible in the inbox during the current project-timezone day. This is the count the daily report limit compares against.
          * @minimum 0
