@@ -174,8 +174,7 @@ fun logPathname(l) {
     return extractPathname(p.path ?? l.path ?? '')
 }
 
-// With page_routes_only enabled, keep only top-level document requests. A batch with no
-// page-route log is acknowledged with 200 so Vercel does not retry it.
+// A batch with no page-route log is acknowledged with 200 so Vercel does not retry it.
 let selectedLogs := logs
 if (inputs.page_routes_only) {
     selectedLogs := []
