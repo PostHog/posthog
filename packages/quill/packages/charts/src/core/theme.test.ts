@@ -1,6 +1,10 @@
+import { renderHook } from '@testing-library/react'
+import { createElement, type ReactNode } from 'react'
+
 import { dataColorPalette } from '@posthog/quill-tokens'
 
-import { DEFAULT_CHART_COLORS, themeFromCssVars } from './theme'
+import { ChartThemeProvider, DEFAULT_CHART_COLORS, themeFromCssVars, useResolvedChartTheme } from './theme'
+import type { ChartTheme } from './types'
 
 describe('chart theme', () => {
     afterEach(() => {
@@ -70,5 +74,21 @@ describe('chart theme', () => {
 
         expect(colors).toHaveLength(colorCount)
         expect(colors[DEFAULT_CHART_COLORS.length]).toBe(DEFAULT_CHART_COLORS[0])
+    })
+
+    const PROP_THEME: ChartTheme = { colors: ['#000001'] }
+    const PROVIDED_THEME: ChartTheme = { colors: ['#000002'] }
+
+    it.each([
+        { name: 'the prop over the provider', prop: PROP_THEME, provided: PROVIDED_THEME, expected: '#000001' },
+        { name: 'the provider without a prop', prop: undefined, provided: PROVIDED_THEME, expected: '#000002' },
+        { name: 'the CSS vars without either', prop: undefined, provided: null, expected: '#000003' },
+    ])('resolves a chart theme from $name', ({ prop, provided, expected }) => {
+        document.body.style.setProperty('--data-color-1', '#000003')
+        const wrapper = ({ children }: { children: ReactNode }): ReactNode =>
+            provided ? createElement(ChartThemeProvider, { value: provided }, children) : children
+        const { result } = renderHook(() => useResolvedChartTheme(prop), { wrapper })
+        expect(result.current.colors[0]).toBe(expected)
+        document.body.style.removeProperty('--data-color-1')
     })
 })
