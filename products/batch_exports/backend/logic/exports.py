@@ -9,12 +9,12 @@ import contextlib
 import dataclasses
 from uuid import UUID
 
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import (
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     DatabricksIntegration,
     DatabricksIntegrationError,
-    Integration,
     SnowflakeIntegration,
     SnowflakeIntegrationError,
 )
@@ -30,6 +30,7 @@ from products.batch_exports.backend import service
 from products.batch_exports.backend.facade import contracts
 from products.batch_exports.backend.facade.enums import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
+    BATCH_EXPORT_INTEGRATION_KINDS,
     OBJECT_STORAGE_DESTINATIONS,
     S3_FAMILY_TYPES,
     S3_SUPPORTED_COMPRESSIONS,
@@ -40,9 +41,9 @@ from products.batch_exports.backend.models.batch_export import BatchExport
 # S3-family destinations that may authenticate via an Integration, mapped to
 # the linked integration's kind. Adding a future S3-family destination (e.g. a
 # first-class GCS-via-S3 type) is a one-line addition here.
-_S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
-    BatchExportDestinationType.AWS_S3: Integration.IntegrationKind.AWS_S3,
-    BatchExportDestinationType.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
+_S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, IntegrationKind] = {
+    BatchExportDestinationType.AWS_S3: IntegrationKind.AWS_S3,
+    BatchExportDestinationType.S3_COMPATIBLE: IntegrationKind.S3_COMPATIBLE,
 }
 
 # The only URLs an HTTP destination may send to, as SSRF protection.
@@ -61,12 +62,12 @@ def _get_batch_export(team_id: int, export_id: UUID, *related: str) -> BatchExpo
         raise contracts.BatchExportNotFoundError() from e
 
 
-def _get_integration(team_id: int, integration_id: int | None) -> Integration | None:
+def _get_integration(team_id: int, integration_id: int | None) -> IntegrationRecord | None:
     if integration_id is None:
         return None
     try:
-        return Integration.objects.get(id=integration_id, team_id=team_id)
-    except Integration.DoesNotExist as e:
+        return IntegrationManager.kinds(*BATCH_EXPORT_INTEGRATION_KINDS).get(team_id, integration_id)
+    except IntegrationNotFound as e:
         raise contracts.InvalidBatchExportDestinationError(
             "The integration for this destination no longer exists. Choose another integration and try again."
         ) from e
@@ -219,11 +220,7 @@ def _check_redshift_copy_inputs(
             continue
         # These ids live inside `config` rather than the team-scoped `integration`
         # field, so team ownership must be checked here.
-        if not Integration.objects.filter(
-            id=copy_integration_id,
-            team_id=team_id,
-            kind=Integration.IntegrationKind.AWS_S3,
-        ).exists():
+        if copy_integration_id not in IntegrationManager.aws_s3.credentials.get_many(team_id, [copy_integration_id]):
             raise contracts.InvalidBatchExportDestinationError(
                 f"'{field_name}' does not reference an AWS S3 integration of this project."
             )
@@ -293,6 +290,7 @@ def validate_destination(
     merged_config = _recursive_dict_merge(existing_config, config)
 
     # The integration the request sent. None when it sent none, or sent an explicit null.
+    requested_integration: IntegrationRecord | None
     if instance is not None and integration_id is not None and instance.destination.integration_id == integration_id:
         # A PATCH usually sends the export's current integration again, which is already loaded.
         requested_integration = instance.destination.integration
@@ -361,7 +359,7 @@ def validate_destination(
         # validate the Integration is valid (this is mandatory for Databricks batch exports)
         if requested_integration is None:
             raise contracts.InvalidBatchExportDestinationError("Integration is required for Databricks batch exports")
-        if requested_integration.kind != Integration.IntegrationKind.DATABRICKS:
+        if requested_integration.kind != IntegrationKind.DATABRICKS:
             raise contracts.InvalidBatchExportDestinationError("Integration is not a Databricks integration.")
         # try instantiate the integration to check if it's valid
         try:
@@ -375,13 +373,13 @@ def validate_destination(
         # (`instance is None`); existing inline-credential exports stay valid when edited.
         if requested_integration is None and instance is None:
             raise contracts.InvalidBatchExportDestinationError("Integration is required for Postgres batch exports")
-        if requested_integration is not None and requested_integration.kind != Integration.IntegrationKind.POSTGRESQL:
+        if requested_integration is not None and requested_integration.kind != IntegrationKind.POSTGRESQL:
             raise contracts.InvalidBatchExportDestinationError("Integration is not a PostgreSQL integration.")
 
     if destination_type == BatchExportDestinationType.BIGQUERY:
         if requested_integration is None:
             raise contracts.InvalidBatchExportDestinationError("Integration is required for BigQuery batch exports")
-        if requested_integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
+        if requested_integration.kind != IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
             raise contracts.InvalidBatchExportDestinationError(
                 "Integration is not a Google Cloud service account integration."
             )
@@ -390,7 +388,7 @@ def validate_destination(
         # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
         if requested_integration is None:
             raise contracts.InvalidBatchExportDestinationError("Integration is required for Azure Blob batch exports")
-        if requested_integration.kind != Integration.IntegrationKind.AZURE_BLOB:
+        if requested_integration.kind != IntegrationKind.AZURE_BLOB:
             raise contracts.InvalidBatchExportDestinationError("Integration is not an Azure Blob integration.")
         # try instantiate the integration to check if it's valid
         try:
@@ -417,7 +415,7 @@ def validate_destination(
 
         if requested_integration is not None:
             # (Team ownership is already enforced by the team-scoped `integration` field.)
-            if requested_integration.kind != Integration.IntegrationKind.AWS_REDSHIFT:
+            if requested_integration.kind != IntegrationKind.AWS_REDSHIFT:
                 raise contracts.InvalidBatchExportDestinationError("Integration is not a Redshift integration.")
 
             # Only plain Redshift integrations store a host; AWS-flavor ones obtain

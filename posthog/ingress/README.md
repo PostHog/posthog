@@ -79,6 +79,7 @@ Three duties fall on the incarnation rather than on `BearerJwt`, and none is enf
 | `sns`        | `/webhooks/workflows/ses-events`                        | `default`                  | `workflows_ses_events`                                                                                                                                                                                                   | `products/workflows/backend/webhook_consumers.py`                                                          |
 | `customerio` | `/api/projects/<team_id>/messaging/customerio/webhook/` | none                       | none, it is the DRF adapter path                                                                                                                                                                                         | `products/messaging/backend/api/customerio_webhook.py`                                                     |
 | `vercel`     | `/webhooks/vercel`                                      | `marketplace`              | `vercel_marketplace`                                                                                                                                                                                                     | `ee/api/vercel/webhook_consumers.py`                                                                       |
+| `linear`     | `/webhooks/linear`                                      | `posthog`                  | none                                                                                                                                                                                                                     | none                                                                                                       |
 
 The owner of the third-party App registration owns the route.
 The customer-facing GitHub App is shared across products, so its two endpoints are declared in `posthog/urls.py`.
@@ -260,7 +261,7 @@ webhook_urlpatterns: list[URLPattern] = [
 The route is relative to the mount, so this one serves `/webhooks/stamphog/github`.
 
 An App several products consume has no single owner, so it stays in `posthog/urls.py`.
-The customer-facing GitHub App is the only one today.
+The customer-facing GitHub App and the Linear App are the cases.
 [docs/internal/url-routing.md](../../docs/internal/url-routing.md) has the slot and the prefix rule.
 
 Secrets and verifiers that belong to a product are **passed into the builder**.
