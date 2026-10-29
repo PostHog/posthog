@@ -10,8 +10,10 @@ use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimite
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
-    extract::{DefaultBodyLimit, Extension},
-    http::{Method, StatusCode},
+    extract::{DefaultBodyLimit, Extension, Request},
+    http::{header, HeaderValue, Method, StatusCode},
+    middleware::Next,
+    response::Response,
     routing::{any, get, post},
     Router,
 };
@@ -458,9 +460,12 @@ where
         .route("/", get(index))
         .route(
             "/_readiness",
-            get(move || {
+            get({
                 let r = readiness.clone();
-                async move { r.check().await }
+                move || {
+                    let r = r.clone();
+                    async move { r.check().await }
+                }
             }),
         )
         .route(
@@ -606,6 +611,10 @@ where
         .merge(internal_endpoints)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(
+            readiness,
+            close_connection_unless_ready,
+        ))
         .with_state(state);
 
     // Don't install metrics unless asked to
@@ -724,6 +733,22 @@ async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Re
     }
 
     Ok(())
+}
+
+/// Asks HTTP/1.1 clients to close the connection after this response once the pod is not
+/// ready, so their next request opens a new connection through the Service to a pod that stays.
+async fn close_connection_unless_ready(
+    axum::extract::State(readiness): axum::extract::State<ReadinessHandler>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    if !readiness.is_ready() {
+        response
+            .headers_mut()
+            .insert(header::CONNECTION, HeaderValue::from_static("close"));
+    }
+    response
 }
 
 pub async fn index() -> &'static str {

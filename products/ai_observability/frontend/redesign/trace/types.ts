@@ -6,6 +6,8 @@ import type {
     TraceNodeDetailApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
     TraceSummaryContentApi,
+    TraceSurveyResponseApi,
+    TraceUnansweredSurveyApi,
 } from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
@@ -166,18 +168,29 @@ export interface FeedbackPlacement {
 
 export type FeedbackScoreRow = TraceFeedbackScoreApi & FeedbackPlacement
 
-export type FeedbackResponseItem = TraceFeedbackTextApi & FeedbackPlacement
+/** Survey responses link to the whole trace, so their `step` is always null. */
+export type FeedbackResponseItem = (TraceFeedbackTextApi | TraceSurveyResponseApi) & FeedbackPlacement
+
+export type SurveyAnswer = TraceSurveyResponseApi['answers'][number]
 
 export type FeedbackModeState =
     | { status: 'loading' }
     | { status: 'error' }
-    | { status: 'ready'; scores: FeedbackScoreRow[]; responses: FeedbackResponseItem[] }
+    | {
+          status: 'ready'
+          scores: FeedbackScoreRow[]
+          responses: FeedbackResponseItem[]
+          unanswered: TraceUnansweredSurveyApi[]
+          surveysFailed: boolean
+      }
 
 export interface FeedbackChipData {
     total: number
+    thumbsUp: number
+    thumbsDown: number
 }
 
 export interface StepFeedback {
     scores: TraceFeedbackScoreApi[]
-    textCount: number
+    responseCount: number
 }

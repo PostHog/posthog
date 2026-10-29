@@ -515,9 +515,6 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if existing_job_inputs.get(key) and not incoming_job_inputs.get(key):
                 new_job_inputs[key] = existing_job_inputs[key]
 
-        # SSH tunnel is a nested config - deep-merge it so partial updates preserve existing fields
-        existing_ssh_tunnel = existing_job_inputs.get("ssh_tunnel")
-
         # Nested containers (e.g. Stripe `auth_method`, Snowflake `auth_type`, Billomat `registered_app`)
         # need a deep-merge that preserves sensitive fields not explicitly provided. The shallow merge
         # above would otherwise wipe redacted credentials nested inside these containers. Same container
@@ -567,39 +564,12 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
                 new_job_inputs.pop(key, None)
             new_job_inputs[incoming_key] = merged_group
 
+        # SSH tunnel is a nested config, so deep-merge it to keep the stored fields a partial update omits.
         incoming_ssh_tunnel = incoming_job_inputs.get("ssh_tunnel")
-        if existing_ssh_tunnel and incoming_ssh_tunnel is not None:
-            ssh_tunnel_host_changed = "host" in incoming_ssh_tunnel and incoming_ssh_tunnel[
-                "host"
-            ] != existing_ssh_tunnel.get("host")
-
-            # Deep-merge: start with existing, overlay incoming top-level keys
-            merged_ssh_tunnel = {**existing_ssh_tunnel, **incoming_ssh_tunnel}
-
-            # Check both 'auth' (new format) and 'auth_type' (legacy format from migration 0807)
-            existing_auth = (
-                (existing_ssh_tunnel or {}).get("auth") or (existing_ssh_tunnel or {}).get("auth_type") or {}
+        if incoming_ssh_tunnel is not None:
+            new_job_inputs["ssh_tunnel"] = helpers.merge_ssh_tunnel(
+                existing_job_inputs.get("ssh_tunnel"), incoming_ssh_tunnel
             )
-            incoming_auth = (
-                (incoming_ssh_tunnel or {}).get("auth") or (incoming_ssh_tunnel or {}).get("auth_type") or {}
-            )
-
-            if ssh_tunnel_host_changed and not incoming_auth:
-                raise ValidationError("Changing the SSH tunnel host requires re-entering your SSH credentials.")
-
-            if not incoming_auth:
-                # No auth in incoming request - preserve entire existing auth
-                merged_ssh_tunnel["auth"] = {**existing_auth}
-            else:
-                # Merge auth, preserving sensitive fields not explicitly provided
-                merged_auth = {**incoming_auth}
-                if not ssh_tunnel_host_changed:
-                    for key in ("password", "passphrase", "private_key"):
-                        if existing_auth.get(key) and not incoming_auth.get(key):
-                            merged_auth[key] = existing_auth[key]
-                merged_ssh_tunnel["auth"] = merged_auth
-
-            new_job_inputs["ssh_tunnel"] = merged_ssh_tunnel
 
         is_valid, errors = source.validate_config(new_job_inputs)
         if not is_valid:
