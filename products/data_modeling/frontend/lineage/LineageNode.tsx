@@ -234,20 +234,33 @@ function hiddenCountLabel(count: number): string {
 }
 
 function hiddenCountDescription(count: number): string {
-    return count > HIDDEN_DOWNSTREAM_COUNT_CAP
-        ? `More than ${HIDDEN_DOWNSTREAM_COUNT_CAP} hidden models downstream`
-        : `${pluralize(count, 'hidden model')} downstream`
+    if (count > HIDDEN_DOWNSTREAM_COUNT_CAP) {
+        return `More than ${HIDDEN_DOWNSTREAM_COUNT_CAP} hidden models after this one. Nothing visible follows them.`
+    }
+    const followUp = count === 1 ? 'Nothing visible follows it.' : 'Nothing visible follows them.'
+    return `${pluralize(count, 'hidden model')} after this one. ${followUp}`
+}
+
+function HiddenDownstreamBadge({ count }: { count: number }): JSX.Element {
+    return (
+        <span
+            className="absolute -top-2 -right-2 z-10 rounded-full border border-dashed bg-surface-primary px-1.5 text-[10px] leading-4 text-secondary"
+            data-attr="lineage-hidden-downstream-badge"
+        >
+            {hiddenCountLabel(count)}
+        </span>
+    )
 }
 
 function CollapsedLineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, state, callbacks } = data
     const hiddenCount = state.hiddenDownstreamCount ?? 0
     const description = [
-        `Hidden ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}: ${node.name}`,
+        `Hidden ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}: ${node.name}.`,
         hiddenCount > 0 && hiddenCountDescription(hiddenCount),
     ]
         .filter(Boolean)
-        .join('. ')
+        .join(' ')
     return (
         <Tooltip title={description}>
             <div
@@ -274,22 +287,8 @@ function CollapsedLineageNode({ data }: { data: LineageNodeData }): JSX.Element 
                 )}
                 <NodeHandles handles={data.handles} />
                 <span aria-hidden="true">⋯</span>
-                {hiddenCount > 0 && (
-                    <span aria-hidden="true" className="ml-0.5 text-[10px]">
-                        {hiddenCountLabel(hiddenCount)}
-                    </span>
-                )}
+                {hiddenCount > 0 && <HiddenDownstreamBadge count={hiddenCount} />}
             </div>
-        </Tooltip>
-    )
-}
-
-function HiddenDownstreamTag({ count }: { count: number }): JSX.Element {
-    return (
-        <Tooltip title={hiddenCountDescription(count)}>
-            <span className="text-[10px] text-secondary whitespace-nowrap px-1 rounded border border-dashed">
-                {hiddenCountLabel(count)} hidden
-            </span>
         </Tooltip>
     )
 }
@@ -418,6 +417,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const ariaLabel = [
         `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
         node.lineage_issue && lineageIssueMessage(node.lineage_issue),
+        !!state.hiddenDownstreamCount && hiddenCountDescription(state.hiddenDownstreamCount),
     ]
         .filter(Boolean)
         .join('. ')
@@ -458,6 +458,11 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                 />
             )}
             <NodeHandles handles={data.handles} />
+            {!!state.hiddenDownstreamCount && (
+                <Tooltip title={hiddenCountDescription(state.hiddenDownstreamCount)}>
+                    <HiddenDownstreamBadge count={state.hiddenDownstreamCount} />
+                </Tooltip>
+            )}
 
             {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
                 <RunArrow direction="upstream" layoutDirection={direction} onClick={stop(callbacks.onRunUpstream)} />
@@ -482,7 +487,6 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                         {node.lineage_issue && <LineageIssueMarker issue={node.lineage_issue} />}
                     </div>
                     <div className="flex items-center gap-1">
-                        {!!state.hiddenDownstreamCount && <HiddenDownstreamTag count={state.hiddenDownstreamCount} />}
                         {node.user_tag && (
                             <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
                                 #{node.user_tag}

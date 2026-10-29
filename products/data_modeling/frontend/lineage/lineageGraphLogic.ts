@@ -10,7 +10,7 @@ const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
     canvas: { width: 180, height: 120 },
 }
 
-const COLLAPSED_NODE_SIZE = { width: 56, height: 24 }
+const COLLAPSED_NODE_SIZE = { width: 40, height: 24 }
 
 const NODE_GAP = 60
 
@@ -18,6 +18,10 @@ const THROUGH_HIDDEN_NODES_EDGE: Partial<ReactFlowEdge> = {
     label: '⋯',
     ariaLabel: 'Connected through hidden models',
     style: { strokeDasharray: '4 4' },
+    labelStyle: { fill: 'var(--color-text-secondary)' },
+    labelBgStyle: { fill: 'var(--color-bg-surface-primary)', fillOpacity: 0.8 },
+    labelBgPadding: [2, 0],
+    labelBgBorderRadius: 4,
 }
 
 export interface LineageGraphLayout {
