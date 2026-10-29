@@ -661,6 +661,11 @@ class BIAggregation(StrEnum):
     CUSTOM = "custom"
 
 
+class BICatalogMetricStatus(StrEnum):
+    APPROVED = "approved"
+    PROPOSED = "proposed"
+
+
 class Operator1(StrEnum):
     AND_ = "AND"
     OR_ = "OR"
@@ -2143,6 +2148,7 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
 class Breakdown1(StrEnum):
     KEYWORD = "keyword"
     PAGE = "page"
+    SEARCH_TERM = "search_term"
 
 
 class Platform(StrEnum):

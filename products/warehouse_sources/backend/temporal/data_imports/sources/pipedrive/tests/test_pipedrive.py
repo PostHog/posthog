@@ -59,7 +59,11 @@ def _make_manager(resume_state: PipedriveResumeConfig | None = None) -> mock.Mag
 
 
 def _wire(
-    session: mock.MagicMock, responses: list[Response], *, prepared_url: Optional[str] = None
+    session: mock.MagicMock,
+    responses: list[Response],
+    *,
+    prepared_url: Optional[str] = None,
+    urls: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     """Wire a mock session; return a list capturing each request's params AT SEND TIME.
 
@@ -72,6 +76,8 @@ def _wire(
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        if urls is not None:
+            urls.append(request.url)
         prepared = mock.MagicMock()
         prepared.url = prepared_url or "https://acme.pipedrive.com/api/v2/deals"
         return prepared
@@ -315,14 +321,179 @@ class TestPagination:
             _rows(_source("deals", _make_manager()))
 
 
+class TestLookupEndpoints:
+    @pytest.mark.parametrize("endpoint", ["lead_labels", "activity_types"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_every_row_in_one_request(self, MockSession: mock.MagicMock, endpoint: str) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(PAGE_SIZE + 100)]
+        params = _wire(session, [_response(full_page)])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert len(rows) == PAGE_SIZE + 100
+        assert session.send.call_count == 1
+        assert params == [{}]
+
+
+BASE = "https://acme.pipedrive.com"
+DEAL_LIST_PARAMS = {"limit": PAGE_SIZE, "sort_by": "id", "sort_direction": "asc"}
+
+
+class TestDealFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deal_products_batches_active_and_archived_deals(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        params = _wire(
+            session,
+            [
+                _response([{"id": 1}, {"id": 2}], {"next_cursor": None}),
+                _response([{"id": 10, "deal_id": 1}], {"next_cursor": "c2"}),
+                _response([{"id": 11, "deal_id": 2}], {"next_cursor": None}),
+                _response([{"id": 3}], {"next_cursor": None}),
+                _response([{"id": 12, "deal_id": 3}], {"next_cursor": None}),
+            ],
+            urls=urls,
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source("deal_products", manager))
+
+        assert [row["id"] for row in rows] == [10, 11, 12]
+        assert urls == [
+            f"{BASE}/api/v2/deals",
+            f"{BASE}/api/v2/deals/products",
+            f"{BASE}/api/v2/deals/products",
+            f"{BASE}/api/v2/deals/archived",
+            f"{BASE}/api/v2/deals/products",
+        ]
+        assert params == [
+            DEAL_LIST_PARAMS,
+            {"deal_ids": "1,2", "limit": PAGE_SIZE},
+            {"deal_ids": "1,2", "limit": PAGE_SIZE, "cursor": "c2"},
+            DEAL_LIST_PARAMS,
+            {"deal_ids": "3", "limit": PAGE_SIZE},
+        ]
+        assert manager.save_state.call_args.args[0] == PipedriveResumeConfig(
+            paginator_state={"parent_index": 1, "parent_page": None, "done_through": 3, "group": None, "child": None}
+        )
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deal_changelog_reads_each_deal_and_skips_a_deleted_one(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        change = {"field_key": "stage_id", "old_value": "1", "new_value": "2", "time": "2024-05-01 10:00:00"}
+        _wire(
+            session,
+            [
+                _response([{"id": 7}, {"id": 8}], {"next_cursor": None}),
+                _response([dict(change)], {"next_cursor": None}),
+                _response(None, drop_data=True, status=404),
+                _response([], {"next_cursor": None}),
+            ],
+            urls=urls,
+        )
+
+        rows = _rows(_source("deal_changelog", _make_manager()))
+
+        assert rows == [{**change, "deal_id": 7}]
+        assert urls == [
+            f"{BASE}/api/v2/deals",
+            f"{BASE}/api/v1/deals/7/changelog",
+            f"{BASE}/api/v1/deals/8/changelog",
+            f"{BASE}/api/v2/deals/archived",
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_continues_inside_the_saved_deal(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        params = _wire(
+            session,
+            [
+                _response([{"field_key": "status", "time": "2024-05-02 09:00:00"}], {"next_cursor": None}),
+                _response([{"id": 5}, {"id": 6}, {"id": 7}], {"next_cursor": None}),
+                _response([{"field_key": "value", "time": "2024-05-03 09:00:00"}], {"next_cursor": None}),
+            ],
+            urls=urls,
+        )
+        manager = _make_manager(
+            PipedriveResumeConfig(
+                paginator_state={
+                    "parent_index": 1,
+                    "parent_page": {"cursor": "p2"},
+                    "done_through": 5,
+                    "group": [6],
+                    "child": {"cursor": "c9"},
+                }
+            )
+        )
+
+        rows = _rows(_source("deal_changelog", manager))
+
+        assert [row["deal_id"] for row in rows] == [6, 7]
+        assert urls == [
+            f"{BASE}/api/v1/deals/6/changelog",
+            f"{BASE}/api/v2/deals/archived",
+            f"{BASE}/api/v1/deals/7/changelog",
+        ]
+        assert params == [
+            {"limit": PAGE_SIZE, "cursor": "c9"},
+            {**DEAL_LIST_PARAMS, "cursor": "p2"},
+            {"limit": PAGE_SIZE},
+        ]
+
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_resume_finishes_the_saved_batch_when_its_deals_changed(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        params = _wire(
+            session,
+            [
+                _response([{"id": 31, "deal_id": 2}], {"next_cursor": None}),
+                # Deal 2 was deleted and deal 4 added since the crash, so a rebuilt batch would differ.
+                _response([{"id": 1}, {"id": 3}, {"id": 4}], {"next_cursor": None}),
+                _response([{"id": 41, "deal_id": 4}], {"next_cursor": None}),
+                _response([], {"next_cursor": None}),
+            ],
+            urls=urls,
+        )
+        manager = _make_manager(
+            PipedriveResumeConfig(
+                paginator_state={
+                    "parent_index": 0,
+                    "parent_page": None,
+                    "done_through": None,
+                    "group": [1, 2, 3],
+                    "child": {"cursor": "c2"},
+                }
+            )
+        )
+
+        rows = _rows(_source("deal_products", manager))
+
+        assert [row["id"] for row in rows] == [31, 41]
+        assert urls[:3] == [
+            f"{BASE}/api/v2/deals/products",
+            f"{BASE}/api/v2/deals",
+            f"{BASE}/api/v2/deals/products",
+        ]
+        assert params[0] == {"deal_ids": "1,2,3", "limit": PAGE_SIZE, "cursor": "c2"}
+        assert params[2] == {"deal_ids": "4", "limit": PAGE_SIZE}
+
+
 class TestPipedriveSourcePartitioning:
     @pytest.mark.parametrize(
-        "endpoint, expected_partition_keys, expected_mode",
+        "endpoint, expected_primary_keys, expected_partition_keys, expected_mode",
         [
-            ("deals", ["add_time"], "datetime"),
-            ("activities", ["add_time"], "datetime"),
-            ("users", None, None),
-            ("deal_fields", None, None),
+            ("deals", ["id"], ["add_time"], "datetime"),
+            ("activities", ["id"], ["add_time"], "datetime"),
+            ("users", ["id"], None, None),
+            ("deal_fields", ["id"], None, None),
+            ("lead_labels", ["id"], None, None),
+            ("deal_products", ["deal_id", "id"], ["add_time"], "datetime"),
+            ("deal_changelog", ["deal_id", "field_key", "time"], ["time"], "datetime"),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -330,12 +501,13 @@ class TestPipedriveSourcePartitioning:
         self,
         MockSession: mock.MagicMock,
         endpoint: str,
+        expected_primary_keys: list[str],
         expected_partition_keys: list[str] | None,
         expected_mode: str | None,
     ) -> None:
         response = _source(endpoint, _make_manager())
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == expected_primary_keys
         assert response.partition_keys == expected_partition_keys
         assert response.partition_mode == expected_mode
         assert response.partition_format == ("week" if expected_mode else None)

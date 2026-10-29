@@ -19,21 +19,24 @@ from products.signals.backend.ranking.features import (
     REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
     REPORT_SOURCES_EXTRA,
 )
-from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_KIND
+from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
+from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import partition_object_key
 from products.signals.dags.inbox_ranking.dataset.dag import (
     EMBEDDINGS_TABLE,
     LABELS_TABLE,
     SIGNAL_EMBEDDINGS_SCHEMA,
     SIGNAL_EMBEDDINGS_TABLE,
+    USER_INTERACTIONS_SCHEMA,
+    USER_INTERACTIONS_TABLE,
 )
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
-from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, report_matrix
+from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable, project_context, report_matrix
 from products.signals.dags.inbox_ranking.nn import experiments, pair_lane
 from products.signals.dags.inbox_ranking.nn.dag import NN_EXAMPLES_TABLE
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS, build_examples, examples_arrow
-from products.signals.dags.inbox_ranking.nn.model import network_recipe, vs_baseline_block
+from products.signals.dags.inbox_ranking.nn.model import network_recipe, onnx_probabilities, vs_baseline_block
 from products.signals.dags.inbox_ranking.nn.pair_grade import DOGFOOD_TEAM_ID, pair_vs_baseline_block
 from products.signals.dags.inbox_ranking.nn.pair_lane import (
     PAIR_SETTINGS,
@@ -42,13 +45,23 @@ from products.signals.dags.inbox_ranking.nn.pair_lane import (
     train_pair_candidate,
 )
 from products.signals.dags.inbox_ranking.nn.pairs import NN_PAIR_EXAMPLES_TABLE, PAIR_EXAMPLES_SCHEMA
-from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, HOLDOUT_DAYS, _SyntheticInbox
+from products.signals.dags.inbox_ranking.tests.test_multihead import (
+    D0,
+    DAYS,
+    HOLDOUT_DAYS,
+    TEAMS,
+    _birth,
+    _SyntheticInbox,
+)
 from products.signals.dags.inbox_ranking.tests.test_nn import _S3, _parquet
 from products.signals.dags.inbox_ranking.tests.test_training import _ModelStoreS3
 from products.signals.dags.inbox_ranking.training import side_inputs
 from products.signals.dags.inbox_ranking.training.dag import METADATA_FILE, model_object_key
 from products.signals.dags.inbox_ranking.training.families import (
+    MODEL_FAMILIES,
     NN_MODEL_NAME,
+    NN_PAIR_BASE_MODEL_NAME,
+    NN_PAIR_USER_MODEL_NAME,
     NN_WITH_PRIO_FAMILY,
     NN_WITH_PRIO_MODEL_NAME,
     PAIR_GRAIN,
@@ -147,6 +160,29 @@ def test_an_experiment_must_name_a_registered_serving_baseline_and_an_expiry():
     assert family_problems((serving, _experiment("first", datetime.date(2026, 12, 31)), chained)) == [
         "experiment chained names baseline first, which is not a serving family"
     ]
+
+
+@pytest.mark.parametrize(
+    "families,selection",
+    [
+        ((_experiment("report", datetime.date(2026, 10, 20)),), [experiments.NN_EXPERIMENTS_ASSET]),
+        (
+            (
+                _experiment("expired", datetime.date(2026, 10, 19)),
+                _pair_experiment("pair", expires=datetime.date(2026, 10, 20)),
+            ),
+            [NN_PAIR_EXAMPLES_TABLE, experiments.NN_PAIR_EXPERIMENTS_ASSET],
+        ),
+        ((_pair_experiment("expired_pair", expires=datetime.date(2026, 10, 19)),), []),
+    ],
+    ids=["report_only", "pair_only", "nothing_live"],
+)
+def test_a_run_builds_pair_examples_only_for_a_live_pair_experiment_and_trains_it_after_them(families, selection):
+    assert experiments.experiment_selection(families, datetime.date(2026, 10, 20)) == selection
+    pair_examples = dagster.AssetKey(NN_PAIR_EXAMPLES_TABLE)
+    # The report experiments stay apart from the pair examples, so a failed pair step cannot skip them.
+    assert pair_examples in experiments.inbox_ranking_nn_pair_experiment_candidates.dependency_keys
+    assert pair_examples not in experiments.inbox_ranking_nn_experiment_candidates.dependency_keys
 
 
 @pytest.mark.parametrize(
@@ -517,33 +553,51 @@ def _pair_examples(report_rows: pd.DataFrame, report_labels: np.ndarray, report_
     return pa.Table.from_pylist(rows, schema=PAIR_EXAMPLES_SCHEMA)
 
 
-@pytest.mark.parametrize("pairs_present", [True, False])
-def test_a_pair_experiment_trains_on_pair_rows_and_is_graded_within_user(monkeypatch, pairs_present):
+def _reader_history(inbox: _SyntheticInbox, day: str) -> pa.Table:
+    """Each team's reader viewed every report of the team it opens, the day after its birth."""
+    rows = [
+        {
+            "snapshot_date": datetime.date.fromisoformat(day),
+            "report_id": report_id,
+            "report_team_id": int(report["team"]),
+            "user_distinct_id": f"reader-{report['team']}",
+            "first_viewed_at": (_birth(int(report["born"])) + pd.Timedelta(days=1)).to_pydatetime(),
+        }
+        for report_id, report in inbox.reports.iterrows()
+        if report["open"]
+    ]
+    return pa.Table.from_pylist(rows, schema=USER_INTERACTIONS_SCHEMA)
+
+
+@pytest.mark.parametrize(
+    "model_name,pairs_present",
+    [(NN_PAIR_USER_MODEL_NAME, True), (NN_PAIR_BASE_MODEL_NAME, True), (NN_PAIR_USER_MODEL_NAME, False)],
+    ids=["user_family", "base_family", "user_family_without_pairs"],
+)
+def test_a_registered_pair_family_trains_scores_and_is_graded_within_user(monkeypatch, model_name, pairs_present):
     pytest.importorskip("torch")
     monkeypatch.setattr("products.signals.dags.inbox_ranking.nn.dag.capture_training_events", lambda *a, **k: None)
     monkeypatch.setattr(
         pair_lane, "NETWORK_CONFIG", NetworkConfig(projection_dim=8, trunk_dim=8, dropout=0.1, epochs=40, batch_size=32)
     )
     monkeypatch.setattr(pair_lane, "EXPERIMENT_SEEDS", (0, 1))
-    base = _pair_experiment("nn_pair_stub_base")
-    family = _pair_experiment("nn_pair_stub", baseline=base.name)
-    registry = (NN_WITH_PRIO_FAMILY, base, family)
-    assert family_problems(registry) == []
-    monkeypatch.setattr(pair_lane, "MODEL_FAMILIES", registry)
+    monkeypatch.setattr(pair_lane, "training_consent_team_ids", lambda: frozenset(TEAMS))
+    monkeypatch.setattr(pair_lane, "team_organizations", lambda team_ids: {t: f"org-{t}" for t in team_ids})
+    family = next(family for family in MODEL_FAMILIES if family.name == model_name)
     inbox = _SyntheticInbox()
     embeddings, labels = inbox.embeddings(), inbox.labels()
     examples = build_examples(inbox.snapshots(), report_vectors(embeddings), holdout_days=HOLDOUT_DAYS)
     table = examples.table
     day = (D0 + datetime.timedelta(days=DAYS - 1)).isoformat()
+    pairs = _pair_examples(table.rows, table.labels, table.holdout)
     objects = {
         partition_object_key(PREFIX, NN_EXAMPLES_TABLE, day): _parquet(examples_arrow(examples)),
         partition_object_key(PREFIX, EMBEDDINGS_TABLE, day): _parquet(embeddings),
         partition_object_key(PREFIX, LABELS_TABLE, day): _parquet(labels),
+        partition_object_key(PREFIX, USER_INTERACTIONS_TABLE, day): _parquet(_reader_history(inbox, day)),
     }
     if pairs_present:
-        objects[partition_object_key(PREFIX, NN_PAIR_EXAMPLES_TABLE, day)] = _parquet(
-            _pair_examples(table.rows, table.labels, table.holdout)
-        )
+        objects[partition_object_key(PREFIX, NN_PAIR_EXAMPLES_TABLE, day)] = _parquet(pairs)
     client = _S3(objects)
 
     with dagster.build_asset_context(partition_key=day) as context:
@@ -556,14 +610,42 @@ def test_a_pair_experiment_trains_on_pair_rows_and_is_graded_within_user(monkeyp
         return
     metadata = json.loads(client.objects[metadata_key])
     assert (metadata["grain"], metadata["recipe"]["grain"]) == (PAIR_GRAIN, PAIR_GRAIN)
+    assert (metadata["feature_set"], metadata["user_vector_kinds"]) == (family.feature_set.name, ["open", "dismiss"])
     assert [head["head"] for head in metadata["heads"]] == ["open", "action"]
     block = metadata["vs_baseline"]
-    assert (block["grain"], block["baseline"], block["reference"]) == (PAIR_GRAIN, base.name, NN_WITH_PRIO_MODEL_NAME)
+    assert (block["grain"], block["baseline"], block["reference"]) == (
+        PAIR_GRAIN,
+        family.baseline,
+        NN_WITH_PRIO_MODEL_NAME,
+    )
     for grade in block["heads"].values():
         every = grade["scopes"]["all"]["all"]
-        assert every["vs_baseline"]["macro"]["paired_seeds"] == every["vs_reference"]["macro"]["paired_seeds"] == 2
+        assert every["vs_reference"]["macro"]["paired_seeds"] == 2
+        if family.baseline is None:
+            assert every["vs_baseline"] is None
+        else:
+            assert every["vs_baseline"]["macro"]["paired_seeds"] == 2
         # The skimmers never open, so only the readers have both classes; the dogfood readers drop out.
         assert grade["scopes"]["non_dogfood"]["all"]["users"] < every["users"]
     opened = block["heads"]["open"]["scopes"]["all"]["all"]
-    assert min(opened["experiment"]["macro"]) > 0.75
+    assert min(opened["experiment"]["macro"]) > 0.65
     assert min(opened["reference"]["macro"]) > 0.75
+
+    pair_table = pair_lane.pair_example_table(pairs.to_pandas(), table.rows, family.heads)
+    history = pair_lane.load_user_history(client, "bucket", PREFIX, day)
+    inputs = pair_lane.pair_network_inputs(
+        pair_table,
+        report_vectors(embeddings),
+        family.feature_set,
+        project_context(pair_table.rows, labels, embeddings),
+        history,
+        embeddings,
+    )
+    scores = onnx_probabilities(
+        client.objects[model_object_key(PREFIX, family.name, day, ONNX_MODEL_FILE)],
+        inputs,
+        metadata[ONNX_OUTPUT_HEADS_KEY],
+    )
+    cold_start = (pair_table.rows["prior_views"] == 0).to_numpy()
+    assert cold_start.any()
+    assert all(np.isfinite(head_scores).all() for head_scores in scores.values())

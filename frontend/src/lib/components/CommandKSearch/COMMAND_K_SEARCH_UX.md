@@ -177,7 +177,7 @@ These are the rules reviewers check. Breaking one is a bug.
 
 | Key                     | Action                                                                                                                      |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `↑` / `↓`               | Move highlight. Wraps at ends. Skips section headers.                                                                       |
+| `↑` / `↓`               | Move highlight. Skips section headers. `↑` on the first row returns to the input. `↓` stops at the last row.                |
 | `↵`                     | Filter key or value row: complete it. Result row: open it.                                                                  |
 | `⌘↵`                    | Open result in a new tab.                                                                                                   |
 | `Tab`                   | Highlighted key or value row: complete it. Any other row, with a query: ask PostHog AI. With neither, focus moves as usual. |
@@ -185,7 +185,7 @@ These are the rules reviewers check. Breaking one is a bug.
 | `⌫` at start of text    | First press selects the previous chip. Second press removes it.                                                             |
 | `↵` on a selected chip  | Turns the chip back into editable text (`is:dashboard`) with the cursor after it.                                           |
 | `←` / `→` at text edges | Move between chips.                                                                                                         |
-| `Esc`                   | Text in the input: clear it. Empty input: close the palette.                                                                |
+| `Esc`                   | Close the palette.                                                                                                          |
 | `⌘A`                    | Selects the chips and the text together. `⌫`, typing, or cut then replaces all of it. Copy includes the chips as text.      |
 
 ## Edge cases
@@ -195,7 +195,7 @@ These are the rules reviewers check. Breaking one is a bug.
 - **Pasted query** (`is:flag createdBy:me checkout`): parse into chips immediately.
 - **Same key twice** (`is:dashboard is:insight`): the later value replaces the earlier chip. While a value for a key that already has a chip is being typed, results preview the new value instead of the chip.
 - **Invalid value** (`is:banana`): keep it as plain text, no chip, and show "No type called banana" in the Suggestions section.
-- **Ask PostHog AI**: the last section in Search mode. Without filters, the question is the input text as typed. With filters and free text, the filters read as a sentence around the text (`Find notebooks created by me called "untitled"`). With filters and no free text, the section does not show and Tab does not ask AI.
+- **Ask PostHog AI**: the last section in Search mode, shown only when no other row matches. When other rows match, Tab and the **Press Tab to ask AI** button ask AI. Without filters, the question is the input text as typed. With filters and free text, the filters read as a sentence around the text (`Find notebooks created by me called "untitled"`). With filters and no free text, the section does not show and Tab does not ask AI.
   Asking AI does not send the question. It closes the palette and opens the PostHog AI side panel with the question in the composer, so the user can edit it and send it with Enter.
 
 ## Out of scope for v1

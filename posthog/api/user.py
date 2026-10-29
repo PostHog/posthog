@@ -120,7 +120,7 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_notification_lock import notification_locks_for_users
 from posthog.models.organization_provisioning import OrganizationProvisioning
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import (
     ROLE_CHOICES,
@@ -353,6 +353,14 @@ class UserSerializer(serializers.ModelSerializer):
             "choice underneath. Read-only."
         ),
     )
+    personal_api_keys_limit = serializers.SerializerMethodField(
+        help_text=(
+            "How many personal API keys the user may hold, from the `personal_api_keys` billing "
+            "entitlement of the user's organizations. The highest limit across their organizations "
+            "applies, and 10 when no organization grants a limit. Creating a key beyond it is "
+            "rejected with a validation error. Read-only."
+        ),
+    )
 
     class Meta:
         model = User
@@ -411,6 +419,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_invites",
             "requires_credential_review",
             "notification_locks",
+            "personal_api_keys_limit",
         ]
 
         read_only_fields = [
@@ -542,6 +551,10 @@ class UserSerializer(serializers.ModelSerializer):
     @tracer.start_as_current_span("user_serializer.has_social_auth")
     def get_has_social_auth(self, instance: User) -> bool:
         return instance.social_auth.exists()
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_personal_api_keys_limit(self, instance: User) -> int:
+        return max_personal_api_keys_for_user(instance)
 
     @tracer.start_as_current_span("user_serializer.requires_credential_review")
     def get_requires_credential_review(self, instance: User) -> bool:
