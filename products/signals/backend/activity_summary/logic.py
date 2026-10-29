@@ -135,13 +135,18 @@ def _input_start(watermark: datetime.datetime | None, now: datetime.datetime, wi
     return earliest if watermark is None else max(earliest, watermark + _WATERMARK_STEP)
 
 
-def _read_inputs(
-    team_id: int, user_id: int, start: datetime.datetime, end: datetime.datetime
-) -> tuple[list[TaskItem], list[ActivityItem], list[ViewItem]]:
-    return (
-        user_tasks(team_id, user_id, start, end),
-        user_activity(team_id, user_id, start, end),
-        user_views(team_id, user_id, start, end),
+@frozen
+class _WindowInputs:
+    tasks: list[TaskItem]
+    activity: list[ActivityItem]
+    views: list[ViewItem]
+
+
+def _read_inputs(team_id: int, user_id: int, start: datetime.datetime, end: datetime.datetime) -> _WindowInputs:
+    return _WindowInputs(
+        tasks=user_tasks(team_id, user_id, start, end),
+        activity=user_activity(team_id, user_id, start, end),
+        views=user_views(team_id, user_id, start, end),
     )
 
 
@@ -353,7 +358,8 @@ def update_activity_summary(
     rebuild = is_stale(stored, rebuild_before)
     window_start = _input_start(None, now, limits.window_days)
     start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
-    tasks, activity, views = _read_inputs(team_id, user_id, start, now)
+    window = _read_inputs(team_id, user_id, start, now)
+    tasks, activity, views = window.tasks, window.activity, window.views
     rendered = _render(team_id, user_id, tasks, activity, views, as_of=now, limits=limits)
     if rendered is None or rendered.units < min_units:
         if not dry_run:
@@ -370,7 +376,8 @@ def update_activity_summary(
     if start == window_start:
         computed = compute_fields(tasks, activity, views).as_json()
     else:
-        computed = compute_fields(*_read_inputs(team_id, user_id, window_start, now)).as_json()
+        full = _read_inputs(team_id, user_id, window_start, now)
+        computed = compute_fields(full.tasks, full.activity, full.views).as_json()
     previous = stored.summary if stored is not None and not rebuild else None
     outcome, cost = _call_model(team_id, user_id, rendered, computed, previous=previous, as_of=now, limits=limits)
     if outcome.summary is not None:
@@ -475,7 +482,8 @@ def render_as_of(
     """The rendered input and computed fields of `[as_of - limits.window_days, as_of)`, or None when nothing renders.
 
     Views come from the latest view of each object, so an object opened again after `as_of` is missing."""
-    tasks, activity, views = _read_inputs(team_id, user_id, as_of - datetime.timedelta(days=limits.window_days), as_of)
+    window = _read_inputs(team_id, user_id, as_of - datetime.timedelta(days=limits.window_days), as_of)
+    tasks, activity, views = window.tasks, window.activity, window.views
     excluded: Counter[str] = Counter()
     activity, views = without_products(activity, views, exclude_products, excluded)
     rendered = _render(team_id, user_id, tasks, activity, views, as_of=as_of, limits=limits)

@@ -42,6 +42,12 @@ INBOX_PRODUCTS: frozenset[Product] = frozenset({Product.INBOX})
 STATUS_EXCEPTION = "exception"
 
 
+@frozen(order=True)
+class TeamUser:
+    team_id: int
+    user_id: int
+
+
 @frozen
 class BackfillJob:
     team_id: int
@@ -84,28 +90,31 @@ def eligible_team_ids(team_ids: Iterable[int]) -> set[int]:
     )
 
 
-def inbox_users(as_of: datetime.datetime) -> set[tuple[int, int]]:
+def inbox_users(as_of: datetime.datetime) -> set[TeamUser]:
     """Every (team, user) with an inbox report action that started before `as_of`."""
-    return set(
-        # nosemgrep: idor-lookup-without-team (an operator backfill over all teams, with no user input)
-        SignalReportAction.all_teams.filter(first_at__lt=as_of).values_list("team_id", "user_id").distinct()
-    )
+    return {
+        TeamUser(team_id=team_id, user_id=user_id)
+        for team_id, user_id in (
+            # nosemgrep: idor-lookup-without-team (an operator backfill over all teams, with no user input)
+            SignalReportAction.all_teams.filter(first_at__lt=as_of).values_list("team_id", "user_id").distinct()
+        )
+    }
 
 
 def backfill_jobs(
     as_of_dates: Sequence[datetime.datetime],
     *,
-    pair: tuple[int, int] | None = None,
+    pair: TeamUser | None = None,
 ) -> list[BackfillJob]:
     """One job per as-of date and pair, for `pair` or for the inbox users before that date, on eligible teams only."""
     jobs: list[BackfillJob] = []
     for as_of in as_of_dates:
         pairs = {pair} if pair is not None else inbox_users(as_of)
-        eligible = eligible_team_ids({team_id for team_id, _ in pairs})
+        eligible = eligible_team_ids({p.team_id for p in pairs})
         jobs.extend(
-            BackfillJob(team_id=team_id, user_id=user_id, as_of=as_of)
-            for team_id, user_id in sorted(pairs)
-            if team_id in eligible
+            BackfillJob(team_id=p.team_id, user_id=p.user_id, as_of=as_of)
+            for p in sorted(pairs)
+            if p.team_id in eligible
         )
     return jobs
 

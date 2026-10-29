@@ -13,6 +13,7 @@ from django.utils import timezone
 
 from products.signals.backend.activity_summary.backfill import (
     BackfillOptions,
+    TeamUser,
     backfill_jobs,
     plan_backfill,
     run_backfill,
@@ -89,7 +90,7 @@ class Command(BaseCommand):
         if dates[-1] > timezone.now():
             raise CommandError("An as-of date is in the future.")
 
-        pair = None if options["inbox_users"] else (options["team_id"], options["user_id"])
+        pair = None if options["inbox_users"] else TeamUser(team_id=options["team_id"], user_id=options["user_id"])
         jobs = backfill_jobs(dates, pair=pair)
         backfill_options = BackfillOptions(
             limits=parse_limits(options["limits"]),
