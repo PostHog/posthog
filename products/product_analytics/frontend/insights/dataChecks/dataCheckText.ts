@@ -22,6 +22,8 @@ export interface DataCheckText {
 const TRAFFIC_TYPE_PROPERTY = '$virt_traffic_type'
 // The traffic types the bot check counts, as the backend's CRAWLER_TRAFFIC_TYPES lists them.
 const CRAWLER_TRAFFIC_TYPES = ['Bot', 'AI Agent']
+// The share from which the localhost check passes, as the backend's LOCAL_APP_SHARE sets it.
+const LOCAL_APP_SHARE = 0.9
 
 export function removesBotTraffic(
     rules: readonly { key?: string; type?: string; operator?: unknown; value?: unknown }[]
@@ -67,6 +69,11 @@ function eventCount(check: InsightDataCheckApi): string {
 // Below 1% a share rounds to 0%, so the text gives a count instead.
 function percentOf(share: number | null): string | null {
     return share !== null && share >= 0.01 ? percentage(share, 0) : null
+}
+
+function amountOf(check: InsightDataCheckApi): string {
+    const percent = percentOf(check.share)
+    return percent ? `${check.scaled ? 'About ' : ''}${percent}` : capitalizeFirstLetter(eventCount(check))
 }
 
 function shareOf(check: InsightDataCheckApi, part: number): string | null {
@@ -264,9 +271,10 @@ export function dataCheckText(
             const missed = missedUserCount(check)
             return { name, result: `Filtered out, except ${missed ? pluralize(missed, 'user') : 'some users'}` }
         }
+        if (check.key === 'local_development' && (check.share ?? 0) >= LOCAL_APP_SHARE) {
+            return { name, result: `${amountOf(check)} of these events, so they come from your app` }
+        }
         return { name, result: check.events ? `Almost none (${eventCount(check)} events)` : 'None found' }
     }
-    const percent = percentOf(check.share)
-    const amount = percent ? `${check.scaled ? 'About ' : ''}${percent}` : capitalizeFirstLetter(eventCount(check))
-    return { name, result: `${amount} of these events` }
+    return { name, result: `${amountOf(check)} of these events` }
 }
