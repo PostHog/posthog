@@ -1,21 +1,19 @@
 """The `source_config` of a metrics alert on the alerts platform, and its native lifecycle.
 
 A metrics alert has no row of its own in this product. The platform creates and deletes it, and its
-configuration id is the id its destinations match on.
+destinations are `AlertDestination` rows that go with it.
 """
 
 from typing import Final, Literal, Self
-from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from products.alerts.backend.facade.destinations import soft_delete_all_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
 )
-from products.metrics.backend.alerts.destinations import EVENT_IDS, EVENT_IDS_BY_INCIDENT_ACTION
+from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION
 from products.metrics.backend.alerts.wording import alert_url
 
 # A metrics alert checks the latest value of each series, so it runs as often as the platform allows.
@@ -68,16 +66,11 @@ def _validate_edit(edit: PlatformAlertConfigurationEdit) -> None:
     return None
 
 
-def _remove_destinations(*, team_id: int, configuration_id: UUID) -> None:
-    soft_delete_all_alert_destinations(team_id=team_id, alert_id=str(configuration_id), allowed_event_ids=EVENT_IDS)
-
-
 METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
     model=MetricsPlatformAlertConfig,
     validate=_validate_edit,
-    native=NativeAlertLifecycle(
-        check_interval_minutes=CHECK_INTERVAL_MINUTES, remove_destinations=_remove_destinations
-    ),
+    # No `remove_destinations`, so the alert's destinations are `AlertDestination` rows from the start.
+    native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES),
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
 )

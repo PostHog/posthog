@@ -14703,10 +14703,9 @@ export interface SourceConfigMapResponseApi {
  * * `discord` - discord
  * * `pagerduty` - pagerduty
  */
-export type WarehouseAlertDestinationTypeEnumApi =
-    (typeof WarehouseAlertDestinationTypeEnumApi)[keyof typeof WarehouseAlertDestinationTypeEnumApi]
+export type AlertDestinationTypeEnumApi = (typeof AlertDestinationTypeEnumApi)[keyof typeof AlertDestinationTypeEnumApi]
 
-export const WarehouseAlertDestinationTypeEnumApi = {
+export const AlertDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
     Teams: 'teams',
@@ -14762,7 +14761,7 @@ export interface WarehouseAlertDestinationApi {
      * * `teams` - teams
      * * `discord` - discord
      * * `pagerduty` - pagerduty */
-    type: WarehouseAlertDestinationTypeEnumApi
+    type: AlertDestinationTypeEnumApi
     /** Whether the destination is sent to. */
     enabled: boolean
     /** Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. */
@@ -14799,7 +14798,7 @@ export interface WarehouseAlertCreateDestinationApi {
      * * `teams` - teams
      * * `discord` - discord
      * * `pagerduty` - pagerduty */
-    type: WarehouseAlertDestinationTypeEnumApi
+    type: AlertDestinationTypeEnumApi
     /**
      * Which transitions send a message. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves, whatever this lists. Defaults to every kind.
      * @minItems 1
