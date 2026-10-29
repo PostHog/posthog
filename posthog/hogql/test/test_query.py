@@ -2451,13 +2451,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.results, [("A\ufffd", ["B\ufffd"], {"key": "C\ufffd"})])
         orjson.dumps(response.model_dump(mode="json"))
 
-    def test_unreadable_aggregate_state_column_is_a_query_error(self):
-        with self.assertRaises(QueryError) as error:
-            execute_hogql_query("SELECT argMinState(event, timestamp) FROM events", team=self.team)
-
-        self.assertIn("AggregateFunction(argMin", str(error.exception))
-        self.assertIn("argMinMerge", str(error.exception))
-
     def test_non_transient_errors_are_not_retried(self):
         with (
             patch(

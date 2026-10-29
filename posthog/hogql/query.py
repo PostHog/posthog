@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
 
 from django.utils import timezone
 
-from clickhouse_driver.errors import UnknownTypeError
 from opentelemetry import trace
 
 from posthog.schema import (
@@ -1048,14 +1047,6 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
-                except UnknownTypeError as e:
-                    # The driver cannot read some column types, such as the AggregateFunction state that a `-State`
-                    # function returns. The message names only the column type.
-                    raise QueryError(
-                        f"The query returns a column that can't be read: {e.message}. If the column holds an "
-                        "aggregate state, use the plain aggregate function, or merge the state with the matching "
-                        "`-Merge` function (for example `argMinMerge`)."
-                    ) from e
                 self.results = decode_invalid_utf8_strings(self.results, self.types)
             except Exception as e:
                 if self.debug:
