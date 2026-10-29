@@ -11,6 +11,7 @@ from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import intake
 from products.knowledge_writer.backend.logic.launch import REQUEST_STATE_KEY
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.models import Task, TaskRun
 
 FLAG_CHECK = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
@@ -80,3 +81,7 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
     assert isinstance(stored_request, dict)
     assert stored_request["dedupe_id"] == verdict.request.dedupe_id
+    Task.objects.get(id=task.id).create_run()
+    run_states = TaskRun.objects.filter(task_id=task.id).values_list("state", flat=True)
+    assert len(run_states) == 2
+    assert all(state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [] for state in run_states)

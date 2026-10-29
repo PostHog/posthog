@@ -13,6 +13,7 @@ from ..facade.contracts import DocsRequest
 from ..settings import WriterSettings
 
 REQUEST_STATE_KEY = "knowledge_writer_request"
+NO_STORE_CONNECTORS_RUN_STATE = {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
 
 _request_json = TypeAdapter(DocsRequest)
 
@@ -51,6 +52,7 @@ def start_writer(request: DocsRequest, *, team: Team, writer: WriterSettings) ->
             create_pr=False,
             internal=True,
             posthog_mcp_scopes=[],
+            extra_run_state=NO_STORE_CONNECTORS_RUN_STATE,
             origin_key=request.dedupe_id,
         )
         tasks_facade.update_task_state_entry(
