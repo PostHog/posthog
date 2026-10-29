@@ -139,7 +139,7 @@ def _write_attrs(write: SubscriptionWrite) -> dict:
 
 def owner_unavailable_message(owner: User | None, error: Exception) -> str:
     """The refusal for a re-enable the owner cannot run, naming the owner and the cause."""
-    return f"Can't re-enable this subscription. {describe_owner_unavailable(owner, error)} Take ownership to enable it with your access instead."
+    return f"Can't re-enable this subscription. {describe_owner_unavailable(owner, error)}"
 
 
 class _SubscriptionWrite:
