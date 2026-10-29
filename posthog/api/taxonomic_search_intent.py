@@ -17,18 +17,10 @@ from rest_framework.throttling import UserRateThrottle
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.event_usage import report_user_action
 from posthog.llm.system_one import SystemOneNotConfigured, SystemOneRequestFailed
 from posthog.models import User
 from posthog.taxonomic_search_intent.classify import classify_search_intent, search_intent_enabled
-from posthog.taxonomic_search_intent.contracts import (
-    EventMatch,
-    EventMatchOutcome,
-    EventMatchRequest,
-    SearchIntentRequest,
-    SearchIntentSource,
-)
-from posthog.taxonomic_search_intent.event_match import EVENT_MATCH_FEATURE_FLAG, match_core_events
+from posthog.taxonomic_search_intent.contracts import SearchIntentRequest, SearchIntentSource
 
 logger = structlog.get_logger(__name__)
 
@@ -95,40 +87,6 @@ class SearchIntentResponseSerializer(serializers.Serializer):
     )
 
 
-class EventMatchRequestSerializer(serializers.Serializer):
-    query = serializers.CharField(
-        max_length=MAX_SEARCH_QUERY_CHARS,
-        allow_blank=True,
-        trim_whitespace=True,
-        help_text="What the person typed into the events list search box, which matched no event name.",
-    )
-
-
-class EventMatchSerializer(serializers.Serializer):
-    name = serializers.CharField(help_text="The event name to select, such as $autocapture.")
-    display_name = serializers.CharField(help_text="The event's display name, such as Autocapture.")
-    probability = serializers.FloatField(help_text="How likely the search means this event, from 0 to 1.")
-
-
-class EventMatchResponseSerializer(serializers.Serializer):
-    matches = serializers.ListField(
-        child=EventMatchSerializer(),
-        help_text="PostHog core events the search most likely means, strongest first. Empty when nothing is likely.",
-    )
-    outcome = serializers.ChoiceField(
-        choices=EventMatchOutcome.choices,
-        help_text="The step that decided the answer, so an empty answer says why it is empty.",
-    )
-    unsent = serializers.ListField(
-        child=EventMatchSerializer(),
-        help_text="Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested.",
-    )
-
-
-def _serialize_match(match: EventMatch) -> dict[str, Any]:
-    return {"name": match.name, "display_name": match.label, "probability": match.probability}
-
-
 class SearchIntentUnavailable(APIException):
     status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     default_detail = "The decision model is not available right now. Try again in a moment."
@@ -145,18 +103,6 @@ class SearchIntentBurstThrottle(UserRateThrottle):
 class SearchIntentSustainedThrottle(UserRateThrottle):
     scope = "taxonomic_search_intent_sustained"
     rate = "3000/day"
-
-
-# Each event match miss makes several model requests, and it only runs for a search with no results,
-# so it gets far lower rates than classify.
-class EventMatchBurstThrottle(UserRateThrottle):
-    scope = "taxonomic_event_match_burst"
-    rate = "20/minute"
-
-
-class EventMatchSustainedThrottle(UserRateThrottle):
-    scope = "taxonomic_event_match_sustained"
-    rate = "400/day"
 
 
 @extend_schema(extensions={"x-product": "core"})
@@ -206,49 +152,4 @@ class SearchIntentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "model_query": intent.model_query,
                 }
             ).data
-        )
-
-    @validated_request(
-        request_serializer=EventMatchRequestSerializer,
-        responses={
-            200: OpenApiResponse(response=EventMatchResponseSerializer, description="The likely core events."),
-            404: OpenApiResponse(description="Event matching is not enabled for this person."),
-            503: OpenApiResponse(description="The decision model did not answer in time."),
-        },
-        summary="Match an events search to core events",
-        description="Guess which PostHog core events a search that matched no event name describes.",
-    )
-    @action(detail=False, methods=["POST"], throttle_classes=[EventMatchBurstThrottle, EventMatchSustainedThrottle])
-    def match_events(self, request: Request, **kwargs: Any) -> Response:
-        user = cast(User, request.user)
-        if not search_intent_enabled(str(user.distinct_id), str(self.organization_id), flag=EVENT_MATCH_FEATURE_FLAG):
-            raise NotFound()
-        search = EventMatchRequest(
-            team_id=self.team_id, project_id=self.team.project_id, query=request.validated_data["query"]
-        )
-        try:
-            answer = match_core_events(search)
-        except (SystemOneNotConfigured, SystemOneRequestFailed) as error:
-            logger.warning("taxonomic_event_match_unavailable", team_id=self.team_id, reason=type(error).__name__)
-            self._report_event_match(request, EventMatchOutcome.UNAVAILABLE)
-            raise SearchIntentUnavailable() from error
-        self._report_event_match(request, answer.outcome)
-        return Response(
-            EventMatchResponseSerializer(
-                {
-                    "matches": [_serialize_match(match) for match in answer.matches],
-                    "outcome": answer.outcome.value,
-                    "unsent": [_serialize_match(match) for match in answer.unsent],
-                }
-            ).data
-        )
-
-    def _report_event_match(self, request: Request, outcome: EventMatchOutcome) -> None:
-        # The picker counts only the answers it shows, so only this event says which step left an answer empty.
-        report_user_action(
-            cast(User, request.user),
-            "taxonomic filter event match answered",
-            {"outcome": outcome.value},
-            team=self.team,
-            request=request,
         )

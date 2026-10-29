@@ -17,8 +17,8 @@ import { Playlist } from 'scenes/session-recordings/playlist/Playlist'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { WatchPicksListColumn } from 'products/replay_vision/frontend/replay_scanners/components/WatchPicksListColumn'
-import { watchPicksLogic } from 'products/replay_vision/frontend/replay_scanners/watchPicksLogic'
+import { HighlightPicksListColumn } from 'products/replay_vision/frontend/replay_scanners/components/HighlightPicksListColumn'
+import { highlightPicksLogic } from 'products/replay_vision/frontend/replay_scanners/highlightPicksLogic'
 
 import { RecordingsUniversalFiltersEmbed } from '../filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
@@ -90,7 +90,7 @@ export function SessionRecordingsPlaylist({
         <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
             {picksInList ? (
                 <BindLogic
-                    logic={watchPicksLogic}
+                    logic={highlightPicksLogic}
                     props={{ logicKey: logicProps.logicKey ?? 'playlist', playlistLogicProps: logicProps }}
                 >
                     {layout}
@@ -121,7 +121,7 @@ function PlaylistColumn({ picksInList, ...props }: LayoutProps): JSX.Element {
         )
     }
     if (picksInList) {
-        return <WatchPicksListColumn recordingsList={<Playlist {...props} />} />
+        return <HighlightPicksListColumn recordingsList={<Playlist {...props} />} />
     }
     return <Playlist {...props} />
 }

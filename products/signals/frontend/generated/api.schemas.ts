@@ -878,6 +878,18 @@ export const InboxOnboardingStepEnumApi = {
 } as const
 
 /**
+ * * `quick` - Quick
+ * * `guided` - Guided
+ */
+export type InboxOnboardingSetupModeEnumApi =
+    (typeof InboxOnboardingSetupModeEnumApi)[keyof typeof InboxOnboardingSetupModeEnumApi]
+
+export const InboxOnboardingSetupModeEnumApi = {
+    Quick: 'quick',
+    Guided: 'guided',
+} as const
+
+/**
  * * `session_replay` - Session replay
  * * `llm_analytics` - LLM analytics
  * * `github` - GitHub
@@ -1382,6 +1394,11 @@ export interface InboxOnboardingDraftApi {
      * * `scouts` - Scouts
      * * `github` - GitHub */
     step: InboxOnboardingStepEnumApi
+    /** How setup was chosen: quick activation from the welcome screen, or the guided steps.
+     *
+     * * `quick` - Quick
+     * * `guided` - Guided */
+    setup_mode?: InboxOnboardingSetupModeEnumApi
     /** Staged signal source choices. */
     sources: InboxOnboardingSourceApi[]
     /**
@@ -1409,20 +1426,6 @@ export interface InboxOnboardingDraftApi {
     implementation_priority: AutonomyPriorityEnumApi
 }
 
-/**
- * * `control` - Control
- * * `test-ui` - Focused steps
- * * `test-github` - Activate and explore
- */
-export type InboxOnboardingVariantEnumApi =
-    (typeof InboxOnboardingVariantEnumApi)[keyof typeof InboxOnboardingVariantEnumApi]
-
-export const InboxOnboardingVariantEnumApi = {
-    Control: 'control',
-    TestUi: 'test-ui',
-    TestGithub: 'test-github',
-} as const
-
 export interface InboxOnboardingStateApi {
     /** Whether this project can activate Self-driving without connecting GitHub. */
     github_optional_available?: boolean
@@ -1444,21 +1447,6 @@ export interface InboxOnboardingStateApi {
      * @nullable
      */
     completed_at: string | null
-    /** Variant recorded at the first eligible impression.
-     *
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore */
-    variant: InboxOnboardingVariantEnumApi | null
-}
-
-export interface InboxOnboardingExposureApi {
-    /** Assigned experiment variant at the eligible Inbox impression.
-     *
-     * * `control` - Control
-     * * `test-ui` - Focused steps
-     * * `test-github` - Activate and explore */
-    variant: InboxOnboardingVariantEnumApi
 }
 
 export interface PauseStateResponseApi {

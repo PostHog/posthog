@@ -1333,6 +1333,7 @@ describe('replayScannerLogic', () => {
             observationBackfillFilter: null as string | null,
             observationVariantFilter: null as string | null,
             observationWatchGroupFilter: null as string | null,
+            observationWatchCategoryFilter: null as string | null,
             observationsSort: null,
             scanner: null,
         }
