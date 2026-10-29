@@ -1,16 +1,18 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { mcpCustomHarnessesLogic } from '../settings/mcpCustomHarnessesLogic'
 import { HarnessLogo } from './harness'
+import { HarnessLabel } from './HarnessLabel'
 
 const ICON = 'data:image/png;base64,iVBORw0KGgo='
 
-describe('HarnessLogo', () => {
+describe('harness icons', () => {
     beforeEach(() => {
         useMocks({
             get: {
@@ -42,15 +44,17 @@ describe('HarnessLogo', () => {
         ['a built-in harness keeps its brand mark', 'Claude Code', null],
         ['a custom harness named like an object property keeps the generic mark', 'constructor', null],
     ])('%s', async (_, harness, expectedSrc) => {
-        render(
+        const logic = mcpCustomHarnessesLogic()
+        logic.mount()
+        await waitFor(() => expect(logic.values.customHarnesses).toHaveLength(1))
+
+        const { container } = render(
             <Provider>
                 <HarnessLogo category={harness} label={harness} />
+                <HarnessLabel category={harness} />
             </Provider>
         )
-        if (expectedSrc) {
-            await waitFor(() => expect(screen.getByAltText(harness)).toHaveAttribute('src', expectedSrc))
-        } else {
-            expect(screen.getByLabelText(harness).tagName.toLowerCase()).not.toBe('img')
-        }
+        const icons = Array.from(container.querySelectorAll('img')).map((img) => img.getAttribute('src'))
+        expect(icons).toEqual(expectedSrc ? [expectedSrc, expectedSrc] : [])
     })
 })
