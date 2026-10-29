@@ -8,7 +8,8 @@ import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
 export function BroadcastReviewTestEmail(): JSX.Element {
     const { props } = useMountedLogic(broadcastWizardLogic)
-    const { lastTestSentTo } = useValues(broadcastTestSendLogic(props))
+    const { lastTestSentTo, channel } = useValues(broadcastTestSendLogic(props))
+    const isPush = channel === 'push'
     const { setModalOpen } = useActions(broadcastTestSendLogic(props))
 
     return (
@@ -20,12 +21,18 @@ export function BroadcastReviewTestEmail(): JSX.Element {
                 {lastTestSentTo ? <IconCheckCircle className="mt-0.5 shrink-0 text-success text-lg" /> : null}
                 <div className="flex min-w-0 flex-col">
                     <span className="font-semibold">
-                        {lastTestSentTo ? `Test sent to ${lastTestSentTo}` : 'Send yourself a test first'}
+                        {lastTestSentTo
+                            ? `Test sent to ${lastTestSentTo}${isPush ? "'s devices" : ''}`
+                            : 'Send yourself a test first'}
                     </span>
                     <span className="text-secondary text-xs">
-                        {lastTestSentTo
-                            ? 'Check it in your inbox, on desktop and mobile, before you send.'
-                            : 'Read the email in a real inbox and click its links before it reaches your audience.'}
+                        {isPush
+                            ? lastTestSentTo
+                                ? 'Check it on your phone and tap it before you send.'
+                                : 'See the notification on a real phone before it reaches your audience.'
+                            : lastTestSentTo
+                              ? 'Check it in your inbox, on desktop and mobile, before you send.'
+                              : 'Read the email in a real inbox and click its links before it reaches your audience.'}
                     </span>
                 </div>
             </div>
@@ -35,7 +42,7 @@ export function BroadcastReviewTestEmail(): JSX.Element {
                 onClick={() => setModalOpen(true)}
                 data-attr="broadcast-review-send-test"
             >
-                {lastTestSentTo ? 'Send another test' : 'Send test email'}
+                {lastTestSentTo ? 'Send another test' : isPush ? 'Send test notification' : 'Send test email'}
             </LemonButton>
         </div>
     )

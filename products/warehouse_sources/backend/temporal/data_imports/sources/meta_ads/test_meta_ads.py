@@ -336,6 +336,64 @@ class TestSimplePaginationLimitFallback:
         assert batches == [[{"id": "1"}]]
         assert mock_get.return_value.get.call_args_list[-1].kwargs["params"]["limit"] == PAGE_LIMIT_FALLBACK_SIZES[-1]
 
+    def test_smallest_limit_refusal_drops_refusable_fields_and_reads_them_per_row(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        params = {**self.PARAMS, "fields": "id,name,targeting"}
+        get_responses = [
+            *(_mock_response(500, self.REDUCE_BODY) for _ in PAGE_LIMIT_FALLBACK_SIZES),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_response = mock.MagicMock()
+        batch_response.status_code = 200
+        batch_response.json.return_value = [
+            {"code": 200, "body": json.dumps({"id": "1", "targeting": {"age_min": 18}})}
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = [batch_response]
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL, params, None, manager, ("targeting",), "https://graph.facebook.com/v20/"
+                )
+            )
+
+        assert batches == [[{"id": "1", "name": "a", "targeting": {"age_min": 18}}]]
+        get_calls = mock_get.return_value.get.call_args_list
+        # Every rung of the ladder is tried with the full field list before any field is dropped.
+        assert len(get_calls) == len(PAGE_LIMIT_FALLBACK_SIZES) + 1
+        assert all(call.kwargs["params"]["fields"] == "id,name,targeting" for call in get_calls[:-1])
+        assert get_calls[-1].kwargs["params"]["fields"] == "id,name"
+        assert get_calls[-1].kwargs["params"]["limit"] == PAGE_LIMIT_FALLBACK_SIZES[-1]
+
+    def test_smallest_limit_refusal_without_refusable_fields_still_raises_retryable_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        params = {**self.PARAMS, "fields": "id,name,targeting"}
+        attempts = len(PAGE_LIMIT_FALLBACK_SIZES) + 1 + SMALLEST_PAGE_LIMIT_MAX_RETRIES
+        responses = [_mock_response(500, self.REDUCE_BODY) for _ in range(attempts)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="smallest page size"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, params, None, manager, ("targeting",), "https://graph.facebook.com/v20/"
+                    )
+                )
+
+        assert mock_get.return_value.get.call_count == attempts
+        mock_get.return_value.post.assert_not_called()
+
     def test_non_timeout_error_does_not_retry(self) -> None:
         manager = _build_manager()
         # A generic application error outside Meta's documented transient codes (1, 2) — not a
@@ -2427,13 +2485,29 @@ class TestBreakdownStatsRequests:
         assert fields_param is not None
         requested_fields = set(fields_param.split(","))
         video_fields = {"video_play_actions", "video_thruplay_watched_actions"}
+        # Meta rejects the whole request when `region` asks for these, so they must not leak into
+        # the field list that every breakdown shares.
+        watch_depth_fields = {
+            "video_30_sec_watched_actions",
+            "video_p25_watched_actions",
+            "video_p50_watched_actions",
+            "video_p75_watched_actions",
+            "video_p95_watched_actions",
+            "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+        }
+        breakdowns = schema.extra_params["breakdowns"]
         if (
-            "hourly_stats_aggregated_by_advertiser_time_zone" in schema.extra_params["breakdowns"]
+            "hourly_stats_aggregated_by_advertiser_time_zone" in breakdowns
             or endpoint == MetaAdsResource.AdStatsByLinkUrl
         ):
-            assert video_fields.isdisjoint(requested_fields)
+            assert (video_fields | watch_depth_fields).isdisjoint(requested_fields)
+        elif breakdowns in ("country", "publisher_platform,platform_position,impression_device"):
+            assert video_fields | watch_depth_fields <= requested_fields
         else:
             assert video_fields <= requested_fields
+            if breakdowns == "region":
+                assert watch_depth_fields.isdisjoint(requested_fields)
 
     def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
         result = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)

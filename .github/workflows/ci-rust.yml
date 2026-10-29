@@ -32,7 +32,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -50,6 +50,7 @@ jobs:
         outputs:
             rust: ${{ steps.filter.outputs.rust || 'true' }}
             all_crates: ${{ steps.filter.outputs.all_crates || 'false' }}
+            flags_db: ${{ steps.filter.outputs.flags_db || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -103,6 +104,14 @@ jobs:
                         # Pins the service images that every crate's tests run against.
                         # A determinator rule would also rebuild and deploy every Rust image.
                         - 'docker-compose.base.yml'
+                      # What the feature-flags stall recovery tests exercise: the whole request path.
+                      flags_db:
+                        - 'rust/feature-flags/**'
+                        - 'rust/common/database/**'
+                        # An sqlx bump can change how a pool recovers.
+                        - 'rust/Cargo.lock'
+                        - 'rust/.config/nextest.toml'
+                        - '.github/workflows/ci-rust.yml'
 
     # Compute affected crates and test shards. Only runs when Rust changes
     # are detected, keeping the lightweight `changes` job fast for non-Rust PRs.
@@ -382,6 +391,7 @@ jobs:
                   # Set up dual database environment for feature-flags service
                   PERSONS_READ_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
                   PERSONS_WRITE_DATABASE_URL: ${{ contains(format(' {0} ', matrix.packages), ' feature-flags ') && 'postgres://posthog:posthog@localhost:5432/posthog_persons' || '' }}
+                  FLAGS_DB_CHANGED: ${{ needs.changes.outputs.flags_db }}
               run: |
                   # nextest (instead of plain `cargo test`) emits JUnit XML for the Trunk quarantine
                   # gate below. It does not run doctests; those run in their own step, outside the
@@ -454,6 +464,12 @@ jobs:
                           CHECKPOINT_S3_ACCESS_KEY_ID=object_storage_root_user \
                           CHECKPOINT_S3_SECRET_ACCESS_KEY=object_storage_root_password \
                               run_nextest cohort-stream-processor-ignored -p cohort-stream-processor -E 'kind(test)' --run-ignored only --test-threads=1 || overall_rc=1
+                      fi
+                      # feature-flags' persons DB stall tests are #[ignore]'d: they lock posthog_person,
+                      # so they run one at a time, and only on master or when flags_db matches. The file
+                      # guard keeps this a no-op on branches that predate them.
+                      if [ "$pkg" = "feature-flags" ] && [ "$FLAGS_DB_CHANGED" = "true" ] && [ -f feature-flags/tests/stall_recovery.rs ]; then
+                          run_nextest feature-flags-stall -p feature-flags -E 'binary(stall_recovery)' --run-ignored only --test-threads=1 || overall_rc=1
                       fi
                       echo "::endgroup::"
                   done

@@ -104,6 +104,7 @@ ExtractErrors = {
     "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
+    "The specified blob does not exist": "The file in your files URL doesn't exist in the container. Check the container name and file path, then try again.",
     # ClickHouse names the format in this message (CSV, CSVWithNames, Parquet, ...), so match the shared tail.
     "there are no files with provided path in S3 or all files are empty": "No files match your Files URL pattern, or all the matching files are empty. Check the folder path and wildcards, then try again.",
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",

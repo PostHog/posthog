@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -40,6 +41,7 @@ import {
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
     signalsReportsClaim,
+    signalsReportsRetrieve,
     signalsReportsFeedbackCreate,
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
@@ -81,7 +83,7 @@ import {
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
-import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
+import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { isReportClaimable, reportClaimant, reportClaimRequest } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
@@ -92,6 +94,11 @@ const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRun
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
+
+const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
+    in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
+    shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
+}
 
 export type PrChecksError = {
     message: string
@@ -109,6 +116,26 @@ function prChecksErrorFrom(error: unknown): PrChecksError {
         }
     }
     return { message: "Couldn't load the PR checks from GitHub.", remediationUrl: null }
+}
+
+type FreshClaimAttempt = { fresh: SignalReportApi | null; updated: SignalReportApi | null }
+
+/** Claims again from the server's current record. The page can still show the list's copy, whose claim may be out of date. */
+async function claimFromFreshReport(teamId: string, reportId: string): Promise<FreshClaimAttempt> {
+    let fresh: SignalReportApi
+    try {
+        fresh = await signalsReportsRetrieve(teamId, reportId)
+    } catch {
+        return { fresh: null, updated: null }
+    }
+    if (!isReportClaimable({ status: fresh.status as SignalReportStatus, assignee: fresh.assignee })) {
+        return { fresh, updated: null }
+    }
+    try {
+        return { fresh, updated: await signalsReportsClaim(teamId, reportId, reportClaimRequest(fresh, true)) }
+    } catch {
+        return { fresh, updated: null }
+    }
 }
 
 // The task↔report association is the `task_run` artefact log now (the legacy `/tasks/` endpoint is
@@ -324,6 +351,7 @@ export interface inboxReportDetailLogicValues {
     feedbackSubmitting: boolean
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
+    implementationDisabledReason: string | null
     implementationSlotClaim: ImplementationSlotClaim | null
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
@@ -674,11 +702,13 @@ export interface inboxReportDetailLogicActions {
     updateReviewers: (
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[],
-        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>,
+        removal?: ReviewerRemoval
     ) => {
         action: 'add' | 'remove'
         content: Record<string, string>[]
         optimistic: EnrichedReviewer[]
+        removal: ReviewerRemoval | undefined
     }
 }
 
@@ -739,6 +769,11 @@ export interface inboxReportDetailLogicMeta {
         isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
         isReportClaimable: (report: SignalReport | null) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
+        implementationDisabledReason: (
+            implementationSlotClaim: ImplementationSlotClaim | null,
+            reportClaimant: _UserApi | null,
+            isClaimedByMe: boolean
+        ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
@@ -810,11 +845,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         updateReviewers: (
             content: Record<string, string>[],
             optimistic: EnrichedReviewer[],
-            action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
+            action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>,
+            // Why the person removed these reviewers, if they said. Research reads it on later reports.
+            removal?: ReviewerRemoval
         ) => ({
             content,
             optimistic,
             action,
+            removal,
         }),
         setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => ({ reviewers }),
         // Debounced server-side org-member search for the add-reviewer picker.
@@ -1495,6 +1533,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null =>
                 implementationSlotClaim(reportTasks),
         ],
+        implementationDisabledReason: [
+            (s) => [s.implementationSlotClaim, s.reportClaimant, s.isClaimedByMe],
+            (
+                slotClaim: ImplementationSlotClaim | null,
+                claimant: _UserApi | null,
+                isClaimedByMe: boolean
+            ): string | null =>
+                slotClaim
+                    ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
+                    : claimant && !isClaimedByMe
+                      ? `${fullNameOrEmail(claimant)} is working on this report.`
+                      : null,
+        ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
         // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
         primaryTask: [
@@ -1613,7 +1664,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 surface: 'detail_pane',
             })
             const scene = inboxSceneLogic.findMounted()
-            let updated: SignalReportApi
+            let updated: SignalReportApi | null = null
             try {
                 updated = await signalsReportsClaim(
                     String(teamId),
@@ -1621,17 +1672,26 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     reportClaimRequest(currentReport, claimed)
                 )
             } catch (error) {
-                if (inboxReportDetailLogic.isMounted(props)) {
-                    actions.setClaimSaving(false)
-                    if (error instanceof ApiError && error.status === 409) {
-                        lemonToast.error('Someone else is already working on this report.')
-                        // Reload so the page shows who holds the claim now.
-                        scene?.actions.loadSelectedReport({ id: props.reportId })
-                    } else {
-                        lemonToast.error("Couldn't update who's working on this report. Try again.")
+                const conflict = error instanceof ApiError && error.status === 409
+                const retry = conflict && claimed ? await claimFromFreshReport(String(teamId), props.reportId) : null
+                updated = retry?.updated ?? null
+                if (!updated) {
+                    if (inboxReportDetailLogic.isMounted(props)) {
+                        actions.setClaimSaving(false)
+                        if (!conflict) {
+                            lemonToast.error("Couldn't update who's working on this report. Try again.")
+                        } else if (!retry || (retry.fresh && reportClaimant(retry.fresh))) {
+                            lemonToast.error('Someone else is already working on this report.')
+                        } else {
+                            lemonToast.error('This report changed. Check it and try again.')
+                        }
+                        if (conflict) {
+                            // Reload so the page shows who holds the claim now.
+                            scene?.actions.loadSelectedReport({ id: props.reportId })
+                        }
                     }
+                    return
                 }
-                return
             }
             if (!inboxReportDetailLogic.isMounted(props)) {
                 return
@@ -1755,7 +1815,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
         },
-        updateReviewers: async ({ content, optimistic, action }) => {
+        updateReviewers: async ({ content, optimistic, action, removal }) => {
             if (cache.reviewerWriteInFlight) {
                 return
             }
@@ -1775,6 +1835,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         })),
                         targets: content,
                         action,
+                        ...(removal?.reason ? { removal_reason: removal.reason } : {}),
+                        ...(removal?.note?.trim() ? { removal_note: removal.note.trim() } : {}),
                     }
                 )
                 savedReviewerUuids = ((artefact.content ?? []) as unknown as EnrichedReviewer[])
@@ -2105,6 +2167,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const interval = setInterval(() => {
                 if (
                     values.report?.status !== SignalReportStatus.RESOLVED &&
+                    values.report?.status !== SignalReportStatus.CLOSED &&
                     values.report?.status !== SignalReportStatus.SUPPRESSED &&
                     values.report?.status !== SignalReportStatus.DELETED &&
                     !values.reportChecksLoading &&

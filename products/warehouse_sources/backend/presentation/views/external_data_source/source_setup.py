@@ -14,8 +14,8 @@ from django.db.models import Q
 from django.utils import timezone
 
 import temporalio
+from anthropic import APIConnectionError
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from openai import APIConnectionError
 from rest_framework import serializers, status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request

@@ -3,7 +3,10 @@ from urllib.parse import urlencode
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import ADROLL_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.adroll.settings import (
+    ADROLL_ENDPOINTS,
+    AdRollEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
@@ -13,7 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    EndpointResource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -26,6 +32,8 @@ MAX_RETRY_ATTEMPTS = 3
 # injects the parent advertisable EID into child rows as `_advertisable_eid` — the same key the
 # rows carried before the rest_source migration.
 _ADVERTISABLE_PARENT = "advertisable"
+# Second fan-out level for pixel-scoped endpoints; child rows carry the pixel EID as `_pixel_eid`.
+_PIXEL_PARENT = "pixel"
 
 
 @frozen
@@ -50,6 +58,27 @@ def _client_config(client_id: str, personal_access_token: str) -> ClientConfig:
         # AdRoll's get/get_all endpoints return everything in one response — no pagination.
         "paginator": SinglePagePaginator(),
         "max_retries": MAX_RETRY_ATTEMPTS,
+    }
+
+
+def _scoped_resource(name: str, config: AdRollEndpointConfig, parent: str, client_id: str) -> EndpointResource:
+    return {
+        "name": name,
+        "endpoint": {
+            # AdRoll scopes the per-parent lists with a query param, not a path segment; bind the
+            # resolve param inside the query string.
+            "path": f"{config.path}?{config.resolve_param}={{{config.resolve_param}}}",
+            "params": {
+                config.resolve_param: {
+                    "type": "resolve",
+                    "resource": parent,
+                    "field": "eid",
+                },
+                "apikey": client_id,
+                **config.extra_params,
+            },
+            "data_selector": config.data_selector,
+        },
     }
 
 
@@ -90,36 +119,30 @@ def adroll_source(
             if state is not None:
                 resumable_source_manager.save_state(AdRollResumeConfig(fanout_state=state))
 
+        parent_resources: list[str | EndpointResource] = [
+            {
+                "name": _ADVERTISABLE_PARENT,
+                "endpoint": {
+                    "path": ADROLL_ENDPOINTS["advertisables"].path,
+                    "params": {"apikey": client_id},
+                    "data_selector": ADROLL_ENDPOINTS["advertisables"].data_selector,
+                },
+            },
+        ]
+        child_parent = _ADVERTISABLE_PARENT
+        if config.pixel_scoped:
+            # With two dependent levels the framework resumes neither, so a retried run re-fetches
+            # every advertisable's pixel and rules.
+            parent_resources.append(
+                _scoped_resource(_PIXEL_PARENT, ADROLL_ENDPOINTS["pixels"], _ADVERTISABLE_PARENT, client_id)
+            )
+            child_parent = _PIXEL_PARENT
+
         rest_config = {
             "client": _client_config(client_id, personal_access_token),
             "resources": [
-                {
-                    "name": _ADVERTISABLE_PARENT,
-                    "endpoint": {
-                        "path": ADROLL_ENDPOINTS["advertisables"].path,
-                        "params": {"apikey": client_id},
-                        "data_selector": ADROLL_ENDPOINTS["advertisables"].data_selector,
-                    },
-                },
-                {
-                    "name": endpoint,
-                    "endpoint": {
-                        # AdRoll scopes the per-advertisable lists with a query param, not a path
-                        # segment; bind the resolve param inside the query string.
-                        "path": f"{config.path}?{config.resolve_param}={{{config.resolve_param}}}",
-                        "params": {
-                            config.resolve_param: {
-                                "type": "resolve",
-                                "resource": _ADVERTISABLE_PARENT,
-                                "field": "eid",
-                            },
-                            "apikey": client_id,
-                            **config.extra_params,
-                        },
-                        "data_selector": config.data_selector,
-                    },
-                    "include_from_parent": ["eid"],
-                },
+                *parent_resources,
+                {**_scoped_resource(endpoint, config, child_parent, client_id), "include_from_parent": ["eid"]},
             ],
         }
         resources = {
@@ -135,6 +158,8 @@ def adroll_source(
         }
         # An advertisable without an EID can't scope a child request — skip it, as before.
         resources[_ADVERTISABLE_PARENT].add_filter(lambda item: bool(item.get("eid")))
+        if config.pixel_scoped:
+            resources[_PIXEL_PARENT].add_filter(lambda item: bool(item.get("eid")))
         resource = resources[endpoint]
 
     return SourceResponse(
@@ -144,6 +169,7 @@ def adroll_source(
         partition_count=1,
         partition_size=1,
         sort_mode="asc",
+        supports_resume=not config.pixel_scoped,
     )
 
 

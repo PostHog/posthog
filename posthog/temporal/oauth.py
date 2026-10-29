@@ -16,6 +16,7 @@ from posthog.scopes import (
     INTERNAL_API_SCOPE_OBJECTS,
     MCP_BUILT_IN_AGENT_SCOPE,
     OAUTH_HIDDEN_SCOPE_OBJECTS,
+    SCOUT_MONITORING_RESULT_SCOPE,
     SLACK_RUN_SCOPE,
     resolve_ceiling,
 )
@@ -70,17 +71,6 @@ SIGNALS_OAUTH_APP_CLIENT_IDS = frozenset(
         SIGNALS_APP_CLIENT_ID_US,
         SIGNALS_APP_CLIENT_ID_EU,
         SIGNALS_APP_CLIENT_ID_DEV,
-    }
-)
-
-# Apps that mint tokens for a cloud task's own coding agent, which is what the task-comment
-# channel is restricted to. Signals joined when its runs moved off the Array app; PostHog AI is
-# deliberately absent, as it was before. The `sandbox_task_id` binding on the token is what
-# actually scopes access to one task — this set only keeps unrelated first-party tokens out.
-TASK_AGENT_OAUTH_APP_CLIENT_IDS = frozenset(
-    {
-        *POSTHOG_CODE_OAUTH_APP_CLIENT_IDS,
-        *SIGNALS_OAUTH_APP_CLIENT_IDS,
     }
 )
 
@@ -649,6 +639,7 @@ def create_oauth_access_token_for_user(
     include_mcp_builtin_agent_scope: bool = False,
     include_interactive_run_scope: bool = False,
     include_slack_run_scope: bool = False,
+    include_monitoring_result_scope: bool = False,
     application: SandboxOAuthApplication = "array",
     sandbox_task_id: UUID | None = None,
     withhold_scopes: Collection[str] = (),
@@ -669,6 +660,8 @@ def create_oauth_access_token_for_user(
         resolved.append(INTERACTIVE_RUN_SCOPE)
     if include_slack_run_scope:
         resolved.append(SLACK_RUN_SCOPE)
+    if include_monitoring_result_scope:
+        resolved.append(SCOUT_MONITORING_RESULT_SCOPE)
     app = get_sandbox_oauth_app(application)
     return _mint_run_access_token(user, team_id, app=app, scopes=list(resolved), sandbox_task_id=sandbox_task_id)
 
