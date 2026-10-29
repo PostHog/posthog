@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { authPrototypeBootBytes } from './auth-prototype-graph.mjs'
+import { authPrototypeBootBytes, currentLoginBootBytes } from './auth-prototype-graph.mjs'
+import { LOGGED_OUT_BOOT } from './bootEntries.mjs'
 
 const entry = 'src/auth-prototype/authPrototypeEntry.tsx'
 const required = ['src/auth-prototype/AuthPrototype.tsx', 'src/initKea.ts', 'src/loadPostHogJS.tsx']
@@ -65,4 +66,17 @@ test('fails when a required output or stylesheet is missing', () => {
     const other = fixture()
     delete other.outputs['dist/entry.css']
     assert.throws(() => authPrototypeBootBytes(other), /No auth prototype CSS output/)
+})
+
+test('reads the current login boot from the eager graph report and fails when that root is gone', () => {
+    const report = {
+        roots: [
+            { root: 'src/scenes/AuthenticatedShell.tsx', bytes: 1 },
+            { root: LOGGED_OUT_BOOT.join(' + '), bytes: 200 },
+        ],
+    }
+    assert.equal(currentLoginBootBytes(report), 200)
+
+    report.roots.pop()
+    assert.throws(() => currentLoginBootBytes(report), /No logged-out boot root/)
 })

@@ -1,3 +1,5 @@
+import { LOGGED_OUT_BOOT } from './bootEntries.mjs'
+
 const ENTRY = 'src/auth-prototype/authPrototypeEntry.tsx'
 const REQUIRED_IMPORTS = ['src/auth-prototype/AuthPrototype.tsx', 'src/initKea.ts', 'src/loadPostHogJS.tsx']
 
@@ -44,4 +46,14 @@ export function authPrototypeBootBytes({ inputs, outputs }) {
         files.add(entryStylesheet)
     }
     return { bytes: [...files].reduce((total, file) => total + outputs[file].bytes, 0), files: files.size }
+}
+
+const LOGGED_OUT_BOOT_ROOT = LOGGED_OUT_BOOT.join(' + ')
+
+export function currentLoginBootBytes(eagerGraphReport) {
+    const root = eagerGraphReport.roots?.find((item) => item.root === LOGGED_OUT_BOOT_ROOT)
+    if (!root) {
+        throw new Error(`No logged-out boot root '${LOGGED_OUT_BOOT_ROOT}' in the eager graph report`)
+    }
+    return root.bytes
 }

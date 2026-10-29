@@ -1,8 +1,6 @@
 import type { BeforeSendFn } from 'posthog-js'
 
 const MARKERS = ['metricVariables', 'bi_filter']
-const LOGIN_URL_WITH_PARAMS = /^(?:https?:\/\/[^/?#]+)?\/login(?:\/[^?#]*)?[?#]/
-const EMBEDDED_LOGIN_URL_WITH_PARAMS = /["'](?:https?:\/\/[^/?#]+)?\/login(?:\/[^?#]*)?[?#]/
 // The options requests of dashboard variables carry queries and selected values, and return query results.
 const VARIABLE_OPTIONS_PATH = '/metrics/variable_options'
 const NETWORK_PLUGIN = 'rrweb/network@1'
@@ -11,10 +9,10 @@ function holdsFilterData(text: string): boolean {
     return MARKERS.some((marker) => text.includes(marker))
 }
 
-/** A URL that holds login data, metric variables or BI selections keeps only its path, so the queries, options and
+/** A URL that holds metric variables or BI selections, in any parameter or encoding, keeps only its path, so the queries, options and
  * selected values of the variables stay out of analytics. Other text that holds them is dropped. */
 export function redactMetricVariableUrl(text: string): string {
-    if (!holdsFilterData(text) && !LOGIN_URL_WITH_PARAMS.test(text) && !EMBEDDED_LOGIN_URL_WITH_PARAMS.test(text)) {
+    if (!holdsFilterData(text)) {
         return text
     }
     if (text.startsWith('/') || /^https?:\/\/\S+$/.test(text)) {
@@ -25,17 +23,14 @@ export function redactMetricVariableUrl(text: string): string {
 
 /** Every string at any depth, such as `$current_url`, an autocaptured `href`, or a request in a replay snapshot.
  * A value with nothing to redact is returned as it is, so a large snapshot is not copied. */
-function redactValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
+function redactValue(value: unknown, seen: WeakSet<object>): unknown {
     if (typeof value === 'string') {
         return redactMetricVariableUrl(value)
     }
-    if (!value || typeof value !== 'object') {
+    if (!value || typeof value !== 'object' || seen.has(value)) {
         return value
     }
-    if (seen.has(value)) {
-        return seen.get(value)
-    }
-    seen.set(value, value)
+    seen.add(value)
     if (Array.isArray(value)) {
         let copy: unknown[] | null = null
         value.forEach((item, index) => {
@@ -45,9 +40,7 @@ function redactValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
                 copy[index] = redacted
             }
         })
-        const result = copy ?? value
-        seen.set(value, result)
-        return result
+        return copy ?? value
     }
     let copy: Record<string, unknown> | null = null
     for (const [key, item] of Object.entries(value)) {
@@ -57,9 +50,7 @@ function redactValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
             copy[key] = redacted
         }
     }
-    const result = copy ?? value
-    seen.set(value, result)
-    return result
+    return copy ?? value
 }
 
 function holdsVariableData(request: unknown): boolean {
@@ -100,7 +91,7 @@ function redactProperties(properties: Record<string, any> | undefined): Record<s
     const snapshots = properties.$snapshot_data
     const filtered = withoutVariableRequests(snapshots)
     const base = filtered === snapshots ? properties : { ...properties, $snapshot_data: filtered }
-    return redactValue(base, new WeakMap()) as Record<string, any>
+    return redactValue(base, new WeakSet()) as Record<string, any>
 }
 
 export const redactMetricVariableUrls: BeforeSendFn = (event) =>

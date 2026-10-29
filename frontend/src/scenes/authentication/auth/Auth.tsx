@@ -55,6 +55,26 @@ const STEP_COMPONENTS: Record<AuthPageStep, () => JSX.Element> = {
     signup_pending_invite: PendingInviteStep,
 }
 
+const LOGIN_FORM_READY_MARK = 'login:form-ready'
+
+// The duration counts from navigation start, so it only means something when this page load opened /login.
+function captureLoginFormReadyOnce(): void {
+    const pageLoad = performance.getEntriesByType('navigation')[0]
+    if (
+        !pageLoad ||
+        new URL(pageLoad.name).pathname.replace(/\/$/, '') !== '/login' ||
+        performance.getEntriesByName(LOGIN_FORM_READY_MARK).length
+    ) {
+        return
+    }
+    const ready = performance.mark(LOGIN_FORM_READY_MARK)
+    posthog.capture('login form ready', {
+        duration_ms: ready.startTime,
+        '$feature/standalone-login-entry':
+            window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.['standalone-login-entry'],
+    })
+}
+
 export function Auth(): JSX.Element | null {
     // Mounted here so the login funnel is only reported from the auth scenes
     useMountedLogic(loginTelemetryLogic)
@@ -68,17 +88,8 @@ export function Auth(): JSX.Element | null {
     const isReturning = useLastLoginMethod() !== null
 
     useLayoutEffect(() => {
-        const variant = window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.['standalone-login-entry']
-        if (
-            !user &&
-            (variant === 'control' || variant === 'test') &&
-            !performance.getEntriesByName('login:form-ready').length
-        ) {
-            const ready = performance.mark('login:form-ready')
-            posthog.capture('login form ready', {
-                duration_ms: ready.startTime,
-                '$feature/standalone-login-entry': variant,
-            })
+        if (!user) {
+            captureLoginFormReadyOnce()
         }
     }, [user])
 

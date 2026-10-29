@@ -8,6 +8,7 @@ from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.auth_entry_experiment import LOGIN_ENTRY_FLAG, LoginEntryExperiment
 from posthog.constants import POSTHOG_JS_CLOUD_TOKEN
@@ -84,9 +85,24 @@ class TestAuthPrototype(SimpleTestCase):
             self.assertEqual(home(request).content.decode(), "index.html")
 
 
+def assignment_count(outcome: str) -> float:
+    return REGISTRY.get_sample_value("posthog_login_entry_assignment_total", {"outcome": outcome}) or 0
+
+
 class TestLoginEntryExperiment(SimpleTestCase):
-    @parameterized.expand([("control", "control"), ("test", "test"), (False, None), (None, None), ("unknown", None)])
-    def test_local_assignment_and_exposure(self, flag_value: str | bool | None, expected: str | None) -> None:
+    @parameterized.expand(
+        [
+            ("control", "control", "control"),
+            ("test", "test", "test"),
+            (False, None, "not_enrolled"),
+            (None, None, "flag_unavailable"),
+            ("unknown", None, "flag_unavailable"),
+        ]
+    )
+    def test_local_assignment_and_exposure(
+        self, flag_value: str | bool | None, expected: str | None, outcome: str
+    ) -> None:
+        outcomes_before = assignment_count(outcome)
         request = RequestFactory().get("/login", HTTP_HOST="us.posthog.com")
         request.user = AnonymousUser()
         request.COOKIES[f"ph_{POSTHOG_JS_CLOUD_TOKEN}_posthog"] = quote(
@@ -111,6 +127,7 @@ class TestLoginEntryExperiment(SimpleTestCase):
         self.assertEqual(capture.call_count, int(expected is not None))
         if expected is not None:
             self.assertEqual(capture.call_args.kwargs["properties"]["$device_id"], "synthetic-device")
+        self.assertEqual(assignment_count(outcome), outcomes_before + 1)
 
     def test_flag_failure_keeps_the_current_entry(self) -> None:
         request = RequestFactory().get("/login", HTTP_HOST="us.posthog.com")
@@ -118,6 +135,7 @@ class TestLoginEntryExperiment(SimpleTestCase):
         request.COOKIES[f"ph_{POSTHOG_JS_CLOUD_TOKEN}_posthog"] = json.dumps(
             {"distinct_id": "synthetic-person", "$device_id": "synthetic-device"}
         )
+        errors_before = assignment_count("error")
         with (
             self.settings(OPT_OUT_CAPTURE=False),
             patch("posthog.auth_entry_experiment.is_cloud", return_value=True),
@@ -129,6 +147,7 @@ class TestLoginEntryExperiment(SimpleTestCase):
         ):
             self.assertIsNone(LoginEntryExperiment.variant(request))
         capture_error.assert_called_once()
+        self.assertEqual(assignment_count("error"), errors_before + 1)
 
     @parameterized.expand(
         [

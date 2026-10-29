@@ -36,7 +36,7 @@ export function AuthPrototype(): JSX.Element {
         performance.mark('auth-prototype:rendered')
     }, [])
     useLayoutEffect(() => {
-        if (canRenderAuth && document.querySelector('#root form input:not([disabled])')) {
+        if (canRenderAuth) {
             document.getElementById('login-entry-recovery')?.remove()
         }
     })

@@ -4,6 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
@@ -14,10 +15,24 @@ import { Auth } from './Auth'
 describe('Auth', () => {
     let signupRequestBody: Record<string, any> | null
     let accountExists: boolean
+    let pageLoadUrl: string
+    let performanceMarks: { name: string; startTime: number }[]
 
     beforeEach(() => {
         signupRequestBody = null
         accountExists = false
+        pageLoadUrl = 'http://localhost/signup'
+        performanceMarks = []
+        // jsdom has no performance timeline
+        Object.assign(performance, {
+            getEntriesByType: () => [{ name: pageLoadUrl }],
+            getEntriesByName: (name: string) => performanceMarks.filter((mark) => mark.name === name),
+            mark: (name: string) => {
+                const mark = { name, startTime: 1234 }
+                performanceMarks.push(mark)
+                return mark
+            },
+        })
         useMocks({
             get: {
                 // An instance that cannot create organizations sends unknown emails to the login step
@@ -50,6 +65,10 @@ describe('Auth', () => {
 
     afterEach(() => {
         cleanup()
+        jest.restoreAllMocks()
+        for (const fake of ['getEntriesByType', 'getEntriesByName', 'mark']) {
+            Reflect.deleteProperty(performance, fake)
+        }
     })
 
     async function submitEmail(email: string): Promise<void> {
@@ -122,5 +141,30 @@ describe('Auth', () => {
         expect(signupRequestBody?.first_name).toBe('Alice')
         expect(signupRequestBody?.last_name).toBe('Bob')
         expect(signupRequestBody?.organization_name).toBe('Hogflix SpinOff')
+    })
+
+    it.each([
+        ['http://localhost/login', 1],
+        ['http://localhost/login/', 1],
+        ['http://localhost/signup', 0],
+    ])('reports login form ready at most once for a page load that opened %s', (pageUrl, expectedCaptures) => {
+        cleanup()
+        pageLoadUrl = pageUrl
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+
+        for (let renderCount = 0; renderCount < 2; renderCount++) {
+            render(
+                <Provider>
+                    <Auth />
+                </Provider>
+            )
+            cleanup()
+        }
+
+        const readyCaptures = capture.mock.calls.filter(([event]) => event === 'login form ready')
+        expect(readyCaptures).toHaveLength(expectedCaptures)
+        if (expectedCaptures) {
+            expect(readyCaptures[0][1]).toEqual(expect.objectContaining({ duration_ms: 1234 }))
+        }
     })
 })

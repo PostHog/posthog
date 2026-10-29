@@ -6,12 +6,21 @@ from django.conf import settings
 from django.http import HttpRequest
 
 import posthoganalytics
+from prometheus_client import Counter
 
 from posthog.cloud_utils import is_cloud
 from posthog.constants import POSTHOG_JS_CLOUD_TOKEN
 from posthog.exceptions_capture import capture_exception
 
 LOGIN_ENTRY_FLAG = "standalone-login-entry"
+
+LOGIN_ENTRY_ASSIGNMENT_COUNTER = Counter(
+    "posthog_login_entry_assignment_total",
+    "Eligible login page requests, by login entry experiment outcome.",
+    labelnames=["outcome"],
+)
+
+AssignmentOutcome = Literal["control", "test", "no_identity", "not_enrolled", "flag_unavailable", "error"]
 
 
 class LoginEntryExperiment:
@@ -28,17 +37,25 @@ class LoginEntryExperiment:
         ):
             return None
 
+        outcome = LoginEntryExperiment._assign(request)
+        LOGIN_ENTRY_ASSIGNMENT_COUNTER.labels(outcome=outcome).inc()
+        if outcome == "control" or outcome == "test":
+            return outcome
+        return None
+
+    @staticmethod
+    def _assign(request: HttpRequest) -> AssignmentOutcome:
         try:
             identity = json.loads(unquote(request.COOKIES.get(f"ph_{POSTHOG_JS_CLOUD_TOKEN}_posthog", "null")))
         except (ValueError, UnicodeError):
-            return None
+            return "no_identity"
         if not isinstance(identity, dict):
-            return None
+            return "no_identity"
         distinct_id, device_id = identity.get("distinct_id"), identity.get("$device_id")
         if not isinstance(distinct_id, str) or not isinstance(device_id, str):
-            return None
+            return "no_identity"
         if not 0 < len(distinct_id) <= 200 or not 0 < len(device_id) <= 200:
-            return None
+            return "no_identity"
 
         try:
             with posthoganalytics.new_context():
@@ -50,8 +67,10 @@ class LoginEntryExperiment:
                     only_evaluate_locally=True,
                     send_feature_flag_events=False,
                 )
+                if variant is False:
+                    return "not_enrolled"
                 if variant not in ("control", "test"):
-                    return None
+                    return "flag_unavailable"
                 posthoganalytics.capture(
                     distinct_id=distinct_id,
                     event="$feature_flag_called",
@@ -66,5 +85,5 @@ class LoginEntryExperiment:
                 )
         except Exception as error:
             capture_exception(error)
-            return None
+            return "error"
         return "test" if variant == "test" else "control"
