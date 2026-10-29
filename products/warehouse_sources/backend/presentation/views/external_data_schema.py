@@ -484,7 +484,7 @@ def _refuse_reserved_columns(
                 "source. Choose the consolidated table only for this table."
             )
         # A taken name leaves only the naming a new history table would get.
-        history = history or new_history_naming()
+        history = history or new_history_naming(instance.source)
     columns = _source_column_names(instance)
     taken = reserved_column_collisions(
         columns,
@@ -2000,8 +2000,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         changes made in the meantime would never reach it.
         """
         adapter = get_cdc_adapter(source)
-        cdc_config = adapter.parse_cdc_config(source)
-        if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
+        if not adapter.manages_capture_set(source):
             return None
 
         _, db_schema, source_table_name = get_postgres_source_location(

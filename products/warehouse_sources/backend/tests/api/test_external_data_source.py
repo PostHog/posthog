@@ -139,6 +139,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.utils import TikTokAdsAPIError
 from products.warehouse_sources.backend.temporal.data_imports.sources.trino.source import TrinoSource
 
+_PH_HISTORY_NAMING_FLAG = (
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
+)
+
 
 def _configure_source_mock_versioning(mock_get_source) -> None:
     """Tests that patch `SourceRegistry.get_source` with a bare MagicMock must give the versioning
@@ -5087,7 +5091,7 @@ class TestExternalDataSource(APIBaseTest):
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
-    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    @patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_create_postgres_cdc_rejects_a_table_it_cannot_capture(
         self,
         _name,
@@ -11236,7 +11240,7 @@ class TestCheckCDCPrerequisitesForSource(APIBaseTest):
             format="json",
         )
         assert response.status_code == 200, response.content
-        assert mock_validate.call_args.kwargs["publication_name"] == "customer_pub"
+        assert mock_validate.call_args.kwargs["setup"]["cdc_publication_name"] == "customer_pub"
         assert mock_validate.call_args.kwargs["management_mode"] == "self_managed"
 
     @parameterized.expand(
@@ -11670,7 +11674,7 @@ class TestEnableCDC(APIBaseTest):
 
         assert response.status_code == 200, response.content
         # Prereq check forwarded the publication name we received.
-        assert mock_check.call_args.kwargs["publication_name"] == "customer_pub"
+        assert mock_check.call_args.kwargs["setup"]["cdc_publication_name"] == "customer_pub"
 
         source.refresh_from_db()
         ji = source.job_inputs or {}
@@ -12321,7 +12325,7 @@ class TestRepairCDC(APIBaseTest):
         assert "CDC is not enabled" in response.json()["message"]
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream"
     )
     def test_repair_cdc_rejects_when_no_active_cdc_schemas(self, mock_recreate) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)
@@ -12342,7 +12346,7 @@ class TestRepairCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     def test_repair_cdc_resets_schemas_and_resumes_schedules(
@@ -12434,7 +12438,7 @@ class TestRepairCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         side_effect=psycopg.OperationalError("connection refused"),
     )
     def test_repair_cdc_failure_keeps_broken_state(
@@ -12465,7 +12469,7 @@ class TestRepairCDC(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.capture_exception")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         side_effect=psycopg.errors.InsufficientPrivilege("must be owner of table orders"),
     )
     def test_repair_cdc_table_ownership_failure_is_not_captured(self, _mock_recreate, mock_capture) -> None:
@@ -12488,7 +12492,7 @@ class TestRepairCDC(APIBaseTest):
         mock_capture.assert_not_called()
 
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot"
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream"
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status"
@@ -12517,7 +12521,7 @@ class TestRepairCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     @patch(
@@ -12551,7 +12555,7 @@ class TestRepairCDC(APIBaseTest):
         side_effect=[RuntimeError("temporal down"), None],
     )
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     @patch(
@@ -12591,7 +12595,7 @@ class TestRepairCDC(APIBaseTest):
     @patch("products.data_warehouse.backend.logic.data_load.service.trigger_external_data_workflow")
     @patch("products.data_warehouse.backend.logic.data_load.service.unpause_external_data_schedule")
     @patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_slot",
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.recreate_stream",
         return_value={"cdc_consistent_point": "0/AABBCC"},
     )
     def test_repair_cdc_cancels_running_cdc_jobs(
@@ -12880,7 +12884,13 @@ class TestCDCStatus(APIBaseTest):
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.get_status",
-        return_value={"slot_exists": True, "publication_exists": True, "lag_bytes": 2048},
+        return_value={
+            "slot_name": "posthog_slot",
+            "publication_name": "posthog_pub",
+            "slot_exists": True,
+            "publication_exists": True,
+            "lag_bytes": 2048,
+        },
     )
     def test_returns_live_status_when_enabled(self, mock_get_status, _mock_paused) -> None:
         source = _make_postgres_source(self.team.pk, self.user, cdc_enabled=True)

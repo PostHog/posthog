@@ -18,11 +18,13 @@ import type {
     CredentialAccountsRequestApi,
     DatabaseSchemaRequestApi,
     DeleteWebhookResponseApi,
+    DestinationConnectLinkApi,
     DestinationConnectionTestResponseApi,
     DirectConnectionSourceOptionApi,
     DraftCustomManifestRequestApi,
     DraftCustomManifestResponseApi,
     ExternalDataDestinationApi,
+    ExternalDataDestinationsConnectLinkRetrieveParams,
     ExternalDataDestinationsListParams,
     ExternalDataJobSerializersApi,
     ExternalDataSchemaApi,
@@ -279,6 +281,42 @@ export const externalDataDestinationsTestConnectionCreate = async (
             method: 'POST',
         }
     )
+}
+
+export const getExternalDataDestinationsConnectLinkRetrieveUrl = (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/external_data_destinations/connect_link/?${stringifiedParams}`
+        : `/api/projects/${projectId}/external_data_destinations/connect_link/`
+}
+
+/**
+ * Return a secure browser link where the user connects the credentials for a destination.
+ *
+ * The page saves an integration and does not create the destination, so secrets never pass
+ * through the agent. The agent then creates the destination with the new integration's id.
+ */
+export const externalDataDestinationsConnectLinkRetrieve = async (
+    projectId: string,
+    params: ExternalDataDestinationsConnectLinkRetrieveParams,
+    options?: RequestInit
+): Promise<DestinationConnectLinkApi> => {
+    return apiMutator<DestinationConnectLinkApi>(getExternalDataDestinationsConnectLinkRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getExternalDataSchemasListUrl = (projectId: string, params?: ExternalDataSchemasListParams) => {

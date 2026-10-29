@@ -444,6 +444,15 @@ function getSourceProperties(source: ExperimentMetricSource | ExperimentExposure
             has_math_hogql: false,
         }
     }
+    if (source.kind === NodeKind.ExperimentWarehouseNativeNode) {
+        return {
+            source_kind: source.kind,
+            is_data_warehouse: false,
+            property_filter_count: 0,
+            math_type: source.math,
+            has_math_hogql: false,
+        }
+    }
     return {
         source_kind: source.kind,
         is_data_warehouse: source.kind === NodeKind.ExperimentDataWarehouseNode,

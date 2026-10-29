@@ -227,16 +227,13 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             )
 
         tables = request.data.get("tables") or []
-        slot_name = request.data.get("cdc_slot_name") or None
-        publication_name = request.data.get("cdc_publication_name") or None
 
         try:
             prereq_errors = source_impl.check_cdc_prerequisites(
                 config,
                 management_mode=management_mode,
                 tables=tables,
-                slot_name=slot_name,
-                publication_name=publication_name,
+                setup=request.data,
                 team_id=self.team_id,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
@@ -305,8 +302,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 management_mode=management_mode,
                 tables=[],
                 schema=schema_hint,
-                slot_name=request.data.get("cdc_slot_name") or None,
-                publication_name=request.data.get("cdc_publication_name") or None,
+                setup=request.data,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
             # Probing the source's database to validate it is expected to fail when the host,
@@ -381,8 +377,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 management_mode=management_mode,
                 tables=[],
                 schema=schema_hint,
-                slot_name=request.data.get("cdc_slot_name") or None,
-                publication_name=request.data.get("cdc_publication_name") or None,
+                setup=request.data,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
@@ -717,7 +712,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": f"Could not connect to source to resume CDC: {e}"},
             )
 
-        if live_status.get("slot_exists") is False or live_status.get("publication_exists") is False:
+        if not adapter.capture_resources_present(live_status):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "The replication slot or publication is missing. Use Repair CDC to recreate it."},
@@ -857,8 +852,6 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 {
                     "enabled": True,
                     "management_mode": cdc_config.management_mode,
-                    "slot_name": cdc_config.slot_name,
-                    "publication_name": cdc_config.publication_name,
                     "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
                     "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
                     "schedule_paused": schedule_paused,

@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 
 from django.conf import settings
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 from django.test.client import Client as HttpClient
 
 import psycopg
@@ -62,6 +62,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.s
 from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint.source import SharePointSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
+
+_PH_HISTORY_NAMING_FLAG = (
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
+)
 
 pytestmark = [
     pytest.mark.django_db,
@@ -4658,7 +4662,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             ),
         ]
     )
-    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_patch_checks_the_columns_a_cdc_sync_writes(
         self,
         _name: str,
@@ -4727,7 +4731,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
-    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_patch_refuses_a_history_table_named_like_a_synced_table(self):
         ExternalDataSchema.objects.create(
             name="public.orders_history", team=self.team, source=self.source, should_sync=True
@@ -4739,7 +4743,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         self.schema.refresh_from_db()
         assert self.schema.cdc_table_mode == "consolidated"
 
-    @override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=True)
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_patch_refuses_syncing_a_table_named_like_another_schemas_history_table(self):
         # The history table is not registered until the first snapshot loads, and the name is taken already.
         self.schema.sync_type_config["cdc_table_mode"] = "both"
@@ -4779,7 +4783,7 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         self.schema.sync_type_config["cdc_table_mode"] = mode
         self.schema.save()
 
-        with override_settings(DATA_WAREHOUSE_PH_HISTORY_NAMING=ph_naming):
+        with mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: ph_naming):
             name = ExternalDataSchemaSerializer().get_history_table_name(self.schema)
 
         assert name == (None if storage_name is None else build_table_name(self.source, storage_name))
