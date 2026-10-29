@@ -5,7 +5,7 @@ query's `events` scan for `posthog.flag_evaluations` when `flag_evaluations` hol
 saved queries keep returning flag calls without a change.
 
 The swap runs before type resolution, so every rule here is syntactic. A shape the rules cannot classify keeps
-reading `events`.
+reading `events`. On mode 2, a second pass finds the scans those rules miss in the resolved query.
 """
 
 import json
@@ -156,6 +156,10 @@ def resolve_flag_calls_from_flag_evaluations(
     - A query keeps reading `events` when it reads a property from a different kind of column there, such as a
       materialized column. See `_swap_reads_properties_alike`.
 
+    For an organization whose flag calls are only in `flag_evaluations`, a scan that the syntactic rules miss swaps
+    too when the resolved original shows that its filters pin `event` to flag calls in its WHERE or PREWHERE. The
+    query raises when such a scan cannot swap.
+
     The resolver inlines a saved view's body, so the swap never sees a scan inside one. Once `events` gets no flag
     calls, a query that reads a view whose body reads only flag calls from `events` raises.
     """
@@ -203,6 +207,11 @@ def _resolve_with_swaps(
             raise _flag_calls_only_in_flag_evaluations_error(swapper.refusals[0])
         logger.info("flag_calls_swap_declined", team_id=context.team_id, reason=swapper.refusals[0])
     original = resolve(node)
+    if only_in_flag_evaluations:
+        with context.timings.measure("flag_calls_from_flag_evaluations_by_type"):
+            refusal = swapper.swap_scans_found_by_type(rewritten, original)
+        if refusal is not None:
+            raise _flag_calls_only_in_flag_evaluations_error(refusal)
     if not swapper.swapped:
         return original
     try:
@@ -323,17 +332,8 @@ class EventsScan:
 
     def pins_flag_calls(self, conjuncts: list[ast.Expr], needs_flag_key: bool) -> bool:
         """Whether `conjuncts` pin `event` to flag calls. With `needs_flag_key`, a pin of `event` counts only where
-        these conjuncts also pin `$feature_flag`. The recursion into `OR` branches passes False once an enclosing
-        conjunct pins `$feature_flag`."""
-        needs_flag_key = needs_flag_key and not self.flag_keys(conjuncts)
-        return any(self._pins_flag_calls_in(conjunct, needs_flag_key) for conjunct in conjuncts)
-
-    def _pins_flag_calls_in(self, expr: ast.Expr, needs_flag_key: bool) -> bool:
-        if _pinned_values(expr, self._reads_event, _is_flag_called) is not None:
-            return not needs_flag_key
-        if branches := boolean_operands(expr, ast.Or):
-            return all(self.pins_flag_calls(_conjuncts(branch), needs_flag_key) for branch in branches)
-        return False
+        these conjuncts also pin `$feature_flag`."""
+        return _pins_flag_calls(conjuncts, self._reads_event, self.flag_keys if needs_flag_key else None)
 
     def _flag_keys_in(self, expr: ast.Expr) -> list[str] | None:
         """The keys `expr` pins `$feature_flag` to, or None when it does not pin it."""
@@ -401,6 +401,28 @@ class EventsScan:
 
     def _reads_timestamp(self, expr: ast.Expr) -> bool:
         return self.column(expr) == ["timestamp"]
+
+
+def _pins_flag_calls(
+    conjuncts: list[ast.Expr], reads_event: _Predicate, flag_keys: Callable[[list[ast.Expr]], list[str]] | None
+) -> bool:
+    """Whether `conjuncts` pin what `reads_event` matches to flag calls: by `=` or `IN` of only
+    `$feature_flag_called`, or by an `OR` whose every branch pins. With `flag_keys`, a pin counts only where these
+    conjuncts also pin `$feature_flag`. The recursion into `OR` branches drops `flag_keys` once an enclosing
+    conjunct pins `$feature_flag`."""
+    if flag_keys is not None and flag_keys(conjuncts):
+        flag_keys = None
+    return any(_pins_flag_calls_in(conjunct, reads_event, flag_keys) for conjunct in conjuncts)
+
+
+def _pins_flag_calls_in(
+    expr: ast.Expr, reads_event: _Predicate, flag_keys: Callable[[list[ast.Expr]], list[str]] | None
+) -> bool:
+    if _pinned_values(expr, reads_event, _is_flag_called) is not None:
+        return flag_keys is None
+    if branches := boolean_operands(expr, ast.Or):
+        return all(_pins_flag_calls(_conjuncts(branch), reads_event, flag_keys) for branch in branches)
+    return False
 
 
 def comparison_of(expr: ast.Expr) -> ast.CompareOperation | None:
@@ -790,6 +812,112 @@ class _EventsScanSwapper(ScanVisitor):
             self.flag_key_predicates += 1
         point_scan_at(node, scan, ["posthog", "flag_evaluations"], flag_key)
         self.swapped = True
+
+    def swap_scans_found_by_type(self, rewritten: ast.AST, resolved: ast.AST) -> str | None:
+        """Swap each scan in `rewritten` that `resolved`, the resolved original, shows reads only flag calls, such as
+        a scan joined after another table. Returns why one of them cannot swap, or None.
+
+        A resolved scan maps to its unresolved `JoinExpr` by source position. A scan without a position, or with one
+        that another join shares, cannot swap. A query built from several parsed fragments can repeat a position.
+        """
+        resolved_joins = _joins(resolved)
+        scans = [
+            join
+            for select, join in resolved_joins
+            if _is_events_scan(join.type)
+            and _pins_flag_calls(filter_conjuncts(select), partial(_reads_event_of, join.type), None)
+        ]
+        if not scans:
+            return None
+        resolved_spans = Counter(_span(join) for _, join in resolved_joins)
+        unresolved_by_span: dict[_Span | None, list[tuple[ast.SelectQuery, ast.JoinExpr]]] = {}
+        for select, join in _joins(rewritten):
+            unresolved_by_span.setdefault(_span(join), []).append((select, join))
+        for scan in scans:
+            span = _span(scan)
+            matches = unresolved_by_span.get(span, []) if span is not None else []
+            if matches and all(_table_chain(join) == ["posthog", "flag_evaluations"] for _, join in matches):
+                # The syntactic rules already swapped every join at this position.
+                continue
+            if len(matches) != 1 or resolved_spans[span] != 1:
+                return _UNMOVABLE_SCAN
+            [(select, join)] = matches
+            if _table_chain(join) != ["events"]:
+                return _UNMOVABLE_SCAN
+            events_scan = EventsScan(
+                join=join,
+                alias=join.alias or "events",
+                has_other_sources=True,
+                flag_key_compares_as_string=self.flag_key_compares_as_string,
+            )
+            refusal = events_scan.shape_refusal(select)
+            if refusal is not None:
+                return refusal
+            self._swap(select, events_scan, filter_conjuncts(select))
+        return None
+
+
+_UNMOVABLE_SCAN = "it reads events in a shape that can't be moved to posthog.flag_evaluations yet"
+
+_Span = tuple[int, int]
+
+
+def _span(node: ast.Expr) -> _Span | None:
+    return (node.start, node.end) if node.start is not None and node.end is not None else None
+
+
+def _table_chain(join: ast.JoinExpr) -> list[str | int] | None:
+    return join.table.chain if isinstance(join.table, ast.Field) else None
+
+
+def _joins(node: ast.AST) -> list[tuple[ast.SelectQuery, ast.JoinExpr]]:
+    collector = _JoinCollector()
+    collector.visit(node)
+    return collector.joins
+
+
+class _JoinCollector(SyntaxVisitor):
+    """Each `JoinExpr` in a FROM chain, with the `SelectQuery` that owns it."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.joins: list[tuple[ast.SelectQuery, ast.JoinExpr]] = []
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        # The resolver inlines a saved view's body, parsed from the view's own text. Its offsets do not point into
+        # the query. The swap cannot reach it.
+        if node.view_name is not None:
+            return
+        join = node.select_from
+        while join is not None:
+            self.joins.append((node, join))
+            join = join.next_join
+        super().visit_select_query(node)
+
+    def visit_alias(self, node: ast.Alias) -> None:
+        # The resolver inlines a saved expression's body in a hidden alias. The swap cannot reach it.
+        if not node.hidden:
+            super().visit_alias(node)
+
+
+def _is_events_scan(table_type: ast.Type | None) -> bool:
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
+
+
+def _reads_event_of(table_type: ast.Type | None, expr: ast.Expr) -> bool:
+    """Whether resolved `expr` reads the `event` column of the scan whose type is `table_type`."""
+    # The resolver wraps a field without a table prefix in an alias when the query has several tables.
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    if not isinstance(expr, ast.Field):
+        return False
+    # A select alias used in WHERE wraps the column in one FieldAliasType per alias.
+    field_type = expr.type
+    while isinstance(field_type, ast.FieldAliasType):
+        field_type = field_type.type
+    return isinstance(field_type, ast.FieldType) and field_type.name == "event" and field_type.table_type is table_type
 
 
 def _swap_keeps_bindings(original: ast.AST, swapped: ast.AST, flag_key_predicates: int) -> bool:
