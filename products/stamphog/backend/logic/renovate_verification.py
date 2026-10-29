@@ -50,6 +50,11 @@ _NPM_NAME_RE = re.compile(r"^(@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0
 _NUMERIC_VERSION_RE = re.compile(r"^(\d+)\.(\d+)(?:\.(\d+))?")
 _VERSION_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z.+-]*$")
 _PNPM_LOCK_DERIVED_KEYS = frozenset({"packages", "snapshots", "importers", "catalogs"})
+# The fields pnpm 9 writes on a registry package entry. Any other field, such as `version` or
+# `dependencies`, overrides what the entry's key or its snapshot says.
+_PNPM_REGISTRY_ENTRY_KEYS = frozenset(
+    {"resolution", "engines", "peerDependencies", "peerDependenciesMeta", "hasBin", "cpu", "os", "libc", "deprecated"}
+)
 
 ReadFile = Callable[[str, str], str | None]
 
@@ -294,9 +299,9 @@ def pnpm_lock_versions(path: str, base_text: str, head_text: str) -> tuple[list[
         if name not in base_versions:
             problems.append(f"{path} adds {name}, which it did not lock before.")
             continue
-        # A tarball, a git repository or a directory carries more keys than the integrity hash, and a
-        # `version` field overrides the version in the key.
-        if set((entry or {}).get("resolution") or {}) != {"integrity"} or "version" in (entry or {}):
+        # A tarball, a git repository or a directory carries more keys than the integrity hash.
+        entry = entry or {}
+        if set(entry.get("resolution") or {}) != {"integrity"} or not set(entry) <= _PNPM_REGISTRY_ENTRY_KEYS:
             problems.append(f"{path} resolves {name}@{version} from somewhere other than the registry.")
             continue
         changes.append(
