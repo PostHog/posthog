@@ -71,6 +71,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _CONNECTION_LIMIT_ERROR_SUBSTRINGS,
     _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
     _SERVER_STARTING_UP_ERROR_SUBSTRINGS,
+    _SERVICE_UNAVAILABLE_ERROR_SUBSTRING,
     _SSH_HANDSHAKE_EOF_ERROR,
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
     PostgresImplementation,
@@ -410,6 +411,14 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
     "persists, check that the foreign server is running and reachable from your source database."
 )
 
+# Terminal twin of `_FOREIGN_SERVER_UNREACHABLE_ERROR` once the activity's own retry budget is spent
+# on a sustained outage. The schedule picks the sync back up on its own, so it must not read like
+# the sync needs re-enabling — mirrors `_SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE` below.
+_FOREIGN_SERVER_UNREACHABLE_EXHAUSTED_MESSAGE = (
+    f"{_FOREIGN_SERVER_UNREACHABLE_ERROR} This kept happening on every retry. This sync is still "
+    "enabled and will run again on its next schedule."
+)
+
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
 # can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
 # down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
@@ -480,6 +489,16 @@ _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE = (
     "Your database wasn't accepting connections, and it was still unavailable after every retry. It "
     "reported that it's starting up, recovering, or shutting down. Check that the database is "
     "running and healthy. This sync is still enabled and will run again on its next schedule."
+)
+
+# Twin of `_SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE` for a bare proxy/pooler "service temporarily
+# unavailable" refusal (see `_SERVICE_UNAVAILABLE_ERROR_SUBSTRING` in postgres.py), which names no
+# lifecycle state, so the message doesn't claim one either.
+_SERVICE_UNAVAILABLE_EXHAUSTED_MESSAGE = (
+    "Your database refused PostHog's connection, reporting that the service was temporarily "
+    "unavailable, and it was still refusing connections after every retry. Check your database and "
+    "any connection pooler or proxy in front of it for an ongoing outage, maintenance, or failover. "
+    "This sync is still enabled and will run again on its next schedule."
 )
 
 _CONNECTION_LIMIT_EXHAUSTED_MESSAGE = (
@@ -1482,6 +1501,15 @@ class PostgresSource(
             "missing chunk number": _SOURCE_PAGE_CORRUPTION_ERROR,
             "unexpected zero page": _SOURCE_PAGE_CORRUPTION_ERROR,
             "could not read block": _SOURCE_PAGE_CORRUPTION_ERROR,
+            # The server failed to open a relation's underlying file at all, rather than failing to
+            # read a block from one already open — psycopg's `IoError` (SQLSTATE 58030), raised as
+            # `could not open file "base/<db>/<relfilenode>": <errno message>`. Match only the
+            # "Input/output error" (EIO) errno text, the signal for a failing disk or filesystem,
+            # the same family as the page-level errors above. Matching the bare "could not open
+            # file" prefix instead would also catch "Too many open files" (EMFILE/ENFILE), a
+            # file-descriptor exhaustion that clears once load on the source drops, so that case
+            # must stay retryable. The volatile file path is excluded from the match.
+            "Input/output error": _SOURCE_PAGE_CORRUPTION_ERROR,
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
@@ -1702,6 +1730,11 @@ class PostgresSource(
         # new connections while the source is going down — all retried in-process by the
         # offset-chunking reconnect, same exhausted-budget fallback as above.
         #
+        # `_SERVICE_UNAVAILABLE_ERROR_SUBSTRING` is a bare proxy/pooler "service temporarily
+        # unavailable" refusal at connect time — no lifecycle state, no capacity limit, just a brief
+        # outage on the layer in front of Postgres. Same self-recovering shape, same in-process retry
+        # via `_is_dropped_or_connect_timeout` / `_is_dropped_or_connection_limit`.
+        #
         # `_CONNECTION_LIMIT_ERROR_SUBSTRINGS` (e.g. "remaining connection slots are reserved") is a
         # connect-time capacity refusal already retried in-process by `_connect_with_dropped_retry` /
         # `_is_dropped_or_connection_limit`. A slot frees the moment another connection closes, so a
@@ -1754,12 +1787,19 @@ class PostgresSource(
         # never appears in CockroachDB's message. CockroachDB expects the whole transaction to be
         # retried on conflict, which is exactly what letting this propagate to Temporal's
         # whole-activity retry does, so it's the same self-recovering class as the other entries here.
+        #
+        # `_FOREIGN_SERVER_UNREACHABLE_ERROR` (see `ForeignServerUnreachableError`) is the same
+        # self-recovering shape again, for a postgres_fdw foreign table's own downstream server
+        # rather than the direct connection. Without it here, every occurrence of an otherwise
+        # transient foreign-server blip would still be logged at `exception` and flood error
+        # tracking, the exact failure mode this set exists to avoid.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
+            _SERVICE_UNAVAILABLE_ERROR_SUBSTRING,
             *_CONNECTION_LIMIT_ERROR_SUBSTRINGS,
             "conflict with recovery",
             "TransactionRetryWithProtoRefreshError",
@@ -1768,6 +1808,7 @@ class PostgresSource(
             _SSH_FORWARD_FAILED_ERROR,
             _CONNECT_TIMEOUT_ERROR,
             _POOLER_AUTH_CIRCUIT_BREAKER_ERROR,
+            _FOREIGN_SERVER_UNREACHABLE_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -1784,6 +1825,7 @@ class PostgresSource(
             **dict.fromkeys(_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS, _CONNECTION_DROPPED_EXHAUSTED_MESSAGE),
             **dict.fromkeys(_SERVER_STARTING_UP_ERROR_SUBSTRINGS, _SERVER_UNAVAILABLE_EXHAUSTED_MESSAGE),
+            _SERVICE_UNAVAILABLE_ERROR_SUBSTRING: _SERVICE_UNAVAILABLE_EXHAUSTED_MESSAGE,
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
             "TransactionRetryWithProtoRefreshError": _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE,
@@ -1794,6 +1836,7 @@ class PostgresSource(
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
             _CONNECT_TIMEOUT_ERROR: _CONNECT_TIMEOUT_EXHAUSTED_MESSAGE,
             _POOLER_AUTH_CIRCUIT_BREAKER_ERROR: _POOLER_AUTH_CIRCUIT_BREAKER_EXHAUSTED_MESSAGE,
+            _FOREIGN_SERVER_UNREACHABLE_ERROR: _FOREIGN_SERVER_UNREACHABLE_EXHAUSTED_MESSAGE,
         }
 
     def reconcile_schema_metadata(

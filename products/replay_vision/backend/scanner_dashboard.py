@@ -181,27 +181,24 @@ class _TileBuilder:
 
     def add_latest_sessions_tile(self) -> None:
         scanner_type = ScannerType(self.scanner.scanner_type)
-        name, description, order = "Latest matching sessions", "The newest observations", "timestamp DESC"
         detail = "properties.scanner_output_reasoning"
-        if scanner_type == ScannerType.CLASSIFIER:
-            detail = f"arrayStringConcat({_TAGS_EXPR}, ', ')"
-        elif scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
-            name, description = "Most notable sessions", "The most notable observations"
-            order = "toFloat(properties.scanner_output_notability) DESC NULLS LAST"
+        if scanner_type in (ScannerType.SUMMARIZER, ScannerType.EXPERIMENT):
             detail = "properties.scanner_output_title"
+        elif scanner_type == ScannerType.CLASSIFIER:
+            detail = f"arrayStringConcat({_TAGS_EXPR}, ', ')"
         score_column = (
             "toFloat(properties.scanner_output_score) AS score, " if scanner_type == ScannerType.SCORER else ""
         )
         where = f" AND {_YES_SQL}" if self.is_monitor else ""
         self._sql_table(
-            name,
-            f"{description}, with a link to each recording.",
+            "Latest matching sessions",
+            "The newest observations, with a link to each recording.",
             f"""
             SELECT timestamp AS observed_at, {score_column}{detail} AS finding,
                 properties.recording_distinct_id AS person, recordingButton(properties.session_id) AS recording
             FROM events
             WHERE {_SCANNER_WHERE}{where}
-            ORDER BY {order}
+            ORDER BY timestamp DESC
             LIMIT 50
             """,
             width=12,
@@ -335,7 +332,6 @@ class _TileBuilder:
         )
 
     def _summarizer_tiles(self) -> None:
-        self._notability_distribution()
         self._trend(
             "Average chapters per recording",
             "A rough measure of how much happens in each session.",
@@ -349,31 +345,6 @@ class _TileBuilder:
             series=[self._series("Observations")],
             breakdown={"breakdown": "experiment_variant", "breakdown_type": "event"},
             display="ActionsBar",
-        )
-        self._trend(
-            "Average notability by variant",
-            "How notable the scanner found each variant's sessions over the date range. Higher means more unusual "
-            "behavior.",
-            series=[self._series("Notability", math="avg", math_property="scanner_output_notability")],
-            breakdown={"breakdown": "experiment_variant", "breakdown_type": "event"},
-            # One bar per variant: stacked weekly bars would add the variants' averages together.
-            display="ActionsBarValue",
-        )
-        self._notability_distribution()
-
-    def _notability_distribution(self) -> None:
-        self._sql_chart(
-            "Notability distribution",
-            "How notable the scanner found each session, from 0 (routine) to 1 (unusual).",
-            f"""
-            SELECT round(toFloat(properties.scanner_output_notability), 1) AS notability, count() AS recordings
-            FROM events
-            WHERE {_SCANNER_WHERE} AND properties.scanner_output_notability IS NOT NULL
-            GROUP BY notability
-            ORDER BY notability
-            """,
-            x="notability",
-            y="recordings",
         )
 
     # Helpers.

@@ -61,6 +61,7 @@ from posthog.schema_enums import (
     BaseMathType as BaseMathType,
     BehavioralEventSource as BehavioralEventSource,
     BIAggregation as BIAggregation,
+    BICatalogMetricStatus as BICatalogMetricStatus,
     BIDateBucket as BIDateBucket,
     BIFilterOperator as BIFilterOperator,
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
@@ -987,6 +988,18 @@ class BIConditionGroup(BaseModel):
     filters: list[str]
     groups: list[BIConditionGroup]
     operator: Operator1
+
+
+class CatalogMetricContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    isDrifted: bool
+    owner: str | None = None
+    status: BICatalogMetricStatus
+    unit: str
+    updatedAt: str | None = None
 
 
 class Alias(BaseModel):
@@ -4485,7 +4498,8 @@ class AssistantPathsFilter(BaseModel):
             " values are event names. `hogql` - custom HogQL expression defined in"
             " `pathsHogQLExpression`. Path values come from evaluating the expression."
             " You can combine multiple types. If not specified, all events are included"
-            " without type filtering."
+            " without type filtering. Paths never include `$feature_flag_called`"
+            " events, whichever types are set."
         ),
     )
     localPathCleaningFilters: list[AssistantPathCleaningFilter] | None = Field(
@@ -5796,7 +5810,10 @@ class ExperimentExposureHealthCheck(BaseModel):
         extra="forbid",
     )
     key: ExperimentExposureHealthCheckKey = Field(..., description="Stable identifier of the check.")
-    name: str = Field(..., description="What the check looks at, as the health panel lists it.")
+    name: str = Field(
+        ...,
+        description="The problem the check looks for, as the health panel lists it.",
+    )
     reason: str | None = Field(
         ...,
         description=(
@@ -6239,6 +6256,13 @@ class HogQLQueryModifiers(BaseModel):
     inCohortVia: InCohortVia | None = None
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None
+    materializeRepeatedCTEs: bool | None = Field(
+        default=None,
+        description=(
+            "Reuse eligible bounded event aggregates within one query execution. When"
+            " unset, the server may enable it via the cloud feature flag."
+        ),
+    )
     materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     mergeFederatedAggregateJoins: bool | None = Field(
         default=None,
@@ -31641,6 +31665,10 @@ class BIConfig(BaseModel):
     catalogMetric: str | None = Field(
         default=None,
         description=("Catalog provenance only: the snapshot does not track subsequent definition edits."),
+    )
+    catalogMetricContext: CatalogMetricContext | None = Field(
+        default=None,
+        description=("Catalog metadata at copy time, not a live approval of the worksheet."),
     )
     chartType: ChartDisplayType
     colorBy: str | None = None

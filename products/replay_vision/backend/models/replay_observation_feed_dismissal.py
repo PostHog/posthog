@@ -12,7 +12,7 @@ class FeedDismissalReason(models.TextChoices):
 
 
 class ReplayObservationFeedDismissal(TeamScopedRootMixin, UUIDModel):
-    """One user marked this observation not useful in What to watch. Per user, like `ReplayObservationView`."""
+    """One user marked this observation not useful in Highlights. Per user, like `ReplayObservationView`."""
 
     # The unique constraint leads with observation_id, so a separate index on it would only slow writes.
     observation = models.ForeignKey(

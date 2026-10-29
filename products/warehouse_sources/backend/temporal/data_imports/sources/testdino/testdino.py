@@ -10,6 +10,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     rest_api_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
     SinglePagePaginator,
@@ -18,7 +21,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClient,
     RESTClientNonRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import Endpoint
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import schema_for_resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -32,6 +38,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.testdino.s
     HTTP_ERRORS,
     INVALID_PROJECT,
     MANUAL_CASE_LIMIT,
+    PAGED_ENDPOINTS,
 )
 
 
@@ -45,7 +52,7 @@ def validate_project_id(project_id: str) -> None:
         raise ValueError(INVALID_PROJECT)
 
 
-class TestDinoRunPaginator(PageNumberPaginator):
+class TestDinoPagePaginator(PageNumberPaginator):
     def __init__(self) -> None:
         super().__init__(base_page=1, stop_after_empty_page=False)
 
@@ -86,6 +93,19 @@ def validate_credentials(config: TestDinoSourceConfig) -> tuple[bool, str | None
     return True, None
 
 
+def client_config(config: TestDinoSourceConfig) -> ClientConfig:
+    return {
+        "base_url": f"{API_BASE_URL}/{config.project_id}",
+        "auth": {"type": "bearer", "token": config.personal_access_token},
+        "allow_redirects": False,
+        "request_timeout": 30,
+    }
+
+
+def paged_endpoint_extra() -> Endpoint:
+    return {"data_selector": "data", "data_selector_required": True, "paginator": TestDinoPagePaginator()}
+
+
 def testdino_source(
     config: TestDinoSourceConfig,
     inputs: SourceInputs,
@@ -93,36 +113,53 @@ def testdino_source(
 ) -> SourceResponse:
     validate_project_id(config.project_id)
     settings = schema_for_resource(ENDPOINTS, inputs.schema_name)
+    primary_keys = list(settings.primary_keys)
+
+    if settings.fanout is not None:
+        dependent = build_dependent_resource(
+            endpoint_configs=ENDPOINTS,
+            child_endpoint=settings.name,
+            fanout=settings.fanout,
+            client_config=client_config(config),
+            path_format_values={},
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra=paged_endpoint_extra(),
+            child_endpoint_extra=paged_endpoint_extra(),
+        )
+        return SourceResponse(
+            name=inputs.schema_name,
+            items=lambda: dependent,
+            primary_keys=primary_keys,
+            sort_mode=None,
+        )
+
     endpoint: Endpoint = {
-        "path": f"{config.project_id}/{settings.path}",
+        "path": settings.path,
         "data_selector": "data",
         "data_selector_required": True,
         "paginator": "single_page",
     }
     initial_state: dict[str, Any] | None = None
-    resumable = inputs.schema_name == "test_runs"
+    resumable = inputs.schema_name in PAGED_ENDPOINTS
     if resumable:
-        endpoint["paginator"] = TestDinoRunPaginator()
-        endpoint["params"] = {"limit": 100, "sort": "counter_asc"}
-        if manager.can_resume():
-            saved = manager.load_state()
-            if saved is not None:
-                initial_state = {"page": saved.page}
+        endpoint.update(paged_endpoint_extra())
+        endpoint["params"] = {"limit": settings.page_size, **settings.params}
     elif inputs.schema_name == "manual_cases":
         endpoint["paginator"] = TestDinoCasePaginator()
         endpoint["params"] = {"limit": MANUAL_CASE_LIMIT}
+    if resumable and manager.can_resume():
+        saved = manager.load_state()
+        if saved is not None:
+            initial_state = {"page": saved.page}
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is not None:
             manager.save_state(TestDinoResumeConfig(page=int(state["page"])))
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": API_BASE_URL,
-            "auth": {"type": "bearer", "token": config.personal_access_token},
-            "allow_redirects": False,
-            "request_timeout": 30,
-        },
+        "client": client_config(config),
         "resources": [{"name": inputs.schema_name, "endpoint": endpoint}],
     }
     resource = rest_api_resource(
@@ -136,7 +173,7 @@ def testdino_source(
     return SourceResponse(
         name=inputs.schema_name,
         items=lambda: resource,
-        primary_keys=[settings.primary_key],
+        primary_keys=primary_keys,
         sort_mode=None,
         supports_resume=resumable,
         on_complete=manager.clear_state if resumable else None,

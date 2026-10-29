@@ -229,6 +229,10 @@ class ClientConfig(TypedDict, total=False):
     # When False, redirects are not followed and any 3xx is rejected — closes the redirect-based
     # off-host escape that host-pinning alone would miss. Defaults to True (follow redirects).
     allow_redirects: bool
+    # Regex the host of a vendor's presigned storage must fully match. With redirects disabled, a
+    # 302/303 to an HTTPS host matching it is fetched with a bare GET that carries no credentials,
+    # and its body (gunzipped when needed, capped in size) is read as the page.
+    presigned_redirect_host_pattern: Optional[str]
     # Per-request (connect, read) timeout in seconds. Left unset, the tracked session applies
     # `default_request_timeout()`. A source pointed at a customer-controlled host should set a
     # tighter value. A single float applies to both connect and read; a tuple sets them separately.

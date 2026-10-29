@@ -17,7 +17,7 @@ export interface V4LeafColumn {
     opaque?: boolean
 }
 
-/** A repeated group of required leaves; Parquet readers see it as a non-null list of structs. */
+/** A non-null list of structs of required leaves. */
 export interface V4RepeatedColumn {
     name: string
     repeated: true

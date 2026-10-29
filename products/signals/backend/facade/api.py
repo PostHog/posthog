@@ -626,7 +626,12 @@ def organization_acted_on_report(organization_id: "str | uuid.UUID") -> bool:
     """
     return SignalReport.objects.filter(
         team__organization_id=organization_id,
-        status__in=[SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING, SignalReport.Status.SUPPRESSED],
+        status__in=[
+            SignalReport.Status.RESOLVED,
+            SignalReport.Status.MONITORING,
+            SignalReport.Status.CLOSED,
+            SignalReport.Status.SUPPRESSED,
+        ],
     ).exists()
 
 
