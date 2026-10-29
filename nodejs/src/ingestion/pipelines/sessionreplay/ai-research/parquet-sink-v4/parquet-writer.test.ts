@@ -1,16 +1,27 @@
 import { ParquetReader } from '@dsnp/parquetjs'
-import { CompressionCodec } from '@dsnp/parquetjs/dist/gen-nodejs/parquet_types'
+import { CompressionCodec, ConvertedType } from '@dsnp/parquetjs/dist/gen-nodejs/parquet_types'
 import { randomBytes } from 'node:crypto'
 
 import { BLOCK_INDEX_COLUMNS, V4Index } from './index-columns'
 import { indexRowsToParquet } from './parquet-writer'
 
+const CONVERTED_TYPE_NAMES: Record<number, string> = Object.fromEntries(
+    Object.entries(ConvertedType).map(([name, value]) => [value, name])
+)
+
 async function describeFile(
     file: Buffer
 ): Promise<{ fields: string[]; rowGroups: number; codecs: unknown[]; rows: unknown[] }> {
     const reader = await ParquetReader.openBuffer(file)
-    const fields = reader.schema.fieldList.map((field) =>
-        [field.repetitionType, field.primitiveType ?? 'group', field.path.join('.'), field.originalType]
+    // parquetjs's reader drops a group's LIST annotation, so annotations come from the footer, which lists fields in fieldList order.
+    const footer = reader.metadata!.schema.slice(1)
+    const fields = reader.schema.fieldList.map((field, index) =>
+        [
+            field.repetitionType,
+            field.primitiveType ?? 'group',
+            field.path.join('.'),
+            CONVERTED_TYPE_NAMES[footer[index].converted_type!],
+        ]
             .filter(Boolean)
             .join(' ')
     )
@@ -107,11 +118,13 @@ describe('indexRowsToParquet', () => {
             'OPTIONAL INT32 viewport_width',
             'OPTIONAL INT32 viewport_height',
             'OPTIONAL INT64 viewport_ts_ms',
-            'REPEATED group moments',
-            'REQUIRED BYTE_ARRAY moments.kind UTF8',
-            'REQUIRED BYTE_ARRAY moments.window_id UTF8',
-            'REQUIRED INT64 moments.ts_ms',
-            'REQUIRED INT32 moments.event_index',
+            'REQUIRED group moments LIST',
+            'REPEATED group moments.list',
+            'REQUIRED group moments.list.element',
+            'REQUIRED BYTE_ARRAY moments.list.element.kind UTF8',
+            'REQUIRED BYTE_ARRAY moments.list.element.window_id UTF8',
+            'REQUIRED INT64 moments.list.element.ts_ms',
+            'REQUIRED INT32 moments.list.element.event_index',
             'REPEATED BYTE_ARRAY url_fingerprints UTF8',
             'REPEATED BYTE_ARRAY window_ids UTF8',
             'OPTIONAL BYTE_ARRAY urls UTF8',
@@ -194,7 +207,7 @@ describe('indexRowsToParquet', () => {
         ])
     })
 
-    it('reads moments back as a list of structs and the string lists as lists', async () => {
+    it('reads moments back as a 3-level list of structs and the string lists as lists', async () => {
         const moments = [
             { kind: 'click', window_id: 'w1', ts_ms: 1_000, event_index: 2 ** 31 - 1 },
             { kind: 'full_snapshot_undecoded', window_id: 'w2', ts_ms: 2_000, event_index: 0 },
@@ -204,9 +217,13 @@ describe('indexRowsToParquet', () => {
         )
         const read = rows as Record<string, unknown>[]
         expect(read.map((row) => [row.moments, row.url_fingerprints, row.window_ids])).toEqual([
-            [moments.map((moment) => ({ ...moment, ts_ms: BigInt(moment.ts_ms) })), ['w1', 'w2'], ['w1', 'w2']],
-            // parquetjs reads an empty repeated field as null; Arrow readers see an empty list.
-            [null, null, null],
+            [
+                { list: moments.map((moment) => ({ element: { ...moment, ts_ms: BigInt(moment.ts_ms) } })) },
+                ['w1', 'w2'],
+                ['w1', 'w2'],
+            ],
+            // parquetjs reads an empty repeated field as null and leaves a LIST wrapped; Arrow readers see empty lists.
+            [{ list: null }, null, null],
         ])
     })
 })

@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
@@ -16,6 +17,7 @@ import { traceSummaryLogic } from '../traceSummaryLogic'
 import {
     decodeIdSegment,
     makeEvaluationResults,
+    makeFeedback,
     makeNodeDetail,
     makeTraceCluster,
     makeTraceResource,
@@ -29,6 +31,7 @@ const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const CREATED_AT = '2026-09-01T10:15:00Z'
+const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 
 const answeredGeneration = makeNodeDetail({
@@ -48,6 +51,7 @@ describe('traceViewAdapterLogic', () => {
     let failingNodeId: string | null
     let clusterRequests: string[]
     let clustersStatus: number
+    let feedbackStatus: number
     let summaryRequests: number
     let evaluations: TraceEvaluationResultsApi
 
@@ -64,6 +68,7 @@ describe('traceViewAdapterLogic', () => {
         failingNodeId = null
         clusterRequests = []
         clustersStatus = 200
+        feedbackStatus = 200
         summaryRequests = 0
         evaluations = makeEvaluationResults()
         useMocks({
@@ -86,6 +91,8 @@ describe('traceViewAdapterLogic', () => {
                         ? [200, { clusters: [makeTraceCluster()] }]
                         : [clustersStatus, { detail: 'Server error.' }]
                 },
+                [FEEDBACK_URL]: () =>
+                    feedbackStatus === 200 ? [200, makeFeedback()] : [feedbackStatus, { detail: 'Server error.' }],
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -108,6 +115,7 @@ describe('traceViewAdapterLogic', () => {
     })
 
     afterEach(() => {
+        resumeKeaLoadersErrors()
         logic.unmount()
         jest.restoreAllMocks()
     })
@@ -310,6 +318,46 @@ describe('traceViewAdapterLogic', () => {
         await expectLogic(logic, () => logic.actions.selectNode(nodeId)).toMatchValues({ canViewInThread: expected })
     })
 
+    it('showFeedback opens the Feedback mode focused on the step, reports where it came from and keeps both on a click of its tab', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setMode('thread')
+
+        await expectLogic(logic, () => logic.actions.showFeedback('gen-1', 'step')).toMatchValues({
+            mode: 'feedback',
+            feedbackFocusNodeId: 'gen-1',
+            feedbackChip: { total: 2 },
+            feedbackCountByNodeId: { 'gen-1': 1, 'trace-1': 1 },
+        })
+        expect(capture).toHaveBeenCalledWith('llma trace view feedback viewed', {
+            entry: 'step',
+            scores: 1,
+            responses: 1,
+        })
+
+        await expectLogic(logic, () => logic.actions.setMode('feedback')).toMatchValues({
+            mode: 'feedback',
+            feedbackFocusNodeId: 'gen-1',
+        })
+        expect(capture.mock.calls.filter(([event]) => event === 'llma trace view feedback viewed')).toHaveLength(1)
+    })
+
+    it('has no chip, no counts and an error mode after the feedback read fails', async () => {
+        silenceKeaLoadersErrors()
+        feedbackStatus = 500
+        mountAt()
+
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({
+                status: 'ready',
+                feedbackChip: null,
+                feedbackCountByNodeId: {},
+                feedbackMode: { status: 'error' },
+            })
+    })
+
     it('the Summary mode reads the summary on open, and a step link leaves it for that step in spans', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         mountAt()
@@ -325,6 +373,19 @@ describe('traceViewAdapterLogic', () => {
 
         await expectLogic(summary).toDispatchActions(['closeSummary']).toMatchValues({ isOpen: false })
         expect(capture).toHaveBeenCalledWith('llma trace view summary step clicked', { kind: 'bullet' })
+    })
+
+    it('leaving the Summary mode for the Feedback mode closes the summary', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        const summary = traceSummaryLogic({ traceId: 'trace-1' })
+
+        logic.actions.setMode('summary')
+        await expectLogic(summary).toDispatchActions([summary.actionCreators.openSummary('tab'), 'loadSummarySuccess'])
+        logic.actions.showFeedback(null, 'chip')
+
+        expect(logic.values.mode).toBe('feedback')
+        await expectLogic(summary).toDispatchActions(['closeSummary']).toMatchValues({ isOpen: false })
     })
 
     it('a trace-level summary link opens the Summary mode without requesting a summary', async () => {

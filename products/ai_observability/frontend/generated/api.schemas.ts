@@ -1511,6 +1511,38 @@ export interface TraceEvaluationResultsApi {
     summary: TraceEvaluationSummaryApi
 }
 
+export interface TraceFeedbackScoreApi {
+    id: string
+    name: string | null
+    /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
+    value: string
+    /** The tree node the score targets: the step's event uuid, or the trace id for a trace-level score. */
+    nodeId: string
+    timestamp: string
+}
+
+export interface TraceFeedbackTextApi {
+    kind: 'text'
+    id: string
+    text: string
+    /** The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback. */
+    nodeId: string
+    timestamp: string
+}
+
+export interface TraceFeedbackSummaryApi {
+    /** Scores plus responses. */
+    total: number
+}
+
+export interface TraceFeedbackApi {
+    /** Oldest first. */
+    scores: TraceFeedbackScoreApi[]
+    /** What users said, oldest first. */
+    responses: TraceFeedbackTextApi[]
+    summary: TraceFeedbackSummaryApi
+}
+
 export interface TraceNodeMetadataApi {
     provider: string | null
     temperature: number | null
@@ -5597,6 +5629,13 @@ export type AiObservabilityTracesClustersRetrieveParams = {
      * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
      */
     created_at: string
+}
+
+export type AiObservabilityTracesFeedbackRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
 }
 
 export type AiObservabilityTracesNodesRetrieveParams = {

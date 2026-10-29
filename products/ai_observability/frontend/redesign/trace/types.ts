@@ -1,5 +1,7 @@
 import type {
     TraceEvaluationResultOutcomeEnumApi,
+    TraceFeedbackScoreApi,
+    TraceFeedbackTextApi,
     TraceNodeApi,
     TraceNodeDetailApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
@@ -8,7 +10,7 @@ import type {
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
-export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary'
+export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
 
 export type TraceViewChoice = 'new' | 'legacy'
 
@@ -138,3 +140,38 @@ export type SummaryModeState =
     | { status: 'ready'; summary: TraceSummaryContentApi }
     | { status: 'failed'; message: string; retryable: boolean }
     | { status: 'error' }
+
+/** Where a person opened the Feedback mode from, other than its tab. */
+export type FeedbackEntry = 'chip' | 'step'
+
+export interface FeedbackStep {
+    id: string
+    name: string
+}
+
+/**
+ * `step` is null for feedback on the whole trace, and for a step the tree does not hold. `focused` marks the entries
+ * of the step the Feedback mode was opened from.
+ */
+export interface FeedbackPlacement {
+    step: FeedbackStep | null
+    focused: boolean
+}
+
+export type FeedbackScoreRow = TraceFeedbackScoreApi & FeedbackPlacement
+
+export type FeedbackResponseItem = TraceFeedbackTextApi & FeedbackPlacement
+
+export type FeedbackModeState =
+    | { status: 'loading' }
+    | { status: 'error' }
+    | { status: 'ready'; scores: FeedbackScoreRow[]; responses: FeedbackResponseItem[] }
+
+export interface FeedbackChipData {
+    total: number
+}
+
+export interface StepFeedback {
+    scores: TraceFeedbackScoreApi[]
+    textCount: number
+}

@@ -27,6 +27,10 @@ export const ShortId: Story = { ...wide, args: { traceId: 'notes-run-42' } }
 export const LongSlugId: Story = { ...wide, args: { traceId: 'support-chat-session-2026-09-01-weekly-billing-review' } }
 export const WithClusters: Story = { ...wide, args: { clusters: FIXTURE_CLUSTERS_CHIP } }
 export const Narrow: Story = { args: { clusters: FIXTURE_CLUSTERS_CHIP }, decorators: [withWidth(420)] }
+export const WithFeedback: Story = {
+    args: { feedback: { chip: { total: 6 }, onClick: () => {} } },
+    decorators: [withWidth(420)],
+}
 
 export const WithGitBranch: Story = {
     ...wide,

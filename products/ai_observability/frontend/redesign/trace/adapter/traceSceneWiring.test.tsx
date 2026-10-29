@@ -17,6 +17,9 @@ import {
     makeEvaluationResult,
     makeEvaluationResults,
     makeEvent,
+    makeFeedback,
+    makeFeedbackScore,
+    makeFeedbackText,
     makeNodeDetail,
     makeTrace,
     makeTraceCluster,
@@ -36,6 +39,7 @@ const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
+const FEEDBACK_URL = '/api/projects/:team_id/ai_observability/traces/:id/feedback/'
 const DATASETS_URL = '/api/projects/:team_id/datasets/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
 const answeredGeneration = makeNodeDetail({
@@ -57,6 +61,7 @@ const nodeMock = {
 const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()] }
 let clusters: TraceClusterApi[] = []
 const clustersMock = { [CLUSTERS_URL]: () => [200, { clusters }] }
+const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
 
 const generation = makeEvent({
     id: 'gen-1',
@@ -101,6 +106,7 @@ describe('TraceScene', () => {
                     ...nodeMock,
                     ...evaluationsMock,
                     ...clustersMock,
+                    ...feedbackMock,
                 },
             })
         })
@@ -225,6 +231,34 @@ describe('TraceScene', () => {
             expect(await findByText('Two seats were added.')).toBeTruthy()
             expect(queryByText('Add to dataset') !== null).toBe(enabled)
         })
+
+        it('opens the feedback from the header chip and the step chips, and links each entry to its step', async () => {
+            useMocks({
+                get: {
+                    [FEEDBACK_URL]: () => [
+                        200,
+                        makeFeedback({
+                            scores: [makeFeedbackScore({ name: 'helpfulness', value: '0', nodeId: 'gen-1' })],
+                            responses: [makeFeedbackText({ text: 'Too long, but correct.', nodeId: 'trace-1' })],
+                        }),
+                    ],
+                },
+            })
+            const { container, findByText, getByText } = renderNewView()
+
+            fireEvent.click(await findByText('Feedback 2', { selector: 'button *' }))
+            expect(await findByText('Too long, but correct.')).toBeTruthy()
+
+            fireEvent.click(getByText('gen-1', { selector: '[data-attr="trace-view-feedback-step-link"]' }))
+            await waitFor(() =>
+                expect(
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                ).toContain('gen-1')
+            )
+
+            fireEvent.click(await findByText('helpfulness 0'))
+            expect(await findByText('What users said')).toBeTruthy()
+        })
     })
 
     describe('behind the flag gate', () => {
@@ -235,6 +269,7 @@ describe('TraceScene', () => {
                     ...nodeMock,
                     ...evaluationsMock,
                     ...clustersMock,
+                    ...feedbackMock,
                 },
             })
         })

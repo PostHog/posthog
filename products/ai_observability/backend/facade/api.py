@@ -22,6 +22,7 @@ from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
 from ..logic.traces.events_fallback import fallback_window
+from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
 from ..logic.traces.summary import (
@@ -38,7 +39,7 @@ from ..logic.traces.summary_generation import generate_summary
 from ..logic.traces.summary_store import fail_abandoned_summary, request_summary, viewer_summary
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
-from ..logic.traces.trace_queries import load_trace, load_trace_node, load_trace_root
+from ..logic.traces.trace_queries import load_trace, load_trace_feedback_rows, load_trace_node, load_trace_root
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
@@ -272,6 +273,32 @@ def _to_trace_cluster(cluster: TraceCluster) -> contracts.TraceCluster:
         title=cluster.title,
         description=cluster.description,
         is_outlier=cluster.is_outlier,
+    )
+
+
+def get_trace_feedback(
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
+) -> contracts.TraceFeedback:
+    """End-user feedback on a trace. An unknown trace has none."""
+    feedback = TraceFeedback(trace_id, load_trace_feedback_rows(team, user, trace_id, timestamp_hint))
+    scores = [_to_feedback_score(score) for score in feedback.scores]
+    responses = [_to_feedback_text(text) for text in feedback.texts]
+    return contracts.TraceFeedback(
+        scores=scores,
+        responses=responses,
+        summary=contracts.TraceFeedbackSummary(total=len(scores) + len(responses)),
+    )
+
+
+def _to_feedback_score(score: Score) -> contracts.TraceFeedbackScore:
+    return contracts.TraceFeedbackScore(
+        id=score.id, name=score.name, value=score.value, node_id=score.node_id, timestamp=score.timestamp
+    )
+
+
+def _to_feedback_text(text: FeedbackText) -> contracts.TraceFeedbackText:
+    return contracts.TraceFeedbackText(
+        kind="text", id=text.id, text=text.text, node_id=text.node_id, timestamp=text.timestamp
     )
 
 
