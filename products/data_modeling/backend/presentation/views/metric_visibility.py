@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 DELETE_DENIED = "Deleting data models requires data warehouse write access."
+EDIT_DENIED = "Editing data models requires data warehouse write access."
 VIEW_EDIT_DENIED = "You need edit access to this view."
 
 

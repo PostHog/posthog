@@ -1047,7 +1047,9 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
             type(target).objects.filter(pk=target.pk).exists(), expected_status == status.HTTP_403_FORBIDDEN
         )
 
-    @parameterized.expand([("delete_node",), ("delete_edge",), ("resume",), ("materialize",)])
+    @parameterized.expand(
+        [("update_node",), ("update_edge",), ("delete_node",), ("delete_edge",), ("resume",), ("materialize",)]
+    )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_write_actions_refuse_a_member_denied_the_view(self, action, mock_sync_connect):
         source = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
@@ -1058,17 +1060,24 @@ class TestNodeAccessControl(WarehouseAccessControlTestMixin):
         )
         self.client.force_login(self.editor_user)
         node_url = f"{self._list_url()}{self.node.id}/"
+        edge_url = f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/"
 
-        if action == "delete_node":
+        if action == "update_node":
+            response = self.client.patch(node_url, {"description": "changed"}, format="json")
+        elif action == "update_edge":
+            response = self.client.patch(edge_url, {"properties": {"changed": True}}, format="json")
+        elif action == "delete_node":
             response = self.client.delete(node_url)
         elif action == "delete_edge":
-            response = self.client.delete(f"/api/environments/{self.team.id}/data_modeling_edges/{edge.id}/")
+            response = self.client.delete(edge_url)
         else:
             response = self.client.post(f"{node_url}{action}/")
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertTrue(Edge.objects.filter(pk=edge.pk).exists())
+        edge.refresh_from_db()
+        self.assertEqual(edge.properties, {})
         self.node.refresh_from_db()
+        self.assertNotEqual(self.node.description, "changed")
         self.assertNotEqual(suspension_state(self.node), {})
         mock_sync_connect.assert_not_called()
 

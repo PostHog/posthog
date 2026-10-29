@@ -35,7 +35,11 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
-from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
+from products.data_modeling.backend.presentation.views.metric_visibility import (
+    DELETE_DENIED,
+    EDIT_DENIED,
+    MetricNodeVisibilityMixin,
+)
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -365,6 +369,11 @@ class NodeViewSet(
 
     def get_serializer_context(self) -> dict[str, Any]:
         return {**super().get_serializer_context(), "hidden_node_types": self._hidden_node_types()}
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._require_warehouse_access(level="editor", message=EDIT_DENIED)
+        self._require_view_edit_access(cast(Node, serializer.instance).saved_query)
+        serializer.save()
 
     def perform_destroy(self, instance: Node) -> None:
         self._require_warehouse_access(level="editor", message=DELETE_DENIED)
