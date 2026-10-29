@@ -12,7 +12,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { reconcileById } from 'lib/utils/objects'
+import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -887,6 +887,20 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
     }),
 
     listeners(({ actions, values, cache, selectors }) => ({
+        // A claim from a list row can change the open report. Patch it the way the detail pane's own claim
+        // does, which also skips the copy that pane already patched.
+        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({
+            reportId,
+            assignee,
+        }: {
+            reportId: string
+            assignee: SignalReport['assignee']
+        }) => {
+            const report = values.selectedReport
+            if (report?.id === reportId && !objectsEqual(report.assignee ?? null, assignee ?? null)) {
+                actions.seedSelectedReport({ ...report, assignee })
+            }
+        },
         setRunsOpen: ({ open }) => {
             // While the Runs panel is open, refetch on a slow poll so live runs update in place. The
             // keyed disposable replaces any prior poll and is torn down on close / unmount, and
@@ -1258,7 +1272,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     actions.setTriageOpen(true)
                 }
             },
-            [urls.inbox()]: (_, __, hashParams) => {
+            [urls.inbox()]: (_, searchParams, hashParams) => {
+                const redirectPath = inboxTabRedirectPath(undefined, searchParams)
+                if (redirectPath) {
+                    router.actions.replace(redirectPath, searchParams, hashParams)
+                    return
+                }
                 markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
                 closeAllSurfaces()
@@ -1269,7 +1288,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 }
                 // Tab segments from the old inbox layout still arrive from Slack messages and
                 // bookmarks: send them to the surface that replaced them.
-                const redirectPath = inboxTabRedirectPath(tab)
+                const redirectPath = inboxTabRedirectPath(tab, searchParams)
                 if (redirectPath) {
                     router.actions.replace(redirectPath, searchParams, hashParams)
                     return
@@ -1283,10 +1302,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 }
                 markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
+                // A selected report takes precedence in actionToUrl, so clear it before changing tabs.
+                closeAllSurfaces()
                 if (isInboxTabKey(tab) && values.activeTab !== tab) {
                     actions.setActiveTab(tab)
                 }
-                closeAllSurfaces()
             },
             [urls.inboxScout(':skillName')]: (
                 { skillName }: { skillName?: string },

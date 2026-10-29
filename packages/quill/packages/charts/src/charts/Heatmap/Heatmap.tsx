@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { resolveCssColor } from '../../core/color-utils'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -19,6 +20,7 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { useTooltipCapture } from '../../overlays/Tooltip'
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
     drawColumnHighlights,
@@ -149,7 +151,8 @@ export interface HeatmapProps {
     /** Dense grid of counts: `cells[rowIndex][colIndex]`, aligned with `yLabels`/`xLabels`.
      *  0 (or a missing entry) means an empty cell — nothing is drawn there. */
     cells: number[][]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: HeatmapConfig
     /** Custom tooltip. Each `ctx.seriesData` entry is one row at the hovered column; narrow to
      *  the hovered cell via `findClosestSeriesKey(ctx.seriesData, ctx.hoverPosition.y)`. */
@@ -178,7 +181,7 @@ function HeatmapInner({
     xLabels,
     yLabels,
     cells,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onCellClick,
@@ -187,6 +190,7 @@ function HeatmapInner({
     dataAttr,
     children,
 }: Omit<HeatmapProps, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const { colorScale: requestedColorScale = 'auto' } = config ?? {}
     // Resolve a `var(--…)` accent to a concrete color — canvas `fillStyle` (and `dimColor`'s
     // d3 parse) can't handle CSS variables, so an unresolved var would blank out every cell.
@@ -438,12 +442,14 @@ function HeatmapInner({
 
     const tooltipLabelFormatter = config?.tooltip?.labelFormatter
     const tooltipValueFormatter = config?.tooltip?.valueFormatter
+    const captureTooltip = useTooltipCapture<HeatmapRowMeta>()
     const renderTooltip = useMemo(
         () =>
             (ctx: HeatmapTooltipContext): React.ReactNode => {
                 // The base chart's `ctx.label` is the per-column key; restore the display label
                 // before it reaches either the custom or default tooltip.
                 const mapped = { ...ctx, label: resolveColumnLabel(ctx.label) }
+                captureTooltip(mapped)
                 if (tooltip) {
                     return tooltip(mapped)
                 }
@@ -466,7 +472,7 @@ function HeatmapInner({
                     />
                 )
             },
-        [tooltip, resolveColumnLabel, tooltipLabelFormatter, tooltipValueFormatter]
+        [tooltip, resolveColumnLabel, tooltipLabelFormatter, tooltipValueFormatter, captureTooltip]
     )
 
     const baseConfig = useMemo<ChartConfig>(

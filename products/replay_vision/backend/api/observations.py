@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+from django.db.models import Case, IntegerField, Q, QuerySet, Subquery, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
@@ -60,6 +60,7 @@ from products.replay_vision.backend.models.replay_observation import (
     annotate_output_number,
     hydrate_for_serialization,
     jsonb_typeof,
+    watch_group_root,
 )
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import (
     FeedDismissalReason,
@@ -95,16 +96,11 @@ from products.replay_vision.backend.search import (
     search_observations,
     warm_query_vectors,
 )
-from products.replay_vision.backend.search_suggestions import (
-    MAX_SUGGESTED_QUERIES,
-    cross_scanner_suggestions,
-    merge_suggestions,
-    scope_sources,
-    stamp_search_viewed,
-)
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ISSUE_CATEGORIES
+from products.replay_vision.backend.watch_themes import MAX_SUGGESTED_QUERIES, theme_suggestions
 from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -202,7 +198,7 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
 
 
 class ObservationFeedDismissalSerializer(serializers.Serializer):
-    """Why the calling user marked an observation not useful in What to watch."""
+    """Why the calling user marked an observation not useful in the Highlights feed."""
 
     reason = serializers.ChoiceField(
         choices=FeedDismissalReason.choices,
@@ -777,6 +773,22 @@ class ReplayObservationFilter(django_filters.FilterSet):
         lookup_expr="icontains",
         help_text="Filter to observations whose person email contains this value (case-insensitive).",
     )
+    watch_group = django_filters.UUIDFilter(
+        method="_filter_watch_group",
+        help_text=(
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. "
+            "Pair it with the feed's `date_from` to list the sessions a feed card counts."
+        ),
+    )
+    watch_category = MultiChoiceFilter(
+        field_name="watch_rank__category",
+        valid_choices=frozenset(ISSUE_CATEGORIES),
+        error_key="watch_category",
+        help_text=(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: "
+            "failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
+    )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
         help_text=(
@@ -891,6 +903,28 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags__contains=[tag])
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
+
+    def _filter_watch_group(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
+    ) -> QuerySet[ReplayObservation]:
+        if self._team is None:
+            return queryset.none()
+        root = watch_group_root()
+        current = Q(
+            status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
+        )
+        # The asked row's root comes from a subquery, so the filter adds no statement of its own.
+        asked_root = Subquery(
+            ReplayObservation.objects.filter(current, id=value, team_id=self._team.id)
+            .annotate(_root=root)
+            .values("_root")[:1]
+        )
+        # Matches the rows the feed counts for a card, which leaves out routine rows.
+        return (
+            queryset.alias(_watch_group_root=root, _watch_category=KeyTextTransform("category", "watch_rank"))
+            .filter(current, _watch_category__in=ISSUE_CATEGORIES)
+            .filter(_watch_group_root=asked_root)
+        )
 
     def _filter_variant(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -1235,7 +1269,7 @@ class ReplayObservationViewSet(
         """Record that the calling user opened this observation. Idempotent."""
         observation = self.get_object()
         ReplayObservationView.objects.get_or_create(
-            team_id=observation.team_id, observation=observation, user=request.user
+            team_id=observation.team_id, observation=observation, user=cast(User, request.user)
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1244,7 +1278,7 @@ class ReplayObservationViewSet(
         request=ObservationFeedDismissalSerializer,
         responses={204: None},
         description=(
-            "Mark this observation not useful for the calling user, with an optional reason. What to watch stops "
+            "Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops "
             "showing it to that user. Sending it again replaces the reason."
         ),
     )
@@ -1252,7 +1286,7 @@ class ReplayObservationViewSet(
         methods=["DELETE"],
         request=None,
         responses={204: None},
-        description="Undo the calling user's not-useful mark, so What to watch can show the observation again.",
+        description="Undo the calling user's not-useful mark, so the Highlights feed can show the observation again.",
     )
     @action(
         detail=True,
@@ -1620,8 +1654,8 @@ class SearchSuggestionsQuerySerializer(serializers.Serializer):
 class SearchSuggestionsResponseSerializer(serializers.Serializer):
     queries = serializers.ListField(
         child=serializers.CharField(),
-        help_text=f"Up to {MAX_SUGGESTED_QUERIES} example searches naming themes in recent observations. Empty "
-        "until a scheduled refresh has run for a scanner someone viewed.",
+        help_text=f"Up to {MAX_SUGGESTED_QUERIES} example searches naming the largest active themes in recent "
+        "issue observations. Empty until a scanner has a named theme.",
     )
 
 
@@ -1747,13 +1781,12 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
     )
     def search_suggestions(self, request: Request, **kwargs: Any) -> Response:
-        """Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
-        scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect."""
+        """Example searches for the Search tab's empty state: the labels of the largest active themes the
+        embedding consumer named from recent issue observations. Reads only, with no side effect."""
         params = SearchSuggestionsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        scanner_id = params.validated_data.get("scanner_id")
-        scanner_ids = self._searchable_scanner_ids(scanner_id)
-        queries = self._displayed_suggestions(scanner_id, scanner_ids, scope_sources(self.team_id, scanner_ids))
+        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        queries = theme_suggestions(self.team_id, scanner_ids, now())
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
     @extend_schema(request=SearchSuggestionsQuerySerializer, responses={204: None})
@@ -1764,28 +1797,15 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
     )
     def search_viewed(self, request: Request, **kwargs: Any) -> Response:
-        """Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
-        scanners first, so the stamp lives on a CSRF-protected POST rather than the read."""
+        """Warm the query vectors for the suggestions the Search tab showed, so a click on one searches at once.
+        It embeds text, so it is a POST rather than part of the read."""
         params = SearchSuggestionsQuerySerializer(data=request.data)
         params.is_valid(raise_exception=True)
-        scanner_id = params.validated_data.get("scanner_id")
-        scanner_ids = self._searchable_scanner_ids(scanner_id)
-        sources = scope_sources(self.team_id, scanner_ids)
-        # The same rows that a view shows are the ones it marks as wanted.
-        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in sources])
-        # A suggestion is a likely next search, so its vector is cached before anyone clicks it. The phrases
-        # derive from recordings, so they reach the embedding service only with AI data processing on.
+        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        # The phrases derive from recordings, so they reach the embedding service only with AI data processing on.
         if is_ai_data_processing_approved(self.team.id):
-            warm_query_vectors(self.team, self._displayed_suggestions(scanner_id, scanner_ids, sources))
+            warm_query_vectors(self.team, theme_suggestions(self.team_id, scanner_ids, now()))
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    def _displayed_suggestions(
-        self, scanner_id: uuid.UUID | None, scanner_ids: list[str], sources: list[tuple[str, list[str]]]
-    ) -> list[str]:
-        """The phrases this viewer sees: the team's own set for the all-scanners view when they can read every
-        scanner it drew on, otherwise the per-scanner merge."""
-        team_phrases = cross_scanner_suggestions(self.team_id, scanner_ids) if scanner_id is None else None
-        return team_phrases or merge_suggestions([stored for _, stored in sources])
 
     def _search_response(
         self, results: list[ObservationSearchResult], truncated: bool = False, reranked: bool = False

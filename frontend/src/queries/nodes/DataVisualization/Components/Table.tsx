@@ -1,14 +1,12 @@
 import '../../DataTable/DataTable.scss'
 
 import { useActions, useValues } from 'kea'
-import posthog from 'posthog-js'
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -19,7 +17,8 @@ import { LoadNext } from '../../DataNode/LoadNext'
 import { renderColumn } from '../../DataTable/renderColumn'
 import { renderColumnMeta } from '../../DataTable/renderColumnMeta'
 import { getContrastingTextClass } from '../colorUtils'
-import { TableDataCell, TableRow, convertTableValue, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { conditionalFormattingColor } from '../conditionalFormatting'
+import { TableDataCell, TableRow, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColumnScalar } from '../types'
 
 interface TableProps {
@@ -284,50 +283,14 @@ export const Table = (props: TableProps): JSX.Element => {
 
             const sourceColumnName = cell.sourceColumnName ?? column.name
             const sourceColumnType = sourceTabularColumnsByName.get(sourceColumnName)?.column.type.name ?? cell.type
-            const conditionalFormattingMatches = conditionalFormattingRules
-                .filter((n) => n.columnName === sourceColumnName)
-                .filter((n) => {
-                    const isValidHog = !!n.bytecode && n.bytecode.length > 0 && n.bytecode[0] === '_H'
-                    if (!isValidHog) {
-                        posthog.captureException(new Error('Invalid hog bytecode for conditional formatting'), {
-                            formatRule: n,
-                        })
-                    }
-
-                    return isValidHog
-                })
-                .map((n) => ({
-                    rule: n,
-                    result: hogVm.execHog(n.bytecode, {
-                        globals: {
-                            value: cell.value,
-                            input: convertTableValue(n.input, sourceColumnType),
-                        },
-                        functions: {},
-                        maxAsyncSteps: 0,
-                    }).result,
-                }))
-                .find((n) => Boolean(n.result))
-
-            if (!conditionalFormattingMatches) {
-                return undefined
-            }
-
-            const ruleColor = conditionalFormattingMatches.rule.color
-            const colorMode = conditionalFormattingMatches.rule.colorMode ?? 'light'
-
-            // If the color mode matches the current theme, use the color as it was saved
-            if ((colorMode === 'dark' && isDarkModeOn) || (colorMode === 'light' && !isDarkModeOn)) {
-                return ruleColor
-            }
-
-            // If the color mode is dark, but we're in light mode - then lighten the color
-            if (colorMode === 'dark' && !isDarkModeOn) {
-                return lightenDarkenColor(ruleColor, 30)
-            }
-
-            // If the color mode is light, but we're in dark mode - then darken the color
-            return lightenDarkenColor(ruleColor, -30)
+            return conditionalFormattingColor(
+                conditionalFormattingRules,
+                hogVm.execHog,
+                sourceColumnName,
+                sourceColumnType,
+                cell.value,
+                isDarkModeOn
+            )
         }
 
         // The style and class callbacks run separately. Cache the last row to avoid a second HogVM call

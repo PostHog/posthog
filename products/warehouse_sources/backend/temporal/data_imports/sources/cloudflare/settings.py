@@ -295,11 +295,14 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         cursor_path="result_info.cursor",
         data_selector="result.buckets",
     ),
+    # Workers KV and D1 answer 401 (code 10000), not 403, to a token without their read
+    # permission. The account list already succeeded with the same token, so skip that account.
     "kv_namespaces": CloudflareEndpointConfig(
         name="kv_namespaces",
         path="/accounts/{account_id}/storage/kv/namespaces",
         parent=ACCOUNTS_PARENT,
         parent_key="_account_id",
+        extra_skip_status_codes=(401,),
     ),
     "d1_databases": CloudflareEndpointConfig(
         name="d1_databases",
@@ -307,6 +310,7 @@ CLOUDFLARE_ENDPOINTS: dict[str, CloudflareEndpointConfig] = {
         primary_keys=("uuid",),
         parent=ACCOUNTS_PARENT,
         parent_key="_account_id",
+        extra_skip_status_codes=(401,),
     ),
     "stream_usage": CloudflareEndpointConfig(
         name="stream_usage",

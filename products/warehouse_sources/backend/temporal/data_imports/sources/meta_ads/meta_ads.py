@@ -1,3 +1,4 @@
+import re
 import json
 import time
 import typing
@@ -18,7 +19,8 @@ from requests.exceptions import (
 )
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, MetaAdsIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -144,7 +146,7 @@ def _backoff_sleep(attempt: int) -> None:
 _MAX_INTEGRATION_FETCH_ATTEMPTS = 4
 
 
-def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
+def _fetch_integration_row(integration_id: int, team_id: int) -> IntegrationRecord:
     """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
 
     Temporal activities run in a long-lived worker outside Django's request cycle, so a pooled
@@ -155,13 +157,16 @@ def _fetch_integration_row(integration_id: int, team_id: int) -> Integration:
     to be stale (and, after a failed query marks one unusable, drops it), so each attempt runs on a
     fresh connection; the short backoff also gives a saturated pool time to drain rather than
     retrying straight back into the same wait timeout. This read is idempotent, so it is safe to
-    repeat. ``Integration.DoesNotExist`` is left to propagate.
+    repeat. A missing row raises ``IntegrationNotFound`` with the text "Integration not found: <id>".
     """
     attempt = 0
     while True:
         close_old_connections()
         try:
-            return Integration.objects.get(id=integration_id, team_id=team_id)
+            return IntegrationManager.meta_ads.oauth.get(team_id, integration_id)
+        except IntegrationNotFound as error:
+            # A fixed text, because the error maps match on it. The SDK message is not part of its contract.
+            raise IntegrationNotFound(f"Integration not found: {integration_id}") from error
         except OperationalError:
             attempt += 1
             if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
@@ -178,7 +183,7 @@ class MetaAdsTokenRefreshError(Exception):
     """Meta refused to refresh the integration's access token — only re-authorization fixes it."""
 
 
-def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
+def get_integration_by_id(integration_id: int, team_id: int) -> IntegrationRecord:
     """Get a Meta Ads integration by row id, with a freshly refreshed access token."""
     integration = _fetch_integration_row(integration_id, team_id)
     meta_ads_integration = MetaAdsIntegration(integration)
@@ -190,7 +195,7 @@ def get_integration_by_id(integration_id: int, team_id: int) -> Integration:
     return meta_ads_integration.integration
 
 
-def get_integration(config: MetaAdsSourceConfig, team_id: int) -> Integration:
+def get_integration(config: MetaAdsSourceConfig, team_id: int) -> IntegrationRecord:
     return get_integration_by_id(config.meta_ads_integration_id, team_id)
 
 
@@ -211,7 +216,8 @@ class MetaAdsSchema:
     single_object: bool = False
     # Scalar columns to copy out of the nested objects in each row (see `HoistedColumn`).
     hoisted_columns: tuple[HoistedColumn, ...] = ()
-    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`).
+    # Fields Meta can refuse to serve for a single row (see `META_REFUSED_CREATIVE_ERROR_SUBCODES`), or
+    # heavy fields that can make even the smallest page too much data. Both read them back per row.
     refusable_fields: tuple[str, ...] = ()
 
 
@@ -516,6 +522,32 @@ SHRINK_EXHAUSTED_ERROR_MESSAGE = "Meta could not return this data even at the sm
 ENTITY_PAGE_REFUSED_ERROR_MESSAGE = "Meta could not return this page even at the smallest page size (retryable)"
 SMALLEST_PAGE_LIMIT_MAX_RETRIES = 3
 
+INCONSISTENT_INSIGHTS_ERROR_MESSAGE = (
+    "Meta returned 0 impressions together with a nonzero CPM or CTR, which can't be correct. "
+    "The sync stopped so it doesn't overwrite your stored metrics. Run the sync again later"
+)
+
+
+def _float_metric(row: dict, field: str) -> float | None:
+    try:
+        return float(row[field])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _is_inconsistent_insights_row(row: dict) -> bool:
+    """Return True for an Insights row whose base metrics contradict its own ratios.
+
+    Meta derives ``cpm`` from spend and impressions, and ``ctr`` from clicks and impressions, so
+    zero impressions with a positive ``cpm`` or ``ctr`` is impossible. Meta has been observed to
+    return such rows for multi-day ``time_range`` requests: ``spend``, ``impressions`` and
+    ``clicks`` come back as ``"0"`` and the reach fields are missing, while the ratios keep their
+    real values. A row with real zero delivery has no ratios, so it does not match.
+    """
+    if _float_metric(row, "impressions") != 0:
+        return False
+    return any((_float_metric(row, field) or 0) > 0 for field in ("cpm", "ctr"))
+
 
 def _parse_json_leniently(response: Response) -> dict | None:
     """Parse a Meta API response body as JSON, tolerating trailing garbage after it.
@@ -580,7 +612,14 @@ def _is_permanent_auth_error(response: Response) -> bool:
 
 
 def _is_rate_limit_error(response: Response) -> bool:
-    """Return True for Meta errors that mean "too many requests", which only waiting fixes."""
+    """Return True for Meta errors that mean "too many requests", which only waiting fixes.
+
+    A fronting proxy in front of the Graph API has been observed to answer throttling with a
+    bare HTTP 429 and an HTML error page instead of Meta's own JSON error body, so the status
+    code alone is also treated as the signal — ``_meta_error_code`` has nothing to parse there.
+    """
+    if response.status_code == 429:
+        return True
     return _meta_error_code(response) in META_RATE_LIMIT_ERROR_CODES
 
 
@@ -699,7 +738,7 @@ def _get_ad_account_page(session: Session, url: str, access_token: str, params: 
         raise IntegrationAccountListingError(META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE) from e
 
 
-def list_ad_accounts(integration: Integration) -> list[dict]:
+def list_ad_accounts(integration: IntegrationRecord) -> list[dict]:
     """Every ad account the connected Meta user can access."""
     access_token = integration.sensitive_config["access_token"]
     # `redact_values` masks the access token wherever it lands in telemetry — Meta takes it as a query
@@ -884,9 +923,10 @@ def _iter_simple_pagination(
     then raised as retryable (see ``ENTITY_PAGE_REFUSED_ERROR_MESSAGE``).
 
     When Meta refuses a page for one row's ``refusable_fields`` (see
-    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), the same page is fetched
-    again without those fields, and the fields are read back per row from
-    ``node_lookup_url``. The next page asks for every field again.
+    ``META_REFUSED_CREATIVE_ERROR_SUBCODES``), or the smallest page is still
+    too much data, the same page is fetched again without those fields, and
+    the fields are read back per row from ``node_lookup_url``. The next page
+    asks for every field again.
     """
     access_token = params["access_token"]
     current_limit = PAGE_LIMIT_FALLBACK_SIZES[0]
@@ -940,6 +980,12 @@ def _iter_simple_pagination(
                 smaller = _next_smaller_limit(current_limit)
                 if smaller is not None:
                     current_limit = smaller
+                    response = _issue()
+                    continue
+                # A Meta refusal that persists at the smallest page is the same request every time, so
+                # backoff alone never clears it when a few rows carry very large heavy fields.
+                if refusable_fields and node_lookup_url is not None and not without_refusable_fields:
+                    without_refusable_fields = True
                     response = _issue()
                     continue
                 if smallest_limit_retries < SMALLEST_PAGE_LIMIT_MAX_RETRIES:
@@ -1010,6 +1056,9 @@ def _iter_time_range_pagination(
       from this chunk. Overriding the ``limit`` on the same cursor URL leaves
       those pages alone, so we exhaust this ladder before restarting the chunk
       at a smaller size and re-yielding them.
+
+    A page with rows that contradict their own ratios (see ``_is_inconsistent_insights_row``)
+    also drops the chunk size to one day, and raises if a single day still returns one.
 
     Resume state captures both levels: ``chunk_since`` + ``chunk_size_days``
     for the outer loop, ``chunk_next_url`` when the crash happened mid-chunk,
@@ -1143,7 +1192,26 @@ def _iter_time_range_pagination(
                 continue
             malformed_json_attempts = 0
 
-            yield response_payload.get("data", [])
+            rows = response_payload.get("data", [])
+            inconsistent_row = next((row for row in rows if _is_inconsistent_insights_row(row)), None)
+            if inconsistent_row is not None:
+                logger.warning(
+                    "meta_ads_inconsistent_insights_rows",
+                    chunk_since=current_start.strftime("%Y-%m-%d"),
+                    chunk_until=current_end.strftime("%Y-%m-%d"),
+                    date_start=inconsistent_row.get("date_start"),
+                )
+                # Single-day requests have returned correct values for the same days, so re-read
+                # the window one day at a time. The page is not yielded: its rows would overwrite
+                # correct stored metrics with zeros.
+                if current_end > current_start:
+                    chunk_size_days = 1
+                    _save(current_start, chunk_size_days, None)
+                    restart_chunk = True
+                    break
+                raise Exception(f"{INCONSISTENT_INSIGHTS_ERROR_MESSAGE} (date: {inconsistent_row.get('date_start')})")
+
+            yield rows
 
             next_url = response_payload.get("paging", {}).get("next")
             if not next_url:
@@ -1231,6 +1299,67 @@ def _make_paginated_api_request(
         yield from _iter_time_range_pagination(url, params, time_range, resume_config, resumable_source_manager)
 
 
+# The values Meta's Insights API accepts for `action_attribution_windows`, as its code 100 error
+# lists them. The setting is free text, so a value outside this set would fail every stats sync.
+META_ATTRIBUTION_WINDOWS = frozenset(
+    {
+        "1d_view",
+        "7d_view",
+        "28d_view",
+        "1d_click",
+        "7d_click",
+        "28d_click",
+        "1d_ev",
+        "dda",
+        "default",
+        "7d_view_first_conversion",
+        "28d_view_first_conversion",
+        "7d_view_all_conversions",
+        "28d_view_all_conversions",
+        "skan_view",
+        "skan_click",
+        "skan_click_second_postback",
+        "skan_view_second_postback",
+        "skan_click_third_postback",
+        "skan_view_third_postback",
+        "incrementality",
+        "incrementality_first_conversion",
+        "incrementality_all_conversions",
+        "custom",
+        "1d_sequenced",
+        "7d_sequenced",
+        "28d_sequenced",
+    }
+)
+
+# Spelled-out day windows such as "7 day click" or "28-days view".
+_SPELLED_DAY_WINDOW = re.compile(r"\b(\d+)[\s_-]*(?:days?|d)[\s_-]*(click|view)s?\b")
+
+# Every accepted window is made of these characters, so any other character separates two values.
+_ATTRIBUTION_WINDOW_SEPARATOR = re.compile(r"[^a-z0-9_]+")
+
+
+def _normalize_attribution_windows(raw: str) -> list[str]:
+    """Parse the free-text windows setting into the values Meta accepts, in order and without repeats.
+
+    Values Meta does not accept are dropped, because Meta rejects the whole Insights request for
+    one of them, and that would stop every stats sync on the source.
+    """
+    text = _SPELLED_DAY_WINDOW.sub(r"\1d_\2", raw.lower())
+    windows: list[str] = []
+    dropped: list[str] = []
+    for token in _ATTRIBUTION_WINDOW_SEPARATOR.split(text):
+        if not token:
+            continue
+        if token not in META_ATTRIBUTION_WINDOWS:
+            dropped.append(token)
+        elif token not in windows:
+            windows.append(token)
+    if dropped:
+        logger.warning("meta_ads_dropped_invalid_attribution_windows", dropped=dropped)
+    return windows
+
+
 def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
     """Attribution settings to add to an Insights request, only when the source configures them.
 
@@ -1239,7 +1368,8 @@ def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
     PostHog's spend and conversion numbers with what Ads Manager shows.
 
     - ``action_attribution_windows``: a comma-separated list in config (e.g. ``7d_click,1d_view``),
-      sent JSON-encoded the way Meta's Graph API accepts a list parameter.
+      normalized by ``_normalize_attribution_windows`` and sent JSON-encoded the way Meta's Graph
+      API accepts a list parameter. Omitted when no configured value is one Meta accepts.
     - ``use_unified_attribution_setting``: a string flag (``"true"``/``"false"``) sent verbatim;
       any other value (including the "use Meta's default" empty option) leaves it unset.
     """
@@ -1247,7 +1377,7 @@ def _attribution_params(config: MetaAdsSourceConfig) -> dict[str, str]:
 
     windows_raw = getattr(config, "action_attribution_windows", None)
     if windows_raw:
-        windows = [window.strip() for window in windows_raw.split(",") if window.strip()]
+        windows = _normalize_attribution_windows(windows_raw)
         if windows:
             params["action_attribution_windows"] = json.dumps(windows)
 

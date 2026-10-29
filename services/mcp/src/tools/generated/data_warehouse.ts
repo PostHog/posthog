@@ -477,6 +477,9 @@ const viewRun = (): ToolBase<ReturnType<typeof ViewRunSchema>, WithPostHogUrl<Sc
         if (params.direction !== undefined) {
             body['direction'] = params.direction
         }
+        if (params.engine !== undefined) {
+            body['engine'] = params.engine
+        }
         const result = await context.api.request<Schemas.SavedQueryRunResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_saved_queries/${encodeURIComponent(String(params.id))}/run/`,

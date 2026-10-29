@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBox, IconPin, IconPinFilled, IconPlus, IconSearch } from '@posthog/icons'
+import { IconBox, IconPlus, IconSearch } from '@posthog/icons'
 import {
     Button,
     Empty,
@@ -18,9 +18,6 @@ import {
     ItemTitle,
     Skeleton,
     Spinner,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
 } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -37,6 +34,7 @@ import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from '~/layout/today/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsPinButton } from './AnalyticsPinButton'
 import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
@@ -78,9 +76,6 @@ function SpaceCounts({ space, className }: { space: AnalyticsSpace; className?: 
 }
 
 function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
-    const { pinnedPaths, pinning } = useValues(analyticsSpacesLogic)
-    const { togglePin } = useActions(analyticsSpacesLogic)
-    const pinned = pinnedPaths.has(space.path)
     return (
         <Item
             variant="outline"
@@ -113,24 +108,12 @@ function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
             </ItemContent>
             <SpaceCounts space={space} className="hidden shrink-0 @3xl/analytics:flex" />
             <ItemActions className="relative z-10 shrink-0 self-center">
-                <Tooltip>
-                    <TooltipTrigger
-                        render={
-                            <Button
-                                variant="default"
-                                size="icon"
-                                aria-pressed={pinned}
-                                aria-label={pinned ? 'Unpin from sidebar' : 'Pin to sidebar'}
-                                loading={pinning === space.path}
-                                onClick={() => togglePin(space)}
-                                data-attr="analytics-space-star"
-                            />
-                        }
-                    >
-                        {pinned ? <IconPinFilled className="size-5 text-warning" /> : <IconPin className="size-5" />}
-                    </TooltipTrigger>
-                    <TooltipContent>{pinned ? 'Unpin from the sidebar' : 'Pin to the sidebar'}</TooltipContent>
-                </Tooltip>
+                <AnalyticsPinButton
+                    target={{ type: 'folder', ref: space.path, name: space.name }}
+                    size="icon"
+                    // pinned: tracking API, do not rename.
+                    dataAttr="analytics-space-star"
+                />
             </ItemActions>
         </Item>
     )

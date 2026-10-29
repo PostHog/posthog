@@ -438,6 +438,30 @@ describe("SessionLogWriter", () => {
         label: "an unrecognized server diagnostic",
         wireMessages: [{ method: "_posthog/some_new_diagnostic", params: {} }],
       },
+      {
+        label: "a session usage update",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: { update: { sessionUpdate: "usage_update", used: 1 } },
+          },
+        ],
+      },
+      {
+        label: "a progress update for an earlier tool call",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "tool_call_update",
+                toolCallId: "tc0",
+                status: "in_progress",
+              },
+            },
+          },
+        ],
+      },
     ])(
       "keeps a streamed message whole across an interleaved $label",
       async ({ wireMessages }) => {
@@ -454,6 +478,20 @@ describe("SessionLogWriter", () => {
         label: "a conversation event",
         wireMessages: [
           { method: "_posthog/progress", params: { label: "Cloning" } },
+        ],
+      },
+      {
+        label: "a thought chunk",
+        wireMessages: [
+          {
+            method: "session/update",
+            params: {
+              update: {
+                sessionUpdate: "agent_thought_chunk",
+                content: { type: "text", text: "Checking" },
+              },
+            },
+          },
         ],
       },
       {
@@ -482,38 +520,72 @@ describe("SessionLogWriter", () => {
       ]);
     });
 
-    it("stamps the coalesced entry with the covered chunk id range", async () => {
-      const sessionId = "s1";
-      logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
-
-      logWriter.appendRawLine(
-        sessionId,
-        makeSessionUpdate("agent_message_chunk", {
-          content: { type: "text", text: "Hello " },
-        }),
+    it.each([
+      ["without a leading empty chunk", false, [], "boot-3"],
+      ["with a leading empty chunk", true, [], "boot-2"],
+      [
+        "with a control response after the empty chunk",
+        true,
+        [
+          { jsonrpc: "2.0", id: 9, method: "_posthog/ping" },
+          { jsonrpc: "2.0", id: 9, result: {} },
+        ],
+        "boot-2",
+      ],
+      [
+        "when a turn ends after the empty chunk",
+        true,
+        [{ jsonrpc: "2.0", method: "_posthog/turn_complete", params: {} }],
         "boot-3",
-      );
-      logWriter.appendRawLine(
-        sessionId,
-        makeSessionUpdate("agent_message_chunk", {
-          content: { type: "text", text: "world" },
-        }),
-        "boot-4",
-      );
-      logWriter.appendRawLine(
-        sessionId,
-        makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
-        "boot-5",
-      );
+      ],
+    ])(
+      "stamps the coalesced entry with the covered chunk id range %s",
+      async (_case, leadingEmpty, between, firstEventId) => {
+        const sessionId = "s1";
+        logWriter.register(sessionId, { taskId: "t1", runId: sessionId });
 
-      await logWriter.flush(sessionId);
+        if (leadingEmpty) {
+          logWriter.appendRawLine(
+            sessionId,
+            makeSessionUpdate("agent_message_chunk", {
+              content: { type: "text", text: "" },
+            }),
+            "boot-2",
+          );
+        }
+        for (const line of between) {
+          logWriter.appendRawLine(sessionId, JSON.stringify(line));
+        }
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: "Hello " },
+          }),
+          "boot-3",
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("agent_message_chunk", {
+            content: { type: "text", text: "world" },
+          }),
+          "boot-4",
+        );
+        logWriter.appendRawLine(
+          sessionId,
+          makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
+          "boot-5",
+        );
 
-      const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
-      expect(entries[0].first_event_id).toBe("boot-3");
-      expect(entries[0].event_id).toBe("boot-4");
-      expect(entries[1].event_id).toBe("boot-5");
-      expect(entries[1].first_event_id).toBeUndefined();
-    });
+        await logWriter.flush(sessionId);
+
+        const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
+        const [message, toolCall] = entries.filter((entry) => entry.event_id);
+        expect(message.first_event_id).toBe(firstEventId);
+        expect(message.event_id).toBe("boot-4");
+        expect(toolCall.event_id).toBe("boot-5");
+        expect(toolCall.first_event_id).toBeUndefined();
+      },
+    );
 
     it("tracks direct agent_message updates", async () => {
       const sessionId = "s1";
@@ -638,14 +710,14 @@ describe("SessionLogWriter", () => {
       // Now a non-chunk event arrives, triggering natural coalescing
       logWriter.appendRawLine(
         sessionId,
-        makeSessionUpdate("usage_update", { used: 100 }),
+        makeSessionUpdate("tool_call", { toolCallId: "tc1" }),
       );
 
       await logWriter.flush(sessionId);
 
       expect(mockAppendLog).toHaveBeenCalledTimes(1);
       const entries: StoredNotification[] = mockAppendLog.mock.calls[0][2];
-      expect(entries).toHaveLength(2); // coalesced agent_message + usage_update
+      expect(entries).toHaveLength(2); // coalesced agent_message + tool_call
       const coalesced = entries[0].notification;
       expect(coalesced.params?.update).toEqual({
         sessionUpdate: "agent_message",

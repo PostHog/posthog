@@ -62,6 +62,7 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
@@ -88,6 +89,7 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
 )
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -1018,6 +1020,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
+        history_mode_before = previous_cdc_table_mode if instance.keeps_history else None
 
         api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
@@ -1136,6 +1139,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     f"xmin replication is not available for table '{instance.name}'. "
                     "It requires a Postgres heap table or materialized view on PostgreSQL 13+."
                 )
+
+        # A webhook-mode table that no webhook event feeds never receives a row (e.g. Stripe
+        # BalanceTransaction), so a request must not move a table into that state.
+        if self._webhook_support_check_applies():
+            webhook_support_error = self._webhook_support_error_cached(instance)
+            if webhook_support_error is not None:
+                raise ValidationError(webhook_support_error)
 
         # Reject non-webhook sync types for webhook-only schemas (e.g. Stripe Discount —
         # no API list endpoint, so anything other than webhook produces an empty sync).
@@ -1693,6 +1703,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 )
                 self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
 
+        request = self.context.get("request")
+        if request is not None:
+            report_history_change(
+                request.user, updated_instance, history_mode_before=history_mode_before, request=request
+            )
+
         return updated_instance
 
     def _effective_probe_api_version(self, schema: ExternalDataSchema, source_impl: AnySource) -> str | None:
@@ -1711,7 +1727,11 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def _is_webhook_only_schema(self, schema: ExternalDataSchema) -> bool:
         source = schema.source
-        if not source.job_inputs:
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return False
+        if not source_inputs:
             return False
         try:
             source_type = ExternalDataSourceType(source.source_type)
@@ -1719,7 +1739,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         except Exception:
             return False
         try:
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
             source_schemas = source_impl.get_schemas(
                 config,
                 schema.team_id,
@@ -1735,12 +1755,16 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         materialized view, PG13+). Runs discovery so a raw PATCH can't enable xmin on a table that
         has no physical `xmin` (plain views, foreign tables, partitioned parents)."""
         source = schema.source
-        if not source.job_inputs:
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return False
+        if not source_inputs:
             return False
         try:
             source_type = ExternalDataSourceType(source.source_type)
             source_impl = SourceRegistry.get_source(source_type)
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
             source_schemas = source_impl.get_schemas(
                 config,
                 schema.team_id,
@@ -1751,18 +1775,56 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return False
         return any(s.name == schema.name and s.supports_xmin for s in source_schemas)
 
-    def warm_webhook_only_check(self, instance: ExternalDataSchema) -> None:
-        """Pre-run the webhook-only validation that reaches the external source, caching the result.
+    def _webhook_support_error(self, schema: ExternalDataSchema) -> str | None:
+        """Why this table can't move to webhook sync, or None when the source advertises webhook
+        support for it. Runs discovery so a raw PATCH can't move a table that no webhook event feeds
+        into webhook sync."""
+        unsupported = f"{schema.name} doesn't support webhook sync. Pick another sync method."
+        source = schema.source
+        try:
+            source_inputs = SourceInputsStore.load(source)
+        except UnreadableSourceInputsError:
+            return f"Couldn't check whether {schema.name} supports webhook sync. {UNREADABLE_SOURCE_CONFIG_ERROR}"
+        if not source_inputs:
+            return unsupported
+        try:
+            source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
+        except Exception:
+            return unsupported
+        if not isinstance(source_impl, WebhookSource):
+            return unsupported
+        try:
+            config = source_impl.parse_config(source_inputs)
+            source_schemas = source_impl.get_schemas(
+                config,
+                schema.team_id,
+                names=[schema.name],
+                api_version=source_impl.resolve_api_version(self._effective_probe_api_version(schema, source_impl)),
+            )
+        except Exception as e:
+            message, is_expected_source_error = source_helpers._classify_refresh_schemas_error(source_impl, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source.source_type, "schema_id": str(schema.id)})
+            return f"Couldn't check whether {schema.name} supports webhook sync. {message} Try again."
+        if any(s.name == schema.name and s.supports_webhooks for s in source_schemas):
+            return None
+        return unsupported
 
-        `_is_webhook_only_schema` calls the source's `get_schemas`, which is a network round-trip (e.g.
-        Google Ads OAuth refresh + field query). update() runs this same check, but bulk_update_schemas
-        wraps each update() in a transaction — making the call there held the DB connection idle-in-
-        transaction long enough for the server to close it ("the connection is closed"). Calling this
-        first (outside the transaction) does the network work up front; update() then reads the cached
-        result and still raises per-schema, so failures stay isolated to one schema.
+    def warm_webhook_only_check(self, instance: ExternalDataSchema) -> None:
+        """Pre-run the webhook validations that reach the external source, caching the results.
+
+        `_is_webhook_only_schema` and `_webhook_support_error` call the source's `get_schemas`,
+        which is a network round-trip (e.g. Google Ads OAuth refresh + field query). update() runs these
+        same checks, but bulk_update_schemas wraps each update() in a transaction — making the call there
+        held the DB connection idle-in-transaction long enough for the server to close it ("the
+        connection is closed"). Calling this first (outside the transaction) does the network work up
+        front; update() then reads the cached results and still raises per-schema, so failures stay
+        isolated to one schema.
         """
         if self._webhook_only_check_applies():
             self._is_webhook_only_schema_cached(instance)
+        if self._webhook_support_check_applies():
+            self._webhook_support_error_cached(instance)
 
     def seed_webhook_only_check(self, webhook_only: bool) -> None:
         """Pre-fill the webhook-only cache when the caller already discovered this table (e.g.
@@ -1781,9 +1843,25 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self.__dict__["_webhook_only_result"] = self._is_webhook_only_schema(schema)
         return self.__dict__["_webhook_only_result"]
 
+    def _webhook_support_check_applies(self) -> bool:
+        # The frontend re-sends the current sync_type on every save. Checking only a change keeps an
+        # unrelated edit (e.g. pausing the table) working when the lookup fails on expired credentials.
+        data = self.initial_data if isinstance(self.initial_data, dict) else {}
+        return (
+            data.get("sync_type") == ExternalDataSchema.SyncType.WEBHOOK
+            and self.instance is not None
+            and self.instance.sync_type != ExternalDataSchema.SyncType.WEBHOOK
+        )
+
+    def _webhook_support_error_cached(self, schema: ExternalDataSchema) -> str | None:
+        if "_webhook_support_error_result" not in self.__dict__:
+            self.__dict__["_webhook_support_error_result"] = self._webhook_support_error(schema)
+        return self.__dict__["_webhook_support_error_result"]
+
     def _maybe_create_webhook(self, schema: ExternalDataSchema) -> None:
         source = schema.source
-        if not source.job_inputs:
+        source_inputs = SourceInputsStore.load(source)
+        if not source_inputs:
             return
 
         try:
@@ -1797,7 +1875,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return
 
         try:
-            config = source_impl.parse_config(source.job_inputs)
+            config = source_impl.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError) as e:
             raise ValidationError(UNREADABLE_SOURCE_CONFIG_ERROR) from e
         # Source pin only: webhook-sync schemas cannot carry a schema-level override (validate()
@@ -1888,14 +1966,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         changes made in the meantime would never reach it.
         """
         adapter = get_cdc_adapter(source)
-        cdc_config = adapter.parse_cdc_config(source)
-        if cdc_config.management_mode != "posthog" or not cdc_config.publication_name:
+        if not adapter.manages_capture_set(source):
             return None
 
         _, db_schema, source_table_name = get_postgres_source_location(
             schema_name=instance.name,
             schema_metadata=instance.schema_metadata,
-            default_schema=(source.job_inputs or {}).get("schema"),
+            default_schema=SourceInputsStore.load_settings(source).get("schema"),
         )
 
         newly_set_to_cdc = (
@@ -2144,7 +2221,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 _, db_schema, source_table_name = get_postgres_source_location(
                     schema_name=instance.name,
                     schema_metadata=instance.schema_metadata,
-                    default_schema=(source.job_inputs or {}).get("schema"),
+                    default_schema=SourceInputsStore.load_settings(source).get("schema"),
                 )
                 adapter.remove_table(source, db_schema, source_table_name)
             except Exception:
@@ -2454,7 +2531,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
         source: ExternalDataSource = instance.source
 
-        if not source.job_inputs:
+        source_inputs = SourceInputsStore.load(source)
+        if not source_inputs:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": "Missing job inputs"})
 
         if not source.source_type:
@@ -2464,7 +2542,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         new_source = SourceRegistry.get_source(source_type_enum)
         try:
-            config = new_source.parse_config(source.job_inputs)
+            config = new_source.parse_config(source_inputs)
         except (UndecryptedConfigError, ConfigValueError):
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": UNREADABLE_SOURCE_CONFIG_ERROR})
 
@@ -2542,7 +2620,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.
-        source_cdc_enabled = str_to_bool(source.job_inputs.get("cdc_enabled"))
+        source_cdc_enabled = str_to_bool(SourceInputsStore.load_settings(source).get("cdc_enabled"))
         source_impl = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         cdc_available = schema.supports_cdc if is_cdc_enabled_for_team(self.team) and source_cdc_enabled else None
         # xmin is source-capability-gated, mirroring the database_schema endpoint.

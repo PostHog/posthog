@@ -9,6 +9,7 @@ pub mod index;
 pub mod limits;
 pub mod process;
 pub mod rewrite;
+pub mod scrub;
 pub mod store;
 pub mod teams;
 pub mod urls;
