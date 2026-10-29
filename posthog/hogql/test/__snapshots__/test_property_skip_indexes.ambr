@@ -471,7 +471,7 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), 'Float64'), 5.0), 0))
+  WHERE and(equals(events.team_id, 99999), and(has(events.properties_group_custom, 'test_prop'), ifNull(less(accurateCastOrNull(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), 'Float64'), 5.0), 0)))
   LIMIT 50000
   '''
 # ---
@@ -479,7 +479,23 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '%5%'), 0))
+  WHERE and(equals(events.team_id, 99999), and(has(events.properties_group_custom, 'test_prop'), ifNull(ilike(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '%5%'), 0)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_6_gte
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(has(events.properties_group_custom, 'test_prop'), ifNull(greaterOrEquals(accurateCastOrNull(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL), 'Float64'), 5.0), 0)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_7_not_icontains
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(if(has(events.properties_group_custom, 'test_prop'), events.properties_group_custom['test_prop'], NULL)), '%5%'), 1))
   LIMIT 50000
   '''
 # ---
@@ -615,7 +631,15 @@
   '''
   SELECT count() AS `count()`
   FROM events
-  WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL), 'Float64'), 5.0), 0))
+  WHERE and(equals(events.team_id, 99999), and(has(events.person_properties_map_custom, 'test_prop'), ifNull(less(accurateCastOrNull(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL), 'Float64'), 5.0), 0)))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_4_icontains
+  '''
+  SELECT count() AS `count()`
+  FROM events
+  WHERE and(equals(events.team_id, 99999), and(has(events.person_properties_map_custom, 'test_prop'), ifNull(ilike(toString(if(has(events.person_properties_map_custom, 'test_prop'), events.person_properties_map_custom['test_prop'], NULL)), '%5%'), 0)))
   LIMIT 50000
   '''
 # ---

@@ -533,6 +533,22 @@
   LIMIT 50000
   '''
 # ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_6_gte[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(greaterOrEquals(accurateCastOrNull(events.properties.test_prop, 'Float64'), 5.0), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestEventPropertySkipIndexes.test_property_group_optimized_7_not_icontains[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(notILike(toString(if(notEquals(toJSONString(events.properties.^test_prop), '{}'), toJSONString(events.properties.^test_prop), if(isNull(events.properties.test_prop), NULL, if(and(in(ascii(toString(events.properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.properties.test_prop)), tuple(91, 123))), toJSONString(events.properties.test_prop), toString(events.properties.test_prop))))), '%5%'), 1))
+  LIMIT 50000
+  '''
+# ---
 # name: TestEventPropertySkipIndexes.test_typed_datetime_mat_col_uses_minmax_index[new_events_schema]
   '''
   SELECT count() AS `count()`
@@ -666,6 +682,14 @@
   SELECT count() AS `count()`
   FROM events_json AS events
   WHERE and(equals(events.team_id, 99999), ifNull(less(accurateCastOrNull(events.person_properties.test_prop, 'Float64'), 5.0), 0))
+  LIMIT 50000
+  '''
+# ---
+# name: TestPersonOnEventsPropertySkipIndexes.test_property_group_optimized_4_icontains[new_events_schema]
+  '''
+  SELECT count() AS `count()`
+  FROM events_json AS events
+  WHERE and(equals(events.team_id, 99999), ifNull(ilike(toString(if(notEquals(toJSONString(events.person_properties.^test_prop), '{}'), toJSONString(events.person_properties.^test_prop), if(isNull(events.person_properties.test_prop), NULL, if(and(in(ascii(toString(events.person_properties.test_prop)), tuple(91, 123)), in(ascii(toJSONString(events.person_properties.test_prop)), tuple(91, 123))), toJSONString(events.person_properties.test_prop), toString(events.person_properties.test_prop))))), '%5%'), 0))
   LIMIT 50000
   '''
 # ---

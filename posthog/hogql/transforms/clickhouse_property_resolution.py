@@ -87,6 +87,21 @@ _RANGE_OP_TO_CH_NAME: dict[ast.CompareOperationOp, str] = {
     ast.CompareOperationOp.GtEq: "greaterOrEquals",
 }
 
+# Positive pattern matches: false when the value is NULL and the pattern a non-NULL constant. The negated forms are
+# true for a NULL value, so they are deliberately absent.
+_PATTERN_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Like,
+        ast.CompareOperationOp.ILike,
+        ast.CompareOperationOp.Regex,
+        ast.CompareOperationOp.IRegex,
+    }
+)
+
+# Single-argument HogQL wrappers that map a NULL input to NULL (`toFloat`/`toInt` print as `accurateCastOrNull`,
+# `toDateTime` as `parseDateTime64BestEffortOrNull`).
+_NULL_PRESERVING_WRAPPERS = frozenset({"toFloat", "toInt", "toDateTime", "toString", "lower"})
+
 
 @dataclass(frozen=True)
 class MaterializedPropertySource:
@@ -1918,7 +1933,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         # surviving PropertyAccess reads the scrubbed materialized column. An is-set check therefore treats both an empty
         # string and the literal text "null" as "not set", which over-matches a true "does this key exist in the blob"
         # test. Left this way deliberately — tightening it would change query results.
-        prefilter = self._person_json_substring_prefilter(node)
+        prefilter = self._person_json_substring_prefilter(node) or self._property_group_key_guard(node)
         compared = super().visit_compare_operation(node)
         if prefilter is not None:
             return _call("and", [prefilter, compared])
@@ -2296,6 +2311,25 @@ class ClickHousePropertyResolver(CloningVisitor):
         # ClickHouse's transform_null_in setting makes `in(map[key], ...)` skip the keys index; the has() guard restores it.
         in_expr = _call("in", [prop.group_value(), ast.Tuple(exprs=[_const(v) for v in string_values])])
         return _call("and", [prop.group_has(), in_expr])
+
+    def _property_group_key_guard(self, node: ast.CompareOperation) -> ast.Call | None:
+        """`has(map, key)` to AND ahead of a range or positive pattern comparison over a property-group property.
+
+        Those comparisons read `if(has(map, key), map[key], NULL)` inside the comparison, where no skip index can see
+        it; a top-level `has()` conjunct lets the keys bloom filter skip granules without the key. Results don't change:
+        an absent key reads NULL through the NULL-preserving wrappers unwrapped below, and the printer turns a NULL range
+        or constant-pattern comparison into false. A NULL or non-constant pattern can match a NULL value, so it bails.
+        """
+        if node.op in _PATTERN_OPS:
+            if not isinstance(node.right, ast.Constant) or node.right.value is None:
+                return None
+        elif node.op not in _RANGE_OP_TO_CH_NAME:
+            return None
+        operand = node.left.expr if isinstance(node.left, ast.Alias) else node.left
+        while isinstance(operand, ast.Call) and operand.name in _NULL_PRESERVING_WRAPPERS and len(operand.args) == 1:
+            operand = operand.args[0]
+        prop = self._property_group_property(operand)
+        return prop.group_has() if prop is not None else None
 
     # --- individually-materialized-column optimizers ---
 

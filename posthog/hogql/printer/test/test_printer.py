@@ -1807,6 +1807,109 @@ class TestPrinter(BaseTest):
         assert_result_is_equal("'NULL'", set())
         assert_result_is_equal("[]", set())
 
+    def test_property_groups_optimized_range_and_pattern_comparisons(self) -> None:
+        has_key = "has(events.properties_group_custom, %(hogql_val_0)s)"
+        value_read = "if(has(events.properties_group_custom, %(hogql_val_1)s), events.properties_group_custom[%(hogql_val_2)s], NULL)"
+        for expression, comparison in (
+            ("properties.key < 'b'", f"ifNull(less({value_read}, %(hogql_val_3)s), 0)"),
+            ("properties.key <= 'b'", f"ifNull(lessOrEquals({value_read}, %(hogql_val_3)s), 0)"),
+            (
+                "toFloat(properties.key) > 5",
+                f"ifNull(greater(accurateCastOrNull({value_read}, %(hogql_val_3)s), 5), 0)",
+            ),
+            (
+                "toInt(properties.key) >= 5",
+                f"ifNull(greaterOrEquals(accurateCastOrNull({value_read}, %(hogql_val_3)s), 5), 0)",
+            ),
+            ("properties.key LIKE 'a%'", f"ifNull(like({value_read}, %(hogql_val_3)s), 0)"),
+            ("toString(properties.key) ILIKE '%a%'", f"ifNull(ilike(toString({value_read}), %(hogql_val_3)s), 0)"),
+            ("lower(properties.key) LIKE '%a%'", f"ifNull(like(lower({value_read}), %(hogql_val_3)s), 0)"),
+            (
+                "properties.key =~ 'a'",
+                f"ifNull(match({value_read}, %(hogql_val_3)s), isNull({value_read}) and isNull(%(hogql_val_3)s))",
+            ),
+            (
+                "properties.key =~* 'a'",
+                f"ifNull(match({value_read}, concat('(?i)', %(hogql_val_3)s)), isNull({value_read}) and isNull(%(hogql_val_3)s))",
+            ),
+        ):
+            with self.subTest(expression):
+                self._test_property_group_comparison(
+                    expression,
+                    f"and({has_key}, {comparison})",
+                    expected_skip_indexes_used={"properties_group_custom_keys_bf"},
+                )
+
+        # Negated patterns are true for an absent key, and a NULL or non-constant pattern can match one (the printer's
+        # isNull fallback), so these keep the unguarded form.
+        for expression in (
+            "properties.key NOT LIKE 'a%'",
+            "toString(properties.key) NOT ILIKE '%a%'",
+            "properties.key !~ 'a'",
+            "properties.key !~* 'a'",
+            "properties.key NOT IN ('a', 'b', '')",
+            "properties.key LIKE NULL",
+            "properties.key LIKE properties.other",
+            "coalesce(properties.key, 'a') < 'b'",
+        ):
+            with self.subTest(expression):
+                self._test_property_group_comparison(expression, None)
+
+        # A materialized column takes precedence over the property group, so the group's keys index doesn't apply.
+        with materialized("events", "key"):
+            self._test_property_group_comparison("properties.key < 'b'", None)
+            self._test_property_group_comparison("toString(properties.key) ILIKE '%a%'", None)
+
+    def test_property_groups_optimized_range_and_pattern_query_results(self):
+        event_name = "property_groups_range_pattern_result_test"
+        for label, properties in (
+            ("absent", {}),
+            ("null", {"value": None}),
+            ("empty", {"value": ""}),
+            ("low", {"value": "1"}),
+            ("high", {"value": "10"}),
+            ("apple", {"value": "apple"}),
+            ("APPLE", {"value": "APPLE"}),
+        ):
+            _create_event(
+                team=self.team,
+                distinct_id="distinct_id",
+                event=event_name,
+                properties={"label": label, **properties},
+            )
+
+        def query_results(expr: str, mode: PropertyGroupsMode) -> tuple[list, str]:
+            # Project the comparison as well as filtering on it, so a value change outside WHERE shows up too.
+            query = parse_select(
+                "select properties.label as label, {expr} as matched from events where event = {event} order by label",
+                placeholders={"expr": parse_expr(expr), "event": ast.Constant(value=event_name)},
+            )
+            modifiers = HogQLQueryModifiers(materializationMode=MaterializationMode.AUTO, propertyGroupsMode=mode)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
+            response = execute_hogql_query(query=query, team=self.team, context=context, modifiers=modifiers)
+            assert response.clickhouse is not None
+            return response.results, response.clickhouse
+
+        for expr, matching_labels in (
+            ("toFloat(properties.value) > 5", {"high"}),
+            ("toFloat(properties.value) >= 10", {"high"}),
+            ("toFloat(properties.value) < 5", {"low"}),
+            ("toFloat(properties.value) <= 1", {"low"}),
+            ("properties.value LIKE 'app%'", {"apple"}),
+            ("properties.value ILIKE 'app%'", {"apple", "APPLE"}),
+            ("toString(properties.value) ILIKE '%PP%'", {"apple", "APPLE"}),
+            ("lower(properties.value) LIKE 'app%'", {"apple", "APPLE"}),
+            ("properties.value =~ '^app'", {"apple"}),
+            ("properties.value =~* '^app'", {"apple", "APPLE"}),
+        ):
+            with self.subTest(expr):
+                disabled_results, _ = query_results(expr, PropertyGroupsMode.DISABLED)
+                optimized_results, optimized_sql = query_results(expr, PropertyGroupsMode.OPTIMIZED)
+                if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+                    self.assertIn("and(has(events.properties_group_custom,", optimized_sql)
+                self.assertEqual(optimized_results, disabled_results)
+                self.assertEqual({label for label, matched in optimized_results if matched}, matching_labels)
+
     def test_property_groups_select_with_aliases(self):
         def build_context(property_groups_mode: PropertyGroupsMode) -> HogQLContext:
             return HogQLContext(
