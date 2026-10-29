@@ -24,7 +24,7 @@ import {
     safeHttpUrl,
 } from '../../utils/reportPresentation'
 import { primaryReportPullRequest } from '../../utils/reportPullRequests'
-import { ReportClaimTag } from '../badges/ReportClaimTag'
+import { ReportClaimAvatar } from '../badges/ReportClaimAvatar'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import {
@@ -32,6 +32,7 @@ import {
     SourceProductIconRow,
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
+import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
@@ -116,6 +117,8 @@ function ReportCardRaw({
     selectable = false,
     rankingSortField = null,
     timestampField = 'updated_at',
+    hideOwnClaim = false,
+    claimStyle = 'avatar',
 }: {
     report: SignalReport
     attached?: boolean
@@ -133,6 +136,10 @@ function ReportCardRaw({
     rankingSortField?: InboxRankingSortField | null
     /** The time the card shows. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
+    /** Hide the user's own claim marker, for views where every card is theirs. */
+    hideOwnClaim?: boolean
+    /** How the user's own claim shows: their avatar beside the time, or an accent on the card's left edge. */
+    claimStyle?: 'avatar' | 'edge'
 }): JSX.Element {
     const isDismissed = report.status === SignalReportStatus.SUPPRESSED
     // Resolved reports are terminal (a merged PR or a resolve) – shown for reference in the Resolved
@@ -179,6 +186,11 @@ function ReportCardRaw({
     const glyphStatus = prCiGlyphStatus(prState, ciStatus)
 
     const isRefunded = !!report.refund
+
+    const claim = useReportClaim(report.assignee)
+    const showsClaim = !!claim && !isDismissed && !isResolved && !(claim.isMine && hideOwnClaim)
+    const claimAccent = showsClaim && claim.isMine && claimStyle === 'edge'
+    const claimAvatar = showsClaim && !claimAccent ? <ReportClaimAvatar claim={claim} /> : null
     const showsDismiss = !!onDismiss
 
     // Why the report left the inbox (reason tag + note tooltip) when we have it: the dismiss reason
@@ -273,15 +285,17 @@ function ReportCardRaw({
                             </LemonTag>
                         </Tooltip>
                     )}
-                    {!isDismissed && !isResolved && <ReportClaimTag report={report} />}
                     <SignalReportBillingBadge report={report} />
                     {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
                     {!showImpactColumn && (
-                        <TZLabel
-                            time={cardTime}
-                            className="ml-auto shrink-0 text-xs text-tertiary tabular-nums"
-                            title={cardTimeTitle}
-                        />
+                        <span className="ml-auto flex shrink-0 items-center gap-2">
+                            {claimAvatar}
+                            <TZLabel
+                                time={cardTime}
+                                className="shrink-0 text-xs text-tertiary tabular-nums"
+                                title={cardTimeTitle}
+                            />
+                        </span>
                     )}
                 </div>
             </div>
@@ -291,11 +305,14 @@ function ReportCardRaw({
             {showImpactColumn ? (
                 <div className="flex w-full items-center gap-3 @lg:relative @lg:w-auto @lg:min-h-23 @lg:min-w-39 @lg:flex-none @lg:self-stretch @lg:justify-end">
                     <ReportCardImpactMetric metrics={report.metrics} />
-                    <TZLabel
-                        time={cardTime}
-                        className="ml-auto shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0"
-                        title={cardTimeTitle}
-                    />
+                    <span className="ml-auto flex shrink-0 items-center gap-2 @lg:absolute @lg:right-0 @lg:bottom-0 @lg:ml-0">
+                        {claimAvatar}
+                        <TZLabel
+                            time={cardTime}
+                            className="shrink-0 whitespace-nowrap text-xs leading-none text-tertiary tabular-nums"
+                            title={cardTimeTitle}
+                        />
+                    </span>
                 </div>
             ) : null}
         </>
@@ -310,9 +327,19 @@ function ReportCardRaw({
                 (isDismissed || isResolved) && 'opacity-55 hover:opacity-100',
                 isSelected && 'ring-1 ring-accent',
                 // A long press must not paint the title as selected text under the finger.
-                isHolding && 'select-none'
+                isHolding && 'select-none',
+                claimAccent && 'relative'
             )}
         >
+            {claimAccent && (
+                <span
+                    aria-hidden
+                    className={clsx(
+                        'pointer-events-none absolute inset-y-0 left-0 w-0.5 bg-success',
+                        !attached && 'rounded-l'
+                    )}
+                />
+            )}
             <div className="relative flex min-w-0 flex-1">
                 {hasPr && prNumber != null ? (
                     <div className="absolute right-0 top-0 z-10">
