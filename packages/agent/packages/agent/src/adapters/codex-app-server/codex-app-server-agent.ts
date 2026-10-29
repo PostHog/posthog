@@ -236,13 +236,27 @@ const GOAL_COMMAND = {
   input: { hint: "[<objective>|clear|pause|resume]" },
 };
 
-function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
+const COMPACT_COMMAND = {
+  name: "compact",
+  description: "Compact the conversation context",
+};
+
+function visiblePromptText(prompt: PromptRequest["prompt"]): string | null {
   const visible = visiblePromptBlocks(prompt);
   if (visible.some((block) => block.type !== "text")) return null;
-  const text = visible
+  return visible
     .map((block) => (block.type === "text" ? block.text : ""))
     .join("\n")
     .trim();
+}
+
+function isCompactCommand(prompt: PromptRequest["prompt"]): boolean {
+  return visiblePromptText(prompt) === "/compact";
+}
+
+function parseGoalCommand(prompt: PromptRequest["prompt"]): GoalCommand | null {
+  const text = visiblePromptText(prompt);
+  if (text === null) return null;
   const match = text.match(/^\/goal(?:\s+([\s\S]*))?$/);
   if (!match) return null;
   const argument = match[1]?.trim();
@@ -869,7 +883,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
       name: string;
       description: string;
       input?: { hint: string };
-    }> = [GOAL_COMMAND];
+    }> = [GOAL_COMMAND, COMPACT_COMMAND];
     try {
       const res = await this.rpc.request<{
         data?: Array<{ skills?: CodexSkill[] }>;
@@ -881,13 +895,14 @@ export class CodexAppServerAgent extends BaseAcpAgent {
           (skill): skill is CodexSkill & { name: string } =>
             !!skill.name &&
             skill.name !== GOAL_COMMAND.name &&
+            skill.name !== COMPACT_COMMAND.name &&
             skill.enabled !== false,
         )
         .map((skill) => ({
           name: skill.name,
           description: skill.description ?? "",
         }));
-      commands = [GOAL_COMMAND, ...skills];
+      commands = [GOAL_COMMAND, COMPACT_COMMAND, ...skills];
     } catch (err) {
       this.logger.warn("skills/list failed", { error: String(err) });
     }
@@ -919,10 +934,21 @@ export class CodexAppServerAgent extends BaseAcpAgent {
         ? { stopReason: "end_turn", _meta: { steer: true } }
         : { stopReason: "end_turn" };
     }
+    const compactCommand = isCompactCommand(params.prompt);
+    if (compactCommand && isSteer) {
+      return steerDeclined("turn_not_steerable");
+    }
     this.cancelNextGoalTurn = false;
     // Reopen the notification gate (a prior interrupt may have left session.cancelled set).
     if (!isSteer) {
       this.session.cancelled = false;
+    }
+    if (compactCommand) {
+      this.broadcastUserInput(visiblePromptBlocks(params.prompt));
+      await this.rpc.request(APP_SERVER_METHODS.THREAD_COMPACT_START, {
+        threadId: this.threadId,
+      });
+      return { stopReason: "end_turn" };
     }
     // A new prompt while the plan handoff awaits approval implicitly declines it:
     // settle the race so the previous prompt() returns and this one owns the turn.

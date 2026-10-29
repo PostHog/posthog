@@ -28,6 +28,7 @@ vi.mock("node:fs", async (importOriginal) => {
 
 // Required-field invariants the native codex app-server enforces on each request.
 const REQUIRED_FIELDS: Record<string, string[]> = {
+  "thread/compact/start": ["threadId"],
   "thread/goal/clear": ["threadId"],
   "thread/goal/get": ["threadId"],
   "thread/goal/set": ["threadId"],
@@ -706,6 +707,33 @@ describe("CodexAppServerAgent", () => {
         params: { goal: testCase.expectedGoal },
       });
     }
+  });
+
+  it("starts native compaction for /compact without starting a model turn", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "thr_1" } },
+      "thread/compact/start": {},
+    });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+    const result = await agent.prompt({
+      sessionId: "thr_1",
+      prompt: [{ type: "text", text: "/compact" }],
+    } as unknown as PromptRequest);
+
+    expect(result.stopReason).toBe("end_turn");
+    expect(stub.requests).toContainEqual({
+      method: "thread/compact/start",
+      params: { threadId: "thr_1" },
+    });
+    expect(
+      stub.requests.some((request) => request.method === "turn/start"),
+    ).toBe(false);
   });
 
   it("handles a goal command wrapped in hidden cold-resume context", async () => {
@@ -3971,6 +3999,7 @@ describe("CodexAppServerAgent", () => {
         description: "Set or view the goal for a long-running task",
         input: { hint: "[<objective>|clear|pause|resume]" },
       },
+      { name: "compact", description: "Compact the conversation context" },
       { name: "deploy", description: "Deploy" },
     ]);
   });
