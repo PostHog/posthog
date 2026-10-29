@@ -24,6 +24,7 @@ import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
+    addSesNoTrackToLinks,
     addTrackingToEmail,
     resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
@@ -1127,22 +1128,21 @@ export class EmailService {
             isTest
         )
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
+        const configurationSetName = this.resolveConfigurationSetName(trackingEnabled, result.invocation)
+
+        const prepareHtml = (html: string): string => {
+            if (trackingEnabled) {
+                return addTrackingToEmail(html, result.invocation, this.trackingCodeSigner, isTest, 'ses')
+            }
+            return configurationSetName === this.sesConfig.sesTrackedConfigurationSet
+                ? addSesNoTrackToLinks(html)
+                : html
+        }
 
         const htmlBody = params.html
             ? {
                   Html: {
-                      Data: maybeAddPreheaderToEmail(
-                          trackingEnabled
-                              ? addTrackingToEmail(
-                                    params.html,
-                                    result.invocation,
-                                    this.trackingCodeSigner,
-                                    isTest,
-                                    'ses'
-                                )
-                              : params.html,
-                          params.preheader
-                      ),
+                      Data: maybeAddPreheaderToEmail(prepareHtml(params.html), params.preheader),
                       Charset: 'UTF-8',
                   },
               }
@@ -1165,7 +1165,7 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
+            ConfigurationSetName: configurationSetName,
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [

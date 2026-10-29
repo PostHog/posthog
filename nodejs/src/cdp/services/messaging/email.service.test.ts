@@ -1815,6 +1815,7 @@ describe('EmailService', () => {
                     hog_flow_name: 'Spring sale',
                     hog_flow_action_name: 'Welcome',
                 }
+                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
                 const messageAssets = new MessageAssetsService({
                     produce: jest.fn().mockResolvedValue(undefined),
                 } as unknown as IngestionOutputs<'message_assets'>)
@@ -1832,12 +1833,14 @@ describe('EmailService', () => {
                 )
             })
 
-            it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
+            it('falls back to the tracked configuration set when no untracked set is configured, with every link marked no-track', async () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
+                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(
+                    '<body>Hi! <a href="https://example.com" ses:no-track>Click me</a></body>'
+                )
             })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
@@ -1891,6 +1894,7 @@ describe('EmailService', () => {
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: trackableHtml })
                 invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
             })
 
             it.each([

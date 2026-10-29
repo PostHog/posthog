@@ -212,6 +212,18 @@ export const addTrackingToEmail = (
     return html
 }
 
+// For an untracked send that still goes out on a configuration set with click tracking on. SES rewrites
+// every anchor there unless it carries `ses:no-track`, and a rewritten link can carry a one-time token.
+export const addSesNoTrackToLinks = (html: string): string => {
+    return html.replace(LINK_REGEX, (m) => {
+        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
+        if (!openingTag || SES_NO_TRACK_ATTR_REGEX.test(openingTag)) {
+            return m
+        }
+        return addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
+    })
+}
+
 const REDIRECT_CONFIRMATION_PAGE_HEADERS = {
     'Content-Type': 'text/html; charset=utf-8',
     'X-Content-Type-Options': 'nosniff',
