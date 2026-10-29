@@ -33,6 +33,7 @@ from products.signals.backend.activity_summary.render import (
     ActivityItem,
     Drop,
     Parent,
+    Product,
     RenderLimits,
     TaskItem,
     Unit,
@@ -45,6 +46,7 @@ from products.signals.backend.activity_summary.render import (
     sampling_seed,
     task_units,
     view_units,
+    without_products,
 )
 from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID, SummaryPrices, cost_usd, summarize
 
@@ -424,6 +426,20 @@ def test_activity_units_spread_a_burst_across_days(_name: str, older_days: int, 
     assert len(units) == ACTIVITY_LINES
     assert sum(1 for unit in units if "Burst" in unit.text) == expected_burst_lines
     assert drops[Drop.BURST_CAP] + drops[Drop.SAMPLE_CAP] == len(burst) + len(older) - ACTIVITY_LINES
+
+
+def test_without_products_drops_inbox_rows_and_views_and_counts_them() -> None:
+    drops: Counter[str] = Counter()
+    activity, views = without_products(
+        [_change("SignalReport", "updated", "Weekly digest"), _change("Insight", "created", "Signup funnel")],
+        [_view("scene", "Inbox"), _view("scene", "Dashboards"), _view("insight", "abc", "Signup funnel")],
+        frozenset({Product.INBOX}),
+        drops,
+    )
+
+    assert [item.scope for item in activity] == ["Insight"]
+    assert [view.ref for view in views] == ["Dashboards", "abc"]
+    assert drops == {Drop.EXCLUDED_PRODUCT: 2}
 
 
 def test_burst_cap_keeps_the_newest_units_of_a_day() -> None:

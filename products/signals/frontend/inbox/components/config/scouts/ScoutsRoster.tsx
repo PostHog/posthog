@@ -5,7 +5,7 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { captureScoutFleetViewed } from '../../../inboxAnalytics'
+import { captureScoutFleetViewed, captureScratchpadLinkClicked } from '../../../inboxAnalytics'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCOUT_ROSTER_WINDOW_LABEL, SCOUT_RUNS_PER_SCOUT_LABEL } from '../../../utils/scoutRunsWindow'
 import { CardSkeleton } from '../../cards/CardSkeleton'
@@ -119,7 +119,18 @@ export function ScoutsRoster(): JSX.Element {
                     created as skills in your PostHog project, under the name you give them.{' '}
                     <Link to={urls.inboxRuns()} data-attr="inbox-open-runs">
                         See every recent run
+                    </Link>{' '}
+                    or{' '}
+                    <Link
+                        to={urls.inboxScratchpad()}
+                        onClick={() =>
+                            captureScratchpadLinkClicked({ entryPoint: 'roster_footer', surface: 'fleet_list' })
+                        }
+                        data-attr="inbox-open-scratchpad"
+                    >
+                        see what your scouts have learned
                     </Link>
+                    .
                 </span>
                 <ScoutHelperSkillLinks />
             </div>
