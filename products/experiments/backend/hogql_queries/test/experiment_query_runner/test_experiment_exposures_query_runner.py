@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -31,6 +32,7 @@ from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.user import User
+from posthog.test.persons import create_group_type_mapping
 from posthog.test.test_journeys import journeys_for
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -1675,6 +1677,88 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.assertIn(detail, finding.detail)
         self.assertEqual(
             {key: value for key, value in finding.evidence.items() if not key.endswith("p_value")}, evidence
+        )
+
+    @parameterized.expand(
+        [
+            ("persons_with_multiple_variants_excluded", False, "exclude", False),
+            ("persons_by_first_seen_variant", False, "first_seen", False),
+            ("persons_from_precomputed_exposures", False, "exclude", True),
+            ("groups", True, "exclude", False),
+        ]
+    )
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_srm_library_segments_add_up_to_the_total_exposures(
+        self, _name: str, by_group: bool, multiple_variant_handling: str, use_precomputation: bool
+    ) -> None:
+        self._setup_precomputation_test(use_precomputation)
+        if by_group:
+            # HogQL blanks the group key of events from before the group type existed.
+            create_group_type_mapping(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type_index=0,
+                group_type="organization",
+                created_at=datetime(2024, 1, 1, tzinfo=UTC),
+            )
+            self.feature_flag.filters["aggregation_group_type_index"] = 0
+            self.feature_flag.save()
+        self.experiment.exposure_criteria = {"multiple_variant_handling": multiple_variant_handling}
+        self._save_experiment_with_precomputation(self.experiment, use_precomputation)
+        ff_property = f"$feature/{self.feature_flag.key}"
+        libraries = ["web", "posthog-node", "posthog-python", "posthog-ios", "posthog-android", "posthog-go", None]
+
+        def exposure(unit: int, variant: str, timestamp: str, library: str | None) -> dict[str, Any]:
+            return {
+                "event": "$feature_flag_called",
+                "timestamp": timestamp,
+                "properties": {
+                    "$feature_flag_response": variant,
+                    ff_property: variant,
+                    "$feature_flag": self.feature_flag.key,
+                    "$group_0": f"org:{unit}",
+                    **({"$lib": library} if library else {}),
+                },
+            }
+
+        # Units from 100 see both variants. Every third unit is exposed again by another library, which must not
+        # move it out of the library of its first exposure.
+        journeys_for(
+            {
+                f"unit_{unit}": [
+                    exposure(unit, "test" if 70 <= unit < 100 else "control", "2024-01-02T10:00:00Z", library),
+                    *(
+                        [exposure(unit, "test" if unit >= 70 else "control", "2024-01-03T10:00:00Z", "posthog-ruby")]
+                        if unit >= 100 or unit % 3 == 0
+                        else []
+                    ),
+                ]
+                for unit in range(105)
+                for library in [libraries[unit % len(libraries)]]
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        with patch(f"{ExperimentExposuresQueryRunner.__module__}.shows_health_findings", return_value=True):
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=self._running_exposure_query(), user=self.user
+            ).calculate()
+
+        [finding] = [
+            finding
+            for finding in response.health_findings or []
+            if finding.code == ExperimentExposureHealthFindingCode.SRM
+        ]
+        segments: set[str] = set()
+        exposed_by_variant: dict[str, float] = {}
+        for key, value in finding.evidence.items():
+            if re.fullmatch(r"library_\d+", key) and isinstance(value, str):
+                segments.add(value)
+            elif (match := re.fullmatch(r"library_\d+_exposed_(.+)", key)) and isinstance(value, int | float):
+                exposed_by_variant[match.group(1)] = exposed_by_variant.get(match.group(1), 0) + value
+        self.assertEqual(
+            (exposed_by_variant, BREAKDOWN_OTHER_STRING_LABEL in segments), (response.total_exposures, True)
         )
 
     @parameterized.expand([("timeout", ClickHouseQueryTimeOut(), True), ("other_error", RuntimeError("boom"), False)])
