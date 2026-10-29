@@ -22,7 +22,7 @@ use crate::outputs::{Output, OutputRegistry};
 use crate::producers::{self, ProducerConfig, ProducerName, ProducerRegistry};
 use crate::prometheus::setup_metrics_recorder;
 use crate::quota_limiters::{
-    is_exception_event, is_llm_event, is_survey_event, CaptureQuotaLimiter,
+    is_exception_event, is_llm_event, is_mcp_event, is_survey_event, CaptureQuotaLimiter,
 };
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
@@ -201,7 +201,8 @@ pub async fn build_components(
         CaptureQuotaLimiter::new(&config, redis_client.clone(), Duration::from_secs(5))
             .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
             .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
-            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event)
+            .add_scoped_limiter(QuotaResource::MCPEvents, is_mcp_event);
 
     // TODO: remove this once we have a billing limiter
     let token_dropper = config

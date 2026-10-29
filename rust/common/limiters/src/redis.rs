@@ -46,6 +46,7 @@ pub enum QuotaResource {
     FeatureFlags,
     Surveys,
     LLMEvents,
+    MCPEvents,
 }
 
 impl QuotaResource {
@@ -58,6 +59,7 @@ impl QuotaResource {
             Self::FeatureFlags => "feature_flag_requests",
             Self::Surveys => "survey_responses",
             Self::LLMEvents => "llm_events",
+            Self::MCPEvents => "mcp_events",
         }
     }
 }
