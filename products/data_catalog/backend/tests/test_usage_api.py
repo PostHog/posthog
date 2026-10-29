@@ -10,7 +10,7 @@ from rest_framework import status
 from posthog.models.team import Team
 
 from products.data_catalog.backend.facade.contracts import AdjustedRun, MetricRunCounts, UsageSnapshotPayload
-from products.data_catalog.backend.facade.enums import FetchOutcome, JudgeRelation, UsageSnapshotStatus
+from products.data_catalog.backend.facade.enums import JudgeRelation, UsageSnapshotStatus
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.logic.usage_snapshots import payload_to_json
 from products.data_catalog.backend.models import UsageSnapshot
@@ -19,10 +19,10 @@ _FLAG = "products.data_catalog.backend.logic.usage_snapshots.posthoganalytics.fe
 _WINDOW_END = datetime(2026, 10, 26, tzinfo=UTC)
 
 
-def _adjusted(metric_id: UUID, outcome: FetchOutcome, *, is_scout: bool = False) -> AdjustedRun:
+def _adjusted(metric_id: UUID, *, is_scout: bool = False) -> AdjustedRun:
     return AdjustedRun(
         metric_id=metric_id,
-        fetch_outcome=outcome,
+        read_metric_first=False,
         relation=JudgeRelation.SERVES,
         intent="weekly signups",
         sql="select count() from events",
@@ -89,23 +89,18 @@ class TestUsageSnapshotAPI(APIBaseTest):
                         direct_runs={"web": 3, "mcp": 5},
                         direct_people=4,
                         scout_runs=120,
-                        source_insight_dashboard_runs=0,
-                        source_insight_insight_runs=0,
                     ),
                     MetricRunCounts(
                         metric_id=arr.id,
                         direct_runs={"web": 9},
                         direct_people=1,
                         scout_runs=0,
-                        source_insight_dashboard_runs=0,
-                        source_insight_insight_runs=0,
                     ),
                 ],
                 adjusted_runs=[
-                    _adjusted(mrr.id, FetchOutcome.ADAPTED),
-                    _adjusted(mrr.id, FetchOutcome.SILENT),
-                    _adjusted(mrr.id, FetchOutcome.SILENT, is_scout=True),
-                    _adjusted(arr.id, FetchOutcome.MISSED),
+                    _adjusted(mrr.id),
+                    _adjusted(mrr.id, is_scout=True),
+                    _adjusted(arr.id),
                 ],
             )
         )
@@ -117,6 +112,7 @@ class TestUsageSnapshotAPI(APIBaseTest):
         body = response.json()
         assert body["runs"]["direct_runs"] == {"web": 3, "mcp": 5}
         assert body["runs"]["scout_runs"] == 120
-        assert body["adjusted"] == {"adapted": 1, "missed": 0, "silent": 1}
-        assert body["scout_adjusted"] == {"adapted": 0, "missed": 0, "silent": 1}
-        assert {run["metric_id"] for run in body["adjusted_runs"]} == {str(mrr.id)}
+        assert [(run["metric_id"], run["is_scout"]) for run in body["adjusted_runs"]] == [
+            (str(mrr.id), False),
+            (str(mrr.id), True),
+        ]

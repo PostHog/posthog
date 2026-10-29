@@ -7,7 +7,6 @@ Thin: validate via the serializer, call the facade, serialize the result. Domain
 from functools import reduce
 from operator import or_
 from typing import cast
-from uuid import UUID
 
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVectorField
 from django.db.models import Func, Q, QuerySet, Value
@@ -595,11 +594,11 @@ class RelationshipProposalViewSet(
 
 
 class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """Usage scans of the catalog, newest first. The list omits payloads; retrieve and latest include them."""
+    """Usage scans of the catalog, newest first. The list omits payloads; latest includes them."""
 
     scope_object = "data_catalog"
     # A plain ViewSet maps no actions to scopes by default, so API-key reads would 403 without these.
-    scope_object_read_actions = ["list", "retrieve", "latest"]
+    scope_object_read_actions = ["list", "latest"]
 
     def initial(self, request: Request, *args, **kwargs) -> None:
         super().initial(request, *args, **kwargs)
@@ -609,18 +608,6 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def list(self, request: Request, **kwargs) -> Response:
         """Up to a year of usage scans for the project, newest first, without payloads."""
         return Response(UsageSnapshotSummarySerializer(api.usage_snapshot_history(self.team_id), many=True).data)
-
-    @extend_schema(responses={200: UsageSnapshotSerializer, 404: _USAGE_404})
-    def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
-        """One usage scan, with its payload."""
-        try:
-            snapshot_id = UUID(pk)
-        except ValueError:
-            raise NotFound()
-        snapshot = api.get_usage_snapshot(self.team_id, snapshot_id)
-        if snapshot is None:
-            raise NotFound()
-        return Response(UsageSnapshotSerializer(snapshot).data)
 
     @action(detail=False, methods=["GET"], responses={200: UsageSnapshotSerializer, 404: _USAGE_404})
     def latest(self, request: Request, **kwargs) -> Response:

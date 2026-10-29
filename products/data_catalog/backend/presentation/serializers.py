@@ -505,19 +505,12 @@ class MetricRunCountsSerializer(serializers.Serializer):
         help_text="Direct runs by scouts (scheduled agents), kept apart because one scout can run a metric many "
         "times a day."
     )
-    source_insight_dashboard_runs = serializers.IntegerField(
-        help_text="Calculations of the metric's source insight on a dashboard. Cached views are not counted."
-    )
-    source_insight_insight_runs = serializers.IntegerField(
-        help_text="Calculations of the metric's source insight outside a dashboard. Cached views are not counted."
-    )
 
 
 class AdjustedRunSerializer(serializers.Serializer):
     metric_id = serializers.UUIDField(help_text="ID of the catalog metric the agent query re-derived.")
-    fetch_outcome = serializers.CharField(
-        help_text="adapted: the agent read the metric first, then changed it. missed: the agent listed the "
-        "catalog but did not pick this metric. silent: the agent did not consult the catalog."
+    read_metric_first = serializers.BooleanField(
+        help_text="True when the agent read this metric in the catalog before it wrote the query."
     )
     relation = serializers.CharField(
         help_text="serves: the query computes the metric. slice: it computes the metric with an extra filter."
@@ -528,12 +521,6 @@ class AdjustedRunSerializer(serializers.Serializer):
     occurred_at = serializers.DateTimeField(help_text="When the agent ran the query.")
     session_id = serializers.CharField(allow_null=True, help_text="Agent session of the query, when known.")
     is_scout = serializers.BooleanField(help_text="True when a scout (scheduled agent) ran the query.")
-
-
-class FetchOutcomeCountsSerializer(serializers.Serializer):
-    adapted = serializers.IntegerField(help_text="Agent queries that read the metric first, then changed it.")
-    missed = serializers.IntegerField(help_text="Agent queries that listed the catalog but re-derived the metric.")
-    silent = serializers.IntegerField(help_text="Agent queries that re-derived the metric without the catalog.")
 
 
 class TopicCoverageSerializer(serializers.Serializer):
@@ -563,13 +550,8 @@ class UncoveredGroupSerializer(serializers.Serializer):
     matched_metric_id = serializers.UUIDField(
         allow_null=True, help_text="The matching catalog metric, for covered and slice."
     )
-    matched_metric_status = serializers.CharField(
-        allow_null=True, help_text="Status of the matching metric at scan time: proposed or approved."
-    )
     distinct_people = serializers.IntegerField(help_text="Distinct people who ran the measure, without scouts.")
-    active_days = serializers.IntegerField(help_text="Days in the window with at least one run, without scouts.")
     runs = serializers.IntegerField(help_text="Query runs of the measure, without scouts.")
-    scout_runs = serializers.IntegerField(help_text="Query runs of the measure by scouts (scheduled agents).")
     sample_sql = serializers.CharField(help_text="One query that computes the measure.")
     draft_name = serializers.CharField(allow_null=True, help_text="Proposed metric name, when one was drafted.")
     draft_description = serializers.CharField(
@@ -612,8 +594,6 @@ class MetricUsageSerializer(serializers.Serializer):
     window_end = serializers.DateTimeField(help_text="End of the scanned window.")
     computed_at = serializers.DateTimeField(allow_null=True, help_text="When the scan finished.")
     runs = MetricRunCountsSerializer(allow_null=True, help_text="Run counts. Null when the metric had no runs.")
-    adjusted = FetchOutcomeCountsSerializer(help_text="Agent re-derivations of the metric, without scouts.")
-    scout_adjusted = FetchOutcomeCountsSerializer(help_text="Re-derivations of the metric by scouts.")
     adjusted_runs = AdjustedRunSerializer(
-        many=True, help_text="The agent queries behind both counts. is_scout tells them apart."
+        many=True, help_text="Agent queries that re-derived the metric. is_scout marks the ones a scout ran."
     )

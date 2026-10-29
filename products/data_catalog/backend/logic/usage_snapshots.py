@@ -1,28 +1,28 @@
 """Reads of the usage snapshots that the weekly scan writes."""
 
-from collections import Counter
-from collections.abc import Iterable
+from datetime import timedelta
 from typing import Any
 from uuid import UUID
+
+from django.conf import settings
+from django.utils import timezone
 
 import posthoganalytics
 from pydantic import TypeAdapter
 
 from posthog.models import Team, User
 
-from ..facade.contracts import (
-    AdjustedRun,
-    FetchOutcomeCounts,
-    MetricUsage,
-    UsageSnapshotDetail,
-    UsageSnapshotPayload,
-    UsageSnapshotSummary,
-)
-from ..facade.enums import USAGE_FLAG_KEY, FetchOutcome, UsageSnapshotStatus
+from ..facade.contracts import MetricUsage, UsageSnapshotDetail, UsageSnapshotPayload, UsageSnapshotSummary
+from ..facade.enums import USAGE_FLAG_KEY, UsageSnapshotStatus
 from ..models import UsageSnapshot
 
 # A weekly scan writes one row a week, so this is a year of history.
 USAGE_HISTORY_LIMIT = 52
+
+SCAN_EXECUTION_TIMEOUT = timedelta(hours=12)
+# A row still computing after the scan's execution timeout belongs to a scan that died.
+STALE_COMPUTING = SCAN_EXECUTION_TIMEOUT + timedelta(hours=1)
+SCAN_STOPPED_MESSAGE = "The scan stopped before it finished."
 
 _PAYLOAD_ADAPTER = TypeAdapter(UsageSnapshotPayload)
 
@@ -35,8 +35,13 @@ def payload_from_json(data: dict[str, Any]) -> UsageSnapshotPayload:
     return _PAYLOAD_ADAPTER.validate_python(data)
 
 
+def usage_scans_supported() -> bool:
+    """The scan reads MCP telemetry from PostHog's own project on US Cloud, so other deployments cannot scan."""
+    return settings.CLOUD_DEPLOYMENT == "US" or settings.DEBUG or settings.TEST
+
+
 def is_usage_enabled(user: User, team: Team) -> bool:
-    return bool(
+    return usage_scans_supported() and bool(
         posthoganalytics.feature_enabled(
             USAGE_FLAG_KEY,
             str(user.distinct_id),
@@ -51,11 +56,6 @@ def usage_snapshot_history(team_id: int) -> list[UsageSnapshotSummary]:
     return [_summary(row) for row in rows]
 
 
-def get_usage_snapshot(team_id: int, snapshot_id: UUID) -> UsageSnapshotDetail | None:
-    row = UsageSnapshot.objects.for_team(team_id).filter(id=snapshot_id).first()
-    return _detail(row) if row else None
-
-
 def latest_usage_snapshot(team_id: int) -> UsageSnapshotDetail | None:
     row = _latest_done(team_id)
     return _detail(row) if row else None
@@ -68,7 +68,6 @@ def metric_usage(team_id: int, metric_id: UUID) -> MetricUsage | None:
         return None
     payload = payload_from_json(row.payload)
     runs = next((counts for counts in payload.metric_runs or [] if counts.metric_id == metric_id), None)
-    adjusted = [run for run in payload.adjusted_runs or [] if run.metric_id == metric_id]
     return MetricUsage(
         metric_id=metric_id,
         snapshot_id=row.id,
@@ -76,18 +75,7 @@ def metric_usage(team_id: int, metric_id: UUID) -> MetricUsage | None:
         window_end=row.window_end,
         computed_at=row.computed_at,
         runs=runs,
-        adjusted=_count_outcomes(run for run in adjusted if not run.is_scout),
-        scout_adjusted=_count_outcomes(run for run in adjusted if run.is_scout),
-        adjusted_runs=adjusted,
-    )
-
-
-def _count_outcomes(runs: Iterable[AdjustedRun]) -> FetchOutcomeCounts:
-    outcomes = Counter(run.fetch_outcome for run in runs)
-    return FetchOutcomeCounts(
-        adapted=outcomes[FetchOutcome.ADAPTED],
-        missed=outcomes[FetchOutcome.MISSED],
-        silent=outcomes[FetchOutcome.SILENT],
+        adjusted_runs=[run for run in payload.adjusted_runs or [] if run.metric_id == metric_id],
     )
 
 
@@ -100,11 +88,23 @@ def _latest_done(team_id: int) -> UsageSnapshot | None:
     )
 
 
+def is_stale(row: UsageSnapshot) -> bool:
+    return row.status == UsageSnapshotStatus.COMPUTING.value and row.created_at <= timezone.now() - STALE_COMPUTING
+
+
+def _status_of(row: UsageSnapshot) -> tuple[UsageSnapshotStatus, str]:
+    # A dead scan never closes its row, so the read reports it as failed instead of computing forever.
+    if is_stale(row):
+        return UsageSnapshotStatus.ERROR, SCAN_STOPPED_MESSAGE
+    return UsageSnapshotStatus(row.status), row.error_message
+
+
 def _summary(row: UsageSnapshot) -> UsageSnapshotSummary:
+    status, error_message = _status_of(row)
     return UsageSnapshotSummary(
         id=row.id,
-        status=UsageSnapshotStatus(row.status),
-        error_message=row.error_message,
+        status=status,
+        error_message=error_message,
         window_start=row.window_start,
         window_end=row.window_end,
         judge_model=row.judge_model,
@@ -114,10 +114,11 @@ def _summary(row: UsageSnapshot) -> UsageSnapshotSummary:
 
 
 def _detail(row: UsageSnapshot) -> UsageSnapshotDetail:
+    status, error_message = _status_of(row)
     return UsageSnapshotDetail(
         id=row.id,
-        status=UsageSnapshotStatus(row.status),
-        error_message=row.error_message,
+        status=status,
+        error_message=error_message,
         window_start=row.window_start,
         window_end=row.window_end,
         judge_model=row.judge_model,
