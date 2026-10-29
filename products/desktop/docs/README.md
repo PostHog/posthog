@@ -46,7 +46,7 @@ These documents capture design intent at a point in time. Check the current code
 ## App and package guides
 
 - [Electron desktop app](../apps/code/README.md)
-- [Mobile app](../apps/mobile/README.md)
+- [Proposed independent mobile app](https://github.com/PostHog/posthog/pull/118584)
 - [Web app](../apps/web/README.md)
 - [Agent framework](../../../packages/agent/packages/agent/README.md)
 - [Harness](../../../packages/agent/packages/harness/README.md)

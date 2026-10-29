@@ -6,7 +6,7 @@ Feature-level guides follow the same convention: the content lives in `<dir>/AGE
 
 ## Architecture
 
-PostHog uses a layered architecture. Business logic and UI live in shared `packages/*`. Each `apps/*` host boots those packages and binds host-specific implementations. `@posthog/core` and `@posthog/ui` must run unchanged on desktop, web, and mobile.
+PostHog uses a layered architecture. Business logic and UI live in shared `packages/*`. Each `apps/*` host boots those packages and binds host-specific implementations. `@posthog/core` and `@posthog/ui` must run unchanged on desktop and web.
 
 Principle: logic is portable; hosts are thin.
 
@@ -43,7 +43,6 @@ Hosts:
 
 - `apps/code`: Electron desktop host.
 - `apps/web`: web host and portability smoke test.
-- `apps/mobile`: React Native host.
 
 ## Rules
 
@@ -195,7 +194,7 @@ packages/ui/src/features/<feature>/
 - Tokens are standalone `export const TOKEN = Symbol.for("posthog.<area>.<thing>")` consts, defined beside the interface in the owning package. Standalone consts infer `unique symbol`, which is what lets a `BindingMap` key on them; object-literal token bags do not and are forbidden.
 - Each composition root (`apps/code` main + renderer, `apps/web`, `packages/workspace-server`) owns a `BindingMap` interface mapping every token it binds to the bound type, and constructs `new TypedContainer<BindingMap>()` (from `@inversifyjs/strongly-typed`). `bind`/`get`/`isBound` are then checked against the map at compile time.
 - Services bind in feature `.module.ts` files with `ContainerModule` (typed via `TypedContainerModule<BindingMap>` where the root is typed).
-- Hosts load modules in `desktop-contributions.ts` or the equivalent web/mobile composition file.
+- Hosts load modules in `desktop-contributions.ts` or the equivalent web composition file.
 - Hosts bind platform implementations in `desktop-services.ts`, `main/index.ts`, or host equivalents.
 - Hosts call `setRootContainer(container)` before resolving services through React or host seams.
 - `CONTRIBUTION` starts subscriptions, commands, routes, menus, and feature boot.
@@ -226,23 +225,7 @@ await boot(container);
 - `pnpm --filter <pkg> typecheck|test|build`: run a scoped task.
 - `pnpm --filter code package|make`: package the Electron app.
 - `node scripts/check-host-boundaries.mjs`: verify host boundary allowlist.
-- `node scripts/check-mobile-types.mjs`: typecheck `apps/mobile` against its error baseline.
 - `pnpm --filter @posthog/api-client generate-client` (or the `@posthog/code` alias): regenerate the typed PostHog API client from the local OpenAPI schema. See [API client](#api-client).
-
-## Mobile Host Types
-
-`apps/mobile` typechecks against a baseline of pre-existing errors, not against zero.
-`pnpm typecheck` runs it like every other package; `scripts/check-mobile-types.mjs` fails only on errors absent from `scripts/mobile-type-baseline.json`.
-
-Metro strips types instead of checking them, so before this the mobile host was the one place a shared-package change could break without CI noticing — a new method on a `@posthog/platform` interface, a renamed `@posthog/core` export.
-
-After fixing baselined errors, shrink the baseline:
-
-```bash
-node scripts/check-mobile-types.mjs --prune
-```
-
-Do not use `--init` to baseline new errors.
 
 ## API client
 

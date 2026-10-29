@@ -65,7 +65,7 @@ if (!report) {
 } else {
   const summary = report.summary ?? {};
   const total = summary.totalDiagnosticCount ?? 0;
-  // Diagnostic filePaths are relative to their project (e.g. apps/mobile), not
+  // Diagnostic filePaths are relative to their project (e.g. apps/web), not
   // the scan root; rejoin them so labels and blob links resolve.
   const scanRoot = String(report.directory ?? "").replace(/\/+$/, "");
   const diagnostics = (report.projects ?? []).flatMap((project) => {
