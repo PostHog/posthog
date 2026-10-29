@@ -3722,11 +3722,7 @@ def iter_reports_with_offline_evaluation_usage(
         .annotate(count=Count("id"))
         .values_list("organization_id", "count")
     )
-    for organization in (
-        Organization.objects.filter(id__in=missing, for_internal_metrics=False)
-        .only("id", "name", "created_at")
-        .iterator()
-    ):
+    for organization in Organization.objects.filter(id__in=missing).only("id", "name", "created_at").iterator():
         yield add_usage(
             OrgReport(
                 date=period_start.strftime("%Y-%m-%d"),

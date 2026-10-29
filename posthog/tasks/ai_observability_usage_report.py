@@ -1022,8 +1022,7 @@ def _get_all_ai_observability_reports(
     team_to_org: dict[int, str] = {team.id: str(team.organization_id) for team in teams}
     org_id_to_name: dict[str, str] = {str(team.organization_id): team.organization.name for team in teams}
     org_id_to_name.update(
-        (str(org.id), org.name)
-        for org in Organization.objects.filter(id__in=offline_usage, for_internal_metrics=False).only("id", "name")
+        (str(org.id), org.name) for org in Organization.objects.filter(id__in=offline_usage).only("id", "name")
     )
 
     # Aggregate by organization

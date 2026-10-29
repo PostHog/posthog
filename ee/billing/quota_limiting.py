@@ -1324,7 +1324,7 @@ def _iter_quota_organizations(
         seen.add(str(organization_id))
         yield org_teams[0].organization, org_teams
     organizations = (
-        Organization.objects.filter(id__in=offline_usage.keys() - seen, for_internal_metrics=False)
+        Organization.objects.filter(id__in=offline_usage.keys() - seen)
         .only("id", "usage", "created_at", "never_drop_data", "customer_trust_scores", "customer_id")
         .order_by("id")
     )

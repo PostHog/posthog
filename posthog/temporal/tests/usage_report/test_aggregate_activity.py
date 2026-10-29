@@ -462,6 +462,13 @@ async def test_aggregate_filters_by_organization_ids(minio_workflow_ctx: Workflo
 
     ctx = minio_workflow_ctx.model_copy(update={"organization_ids": [str(org_a.id)]})
     query_results = _seed_query_results(ctx, team_a.id, team_b.id)
+    await sync_to_async(OfflineEvaluationUsageLedger.objects.for_team(team_b.id).create)(
+        team_id=team_b.id,
+        organization_id=org_b.id,
+        experiment_id=uuid.uuid4(),
+        accepted_at=ctx.period_start,
+        quantity=7,
+    )
 
     with patch(
         "posthog.temporal.usage_report.activities.get_instance_metadata",
