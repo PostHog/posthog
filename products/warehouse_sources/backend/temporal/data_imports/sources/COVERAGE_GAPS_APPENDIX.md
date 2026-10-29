@@ -9414,14 +9414,14 @@ Note: Full vendor resource list read from the docs navigation plus each resource
 
 ## Pinecone — gaps
 
-Today (4): `backups`, `collections`, `indexes`, `restore_jobs`
+Today (7): `assistant_files`, `assistants`, `backups`, `collections`, `indexes`, `namespaces`, `restore_jobs`
 
 Diffed against: <https://raw.githubusercontent.com/pinecone-io/pinecone-api/main/2026-07/db_data_2026-07.oas.yaml>
 
-- [ ] `Namespaces (GET /namespaces)` — measure record counts and stored data size by namespace within each index (high)
-- [ ] `Record IDs and Metadata (GET /vectors/list; GET /vectors/fetch)` — analyze stored record metadata and compare dataset composition across namespaces (medium)
-- [ ] `Assistants (GET /assistant/assistants)` — track knowledge assistants and compare their status and creation dates (medium)
-- [ ] `Assistant Files (GET /files/{assistant_name})` — analyze knowledge file inventory, processing status, and metadata by assistant (medium)
+- [x] `Namespaces (GET /namespaces)` — measure record counts and stored data size by namespace within each index (high). Added as `namespaces` (fan-out over ready serverless and BYOC `indexes`). The response carries record counts, not data size.
+- ~~`Record IDs and Metadata (GET /vectors/list; GET /vectors/fetch)` — analyze stored record metadata and compare dataset composition across namespaces (medium)~~ — skipped: it exports every record in every namespace, `fetch` always returns the vector values, and each sync would spend the customer's Pinecone read units with no server-side change filter
+- [x] `Assistants (GET /assistant/assistants)` — track knowledge assistants and compare their status and creation dates (medium). Added as `assistants`.
+- [x] `Assistant Files (GET /files/{assistant_name})` — analyze knowledge file inventory, processing status, and metadata by assistant (medium). Added as `assistant_files` (fan-out over ready `assistants`); `signed_url` is dropped.
 
 Note: Parsed Pinecone's official 2026-07 database and assistant specifications. Namespace and record tables need requests to each index host. Record metadata requires listing IDs, then fetching their records; these list operations support serverless indexes. Assistant files use each assistant's host; excluded write operations, import plumbing, and authentication.
 
