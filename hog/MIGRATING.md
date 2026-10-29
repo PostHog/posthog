@@ -112,8 +112,3 @@ When the file is invalid, every command stops except `hog config check`, which l
 
 posthog-cli rewrites `posthog.json` with only `languages` when it pulls a schema, so it drops hog's settings.
 Run only hog's `schema pull` once a project uses hog settings.
-
-## Telemetry
-
-hog sends the same `posthog cli command run` event as posthog-cli, with more detail, and ties it to your PostHog user when you use a PostHog Cloud key.
-Turn it off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"cli": { "telemetry": false }` in `posthog.json`.
