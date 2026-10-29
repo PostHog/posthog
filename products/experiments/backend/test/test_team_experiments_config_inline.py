@@ -1,10 +1,10 @@
 from posthog.test.base import BaseTest
 
-from django.contrib import admin
+from django.contrib.admin import AdminSite
 from django.forms import ModelForm, modelform_factory
 from django.test import RequestFactory, SimpleTestCase
 
-from posthog.admin import register_all_admin
+from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.models import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -40,8 +40,5 @@ class TestTeamExperimentsConfigInlineForm(BaseTest):
 
 class TestTeamExperimentsConfigInlineRegistration(SimpleTestCase):
     def test_inline_attaches_to_team_admin(self):
-        # Tests skip the lazy admin registry, so trigger registration explicitly.
-        register_all_admin()
-        team_admin = admin.site.get_model_admin(Team)
-        inlines = team_admin.get_inlines(RequestFactory().get("/"), None)
-        self.assertIn(TeamExperimentsConfigInline, inlines)
+        team_admin = TeamAdmin(Team, AdminSite())
+        self.assertIn(TeamExperimentsConfigInline, team_admin.get_inlines(RequestFactory().get("/")))
