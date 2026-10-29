@@ -738,6 +738,11 @@ class TestReadDataTool(BaseTest):
                     "clickhouse": "Nullable(String)",
                     "schema_valid": True,
                 },
+                "receipt_email": {
+                    "hogql": "StringDatabaseField",
+                    "clickhouse": "Nullable(String)",
+                    "schema_valid": True,
+                },
             },
         )
         await ExternalDataSchema.objects.acreate(
@@ -750,6 +755,9 @@ class TestReadDataTool(BaseTest):
                 column_name="amount",
                 description="charge amount in cents",
                 description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+            await WarehouseColumnAnnotation.objects.acreate(
+                team=self.team, table=table, column_name="receipt_email", description="", sensitivity="email"
             )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -767,6 +775,8 @@ class TestReadDataTool(BaseTest):
         assert "Table `stripe_charges` — Stripe charges with fields:" in result
         assert "- amount (integer) — charge amount in cents" in result
         assert "- currency (string)" in result
+        assert "- receipt_email (string) [sensitive: email]" in result
+        assert "Columns marked [sensitive: ...] likely hold personal or secret data." in result
 
     async def test_table_schema_returns_view_fields(self):
         """Test that data_warehouse_table returns full schema for a view."""
