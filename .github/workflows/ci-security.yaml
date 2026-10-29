@@ -508,7 +508,7 @@ jobs:
                       common/ ee/ posthog/ products/
                   python3 bin/semgrep_ratchet.py \
                     --findings semgrep-integration-model.json \
-                    --baseline products/integrations/backend/model_access_baseline.txt
+                    --baseline posthog/integrations/model_access_baseline.txt
 
             # Pass 3 (PRs only): fail on newly-introduced WARNING findings.
             # --baseline-commit diffs against the PR base (first parent of the

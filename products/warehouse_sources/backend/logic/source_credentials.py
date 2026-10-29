@@ -20,20 +20,18 @@ methods without a change to the callers.
 import json
 from collections.abc import Iterable, Mapping
 from typing import Any
+from urllib.parse import unquote
 from uuid import UUID, uuid4
-
-from django.db import transaction
 
 import structlog
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
+from posthog.integrations import AuthAccessor, IntegrationNotFound, IntegrationUsage
 from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.sync import database_sync_to_async_pool
 
-from products.integrations.backend.facade.api import AuthAccessor, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound, IntegrationPatch, IntegrationUsage
 from products.warehouse_sources.backend.facade.contracts import WAREHOUSE_SOURCE_USAGE_TYPE, SharedCredentialsError
 from products.warehouse_sources.backend.logic.credential_auth_types import credentials_accessor
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -167,33 +165,31 @@ class WarehouseSourceCredentialsStore:
             raise CredentialsNotFoundError(f"Source {source.id} has no credentials reference")
         source_type = str(source.source_type)
         rows = credentials_accessor(source_type)
-        needs_new_row = False
-
-        def change(row: IntegrationRecord) -> IntegrationPatch:
-            nonlocal needs_new_row
-            current = _fields_of(row.sensitive_config)
-            # Each save of a source writes all its inputs again, so most writes change no field. Such a
-            # write needs no confirmation, also when the row is shared.
-            if current is not None and _set_values(current) == _set_values(fields):
-                return IntegrationPatch()
-            others = _other_usages(rows, source, row.id)
-            if others:
-                if current is None or _identity(source_type, current) != _identity(source_type, fields):
-                    needs_new_row = True
-                    return IntegrationPatch()
-                if not allow_shared:
-                    raise SharedCredentialsError(row.id, others)
-            return IntegrationPatch(sensitive_config_patch={"fields": dict(fields)})
-
-        # The outer transaction keeps the row locked until the new row exists.
-        with transaction.atomic():
-            try:
-                rows.update_atomically(source.team_id, pk, change)
-            except IntegrationNotFound as error:
-                raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
-            if needs_new_row:
-                return WarehouseSourceCredentialsStore.create(source, fields)
+        try:
+            row = rows.get(source.team_id, pk)
+        except IntegrationNotFound as error:
+            raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
+        current = _fields_of(row.sensitive_config)
+        # Each save of a source writes all its inputs again, so most writes change no field. Such a
+        # write needs no confirmation, also when the row is shared.
+        if current is not None and _set_values(current) == _set_values(fields):
             return pk
+        try:
+            others = _other_usages(rows, source, row.id)
+        except IntegrationNotFound as error:
+            raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
+        if others:
+            if current is None or _identity(source_type, current) != _identity(source_type, fields):
+                return WarehouseSourceCredentialsStore.create(source, fields)
+            if not allow_shared:
+                raise SharedCredentialsError(row.id, others)
+        # No lock spans the usages check and the write. When two sources edit one shared row at the
+        # same time, the last write wins. The source lock serializes the edits of one source only.
+        try:
+            rows.update(source.team_id, pk, sensitive_config_patch={"fields": dict(fields)})
+        except IntegrationNotFound as error:
+            raise CredentialsNotFoundError(f"Credentials of source {source.id} do not exist") from error
+        return pk
 
     @staticmethod
     def release(source: ExternalDataSource, ref: int | str | None) -> bool:
@@ -267,9 +263,91 @@ def _identity(source_type: str, fields: Mapping[str, Any]) -> str:
     )
 
     source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
-    return json.dumps(
-        {key: _normalized(fields.get(key)) for key in sorted(source.credential_identity_fields)}, sort_keys=True
-    )
+    return json.dumps(_identity_parts(fields, source.credential_identity_fields), sort_keys=True)
+
+
+def _identity_parts(fields: Mapping[str, Any], names: frozenset[str], prefix: str = "") -> dict[str, Any]:
+    # A source can declare an identity field inside a select option (Snowflake keeps `user` under
+    # `auth_type`), so look at every depth. The path keeps two fields of one name apart.
+    parts: dict[str, Any] = {}
+    for key, value in fields.items():
+        path = f"{prefix}{key}"
+        if key in names:
+            part = _identity_value(str(key), value)
+            # An unset and a blank value match.
+            if part not in ("", {}):
+                parts[path] = part
+        elif isinstance(value, Mapping):
+            parts.update(_identity_parts(value, names, f"{path}."))
+    return parts
+
+
+def _identity_value(key: str, value: Any) -> Any:
+    # These two fields also hold secrets. A secret change is a rotation, not a new connection, so
+    # compare only the parts that say where the credentials connect and as which account.
+    if key == "ssh_tunnel" and isinstance(value, Mapping):
+        auth = value.get("auth_type")
+        return {
+            part: item
+            for part, item in {
+                "enabled": _normalized(value.get("enabled")).lower(),
+                "host": _normalized(value.get("host")),
+                "port": _normalized(value.get("port")),
+                "username": _normalized(auth.get("username") if isinstance(auth, Mapping) else None),
+            }.items()
+            if item
+        }
+    if key == "connection_string" and isinstance(value, str):
+        return _connection_string_identity(value)
+    return _normalized(value)
+
+
+# Keys of a `key=value;...` connection string (ADO.NET, libpq) that say where it connects and as whom.
+_CONNECTION_STRING_IDENTITY_KEYS = frozenset(
+    {
+        "server",
+        "host",
+        "hostaddr",
+        "address",
+        "addr",
+        "data source",
+        "port",
+        "user",
+        "user id",
+        "uid",
+        "username",
+        "database",
+        "dbname",
+        "initial catalog",
+        "account",
+    }
+)
+
+
+def _connection_string_identity(value: str) -> Any:
+    value = value.strip()
+    if not value:
+        return ""
+    if "://" in value:
+        scheme, _, rest = value.partition("://")
+        authority, _, path = rest.partition("/")
+        userinfo, _, hosts = authority.rpartition("@")
+        return {
+            "scheme": scheme.lower(),
+            "user": unquote(userinfo.partition(":")[0]),
+            "hosts": hosts.lower(),
+            # The query can hold options and secrets, so only the database name of the path counts.
+            "database": path.partition("?")[0].partition("#")[0],
+        }
+    # ADO.NET separates pairs with ";" and has keys with spaces ("User Id"). libpq separates with spaces.
+    pairs = [pair.partition("=") for pair in (value.split(";") if ";" in value else value.split()) if "=" in pair]
+    parts = {
+        key.strip().lower(): item.strip()
+        for key, _, item in pairs
+        if key.strip().lower() in _CONNECTION_STRING_IDENTITY_KEYS
+    }
+    # A format this does not know compares whole, so a change can only make a new row.
+    return parts or value
 
 
 def _normalized(value: Any) -> Any:

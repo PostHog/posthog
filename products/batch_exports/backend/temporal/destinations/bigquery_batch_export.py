@@ -41,6 +41,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.team import Team
@@ -83,8 +84,6 @@ from products.batch_exports.backend.temporal.utils import (
     handle_non_retryable_errors,
     make_retryable_with_exponential_backoff,
 )
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on missing permissions.

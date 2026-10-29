@@ -5,11 +5,10 @@ from unittest import mock
 
 import psycopg
 
+from posthog.integrations import IntegrationNotFound, IntegrationReader
 from posthog.security.url_validation import UNREACHABLE_HOST_MESSAGE
 
 from products.batch_exports.backend.facade.destinations.postgres import PostgreSQLClient, PostgreSQLConnectionError
-from products.integrations.backend.facade.api import IntegrationReader
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import DestinationRunContext
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
     DESTINATION_CONFIGURATION_ERROR_MARKER,

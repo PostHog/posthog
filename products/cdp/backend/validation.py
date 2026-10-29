@@ -18,6 +18,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, Integration
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -41,7 +42,6 @@ from products.cdp.backend.models.hog_functions.hog_function import (
 )
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.realtime_state import CohortRealtimeState, has_realtime_state, resolve_realtime_readiness
-from products.integrations.backend.facade.api import IntegrationManager
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL

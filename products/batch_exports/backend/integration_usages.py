@@ -1,7 +1,8 @@
 """The batch exports that write through an integration row. The integrations SDK loads this module."""
 
+from posthog.integrations import IntegrationUsage
+
 from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
-from products.integrations.backend.facade.contracts import IntegrationUsage
 
 BATCH_EXPORT_USAGE_TYPE = "batch_export"
 

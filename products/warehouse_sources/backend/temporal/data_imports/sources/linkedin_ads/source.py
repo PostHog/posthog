@@ -2,9 +2,8 @@ from datetime import date
 from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -157,8 +156,8 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             # user must re-authorize. Model-specific so we don't swallow unrelated `DoesNotExist`
             # errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
-            # The SDK raises `IntegrationNotFound` ("No integration <id> in ...") for the same case.
-            "No integration ": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
+            # `_get_integration` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": "Your LinkedIn Ads connection is no longer available — it may have been disconnected. Please re-authorize the LinkedIn Ads integration.",
             # LinkedIn rejects a deprecated/sunset version header with this stable code (see
             # `deprecated_versions`). It happens on every call under that pin regardless of resource
             # or account, so retrying can never succeed — only repinning to a supported version does.

@@ -21,6 +21,7 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team
 from posthog.models.integration import (
     TLS,
@@ -84,8 +85,6 @@ from products.batch_exports.backend.temporal.utils import (
     cast_record_batch_schema_json_columns,
     handle_non_retryable_errors,
 )
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()

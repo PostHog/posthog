@@ -6,6 +6,7 @@ from uuid import uuid4
 from django.db import models
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationKind, IntegrationRecord
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import (
@@ -13,7 +14,6 @@ from products.batch_exports.backend.facade.contracts import (
     DestinationTestStepResult,
     UnsupportedDestinationTestError,
 )
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.warehouse_sources.backend.facade.models import ExternalDataDestination
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     CONFIG_FAILURES,
@@ -138,7 +138,7 @@ def has_connection_test(destination_type: str) -> bool:
 def connection_test_type(destination_type: str, integration: IntegrationRecord) -> str | None:
     """The batch exports test that covers this destination, or None when there is none."""
     if destination_type == ExternalDataDestination.Type.S3:
-        return "AwsS3" if integration.kind == IntegrationRecord.IntegrationKind.AWS_S3 else "S3Compatible"
+        return "AwsS3" if integration.kind == IntegrationKind.AWS_S3 else "S3Compatible"
     return _TEST_TYPES.get(destination_type)
 
 
