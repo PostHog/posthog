@@ -347,11 +347,17 @@ def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number
     )
     # One `OR` over joins to every link table defeats the indexes, so each path is its own lookup.
     candidate_querysets = [
+        # The array form, as in `implementation_pr_report_filter`, so Postgres probes the artefact index.
         SignalReportArtefact.objects.filter(
+            _EqualsAny(
+                F("pull_request_id"),
+                ArraySubquery(
+                    SignalReportPullRequest.objects.for_team(team_id)
+                    .filter(repository__iexact=repository, number=pr_number)
+                    .values("id")
+                ),
+            ),
             team_id=team_id,
-            pull_request_id__in=SignalReportPullRequest.objects.for_team(team_id)
-            .filter(repository__iexact=repository, number=pr_number)
-            .values("id"),
         ).values("report_id"),
         SignalReportAssignment.all_teams.filter(
             team_id=team_id, repository__iexact=repository, pr_number=pr_number
