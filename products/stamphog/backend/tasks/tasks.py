@@ -1145,6 +1145,11 @@ def process_installation_event(payload: dict[str, Any], delivery_id: str) -> Non
         _mark_pr_event_processed(delivery_id)
 
 
+def _retry_countdown(error: Exception) -> int | None:
+    """GitHub's own backoff for a rate-limited call, so the retries outlast it. None keeps the task default."""
+    return max(error.retry_after or 0, 60) if isinstance(error, GitHubRateLimitError) else None
+
+
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> None:
     """Turn one verified pull_request webhook delivery into a queued ReviewRun."""
@@ -1244,17 +1249,16 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 logger.exception(
                     "stamphog_pr_event_untrusted_skip_dismiss_failed", delivery_id=delivery_id, error=str(e)
                 )
-                raise cast(Any, process_pull_request_event).retry(exc=e)
+                raise cast(Any, process_pull_request_event).retry(exc=e, countdown=_retry_countdown(e))
         if skip_reason == "bot_author":
             _clear_trigger_label_from_bot_pr(installation_id, repo, pr, action)
         if carve_out_error is not None:
             # The dismissal above already ran, so the stale-approval invariant holds however many
             # retries fail. Retry so the carve-out re-review is re-attempted once the failure clears,
             # after GitHub's own backoff when it rate limited the lookup.
-            countdown = (
-                max(carve_out_error.retry_after or 0, 60) if isinstance(carve_out_error, GitHubRateLimitError) else None
+            raise cast(Any, process_pull_request_event).retry(
+                exc=carve_out_error, countdown=_retry_countdown(carve_out_error)
             )
-            raise cast(Any, process_pull_request_event).retry(exc=carve_out_error, countdown=countdown)
         logger.info(
             "stamphog_pr_event_skipped",
             repo=repo,
