@@ -215,6 +215,31 @@ class TestCheckMatchesCurrentRules(BaseTest):
 
         assert results == [True, False, True]
 
+    def test_resource_for_object_with_a_team_reads_that_team_rules(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        source = ExternalDataSource.objects.create(
+            team_id=other_team.pk,
+            source_id="src",
+            connection_id="conn",
+            destination_id="dest",
+            source_type="Stripe",
+            prefix="test",
+        )
+        create_access_control(
+            team_id=other_team.id, resource="external_data_source", access_level="none", resource_id=str(source.id)
+        )
+        subject = Subject(user_id=self.user.id)
+
+        own_team = authorization.check(resource=resource_for_object(source), action=Action.EDIT, subject=subject)
+        view_team = authorization.check(
+            resource=resource_for_object(source, team=self.team), action=Action.EDIT, subject=subject
+        )
+
+        assert (own_team, view_team) == (False, True)
+        assert view_team == UserAccessControl(self.user, self.team).check_access_level_for_object(source, "editor")
+        with pytest.raises(ValueError, match="dashboard"):
+            resource_for_object(self.dashboard, team=self.team)
+
     @parameterized.expand(
         [
             (
