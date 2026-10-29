@@ -20,13 +20,27 @@ from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
 from ..logic.traces.events_fallback import fallback_window
+from ..logic.traces.feedback import FeedbackText, Score, TraceFeedback
 from ..logic.traces.git import GitRef
 from ..logic.traces.node import NodeEvent
+from ..logic.traces.summary import (
+    AIDataProcessingNotApprovedError as AIDataProcessingNotApprovedError,
+    FailedSummary,
+    PendingSummary,
+    ReadySummary,
+    SummaryEntry,
+    SummaryItem,
+    TraceSummaryNotFoundError as TraceSummaryNotFoundError,
+    TraceSummaryRetryableError as TraceSummaryRetryableError,
+)
+from ..logic.traces.summary_generation import generate_summary
+from ..logic.traces.summary_store import fail_abandoned_summary, request_summary, viewer_summary
 from ..logic.traces.timeline import TimelineRow
 from ..logic.traces.trace import Trace
-from ..logic.traces.trace_queries import load_trace, load_trace_node, load_trace_root
+from ..logic.traces.trace_queries import load_trace, load_trace_feedback_rows, load_trace_node, load_trace_root
 from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
+from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
 
 
@@ -230,6 +244,32 @@ def _to_evaluation_result(result: EvaluationResult) -> contracts.TraceEvaluation
     )
 
 
+def get_trace_feedback(
+    team: Team, user: User | None, trace_id: str, timestamp_hint: datetime | None
+) -> contracts.TraceFeedback:
+    """End-user feedback on a trace. An unknown trace has none."""
+    feedback = TraceFeedback(trace_id, load_trace_feedback_rows(team, user, trace_id, timestamp_hint))
+    scores = [_to_feedback_score(score) for score in feedback.scores]
+    responses = [_to_feedback_text(text) for text in feedback.texts]
+    return contracts.TraceFeedback(
+        scores=scores,
+        responses=responses,
+        summary=contracts.TraceFeedbackSummary(total=len(scores) + len(responses)),
+    )
+
+
+def _to_feedback_score(score: Score) -> contracts.TraceFeedbackScore:
+    return contracts.TraceFeedbackScore(
+        id=score.id, name=score.name, value=score.value, node_id=score.node_id, timestamp=score.timestamp
+    )
+
+
+def _to_feedback_text(text: FeedbackText) -> contracts.TraceFeedbackText:
+    return contracts.TraceFeedbackText(
+        kind="text", id=text.id, text=text.text, node_id=text.node_id, timestamp=text.timestamp
+    )
+
+
 def _to_evaluation_summary(summary: EvaluationSummary) -> contracts.TraceEvaluationSummary:
     return contracts.TraceEvaluationSummary(
         passed=summary.passed,
@@ -306,3 +346,49 @@ def get_evaluation_score_distribution(
     if meta.scale is None or buckets is None:
         raise NoScoreScaleError(evaluation_id)
     return load_score_distribution(team, user, evaluation_id, period, meta.scale, buckets)
+
+
+def get_trace_summary(team: Team, user: User, trace_id: str) -> contracts.TraceSummary:
+    """Raises `AIDataProcessingNotApprovedError`, or `TraceSummaryNotFoundError` when this viewer has no summary."""
+    return _to_trace_summary(viewer_summary(team, user, trace_id))
+
+
+def request_trace_summary(
+    team: Team, user: User, trace_id: str, timestamp_hint: datetime | None, *, regenerate: bool
+) -> contracts.TraceSummary:
+    """A ready summary, or the pending one a job now writes. Raises `AIDataProcessingNotApprovedError`."""
+    return _to_trace_summary(request_summary(team, user, trace_id, timestamp_hint, regenerate, start_trace_summary))
+
+
+def generate_trace_summary(job: contracts.TraceSummaryJob, *, final_attempt: bool) -> contracts.TraceSummaryRun | None:
+    """The trace summary job's body, or None when its entry no longer waits for it. Raises
+    `TraceSummaryRetryableError` when a later attempt can succeed."""
+    return generate_summary(job, final_attempt=final_attempt)
+
+
+def fail_trace_summary(job: contracts.TraceSummaryJob) -> None:
+    """Mark the job's summary failed when the job ended without writing it."""
+    fail_abandoned_summary(job)
+
+
+def _to_summary_items(items: tuple[SummaryItem, ...]) -> list[contracts.TraceSummaryItem]:
+    return [contracts.TraceSummaryItem(text=item.text, node_id=item.node_id) for item in items]
+
+
+def _to_trace_summary(entry: SummaryEntry) -> contracts.TraceSummary:
+    match entry:
+        case PendingSummary():
+            return contracts.TraceSummary(status="pending", content=None, failure=None)
+        case ReadySummary():
+            content = contracts.TraceSummaryContent(
+                title=entry.title,
+                bullets=_to_summary_items(entry.bullets),
+                notes=_to_summary_items(entry.notes),
+                flow=entry.flow,
+                model=entry.model,
+                generated_at=entry.generated_at,
+            )
+            return contracts.TraceSummary(status="ready", content=content, failure=None)
+        case FailedSummary():
+            failure = contracts.TraceSummaryFailure(reason=entry.reason, message=entry.message)
+            return contracts.TraceSummary(status="failed", content=None, failure=failure)

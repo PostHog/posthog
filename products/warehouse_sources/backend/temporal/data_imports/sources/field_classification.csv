@@ -830,6 +830,7 @@ MySQL,host port database user password using_ssl verify_server_certificate ca_ce
 Mycase,,,,,,mycase
 N8n,host api_key,,,,,n8n
 NagerDate,,,,country_codes,,nager-date
+Nango,,,,,,nango
 Nasa,,,,,,nasa
 NationBuilder,,,,,,nation-builder
 Navan,,,,,,navan

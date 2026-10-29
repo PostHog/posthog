@@ -411,6 +411,14 @@ _FOREIGN_SERVER_UNREACHABLE_ERROR = (
     "persists, check that the foreign server is running and reachable from your source database."
 )
 
+# Terminal twin of `_FOREIGN_SERVER_UNREACHABLE_ERROR` once the activity's own retry budget is spent
+# on a sustained outage. The schedule picks the sync back up on its own, so it must not read like
+# the sync needs re-enabling — mirrors `_SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE` below.
+_FOREIGN_SERVER_UNREACHABLE_EXHAUSTED_MESSAGE = (
+    f"{_FOREIGN_SERVER_UNREACHABLE_ERROR} This kept happening on every retry. This sync is still "
+    "enabled and will run again on its next schedule."
+)
+
 # sshtunnel raises BaseSSHTunnelForwarderError("Could not establish session to SSH gateway") when it
 # can't open a session to the bastion — the SSH host/port is wrong or unreachable, the bastion is
 # down, or its firewall blocks PostHog's IPs. The raw message tells the user nothing actionable, so
@@ -1497,6 +1505,15 @@ class PostgresSource(
             "missing chunk number": _SOURCE_PAGE_CORRUPTION_ERROR,
             "unexpected zero page": _SOURCE_PAGE_CORRUPTION_ERROR,
             "could not read block": _SOURCE_PAGE_CORRUPTION_ERROR,
+            # The server failed to open a relation's underlying file at all, rather than failing to
+            # read a block from one already open — psycopg's `IoError` (SQLSTATE 58030), raised as
+            # `could not open file "base/<db>/<relfilenode>": <errno message>`. Match only the
+            # "Input/output error" (EIO) errno text, the signal for a failing disk or filesystem,
+            # the same family as the page-level errors above. Matching the bare "could not open
+            # file" prefix instead would also catch "Too many open files" (EMFILE/ENFILE), a
+            # file-descriptor exhaustion that clears once load on the source drops, so that case
+            # must stay retryable. The volatile file path is excluded from the match.
+            "Input/output error": _SOURCE_PAGE_CORRUPTION_ERROR,
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
@@ -1774,6 +1791,12 @@ class PostgresSource(
         # never appears in CockroachDB's message. CockroachDB expects the whole transaction to be
         # retried on conflict, which is exactly what letting this propagate to Temporal's
         # whole-activity retry does, so it's the same self-recovering class as the other entries here.
+        #
+        # `_FOREIGN_SERVER_UNREACHABLE_ERROR` (see `ForeignServerUnreachableError`) is the same
+        # self-recovering shape again, for a postgres_fdw foreign table's own downstream server
+        # rather than the direct connection. Without it here, every occurrence of an otherwise
+        # transient foreign-server blip would still be logged at `exception` and flood error
+        # tracking, the exact failure mode this set exists to avoid.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
@@ -1789,6 +1812,7 @@ class PostgresSource(
             _SSH_FORWARD_FAILED_ERROR,
             _CONNECT_TIMEOUT_ERROR,
             _POOLER_AUTH_CIRCUIT_BREAKER_ERROR,
+            _FOREIGN_SERVER_UNREACHABLE_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -1816,6 +1840,7 @@ class PostgresSource(
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
             _CONNECT_TIMEOUT_ERROR: _CONNECT_TIMEOUT_EXHAUSTED_MESSAGE,
             _POOLER_AUTH_CIRCUIT_BREAKER_ERROR: _POOLER_AUTH_CIRCUIT_BREAKER_EXHAUSTED_MESSAGE,
+            _FOREIGN_SERVER_UNREACHABLE_ERROR: _FOREIGN_SERVER_UNREACHABLE_EXHAUSTED_MESSAGE,
         }
 
     def reconcile_schema_metadata(

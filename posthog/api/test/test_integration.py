@@ -3300,6 +3300,10 @@ class TestIntegrationAPIKeyAccess:
         assert repos.status_code == status.HTTP_404_NOT_FOUND
         # Only the App row of the list heals its account name. The token row has no installation.
         assert heal.call_count == 1
+        # Actions other than list and retrieve do not reach the warehouse source row.
+        deleted = client.delete(f"{base_url}/{source_row.id}/")
+        assert deleted.status_code == status.HTTP_404_NOT_FOUND
+        assert Integration._base_manager.filter(id=source_row.id).exists()
 
     def test_list_integrations_filtered_by_kind(self, client: HttpClient):
         client.force_login(self.user)

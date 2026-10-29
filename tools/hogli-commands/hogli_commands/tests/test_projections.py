@@ -109,7 +109,7 @@ class TestRuffFormatter:
     @pytest.mark.parametrize(
         "path,expected",
         [
-            ("products/integrations/backend/facade/kinds_generated.py", RUFF),
+            ("posthog/integrations/kinds_generated.py", RUFF),
             ("products/desktop/scripts/tool.py", RUFF),
             ("frontend/src/lib/oauthScopes.generated.ts", OXFMT),
             ("products/desktop/packages/core/src/a.generated.ts", BIOME),

@@ -1,5 +1,6 @@
 import base64
 from datetime import UTC, datetime, timedelta
+from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
@@ -18,6 +19,8 @@ from posthog.models.user import User
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.ai_observability.backend.logic.traces.summary import ReadySummary, SummaryItem
+from products.ai_observability.backend.logic.traces.summary_store import summary_key, write_summary
 from products.ai_observability.backend.models.review_queues import ReviewQueue
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -27,6 +30,8 @@ T0 = datetime(2026, 9, 1, 10, 0, tzinfo=UTC)
 GENERATION = "00000000-0000-0000-0000-000000000001"
 TRACE_EVENT = "00000000-0000-0000-0000-000000000002"
 EVALUATION_RESULT = "00000000-0000-0000-0000-000000000003"
+SCORE = "00000000-0000-0000-0000-000000000004"
+FEEDBACK = "00000000-0000-0000-0000-000000000005"
 QUESTION = [{"role": "user", "content": "Why did my invoice go up?"}]
 ANSWER = [{"role": "assistant", "content": "Two seats were added."}]
 
@@ -336,6 +341,83 @@ class TestTraceEvaluationsView(ClickhouseTestMixin, APIBaseTest):
         assert (result["reasoning"], result["outcome"]) == (None, "pass")
 
 
+def _create_feedback(team: Team) -> None:
+    def event(uuid: str, name: str, properties: dict[str, object]) -> dict[str, object]:
+        return {
+            "event": name,
+            "event_uuid": uuid,
+            "distinct_id": "user-1",
+            "team": team,
+            "timestamp": T0 + timedelta(minutes=1),
+            "properties": {"$ai_trace_id": "trace-1", **properties},
+        }
+
+    _create_trace(team)
+    bulk_create_ai_events(
+        [
+            event(
+                SCORE,
+                "$ai_metric",
+                {"$ai_metric_name": "helpfulness", "$ai_metric_value": 0, "$ai_parent_id": GENERATION},
+            ),
+            event(FEEDBACK, "$ai_feedback", {"$ai_feedback_text": "Too long, but correct."}),
+        ]
+    )
+
+
+class TestTraceFeedbackView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, segment: str) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/feedback/"
+
+    def test_returns_the_feedback_in_camel_case(self) -> None:
+        _create_feedback(self.team)
+
+        response = self.client.get(self._url(_encode("trace-1")))
+
+        assert response.status_code == 200
+        body = response.json()
+        assert [score | {"timestamp": None} for score in body["scores"]] == [
+            {"id": SCORE, "name": "helpfulness", "value": "0", "nodeId": GENERATION, "timestamp": None}
+        ]
+        assert [(item["kind"], item["text"], item["nodeId"]) for item in body["responses"]] == [
+            ("text", "Too long, but correct.", "trace-1")
+        ]
+        assert body["summary"]["total"] == 2
+
+    def test_an_unknown_trace_has_no_feedback(self) -> None:
+        response = self.client.get(self._url(_encode("trace-2")))
+
+        assert response.status_code == 200
+        assert (response.json()["scores"], response.json()["responses"], response.json()["summary"]["total"]) == (
+            [],
+            [],
+            0,
+        )
+
+    def test_rejects_an_unencoded_trace_id(self) -> None:
+        assert self.client.get(self._url("trace-1")).status_code == 400
+
+    def test_masks_feedback_the_viewer_may_not_read(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=self.team, name="$ai_feedback_text", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=definition,
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        _create_feedback(self.team)
+
+        body = self.client.get(self._url(_encode("trace-1"))).json()
+
+        assert (len(body["scores"]), body["responses"]) == (1, [])
+
+
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
     def test_a_grant_on_one_object_does_not_open_traces(self) -> None:
         self.organization.available_product_features = [
@@ -362,3 +444,88 @@ class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/ai_observability/traces/{_encode('trace-1')}/")
 
         assert response.status_code == 403, response.content
+
+
+READY_SUMMARY = ReadySummary(
+    title="Refund request",
+    bullets=(SummaryItem(text="The user asks for a refund.", node_id=GENERATION),),
+    notes=(),
+    flow="ask → refuse",
+    model="gpt-4.1-mini",
+    generated_at=T0,
+)
+
+
+class TestTraceSummaryViews(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        self.start = self.enterContext(
+            patch("products.ai_observability.backend.facade.api.start_trace_summary", return_value=None)
+        )
+
+    def _url(self, segment: str = _encode("trace-1")) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/summary/"
+
+    def _store_ready(self) -> None:
+        write_summary(summary_key(self.team, self.user, "trace-1"), READY_SUMMARY)
+
+    @parameterized.expand(
+        [
+            ("no summary", "none", _encode("trace-1"), 404),
+            ("a ready summary", "ready", _encode("trace-1"), 200),
+            ("an organization without approval", "unapproved", _encode("trace-1"), 403),
+            ("a malformed id", "ready", "A", 400),
+        ]
+    )
+    def test_get_maps_each_outcome(self, _name: str, setup: str, segment: str, expected_status: int) -> None:
+        if setup != "none":
+            self._store_ready()
+        if setup == "unapproved":
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
+
+        response = self.client.get(self._url(segment))
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            body = response.json()
+            assert body["status"] == "ready" and body["content"]["generatedAt"] is not None
+            assert body["content"]["bullets"][0]["nodeId"] == GENERATION
+
+    def test_post_returns_202_while_pending_and_200_for_a_ready_summary(self) -> None:
+        pending = self.client.post(f"{self._url()}?{urlencode({'timestamp_hint': T0.isoformat()})}", {}, format="json")
+        self.start.assert_called_once()
+        write_summary(summary_key(self.team, self.user, "trace-1"), READY_SUMMARY)
+        ready = self.client.post(self._url(), {}, format="json")
+
+        assert (pending.status_code, pending.json()["status"]) == (202, "pending")
+        assert self.start.call_args.args[0].timestamp_hint == T0
+        assert (ready.status_code, ready.json()["status"]) == (200, "ready")
+
+    @parameterized.expand(
+        [
+            ("a read key reads", "llm_analytics:read", "get", 200),
+            ("a read key cannot request", "llm_analytics:read", "post", 403),
+            ("a write key requests", "llm_analytics:write", "post", 200),
+        ]
+    )
+    def test_scopes(self, _name: str, scope: str, method: str, expected_status: int) -> None:
+        self._store_ready()
+        key = self.create_personal_api_key_with_scopes([scope])
+        self.client.logout()
+
+        send = self.client.get if method == "get" else self.client.post
+        response = send(self._url(), headers={"authorization": f"Bearer {key}"})
+
+        assert response.status_code == expected_status
+
+    @patch("posthog.rate_limit.AIObservabilitySummarizationBurstThrottle.rate", new="1/minute")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_only_requests_are_throttled(self, _rate_limit_enabled: object) -> None:
+        self._store_ready()
+
+        assert self.client.post(self._url(), {}, format="json").status_code == 200
+        assert self.client.post(self._url(), {}, format="json").status_code == 429
+        assert self.client.get(self._url()).status_code == 200

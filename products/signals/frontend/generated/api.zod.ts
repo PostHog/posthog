@@ -141,6 +141,13 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Step to resume after returning.\n\n\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub'
         ),
+    setup_mode: zod
+        .enum(['quick', 'guided'])
+        .describe('\* `quick` - Quick\n\* `guided` - Guided')
+        .optional()
+        .describe(
+            'How setup was chosen: quick activation from the welcome screen, or the guided steps.\n\n\* `quick` - Quick\n\* `guided` - Guided'
+        ),
     sources: zod
         .array(
             zod.object({
@@ -387,6 +394,13 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Step to resume after returning.\n\n\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub'
         ),
+    setup_mode: zod
+        .enum(['quick', 'guided'])
+        .describe('\* `quick` - Quick\n\* `guided` - Guided')
+        .optional()
+        .describe(
+            'How setup was chosen: quick activation from the welcome screen, or the guided steps.\n\n\* `quick` - Quick\n\* `guided` - Guided'
+        ),
     sources: zod
         .array(
             zod.object({
@@ -610,15 +624,6 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4')
         .describe(
             'Lowest priority to implement automatically; P1 includes P0 and P1.\n\n\* `P0` - P0\n\* `P1` - P1\n\* `P2` - P2\n\* `P3` - P3\n\* `P4` - P4'
-        ),
-})
-
-export const SignalsOnboardingExposeCreateBody = /* @__PURE__ */ zod.object({
-    variant: zod
-        .enum(['control', 'test-ui', 'test-github'])
-        .describe('\* `control` - Control\n\* `test-ui` - Focused steps\n\* `test-github` - Activate and explore')
-        .describe(
-            'Assigned experiment variant at the eligible Inbox impression.\n\n\* `control` - Control\n\* `test-ui` - Focused steps\n\* `test-github` - Activate and explore'
         ),
 })
 
