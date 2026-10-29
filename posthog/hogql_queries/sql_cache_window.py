@@ -24,17 +24,21 @@ class SqlWindowClass(StrEnum):
 # Cache policy. Every number that decides how long an API key SQL result stays fresh lives in this block.
 API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
 
-# The 5 minute ages of LIVE, NO_TIME_FILTER and UNCLASSIFIED only order the classes from strictest to loosest.
-# Those three classes keep the runner's default staleness policy (see DEFAULT_POLICY_CLASSES).
+# How long a result of each class stays fresh. LIVE, NO_TIME_FILTER and UNCLASSIFIED have no entry:
+# they keep the runner's default staleness policy.
 SQL_WINDOW_MAX_AGE: dict[SqlWindowClass, timedelta] = {
     SqlWindowClass.FIXED_PAST: timedelta(hours=24),
-    SqlWindowClass.LIVE: timedelta(minutes=5),
     SqlWindowClass.UP_TO_NOW_SHORT: timedelta(minutes=30),
     SqlWindowClass.UP_TO_NOW_LONG: timedelta(hours=1),
-    SqlWindowClass.NO_TIME_FILTER: timedelta(minutes=5),
-    SqlWindowClass.UNCLASSIFIED: timedelta(minutes=5),
 }
-DEFAULT_POLICY_CLASSES = frozenset({SqlWindowClass.LIVE, SqlWindowClass.NO_TIME_FILTER, SqlWindowClass.UNCLASSIFIED})
+SQL_WINDOW_STRICTNESS = (
+    SqlWindowClass.UNCLASSIFIED,
+    SqlWindowClass.NO_TIME_FILTER,
+    SqlWindowClass.LIVE,
+    SqlWindowClass.UP_TO_NOW_SHORT,
+    SqlWindowClass.UP_TO_NOW_LONG,
+    SqlWindowClass.FIXED_PAST,
+)
 
 # A window counts as past only when it ended this long before the result was cached, so late events still land in it.
 SQL_WINDOW_SETTLE_BUFFER = timedelta(hours=1)
@@ -46,10 +50,18 @@ SHORT_WINDOW_MAX_LENGTH = timedelta(days=1)
 # Only rows of these tables never change after they are written, so only they can have a fixed past.
 APPEND_ONLY_TABLES = frozenset({"events"})
 
+# A field that starts with one of these names (after the table alias) makes HogQL join the events to rows that change
+# later, such as person or group properties. A query that reads one never gets a long age.
+MUTABLE_JOIN_ROOTS = frozenset(
+    {"person", "pdi", "person_id", "session", "override", "group_0", "group_1", "group_2", "group_3", "group_4"}
+)
+MUTABLE_JOIN_ROOT_PREFIXES = ("$group_",)
+
 TIME_COLUMN_NAMES = frozenset({"timestamp", "time", "date", "day", "hour", "event_time", "event_date"})
 TIME_COLUMN_SUFFIXES = ("timestamp", "_time", "_date", "_at")
 
 
+_STRICTNESS_RANK = {window_class: rank for rank, window_class in enumerate(SQL_WINDOW_STRICTNESS)}
 _DATE_PREFIX_LENGTH = len("2026-01-01")
 _NOW_FUNCTIONS = frozenset({"now", "now64", "current_timestamp", "today", "yesterday"})
 # ClickHouse evaluates today() and yesterday() in the server time zone, whatever the project time zone is.
@@ -122,6 +134,8 @@ class SqlTimeWindow:
     start: Optional[datetime]
     end: Optional[datetime]
     end_inclusive: bool = False
+    start_absolute: bool = False
+    end_absolute: bool = False
 
 
 @frozen
@@ -131,14 +145,22 @@ class SqlWindowClassification:
     window_end: Optional[datetime]
     # The class to use instead of FIXED_PAST when the result was cached before its window settled.
     fallback_class: SqlWindowClass
+    clock_derived: bool = False
 
     @classmethod
-    def of(cls, window_class: SqlWindowClass) -> "SqlWindowClassification":
-        return cls(window_class=window_class, window_end=None, fallback_class=window_class)
+    def of(cls, window_class: SqlWindowClass, *, clock_derived: bool = False) -> "SqlWindowClassification":
+        return cls(window_class=window_class, window_end=None, fallback_class=window_class, clock_derived=clock_derived)
+
+    def crossed_day_boundary(self, last_refresh: datetime, now: datetime, timezone: ZoneInfo) -> bool:
+        # today(), yesterday() and day-relative ranges move at midnight, and the cache key does not change with them.
+        # A result that reads the clock is too old once the server or project day has changed since it was cached.
+        return self.clock_derived and any(
+            last_refresh.astimezone(zone).date() != now.astimezone(zone).date() for zone in (_SERVER_TIMEZONE, timezone)
+        )
 
     def class_at(self, last_refresh: datetime) -> SqlWindowClass:
-        # The cache key stays the same when a relative or open range moves, so a result cached before
-        # its window ended would otherwise stay fresh for 24 hours with the wrong range in it.
+        # Covers an absolute window end that had not settled yet when the result was cached: events can still
+        # have landed in the window since, so the result gets the class its length gives.
         if (
             self.window_class == SqlWindowClass.FIXED_PAST
             and self.window_end is not None
@@ -166,6 +188,7 @@ class _Bound:
     column: str
     start: Optional[datetime]
     end: Optional[datetime]
+    clock_derived: bool
 
 
 class _Unclassifiable(Exception):
@@ -261,17 +284,24 @@ class _SelectCollector(TraversingVisitor):
         super().__init__()
         self.selects: list[ast.SelectQuery] = []
         self.cte_names: set[str] = set()
+        self.scalar_ctes: dict[str, ast.Expr] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
-        self.cte_names.update((node.ctes or {}).keys())
+        for name, cte in (node.ctes or {}).items():
+            self.cte_names.add(name)
+            if cte.cte_type == "column":
+                # Two declarations of one name cannot be told apart, so the name stops being a column.
+                self.scalar_ctes[name] = ast.Constant(value=None) if name in self.scalar_ctes else cte.expr
         super().visit_select_query(node)
 
 
 class _TemporalFinder(TraversingVisitor):
-    def __init__(self) -> None:
+    def __init__(self, aliases: dict[str, ast.Expr]) -> None:
         super().__init__()
         self.found = False
+        self._aliases = aliases
+        self._seen: set[str] = set()
 
     def visit_call(self, node: ast.Call) -> None:
         if node.name in _NOW_FUNCTIONS:
@@ -285,11 +315,89 @@ class _TemporalFinder(TraversingVisitor):
     def visit_placeholder(self, node: ast.Placeholder) -> None:
         self.found = True
 
+    def visit_field(self, node: ast.Field) -> None:
+        name = str(node.chain[0]) if len(node.chain) == 1 else None
+        if name is not None and name in self._aliases and name not in self._seen:
+            self._seen.add(name)
+            self.visit(self._aliases[name])
 
-def _looks_temporal(expr: ast.Expr) -> bool:
-    finder = _TemporalFinder()
+
+def _looks_temporal(expr: ast.Expr, aliases: dict[str, ast.Expr]) -> bool:
+    finder = _TemporalFinder(aliases)
     finder.visit(expr)
     return finder.found
+
+
+class _ClockFinder(TraversingVisitor):
+    """Finds what makes an expression depend on the clock: now, today, yesterday or a relative `{filters}` bound."""
+
+    def __init__(self, filters_window: Optional[SqlTimeWindow]) -> None:
+        super().__init__()
+        self.found = False
+        self._filters_window = filters_window
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name in _NOW_FUNCTIONS:
+            self.found = True
+        super().visit_call(node)
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        window = self._filters_window
+        if node.chain == ["filters", "dateRange", "from"]:
+            absolute = window is not None and window.start_absolute
+        elif node.chain == ["filters", "dateRange", "to"]:
+            absolute = window is not None and window.end_absolute
+        else:
+            absolute = False
+        if not absolute:
+            self.found = True
+
+
+class _SelectScan(TraversingVisitor):
+    """What one select reads, apart from the selects nested in it. WHERE and PREWHERE are the consumed bounds."""
+
+    def __init__(self, root: ast.SelectQuery) -> None:
+        super().__init__()
+        self._root = root
+        self._filter_nodes = {id(node) for node in (root.where, root.prewhere) if node is not None}
+        self._filter_depth = 0
+        self.field_chains: list[tuple[str, ...]] = []
+        self.has_filters_placeholder = False
+        self.reads_clock_outside_filters = False
+
+    def visit(self, node: Optional[ast.AST]) -> None:
+        if isinstance(node, ast.SelectQuery) and node is not self._root:
+            return
+        in_filter = id(node) in self._filter_nodes
+        self._filter_depth += in_filter
+        try:
+            super().visit(node)
+        finally:
+            self._filter_depth -= in_filter
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if not isinstance(node.table, ast.Field):
+            self.visit(node.table)
+        for expr in node.table_args or []:
+            self.visit(expr)
+        self.visit(node.constraint)
+        self.visit(node.next_join)
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.field_chains.append(tuple(str(part) for part in node.chain))
+
+    def visit_call(self, node: ast.Call) -> None:
+        if node.name in _NOW_FUNCTIONS and self._filter_depth == 0:
+            self.reads_clock_outside_filters = True
+        super().visit_call(node)
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        if _is_filters_placeholder(node):
+            self.has_filters_placeholder = True
+        if self._filter_depth == 0:
+            self.reads_clock_outside_filters = True
+        if not _is_filters_placeholder(node):
+            super().visit_placeholder(node)
 
 
 def _sources(select: ast.SelectQuery, cte_names: set[str]) -> list[_Source]:
@@ -314,10 +422,18 @@ def _sources(select: ast.SelectQuery, cte_names: set[str]) -> list[_Source]:
 
 
 class SqlWindowClassifier:
-    def __init__(self, *, now: datetime, timezone: ZoneInfo, filters_window: Optional[SqlTimeWindow]) -> None:
+    def __init__(
+        self,
+        *,
+        now: datetime,
+        timezone: ZoneInfo,
+        filters_window: Optional[SqlTimeWindow],
+        filters_read_mutable_data: bool = False,
+    ) -> None:
         self._now = now.astimezone(timezone)
         self._timezone = timezone
         self._filters_window = filters_window
+        self._filters_read_mutable_data = filters_read_mutable_data
         server_today = now.astimezone(_SERVER_TIMEZONE).date()
         self._server_today = datetime(server_today.year, server_today.month, server_today.day, tzinfo=timezone)
 
@@ -484,6 +600,12 @@ class SqlWindowClassifier:
                 return _ColumnRef(chain=inner.chain, unit=_TRUNCATE_FUNCTIONS[expr.name])
         return None
 
+    def _is_absolute(self, *exprs: ast.Expr) -> bool:
+        finder = _ClockFinder(self._filters_window)
+        for expr in exprs:
+            finder.visit(expr)
+        return not finder.found
+
     def _lower_bound(self, value: datetime, *, inclusive: bool, unit: Optional[str]) -> datetime:
         if unit is None:
             return value
@@ -527,17 +649,19 @@ class SqlWindowClassifier:
         if source is None:
             raise _Unclassifiable()
         column = ".".join(ref.chain)
+        clock_derived = not self._is_absolute(value_side)
         if op in _LOWER_BOUND_OPS:
             start = self._lower_bound(value, inclusive=op == ast.CompareOperationOp.GtEq, unit=ref.unit)
-            return _Bound(source=source, column=column, start=start, end=None)
+            return _Bound(source=source, column=column, start=start, end=None, clock_derived=clock_derived)
         if op in _UPPER_BOUND_OPS:
             end = self._upper_bound(value, inclusive=op == ast.CompareOperationOp.LtEq, unit=ref.unit)
-            return _Bound(source=source, column=column, start=None, end=end)
+            return _Bound(source=source, column=column, start=None, end=end, clock_derived=clock_derived)
         return _Bound(
             source=source,
             column=column,
             start=self._lower_bound(value, inclusive=True, unit=ref.unit),
             end=self._upper_bound(value, inclusive=True, unit=ref.unit),
+            clock_derived=clock_derived,
         )
 
     def _bound_from_between(
@@ -558,35 +682,43 @@ class SqlWindowClassifier:
             column=".".join(ref.chain),
             start=self._lower_bound(low, inclusive=True, unit=ref.unit),
             end=self._upper_bound(high, inclusive=True, unit=ref.unit),
+            clock_derived=not self._is_absolute(between.low, between.high),
         )
 
     def _bound_from_filters(
         self, placeholder: ast.Placeholder, aliases: dict[str, ast.Expr], sources: list[_Source]
     ) -> Optional[_Bound]:
+        # A `{filters}` that cannot be pinned to one column would narrow the window in a way the classifier cannot
+        # see, so it makes the query unclassifiable instead of being left out.
         window = self._filters_window
-        if window is None:
-            return None
+        clock_derived = window is not None and (
+            (window.start is not None and not window.start_absolute)
+            or (window.end is not None and not window.end_absolute)
+        )
         if isinstance(placeholder.expr, ast.Field):
             if len(sources) != 1:
+                raise _Unclassifiable()
+            if window is None:
                 return None
-            return _Bound(source=0, column="{filters}", start=window.start, end=window.end)
+            return _Bound(source=0, column="{filters}", start=window.start, end=window.end, clock_derived=clock_derived)
         call = placeholder.expr
         assert isinstance(call, ast.Call)
         timestamp = next(
             (arg.expr for arg in call.args if isinstance(arg, ast.Alias) and arg.alias == _FILTERS_TIMESTAMP_KEY),
             None,
         )
-        if timestamp is None or (isinstance(timestamp, ast.Constant) and timestamp.value is None):
+        if window is None or timestamp is None or (isinstance(timestamp, ast.Constant) and timestamp.value is None):
             return None
         ref = self._column_ref(timestamp, aliases)
         source = self._attribute(ref.chain, sources) if ref is not None else None
         if ref is None or source is None:
-            return None
+            raise _Unclassifiable()
         return _Bound(
             source=source,
             column=".".join(ref.chain),
             start=self._lower_bound(window.start, inclusive=True, unit=ref.unit) if window.start else None,
             end=self._upper_bound(window.end, inclusive=window.end_inclusive, unit=ref.unit) if window.end else None,
+            clock_derived=clock_derived,
         )
 
     def _bound_from_conjunct(
@@ -606,7 +738,7 @@ class SqlWindowClassifier:
             bound = self._bound_from_between(conjunct, aliases, sources)
             if bound is not None:
                 return bound
-        if _looks_temporal(conjunct):
+        if _looks_temporal(conjunct, aliases):
             raise _Unclassifiable()
         return None
 
@@ -627,32 +759,56 @@ class SqlWindowClassifier:
             return SqlWindowClass.UP_TO_NOW_SHORT
         return SqlWindowClass.UP_TO_NOW_LONG
 
-    def _window_classification(self, start: Optional[datetime], end: Optional[datetime]) -> SqlWindowClassification:
+    def _window_classification(
+        self, start: Optional[datetime], end: Optional[datetime], *, clock_derived: bool
+    ) -> SqlWindowClassification:
         by_length = self._class_by_length(start)
-        if end is not None and end <= self._now - SQL_WINDOW_SETTLE_BUFFER:
+        if not clock_derived and end is not None and end <= self._now - SQL_WINDOW_SETTLE_BUFFER:
             return SqlWindowClassification(
                 window_class=SqlWindowClass.FIXED_PAST, window_end=end, fallback_class=by_length
             )
-        return SqlWindowClassification.of(by_length)
+        return SqlWindowClassification.of(by_length, clock_derived=clock_derived)
 
     def _merge(self, classifications: list[SqlWindowClassification]) -> SqlWindowClassification:
         # The strictest class wins. FIXED_PAST survives only when every window is past, and then it
         # settles at the latest window end and falls back to the strictest fallback.
-        chosen = min(classifications, key=lambda item: SQL_WINDOW_MAX_AGE[item.window_class])
+        chosen = min(classifications, key=lambda item: _STRICTNESS_RANK[item.window_class])
+        clock_derived = any(item.clock_derived for item in classifications)
         if chosen.window_class != SqlWindowClass.FIXED_PAST:
-            return SqlWindowClassification.of(chosen.window_class)
+            return SqlWindowClassification.of(chosen.window_class, clock_derived=clock_derived)
         ends = [item.window_end for item in classifications if item.window_end is not None]
         return SqlWindowClassification(
             window_class=SqlWindowClass.FIXED_PAST,
             window_end=max(ends),
-            fallback_class=min((item.fallback_class for item in classifications), key=SQL_WINDOW_MAX_AGE.__getitem__),
+            fallback_class=min((item.fallback_class for item in classifications), key=_STRICTNESS_RANK.__getitem__),
+            clock_derived=clock_derived,
         )
 
-    def _classify_select(self, select: ast.SelectQuery, cte_names: set[str]) -> Optional[SqlWindowClassification]:
-        sources = _sources(select, cte_names)
-        aliases = {item.alias: item.expr for item in select.select if isinstance(item, ast.Alias)}
+    def _reads_mutable_data(self, scan: _SelectScan, sources: list[_Source]) -> bool:
+        if scan.has_filters_placeholder and self._filters_read_mutable_data:
+            return True
+        qualifiers = {name for source in sources for name in source.names}
+        for chain in scan.field_chains:
+            if len(chain) > 1 and chain[0] in qualifiers:
+                chain = chain[1:]
+            if chain[0] in MUTABLE_JOIN_ROOTS or chain[0].startswith(MUTABLE_JOIN_ROOT_PREFIXES):
+                return True
+        return False
+
+    def _classify_select(
+        self, select: ast.SelectQuery, collector: _SelectCollector
+    ) -> Optional[SqlWindowClassification]:
+        sources = _sources(select, collector.cte_names)
+        aliases = {
+            **collector.scalar_ctes,
+            **{item.alias: item.expr for item in select.select if isinstance(item, ast.Alias)},
+        }
+        scan = _SelectScan(select)
+        scan.visit(select)
+        mutable = self._reads_mutable_data(scan, sources)
         starts: dict[tuple[int, str], list[datetime]] = {}
         ends: dict[tuple[int, str], list[datetime]] = {}
+        clock_derived: dict[tuple[int, str], bool] = {}
         for conjunct in self._conjuncts(select.where) + self._conjuncts(select.prewhere):
             bound = self._bound_from_conjunct(conjunct, aliases, sources)
             if bound is None:
@@ -660,6 +816,7 @@ class SqlWindowClassifier:
             key = (bound.source, bound.column)
             starts.setdefault(key, [])
             ends.setdefault(key, [])
+            clock_derived[key] = clock_derived.get(key, scan.reads_clock_outside_filters) or bound.clock_derived
             if bound.start is not None:
                 starts[key].append(bound.start)
             if bound.end is not None:
@@ -668,13 +825,14 @@ class SqlWindowClassifier:
         classifications: list[SqlWindowClassification] = []
         for index, source in enumerate(sources):
             columns = [key for key in starts if key[0] == index]
-            if source.table is not None and (source.table not in APPEND_ONLY_TABLES or not columns):
+            if mutable or (source.table is not None and (source.table not in APPEND_ONLY_TABLES or not columns)):
                 classifications.append(SqlWindowClassification.of(SqlWindowClass.NO_TIME_FILTER))
                 continue
             classifications.extend(
                 self._window_classification(
                     start=max(starts[key]) if starts[key] else None,
                     end=min(ends[key]) if ends[key] else None,
+                    clock_derived=clock_derived[key],
                 )
                 for key in columns
             )
@@ -687,7 +845,7 @@ class SqlWindowClassifier:
             classifications = [
                 classification
                 for select in collector.selects
-                if (classification := self._classify_select(select, collector.cte_names)) is not None
+                if (classification := self._classify_select(select, collector)) is not None
             ]
         except _Unclassifiable:
             return SqlWindowClassification.of(SqlWindowClass.UNCLASSIFIED)

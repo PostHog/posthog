@@ -625,38 +625,83 @@ class TestHogQLQueryRunnerApiCacheWindow(BaseTest):
     @parameterized.expand(
         [
             (
-                "yesterday_cached_before_midnight",
+                "yesterday_cached_minutes_before_midnight_is_stale_after_midnight",
                 "select count() from events where toDate(timestamp) = yesterday()",
-                datetime(2026, 10, 28, 17, 41, tzinfo=UTC),
+                datetime(2026, 10, 29, 23, 45, tzinfo=UTC),
+                datetime(2026, 10, 30, 0, 10, tzinfo=UTC),
                 True,
             ),
             (
-                "yesterday_cached_after_it_settled",
+                "yesterday_cached_after_midnight_stays_fresh_for_its_class_age",
                 "select count() from events where toDate(timestamp) = yesterday()",
-                datetime(2026, 10, 29, 10, 0, tzinfo=UTC),
+                datetime(2026, 10, 30, 0, 2, tzinfo=UTC),
+                datetime(2026, 10, 30, 0, 10, tzinfo=UTC),
                 False,
+            ),
+            (
+                "sliding_window_cached_minutes_before_midnight_is_stale_after_midnight",
+                "select count() from events where timestamp < now() - interval 2 day and timestamp >= '2026-09-01'",
+                datetime(2026, 10, 29, 23, 45, tzinfo=UTC),
+                datetime(2026, 10, 30, 0, 10, tzinfo=UTC),
+                True,
             ),
             (
                 "absolute_end_cached_before_it_passed",
                 "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-29'",
                 datetime(2026, 10, 28, 15, 0, tzinfo=UTC),
+                datetime(2026, 10, 29, 15, 0, tzinfo=UTC),
                 True,
             ),
             (
                 "past_range_cached_long_after_its_end",
                 "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-15'",
                 datetime(2026, 10, 28, 20, 0, tzinfo=UTC),
+                datetime(2026, 10, 29, 15, 0, tzinfo=UTC),
                 False,
             ),
         ]
     )
-    @time_machine.travel(datetime(2026, 10, 29, 15, 0, tzinfo=UTC), tick=False)
     def test_past_window_stays_fresh_only_when_cached_after_it_ended(
-        self, _name: str, sql: str, last_refresh: datetime, expected_stale: bool
+        self, _name: str, sql: str, last_refresh: datetime, now: datetime, expected_stale: bool
+    ) -> None:
+        with time_machine.travel(now, tick=False), api_key_request():
+            assert self._runner(sql)._is_stale(last_refresh) is expected_stale
+
+    @parameterized.expand(
+        [
+            (
+                "cached_before_the_window_settled",
+                "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-29'",
+                datetime(2026, 10, 28, 15, 0, tzinfo=UTC),
+                "up_to_now_long",
+                3600,
+            ),
+            (
+                "cached_after_the_window_settled",
+                "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-15'",
+                datetime(2026, 10, 28, 20, 0, tzinfo=UTC),
+                "fixed_past",
+                86400,
+            ),
+            (
+                "default_policy_class_has_no_age",
+                "select count() from events",
+                datetime(2026, 10, 29, 14, 0, tzinfo=UTC),
+                "no_time_filter",
+                None,
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 10, 29, 15, 0, tzinfo=UTC), tick=False)
+    def test_event_properties_report_the_class_the_staleness_check_applied(
+        self, _name: str, sql: str, last_refresh: datetime, expected_window: str, expected_age: Optional[int]
     ) -> None:
         runner = self._runner(sql)
         with api_key_request():
-            assert runner._is_stale(last_refresh) is expected_stale
+            runner._is_stale(last_refresh)
+            properties = runner._staleness_event_properties()
+        assert properties["sql_cache_window"] == expected_window
+        assert properties["sql_cache_window_max_age_seconds"] == expected_age
 
     @parameterized.expand(
         [
@@ -687,16 +732,27 @@ class TestHogQLQueryRunnerApiCacheWindow(BaseTest):
 
     @parameterized.expand(
         [
-            ("date_only_date_to_today", "-7d", "2026-10-29"),
-            ("relative_range_ending_yesterday", "-7d", "-1d"),
-            ("open_date_to", "-7d", None),
-            ("absolute_range", "2026-10-01", "2026-10-15"),
-            ("sub_day_rolling_window", "-1h", None),
+            ("date_only_date_to_today", "-7d", "2026-10-29", False, False, True),
+            ("relative_range_ending_yesterday", "-7d", "-1d", False, False, False),
+            ("open_date_to", "-7d", None, False, False, False),
+            ("absolute_range", "2026-10-01", "2026-10-15", False, True, True),
+            ("absolute_datetime_date_to", "2026-10-01", "2026-10-15T10:00:00Z", False, True, True),
+            ("explicit_date_with_absolute_range", "2026-10-01", "2026-10-15", True, True, True),
+            ("explicit_date_with_relative_date_to", "-7d", "-1d", True, False, False),
+            ("sub_day_rolling_window", "-1h", None, False, False, False),
         ]
     )
-    def test_filters_window_matches_the_sql_expansion(self, _name: str, date_from: str, date_to: Optional[str]) -> None:
+    def test_filters_window_matches_the_sql_expansion(
+        self,
+        _name: str,
+        date_from: str,
+        date_to: Optional[str],
+        explicit_date: bool,
+        expected_start_absolute: bool,
+        expected_end_absolute: bool,
+    ) -> None:
         now = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
-        filters = HogQLFilters(dateRange=DateRange(date_from=date_from, date_to=date_to))
+        filters = HogQLFilters(dateRange=DateRange(date_from=date_from, date_to=date_to, explicitDate=explicit_date))
         expanded = ReplaceFilters(filters, self.team, Database.create_for(team=self.team), now=now).visit(
             parse_select("select count() from events where {filters}")
         )
@@ -711,3 +767,6 @@ class TestHogQLQueryRunnerApiCacheWindow(BaseTest):
         assert window is not None
         assert window.start == bounds[ast.CompareOperationOp.GtEq]
         assert window.end == bounds.get(ast.CompareOperationOp.LtEq, bounds.get(ast.CompareOperationOp.Lt))
+        assert window.end_inclusive is (ast.CompareOperationOp.LtEq in bounds)
+        assert window.start_absolute is expected_start_absolute
+        assert window.end_absolute is expected_end_absolute

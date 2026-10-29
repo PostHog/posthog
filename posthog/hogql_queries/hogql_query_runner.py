@@ -22,7 +22,7 @@ from posthog.hogql.database.schema.activity_log_visibility import activity_log_v
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.filters import replace_filters, resolve_date_range
+from posthog.hogql.filters import ReplaceFilters, replace_filters
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
@@ -38,7 +38,6 @@ from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.sql_cache_window import (
     API_SQL_WINDOW_CACHE_AGE_FLAG,
-    DEFAULT_POLICY_CLASSES,
     SQL_WINDOW_MAX_AGE,
     SqlTimeWindow,
     SqlWindowClass,
@@ -63,6 +62,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     query: HogQLQuery
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
+    _applied_sql_window_class: Optional[SqlWindowClass] = None
     # p95 duration of a query service HogQL query is 2.78sec
     QUERY_SERVICE_MAX_EXECUTION_TIME = 10
 
@@ -94,10 +94,15 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return super()._is_stale(last_refresh, lazy=lazy)
         if last_refresh is None:
             return True
+        now = datetime.now(UTC)
         window_class = classification.class_at(last_refresh)
-        if window_class in DEFAULT_POLICY_CLASSES:
+        self._applied_sql_window_class = window_class
+        max_age = SQL_WINDOW_MAX_AGE.get(window_class)
+        if max_age is None:
             return super()._is_stale(last_refresh, lazy=lazy)
-        return datetime.now(UTC) > last_refresh + SQL_WINDOW_MAX_AGE[window_class]
+        if classification.crossed_day_boundary(last_refresh, now, self.team.timezone_info):
+            return True
+        return now > last_refresh + max_age
 
     def _staleness_event_properties(self) -> dict[str, Any]:
         # An age override replaces the staleness check, so the window class was not applied.
@@ -106,14 +111,11 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         classification = self._api_sql_classification
         if classification is None:
             return {}
-        window_class = classification.window_class
+        window_class = self._applied_sql_window_class or classification.class_at(datetime.now(UTC))
+        max_age = SQL_WINDOW_MAX_AGE.get(window_class)
         return {
             "sql_cache_window": window_class.value,
-            "sql_cache_window_max_age_seconds": (
-                None
-                if window_class in DEFAULT_POLICY_CLASSES
-                else int(SQL_WINDOW_MAX_AGE[window_class].total_seconds())
-            ),
+            "sql_cache_window_max_age_seconds": int(max_age.total_seconds()) if max_age is not None else None,
             "sql_cache_window_end": classification.window_end.isoformat() if classification.window_end else None,
         }
 
@@ -125,18 +127,28 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             return None
         now = datetime.now(UTC)
         try:
+            filters = self.query.filters
             classifier = SqlWindowClassifier(
-                now=now, timezone=self.team.timezone_info, filters_window=self._filters_time_window(now)
+                now=now,
+                timezone=self.team.timezone_info,
+                filters_window=self._filters_time_window(now),
+                filters_read_mutable_data=bool(filters and (filters.properties or filters.filterTestAccounts)),
             )
             return classifier.classify(self._parse_query()[0])
         except Exception:
             return SqlWindowClassification.of(SqlWindowClass.UNCLASSIFIED)
 
     def _filters_time_window(self, now: datetime) -> Optional[SqlTimeWindow]:
-        resolved = resolve_date_range(self.query.filters, self.team, now)
+        resolved = ReplaceFilters(self.query.filters, self.team, now=now).resolve_date_range()
         if resolved.date_from is None and resolved.date_to is None:
             return None
-        return SqlTimeWindow(start=resolved.date_from, end=resolved.date_to, end_inclusive=resolved.date_to_inclusive)
+        return SqlTimeWindow(
+            start=resolved.date_from,
+            end=resolved.date_to,
+            end_inclusive=resolved.date_to_inclusive,
+            start_absolute=resolved.date_from_absolute,
+            end_absolute=resolved.date_to_absolute,
+        )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:

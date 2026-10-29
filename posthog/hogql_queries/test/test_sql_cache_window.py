@@ -12,6 +12,10 @@ from posthog.hogql_queries.sql_cache_window import SqlTimeWindow, SqlWindowClass
 
 NOW = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
 LOS_ANGELES = ZoneInfo("America/Los_Angeles")
+ABSOLUTE_PAST_WINDOW = SqlTimeWindow(
+    start=NOW - timedelta(days=30), end=NOW - timedelta(days=2), start_absolute=True, end_absolute=True
+)
+RELATIVE_PAST_WINDOW = SqlTimeWindow(start=NOW - timedelta(days=30), end=NOW - timedelta(days=2))
 
 
 class TestSqlWindowClassifier(SimpleTestCase):
@@ -44,9 +48,9 @@ class TestSqlWindowClassifier(SimpleTestCase):
                 SqlWindowClass.UP_TO_NOW_LONG,
             ),
             (
-                "yesterday",
+                "yesterday_follows_the_clock",
                 "select count() from events where toDate(timestamp) = yesterday()",
-                SqlWindowClass.FIXED_PAST,
+                SqlWindowClass.UP_TO_NOW_LONG,
             ),
             (
                 "fixed_past_range",
@@ -78,8 +82,8 @@ class TestSqlWindowClassifier(SimpleTestCase):
             ),
             (
                 "unfiltered_join_keeps_default",
-                "select count() from (select person_id from events where timestamp > now() - interval 7 day) e "
-                "join persons p on p.id = e.person_id",
+                "select count() from (select distinct_id from events where timestamp > now() - interval 7 day) e "
+                "join persons p on p.id = e.distinct_id",
                 SqlWindowClass.NO_TIME_FILTER,
             ),
             (
@@ -115,6 +119,109 @@ class TestSqlWindowClassifier(SimpleTestCase):
             (
                 "exclusive_upper_bound_on_truncated_column",
                 "select count() from events where toDate(timestamp) >= '2026-10-01' and toDate(timestamp) < today()",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "exclusive_upper_bound_on_absolute_date",
+                "select count() from events where toDate(timestamp) >= '2026-10-01' and toDate(timestamp) < '2026-10-15'",
+                SqlWindowClass.FIXED_PAST,
+            ),
+            (
+                "sliding_now_relative_end_is_never_fixed_past",
+                "select count() from events where timestamp < now() - interval 2 day",
+                SqlWindowClass.NO_TIME_FILTER,
+            ),
+            (
+                "sliding_between_is_never_fixed_past",
+                "select count() from events where timestamp between now() - interval 3 day and now() - interval 2 day",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "sliding_now_relative_start_with_absolute_end_is_never_fixed_past",
+                "select count() from events where timestamp >= now() - interval 30 day and timestamp < '2026-10-01'",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "today_minus_days_end_is_never_fixed_past",
+                "select count() from events where toDate(timestamp) >= '2026-10-01' and toDate(timestamp) <= today() - 3",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "clock_in_select_list_is_never_fixed_past",
+                "select dateDiff('day', timestamp, now()), count() from events where timestamp < '2025-01-01' group by 1",
+                SqlWindowClass.NO_TIME_FILTER,
+            ),
+            (
+                "clock_in_select_list_with_absolute_range",
+                "select dateDiff('day', timestamp, now()), count() from events "
+                "where timestamp >= '2025-01-01' and timestamp < '2025-02-01' group by 1",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "clock_in_having_is_never_fixed_past",
+                "select event, count() as total from events "
+                "where timestamp >= '2025-01-01' and timestamp < '2025-02-01' group by event having max(timestamp) < today()",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "clock_in_join_condition_is_never_fixed_past",
+                "select count() from events e join events f on e.distinct_id = f.distinct_id and f.timestamp < now() "
+                "where e.timestamp >= '2025-01-01' and e.timestamp < '2025-02-01' "
+                "and f.timestamp >= '2025-01-01' and f.timestamp < '2025-02-01'",
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "scalar_cte_shadows_the_time_column",
+                "with toDateTime('2020-01-01') as event_time "
+                "select count() from events where event_time < '2025-01-01'",
+                SqlWindowClass.UNCLASSIFIED,
+            ),
+            (
+                "scalar_cte_hides_the_clock",
+                "with now() as cutoff select count() from events "
+                "where timestamp >= '2025-01-01' and timestamp < '2025-02-01' and timestamp < cutoff",
+                SqlWindowClass.UNCLASSIFIED,
+            ),
+            (
+                "group_property_on_historic_events",
+                "select count() from events where timestamp >= '2025-01-01' and timestamp < '2025-02-01' "
+                "and group_0.properties.plan = 'paid'",
+                SqlWindowClass.NO_TIME_FILTER,
+            ),
+            (
+                "group_key_column_on_historic_events",
+                "select count() from events where timestamp >= '2025-01-01' and timestamp < '2025-02-01' "
+                "and $group_0 = 'acme'",
+                SqlWindowClass.NO_TIME_FILTER,
+            ),
+            (
+                "person_property_on_historic_events",
+                "select count() from events where timestamp >= '2025-01-01' and timestamp < '2025-02-01' "
+                "and person.properties.email = 'a@example.com'",
+                SqlWindowClass.NO_TIME_FILTER,
+            ),
+            (
+                "aliased_person_property_on_historic_events",
+                "select count() from events e where e.timestamp >= '2025-01-01' and e.timestamp < '2025-02-01' "
+                "and e.person.properties.email = 'a@example.com'",
+                SqlWindowClass.NO_TIME_FILTER,
+            ),
+            (
+                "person_id_in_select_list_of_historic_events",
+                "select person_id, count() from events where timestamp >= '2025-01-01' and timestamp < '2025-02-01' "
+                "group by person_id",
+                SqlWindowClass.NO_TIME_FILTER,
+            ),
+            (
+                "session_property_on_historic_events",
+                "select count() from events where timestamp >= '2025-01-01' and timestamp < '2025-02-01' "
+                "and session.$session_duration > 10",
+                SqlWindowClass.NO_TIME_FILTER,
+            ),
+            (
+                "stored_event_columns_keep_the_window",
+                "select count(distinct distinct_id) from events where timestamp >= '2025-01-01' and timestamp < '2025-02-01' "
+                "and poe.properties.plan = 'paid' and person_properties like '%paid%'",
                 SqlWindowClass.FIXED_PAST,
             ),
             (
@@ -144,20 +251,20 @@ class TestSqlWindowClassifier(SimpleTestCase):
             ),
             (
                 "joined_events_aliases_both_bounded",
-                "select count() from events e join events f on e.person_id = f.person_id "
+                "select count() from events e join events f on e.distinct_id = f.distinct_id "
                 "where e.timestamp >= '2025-01-01' and e.timestamp < '2025-02-01' "
                 "and f.timestamp >= '2025-01-01' and f.timestamp < '2025-02-01'",
                 SqlWindowClass.FIXED_PAST,
             ),
             (
                 "joined_events_alias_without_bound",
-                "select count() from events e join events f on e.person_id = f.person_id "
+                "select count() from events e join events f on e.distinct_id = f.distinct_id "
                 "where e.timestamp >= '2025-01-01' and e.timestamp < '2025-02-01'",
                 SqlWindowClass.NO_TIME_FILTER,
             ),
             (
                 "ambiguous_column_in_join",
-                "select count() from events e join events f on e.person_id = f.person_id where timestamp < '2025-01-01'",
+                "select count() from events e join events f on e.distinct_id = f.distinct_id where timestamp < '2025-01-01'",
                 SqlWindowClass.UNCLASSIFIED,
             ),
             (
@@ -213,7 +320,7 @@ class TestSqlWindowClassifier(SimpleTestCase):
             ),
             (
                 "events_joined_to_mutable_table",
-                "select count() from events e join persons p on e.person_id = p.id "
+                "select count() from events e join persons p on e.distinct_id = p.id "
                 "where e.timestamp >= '2025-01-01' and e.timestamp < '2025-02-01'",
                 SqlWindowClass.NO_TIME_FILTER,
             ),
@@ -231,28 +338,28 @@ class TestSqlWindowClassifier(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "yesterday_in_project_tz_before_utc_midnight",
+                "today_when_the_server_date_is_ahead_of_the_project_date",
                 datetime(2026, 10, 29, 3, 0, tzinfo=UTC),
-                "select count() from events where toDate(timestamp) >= '2026-10-01' and toDate(timestamp) < today()",
-                SqlWindowClass.UP_TO_NOW_LONG,
+                "select count() from events where timestamp >= today()",
+                SqlWindowClass.LIVE,
             ),
             (
-                "timestamp_before_today_in_project_tz",
+                "yesterday_when_the_server_date_is_ahead_of_the_project_date",
                 datetime(2026, 10, 29, 3, 0, tzinfo=UTC),
-                "select count() from events where timestamp >= '2026-10-01' and timestamp < today()",
-                SqlWindowClass.UP_TO_NOW_LONG,
+                "select count() from events where timestamp >= yesterday()",
+                SqlWindowClass.UP_TO_NOW_SHORT,
             ),
             (
-                "up_to_yesterday_in_project_tz",
-                datetime(2026, 10, 29, 3, 0, tzinfo=UTC),
-                "select count() from events where toDate(timestamp) >= '2026-10-01' and toDate(timestamp) <= yesterday()",
-                SqlWindowClass.UP_TO_NOW_LONG,
-            ),
-            (
-                "before_today_after_project_midnight_has_passed",
+                "today_after_project_midnight",
                 datetime(2026, 10, 29, 12, 0, tzinfo=UTC),
-                "select count() from events where toDate(timestamp) >= '2026-10-01' and toDate(timestamp) < today()",
-                SqlWindowClass.FIXED_PAST,
+                "select count() from events where timestamp >= today()",
+                SqlWindowClass.UP_TO_NOW_SHORT,
+            ),
+            (
+                "yesterday_after_project_midnight",
+                datetime(2026, 10, 29, 12, 0, tzinfo=UTC),
+                "select count() from events where timestamp >= yesterday()",
+                SqlWindowClass.UP_TO_NOW_LONG,
             ),
         ]
     )
@@ -265,16 +372,16 @@ class TestSqlWindowClassifier(SimpleTestCase):
     @parameterized.expand(
         [
             (
-                "yesterday_cached_before_midnight",
-                "select count() from events where toDate(timestamp) = yesterday()",
+                "absolute_end_cached_hours_before_the_settle_buffer",
+                "select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-29'",
                 datetime(2026, 10, 28, 17, 41, tzinfo=UTC),
                 SqlWindowClass.UP_TO_NOW_LONG,
             ),
             (
-                "yesterday_cached_after_it_settled",
+                "yesterday_follows_the_clock_whenever_it_was_cached",
                 "select count() from events where toDate(timestamp) = yesterday()",
                 datetime(2026, 10, 29, 10, 0, tzinfo=UTC),
-                SqlWindowClass.FIXED_PAST,
+                SqlWindowClass.UP_TO_NOW_LONG,
             ),
             (
                 "absolute_end_cached_before_it_passed",
@@ -313,8 +420,20 @@ class TestSqlWindowClassifier(SimpleTestCase):
             (
                 "past_range",
                 "select count() from events where {filters}",
-                SqlTimeWindow(start=NOW - timedelta(days=30), end=NOW - timedelta(days=2)),
+                ABSOLUTE_PAST_WINDOW,
                 SqlWindowClass.FIXED_PAST,
+            ),
+            (
+                "relative_past_range_is_never_fixed_past",
+                "select count() from events where {filters}",
+                RELATIVE_PAST_WINDOW,
+                SqlWindowClass.UP_TO_NOW_LONG,
+            ),
+            (
+                "relative_end_with_absolute_start_is_never_fixed_past",
+                "select count() from events where {filters}",
+                SqlTimeWindow(start=NOW - timedelta(days=30), end=NOW - timedelta(days=1), start_absolute=True),
+                SqlWindowClass.UP_TO_NOW_LONG,
             ),
             ("no_date_range", "select count() from events where {filters}", None, SqlWindowClass.NO_TIME_FILTER),
             (
@@ -330,33 +449,47 @@ class TestSqlWindowClassifier(SimpleTestCase):
             (
                 "bound_filters_opt_out_of_timestamp",
                 "select count() from events where {filters(null AS timestamp)}",
-                SqlTimeWindow(start=NOW - timedelta(days=30), end=NOW - timedelta(days=2)),
+                ABSOLUTE_PAST_WINDOW,
                 SqlWindowClass.NO_TIME_FILTER,
             ),
             (
                 "bound_filters_timestamp_column",
                 "select count() from events where {filters(timestamp AS timestamp)}",
-                SqlTimeWindow(start=NOW - timedelta(days=30), end=NOW - timedelta(days=2)),
+                ABSOLUTE_PAST_WINDOW,
                 SqlWindowClass.FIXED_PAST,
             ),
             (
                 "bound_filters_computed_timestamp",
                 "select count() from events where {filters(coalesce(timestamp, now()) AS timestamp)}",
-                SqlTimeWindow(start=NOW - timedelta(days=30), end=NOW - timedelta(days=2)),
-                SqlWindowClass.NO_TIME_FILTER,
+                ABSOLUTE_PAST_WINDOW,
+                SqlWindowClass.UNCLASSIFIED,
             ),
             (
                 "filters_in_join_without_a_single_table",
-                "select count() from events e join events f on e.person_id = f.person_id where {filters}",
-                SqlTimeWindow(start=NOW - timedelta(days=30), end=NOW - timedelta(days=2)),
-                SqlWindowClass.NO_TIME_FILTER,
+                "select count() from events e join events f on e.distinct_id = f.distinct_id where {filters}",
+                ABSOLUTE_PAST_WINDOW,
+                SqlWindowClass.UNCLASSIFIED,
+            ),
+            (
+                "filters_in_join_does_not_leave_an_earlier_explicit_start_in_charge",
+                "select count() from events e join events f on e.person_id = f.person_id "
+                "where {filters} and e.timestamp >= now() - interval 7 day",
+                SqlTimeWindow(start=NOW - timedelta(hours=1), end=None),
+                SqlWindowClass.UNCLASSIFIED,
             ),
             (
                 "filters_date_range_placeholders",
                 "select count() from events where timestamp >= {filters.dateRange.from} "
                 "and timestamp <= {filters.dateRange.to}",
-                SqlTimeWindow(start=NOW - timedelta(days=30), end=NOW - timedelta(days=2)),
+                ABSOLUTE_PAST_WINDOW,
                 SqlWindowClass.FIXED_PAST,
+            ),
+            (
+                "relative_filters_date_range_placeholders",
+                "select count() from events where timestamp >= {filters.dateRange.from} "
+                "and timestamp <= {filters.dateRange.to}",
+                RELATIVE_PAST_WINDOW,
+                SqlWindowClass.UP_TO_NOW_LONG,
             ),
         ]
     )
@@ -365,3 +498,20 @@ class TestSqlWindowClassifier(SimpleTestCase):
     ) -> None:
         classifier = SqlWindowClassifier(now=NOW, timezone=ZoneInfo("UTC"), filters_window=filters_window)
         assert classifier.classify(parse_select(sql)).window_class == expected
+
+    @parameterized.expand(
+        [
+            ("filter_properties_set", True, SqlWindowClass.NO_TIME_FILTER),
+            ("no_filter_properties", False, SqlWindowClass.FIXED_PAST),
+        ]
+    )
+    def test_filters_with_properties_can_reach_mutable_data(
+        self, _name: str, filters_read_mutable_data: bool, expected: SqlWindowClass
+    ) -> None:
+        classifier = SqlWindowClassifier(
+            now=NOW,
+            timezone=ZoneInfo("UTC"),
+            filters_window=ABSOLUTE_PAST_WINDOW,
+            filters_read_mutable_data=filters_read_mutable_data,
+        )
+        assert classifier.classify(parse_select("select count() from events where {filters}")).window_class == expected
