@@ -160,20 +160,24 @@ class TestCheckInCounts:
         ]
         assert result.response is not None
         assert result.response.primary_keys == ["eventId", "eventDateId"]
-        assert result.saved_states[-1] == HumanitixResumeConfig(next_page=1, current="e3:d4")
+        assert result.saved_states[-1] == HumanitixResumeConfig(next_page=1, completed=["e1:d1", "e3:d3", "e3:d4"])
 
     @parameterized.expand(
         [
-            ("continues_after_marker", "e1:d1", ["d2"]),
-            ("rereads_page_when_marker_is_gone", "e9:d9", ["d1", "d2"]),
+            ("skips_completed_dates", HumanitixResumeConfig(next_page=2, completed=["e1:d1"]), ["d2", "d3"]),
+            (
+                "skips_completed_dates_after_one_is_removed",
+                HumanitixResumeConfig(next_page=2, completed=["e9:d9", "e1:d2"]),
+                ["d1", "d3"],
+            ),
         ]
     )
-    def test_resume(self, _name: str, marker: str, expected_dates: list[str]) -> None:
-        events = [{"_id": "e1", "dates": [{"_id": "d1"}, {"_id": "d2"}]}]
+    def test_resume(self, _name: str, resume_state: HumanitixResumeConfig, expected_dates: list[str]) -> None:
+        events = [{"_id": "e1", "dates": [{"_id": "d1"}, {"_id": "d2"}, {"_id": "d3"}]}]
         result = _driver().run(
             "check_in_counts",
             [_page(events, total=PAGE_SIZE + 1)] + [_count(1) for _ in expected_dates],
-            resume_state=HumanitixResumeConfig(next_page=2, current=marker),
+            resume_state=resume_state,
         )
 
         assert result.raised is None

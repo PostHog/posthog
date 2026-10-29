@@ -45,8 +45,8 @@ class HumanitixResumeConfig:
     # Fan-out endpoints (orders, tickets) resume by parent event: the child paths already fully
     # synced, the one in progress, and its paginator state — see
     # `common.rest_source.__init__._make_paginate_dependent_resource`.
-    # Check-in counts reuse `next_page` for the events page and `current` for the last
-    # `<eventId>:<eventDateId>` fetched on it.
+    # Check-in counts reuse `next_page` for the events page and `completed` for the
+    # `<eventId>:<eventDateId>` keys already fetched on it.
     completed: Optional[list[str]] = None
     current: Optional[str] = None
     child_state: Optional[dict[str, Any]] = None
@@ -159,7 +159,8 @@ def _check_in_count_rows(
     client = _rest_client(api_key)
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1
-    resume_after = resume.current if resume else None
+    # Full refresh appends without dedupe, so skip exactly the dates already fetched, even if the page changed.
+    done = set(resume.completed or []) if resume else set()
 
     for events in client.paginate(
         path="/events",
@@ -168,16 +169,12 @@ def _check_in_count_rows(
         data_selector="events",
         data_selector_required=True,
     ):
-        keys = _event_date_keys(events)
-        start = 0
-        if resume_after is not None:
-            markers = [f"{event_id}:{date_id}" for event_id, date_id in keys]
-            # A resume marker that is gone (the event changed since) re-reads the whole page; merge dedupes.
-            if resume_after in markers:
-                start = markers.index(resume_after) + 1
-            resume_after = None
-
-        for event_id, date_id in keys[start:]:
+        completed: list[str] = []
+        for event_id, date_id in _event_date_keys(events):
+            marker = f"{event_id}:{date_id}"
+            if marker in done:
+                completed.append(marker)
+                continue
             body: Optional[dict[str, Any]] = None
             for result in client.paginate(
                 path=config.path.format(eventId=event_id),
@@ -187,12 +184,14 @@ def _check_in_count_rows(
             ):
                 if result and isinstance(result[0], dict):
                     body = result[0]
-            resumable_source_manager.save_state(HumanitixResumeConfig(next_page=page, current=f"{event_id}:{date_id}"))
+            completed.append(marker)
+            resumable_source_manager.save_state(HumanitixResumeConfig(next_page=page, completed=list(completed)))
             if body is None:
                 resumable_source_manager.safe_point()
                 continue
             yield {**body, "eventId": event_id, "eventDateId": date_id}
 
+        done = set()
         page += 1
         resumable_source_manager.safe_point()
 
