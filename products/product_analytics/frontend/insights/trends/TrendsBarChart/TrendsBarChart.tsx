@@ -492,6 +492,7 @@ export function TrendsBarChart({
                     />
                 )}
                 {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {context?.chartOverlay}
             </BarChart>
         )
     }
