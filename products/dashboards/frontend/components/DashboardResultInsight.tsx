@@ -27,13 +27,15 @@ export function DashboardResultInsight({
     const { targets, loadQueue } = useValues(dashboardResultFilterLogic({ dashboardId }))
     const filtered = targets[tileId]
     const query = filtered ?? insight.query
+    // Dashboard responses already merge dashboard and tile overrides into the query.
+    const effectiveFiltersOverride = filtered ? undefined : filtersOverride
     // Keep the saved query on metadata: matching it to the temporary query makes InsightViz treat it as cached data.
     const { result: _savedResult, ...metadata } = insight
     return (
         <Query
             query={query}
             cachedResults={filtered ? undefined : insight}
-            filtersOverride={filtersOverride}
+            filtersOverride={effectiveFiltersOverride}
             variablesOverride={variablesOverride}
             context={{
                 dashboardResultMenu: true,
@@ -44,7 +46,7 @@ export function DashboardResultInsight({
                     dashboardItemId: filtered ? getDashboardResultItemId(dashboardId, tileId) : insight.short_id,
                     cachedInsight: filtered ? metadata : insight,
                     query,
-                    filtersOverride,
+                    filtersOverride: effectiveFiltersOverride,
                     variablesOverride,
                     loadPriority,
                 },

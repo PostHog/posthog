@@ -1,11 +1,7 @@
 import { useValues } from 'kea'
 
-import { LemonTag } from '@posthog/lemon-ui'
-import { Badge } from '@posthog/quill'
-
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { dashboardResultFilterLogic } from '../dashboardResultFilterLogic'
+import { DashboardSelectionFilterStatus } from './DashboardSelectionFilterStatus'
 
 export function DashboardResultFilterStatus({
     dashboardId,
@@ -15,30 +11,11 @@ export function DashboardResultFilterStatus({
     tileId: number
 }): JSX.Element | null {
     const { selection, targets } = useValues(dashboardResultFilterLogic({ dashboardId }))
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    if (!selection) {
-        return null
-    }
-    const filtered = !!targets[tileId]
-    const isSource = selection.tileId === tileId
-    const active = filtered || isSource
-    const filterStatus = filtered ? 'filtered' : isSource ? 'source' : 'unaffected'
-    const status = filtered ? 'Filtered by selection' : isSource ? 'Filter source' : 'Not filtered'
-    return todayRailNav ? (
-        <Badge
-            className="shrink-0 whitespace-nowrap border-current"
-            variant={active ? 'info' : 'default'}
-            data-insight-filter-status={filterStatus}
-        >
-            {status}
-        </Badge>
-    ) : (
-        <LemonTag
-            className="shrink-0 whitespace-nowrap"
-            type={active ? 'info' : 'default'}
-            data-insight-filter-status={filterStatus}
-        >
-            {status}
-        </LemonTag>
-    )
+    return selection ? (
+        <DashboardSelectionFilterStatus
+            type="insight"
+            filtered={!!targets[tileId]}
+            isSource={selection.tileId === tileId}
+        />
+    ) : null
 }

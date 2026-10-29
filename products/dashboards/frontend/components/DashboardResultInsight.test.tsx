@@ -27,7 +27,7 @@ describe('dashboard result insight execution', () => {
                 labels: ['1-Jan-2026'],
             },
         ]
-        const requests: { query: TrendsQuery; refresh: string }[] = []
+        const requests: { query: TrendsQuery; refresh: string; filters_override?: unknown }[] = []
         useMocks({
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
@@ -42,7 +42,8 @@ describe('dashboard result insight execution', () => {
             source: {
                 kind: NodeKind.TrendsQuery,
                 series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
-                dateRange: { date_from: '-30d' },
+                dateRange: { date_from: '-7d' },
+                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
                 trendsFilter: { display: ChartDisplayType.BoldNumber },
             },
         }
@@ -68,6 +69,10 @@ describe('dashboard result insight execution', () => {
                     resultMenuEnabled
                     renderVizWhenMounted
                     placement={DashboardPlacement.Dashboard}
+                    filtersOverride={{
+                        date_from: '-30d',
+                        breakdown_filter: { breakdown: '$os', breakdown_type: 'event' },
+                    }}
                 />
             )
             await screen.findByText('160')
@@ -88,8 +93,10 @@ describe('dashboard result insight execution', () => {
             expect(screen.getByText('Filtered by selection')).toBeInTheDocument()
             expect(requests[0].query).toMatchObject({
                 dateRange: query.source.dateRange,
+                breakdownFilter: query.source.breakdownFilter,
                 properties: [expect.objectContaining({ key: expect.stringContaining('matchesInsight(') })],
             })
+            expect(requests[0].filters_override).toBeUndefined()
             act(() => {
                 dashboardResultFilterLogic({
                     dashboardId: 777,

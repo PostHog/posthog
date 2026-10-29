@@ -43,7 +43,6 @@ from posthog.hogql.functions.action import matches_action
 from posthog.hogql.functions.cohort import cohort_query_node
 from posthog.hogql.functions.core import validate_function_args
 from posthog.hogql.functions.explain_csp_report import explain_csp_report
-from posthog.hogql.functions.insight import matches_insight
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.prompt_jev import PromptJevCall, is_decision_call
 from posthog.hogql.functions.recording_button import recording_button
@@ -2096,6 +2095,10 @@ class Resolver(CloningVisitor):
                     matches_action(node=node, args=node.args, context=self.context, events_alias=events_alias)
                 )
             if node.name == "matchesInsight":
+                from posthog.hogql.functions.insight import (
+                    matches_insight,  # noqa: PLC0415 -- keeps query schemas off Django's startup path
+                )
+
                 if self._inside_insight_selection:
                     raise QueryError("Insight selections cannot contain another insight selection")
                 events_alias, _ = self._get_events_table_current_scope()

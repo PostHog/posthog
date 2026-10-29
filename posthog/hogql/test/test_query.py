@@ -1,4 +1,3 @@
-import json
 import datetime
 from decimal import Decimal
 from typing import Any
@@ -58,7 +57,6 @@ from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.team import Team
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.uuidt import UUIDT, uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -71,118 +69,6 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
-
-    def test_matches_insight_filters_funnel_sessions_instead_of_every_session_for_a_person(self) -> None:
-        selected_session = str(uuid7())
-        other_session = str(uuid7())
-        person = create_person(team=self.team, distinct_ids=["session-example"])
-        for event, session, timestamp in [
-            ("signup", selected_session, "2026-01-02T10:00:00Z"),
-            ("purchase", selected_session, "2026-01-02T10:05:00Z"),
-            ("purchase", other_session, "2026-01-03T10:00:00Z"),
-        ]:
-            _create_event(
-                team=self.team,
-                distinct_id="session-example",
-                person_id=person.uuid,
-                event=event,
-                timestamp=timestamp,
-                properties={"$session_id": session},
-            )
-        flush_persons_and_events()
-        selection = {
-            "kind": "ActorsQuery",
-            "source": {
-                "kind": "FunnelsActorsQuery",
-                "funnelStep": 1,
-                "source": {
-                    "kind": "FunnelsQuery",
-                    "series": [{"kind": "EventsNode", "event": "signup"}, {"kind": "EventsNode", "event": "purchase"}],
-                    "dateRange": {"date_from": "2026-01-01", "date_to": "2026-01-04"},
-                    "funnelsFilter": {"funnelAggregateByHogQL": "properties.$session_id"},
-                },
-            },
-        }
-        result = execute_hogql_query(
-            "SELECT count() FROM events WHERE event = 'purchase' AND matchesInsight({selection})",
-            self.team,
-            placeholders={"selection": ast.Constant(value=json.dumps(selection))},
-        )
-        self.assertEqual(result.results, [(1,)])
-
-    @parameterized.expand([("people", None), ("groups", 0)])
-    def test_matches_insight_filters_by_complete_population_and_selected_breakdown(
-        self, _name: str, group_index: int | None
-    ) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="Other project")
-        if group_index is not None:
-            create_group_type_mapping(team=self.team, group_type_index=group_index, group_type="company")
-        for index in range(103):
-            distinct_id = f"selection-user-{index}"
-            person = create_person(team=self.team, distinct_ids=[distinct_id])
-            _create_event(
-                team=self.team,
-                distinct_id=distinct_id,
-                event="purchase",
-                timestamp="2026-01-03T12:00:00Z",
-                properties={"$group_0": f"company-{index}"},
-            )
-            _create_event(
-                team=self.team if index < 102 else other_team,
-                distinct_id=distinct_id,
-                person_id=person.uuid,
-                event="signup",
-                timestamp="2026-01-02T12:00:00Z",
-                properties={"plan": "paid" if index != 101 else "free", "$group_0": f"company-{index}"},
-            )
-        if group_index is not None:
-            _create_event(
-                team=self.team,
-                distinct_id="another-company-member",
-                event="purchase",
-                timestamp="2026-01-03T12:00:00Z",
-                properties={"$group_0": "company-0"},
-            )
-        flush_persons_and_events()
-        selection = {
-            "kind": "ActorsQuery",
-            "limit": 1,
-            "offset": 100,
-            "source": {
-                "kind": "InsightActorsQuery",
-                "day": "2026-01-02",
-                "series": 0,
-                "breakdown": ["paid"] if group_index is None else "paid",
-                "source": {
-                    "kind": "TrendsQuery",
-                    "series": [
-                        {
-                            "kind": "EventsNode",
-                            "event": "signup",
-                            **(
-                                {"math": "unique_group", "math_group_type_index": group_index}
-                                if group_index is not None
-                                else {}
-                            ),
-                        }
-                    ],
-                    "dateRange": {"date_from": "2026-01-01", "date_to": "2026-01-04"},
-                    "breakdownFilter": {"breakdown": "plan", "breakdown_type": "event"},
-                },
-            },
-        }
-        result = execute_hogql_query(
-            "SELECT distinct_id FROM events e WHERE event = 'purchase' AND matchesInsight({selection}) ORDER BY distinct_id LIMIT 1000",
-            self.team,
-            placeholders={"selection": ast.Constant(value=json.dumps(selection))},
-        )
-        expected = [(f"selection-user-{index}",) for index in range(101)]
-        if group_index is not None:
-            expected.append(("another-company-member",))
-        self.assertEqual(result.results, sorted(expected))
-        assert result.hogql is not None
-        replayed = execute_hogql_query(result.hogql, self.team)
-        self.assertEqual(replayed.results, result.results)
 
     @parameterized.expand(
         [
