@@ -2,8 +2,8 @@ import os
 import re
 import json
 import time
-from collections.abc import Callable, Iterable
-from typing import Any, NoReturn, Protocol, cast
+from collections.abc import Callable
+from typing import Any, NoReturn, cast
 from urllib.parse import urlencode
 from uuid import uuid4
 
@@ -17,10 +17,17 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 import structlog
+from django_filters import rest_framework as filters
 from django_filters.rest_framework import DjangoFilterBackend
 from django_redis.cache import RedisCache
 from django_redis.exceptions import ConnectionInterrupted
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
+from drf_spectacular.utils import (
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_serializer,
+    extend_schema_view,
+)
 from prometheus_client import Counter
 from redis.exceptions import RedisError
 from rest_framework import mixins, serializers, status, viewsets
@@ -71,7 +78,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
-from posthog.integrations import IntegrationNotFound, IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord, IntegrationUsage
 from posthog.models import OrganizationMembership, User
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import (
@@ -87,6 +94,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
     POSTHOG_CONNECT_KIND,
     POSTHOG_SLACK_SCOPE,
+    PUBLIC_INTEGRATION_KIND_CHOICES,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     ApplePushIntegration,
@@ -129,7 +137,7 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     resolve_aliased_oauth_kind,
 )
-from posthog.models.integration.auth_types import rows_without_source_marker_q
+from posthog.models.integration.auth_types import default_auth_type, rows_without_source_marker_q
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.integration.stripe import stripe_signing_secret
 from posthog.models.integration.twitter_ads import TwitterAdsIntegration
@@ -148,12 +156,10 @@ from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
-from products.batch_exports.backend.facade.api import list_batch_exports_using_integration
-from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.facade.api import get_active_workflows_using_integration, lookup_existing_email_tools
+from products.workflows.backend.facade.api import lookup_existing_email_tools
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
@@ -306,16 +312,28 @@ def _ensure_oauth_token_valid(instance: Integration) -> None:
             )
 
 
-class _HasNameOrId(Protocol):
-    @property
-    def id(self) -> Any: ...
+# Keyed by the `IntegrationUsage.type` that each product's `integration_usages.py` reports. The order
+# is the order of the message.
+_USAGE_TYPE_LABELS: dict[str, str] = {
+    "warehouse_source": "data warehouse sources",
+    "workflow": "active workflows",
+    "hog_function": "enabled data pipelines",
+    "batch_export": "batch exports",
+}
 
-    @property
-    def name(self) -> str | None: ...
 
-
-def _concat_names_or_ids(items: Iterable[_HasNameOrId]) -> str:
-    return ", ".join(sorted(it.name or str(it.id) for it in items))
+def _integration_in_use_error(usages: list[IntegrationUsage]) -> ValidationError:
+    types = [*_USAGE_TYPE_LABELS, *sorted({usage.type for usage in usages} - set(_USAGE_TYPE_LABELS))]
+    used_by = [
+        f"{_USAGE_TYPE_LABELS.get(usage_type, usage_type)}: "
+        f"{', '.join(sorted(usage.name for usage in usages if usage.type == usage_type))}"
+        for usage_type in types
+        if any(usage.type == usage_type for usage in usages)
+    ]
+    return ValidationError(
+        f"This integration is used by {' and '.join(used_by)}. "
+        "Update them to use a different integration before disconnecting it."
+    )
 
 
 def _github_disconnect_blocked_message(live_runs: InProgressGithubRunsDTO, team_id: int) -> str:
@@ -753,7 +771,7 @@ class SlackUsersResponseSerializer(serializers.Serializer):
 
 class IntegrationAccessRequestSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
-        choices=Integration.IntegrationKind.choices,
+        choices=PUBLIC_INTEGRATION_KIND_CHOICES,
         help_text="The kind of integration the member is requesting be connected (e.g. 'slack', 'github').",
     )
     reason = serializers.CharField(
@@ -774,6 +792,17 @@ class IntegrationAccessRequestResponseSerializer(serializers.Serializer):
 class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     """Standard Integration serializer."""
 
+    # A string, not an enum: a list can hold rows of kinds that a product registers, such as the kind of a
+    # warehouse source's typed-in credentials. `validate_kind` limits a create to the public kinds.
+    # Typed as a plain field, because the create request schema below swaps in a choice field.
+    kind: serializers.Field = serializers.CharField(
+        max_length=32,
+        help_text=(
+            "The provider of the integration, for example 'slack' or 'github'. A create accepts only the kinds "
+            "that PostHog connects here. Data warehouse sources also store their typed-in credentials as "
+            "integrations, under a kind per source type."
+        ),
+    )
     created_by = UserBasicSerializer(read_only=True)
     auth_type = serializers.ChoiceField(
         choices=IntegrationAuthType.choices,
@@ -861,6 +890,8 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:
             raise ValidationError("This integration kind is deprecated and can no longer be created.")
+        if value not in Integration.IntegrationKind.values:
+            raise ValidationError(f'"{value}" is not a kind that can be connected here.')
         return value
 
     def create(self, validated_data: Any) -> Any:
@@ -1371,6 +1402,16 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
+@extend_schema_serializer(component_name="IntegrationConfigCreate")
+class IntegrationCreateRequestSerializer(IntegrationSerializer):
+    """The request schema of a create. A create accepts only the public kinds, so the schema lists them."""
+
+    kind = serializers.ChoiceField(
+        choices=PUBLIC_INTEGRATION_KIND_CHOICES,
+        help_text="The provider of the integration, for example 'slack' or 'github'.",
+    )
+
+
 class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
     next = serializers.CharField(
         required=False,
@@ -1527,7 +1568,19 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
 
+class IntegrationFilterSet(filters.FilterSet):
+    kind = filters.ChoiceFilter(choices=PUBLIC_INTEGRATION_KIND_CHOICES)
+
+    class Meta:
+        model = Integration
+        fields = ["kind"]
+
+
 @extend_schema(extensions={"x-product": "integrations"})
+@extend_schema_view(
+    # The response holds a string kind, because a list can hold kinds that a product registers.
+    create=extend_schema(request=IntegrationCreateRequestSerializer, responses={201: IntegrationSerializer}),
+)
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
     mixins.CreateModelMixin,
@@ -1582,7 +1635,7 @@ class IntegrationViewSet(
     queryset = defer_repository_cache_fields(Integration.objects._with_auth(ANY)).order_by("created_at", "id")
     serializer_class = IntegrationSerializer
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["kind"]
+    filterset_class = IntegrationFilterSet
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         # A `posthog` connection holds the creator's delegated grant into another project plus personal
@@ -1591,10 +1644,11 @@ class IntegrationViewSet(
         # list/retrieve — scope `posthog` rows to the requesting user. Other kinds stay team-visible.
         user_id = getattr(self.request.user, "id", None)
         queryset = queryset.exclude(Q(kind=POSTHOG_CONNECT_KIND) & ~Q(created_by_id=user_id))
-        # The other actions (destroy, channels, github_repos, ...) call provider code that reads the
-        # row in the default shape of its kind, so they keep to rows with the default auth type, and
-        # skip warehouse source rows, the same as the implicit filter of `Integration.objects`.
-        if self.action not in ("list", "retrieve"):
+        # The other actions (channels, github_repos, ...) call provider code that reads the row in the
+        # default shape of its kind, so they keep to rows with the default auth type, and skip warehouse
+        # source rows, the same as the implicit filter of `Integration.objects`. Destroy accepts every
+        # row, because the list shows every row, and skips provider teardown for the rest.
+        if self.action not in ("list", "retrieve", "destroy"):
             assert isinstance(queryset, IntegrationQuerySet)
             queryset = queryset._with_auth(DEFAULT).filter(rows_without_source_marker_q())
         return queryset
@@ -1630,35 +1684,15 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
-        flows_using_integration = get_active_workflows_using_integration(
-            team_id=instance.team_id, integration_id=instance.id
-        )
-        functions_using_integration = get_enabled_hog_functions_using_integration(
-            team_id=instance.team_id, integration_id=instance.id
-        )
-        batch_exports_using_integration = list_batch_exports_using_integration(
-            team_id=instance.team_id, integration_id=instance.id
-        )
-
-        used_by = []
-
-        if flows_using_integration:
-            flow_names = _concat_names_or_ids(flows_using_integration)
-            used_by.append(f"active workflows: {flow_names}")
-
-        if functions_using_integration:
-            function_names = _concat_names_or_ids(functions_using_integration)
-            used_by.append(f"enabled data pipelines: {function_names}")
-
-        if batch_exports_using_integration:
-            batch_export_names = _concat_names_or_ids(batch_exports_using_integration)
-            used_by.append(f"batch exports: {batch_export_names}")
-
-        if used_by:
-            raise ValidationError(
-                f"This integration is used by {' and '.join(used_by)}. "
-                "Update them to use a different integration before disconnecting it."
-            )
+        # Check before the teardown below, which revokes grants at the provider. The delete at the end
+        # does not check again, because a check decrypts the inputs of every warehouse source of the team.
+        try:
+            usages = IntegrationManager.any.with_source_rows().usages(instance.team_id, instance.id)
+        except IntegrationNotFound:
+            # A concurrent request (a second click, another tab) deleted the row after `get_object`.
+            return
+        if usages:
+            raise _integration_in_use_error(usages)
 
         if instance.kind == "github":
             live_runs = get_in_progress_runs_for_github_integration(
@@ -1667,13 +1701,17 @@ class IntegrationViewSet(
             if live_runs.count:
                 raise ValidationError(_github_disconnect_blocked_message(live_runs, team_id=instance.team_id))
 
-        if instance.kind == "stripe":
+        # Provider teardown (secret clearing, grant revoke, App uninstall) applies only to the connection
+        # that the kind's default auth type describes. A typed-in key or token has no grant to revoke.
+        provider_connection = instance.auth_type == default_auth_type(instance.kind).value
+
+        if instance.kind == "stripe" and provider_connection:
             try:
                 stripe_integration = StripeIntegration(instance)
                 stripe_integration.clear_posthog_secrets()
             except Exception as e:
                 capture_exception(e)
-        if instance.kind in OauthIntegration.supported_kinds:
+        if instance.kind in OauthIntegration.supported_kinds and provider_connection:
             # Disconnecting should sever the grant at the provider too, not just delete our copy
             # of the tokens — otherwise the provider keeps treating the app as authorized.
             try:
@@ -1683,9 +1721,11 @@ class IntegrationViewSet(
             except Exception as e:
                 capture_exception(e)
         github_audit = (
-            GitHubAudit.project(instance, cast(User, self.request.user)) if instance.kind == "github" else None
+            GitHubAudit.project(instance, cast(User, self.request.user))
+            if instance.kind == "github" and provider_connection
+            else None
         )
-        if instance.kind == "github" and instance.integration_id:
+        if github_audit is not None and instance.integration_id:
             # Team integrations own the installation; personal ones are subordinate. When the
             # last team integration for an installation is removed, tear it down everywhere:
             # uninstall the App on GitHub and delete the now-orphaned personal integrations.
@@ -1695,7 +1735,6 @@ class IntegrationViewSet(
                 .exclude(id=instance.id)
                 .exists()
             )
-            assert github_audit is not None
             github_audit.record("disconnect_started", last_reference=is_last_team_reference)
             if not is_last_team_reference:
                 github_audit.record("uninstall_completed", outcome="skipped", reason="other_project_references")
@@ -1724,7 +1763,9 @@ class IntegrationViewSet(
                     github_audit.record("personal_cleanup_failed", failure_type=type(e).__name__)
 
         try:
-            super().perform_destroy(instance)
+            IntegrationManager.any.with_source_rows().delete(instance.team_id, instance.id, ignore_usages=True)
+        except IntegrationNotFound:
+            pass  # A concurrent request deleted the row during the teardown.
         except Exception as exc:
             if github_audit:
                 github_audit.record("disconnect_failed", stage="project_deletion", failure_type=type(exc).__name__)
