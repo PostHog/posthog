@@ -75,7 +75,7 @@ from products.alerts_platform.backend.facade.temporal import (
     ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS,
     ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS,
     ALERTS_PLATFORM_TICK_KEYS_BUCKETS,
-    ALERTS_PLATFORM_TICK_KEYS_METRIC,
+    ALERTS_PLATFORM_TICK_KEYS_METRICS,
     AlertsPlatformTelemetryInterceptor,
 )
 from products.batch_exports.backend.facade.temporal import BatchExportsMetricsInterceptor
@@ -415,7 +415,7 @@ async def create_worker(
             )
         )
         | dict(zip(ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS, itertools.repeat(ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS)))
-        | {ALERTS_PLATFORM_TICK_KEYS_METRIC: ALERTS_PLATFORM_TICK_KEYS_BUCKETS}
+        | dict(zip(ALERTS_PLATFORM_TICK_KEYS_METRICS, itertools.repeat(ALERTS_PLATFORM_TICK_KEYS_BUCKETS)))
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
         | dict(

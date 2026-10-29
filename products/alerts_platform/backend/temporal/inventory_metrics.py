@@ -28,19 +28,23 @@ class TickScheduleRuns:
     missed_catchup: int
 
 
-def push_inventory(inventories: Sequence[SourceInventory], schedule_runs: TickScheduleRuns | None = None) -> None:
+def push_tick_schedule_runs(schedule_runs: TickScheduleRuns) -> None:
+    """A group of its own, so a failed inventory count neither holds these back nor replaces them."""
+    with pushed_metrics_registry("alerts_platform_tick_schedule", timeout=PUSH_TIMEOUT_SECONDS) as registry:
+        # Lifetime counts, so a rise between two pushes is a tick the schedule skipped or dropped.
+        runs = Gauge(
+            "alerts_platform_tick_schedule_actions",
+            "Ticks the platform's schedule started, skipped for overlap, or dropped for starting late",
+            ["outcome"],
+            registry=registry,
+        )
+        runs.labels(outcome="started").set(schedule_runs.started)
+        runs.labels(outcome="skipped_overlap").set(schedule_runs.skipped_overlap)
+        runs.labels(outcome="missed_catchup").set(schedule_runs.missed_catchup)
+
+
+def push_inventory(inventories: Sequence[SourceInventory]) -> None:
     with pushed_metrics_registry("alerts_platform_inventory", timeout=PUSH_TIMEOUT_SECONDS) as registry:
-        if schedule_runs is not None:
-            # Lifetime counts, so a rise between two pushes is a tick the schedule skipped or dropped.
-            runs = Gauge(
-                "alerts_platform_tick_schedule_actions",
-                "Ticks the platform's schedule started, skipped for overlap, or dropped for starting late",
-                ["outcome"],
-                registry=registry,
-            )
-            runs.labels(outcome="started").set(schedule_runs.started)
-            runs.labels(outcome="skipped_overlap").set(schedule_runs.skipped_overlap)
-            runs.labels(outcome="missed_catchup").set(schedule_runs.missed_catchup)
         configurations = Gauge(
             "alerts_platform_configurations",
             "Platform alert configurations, by source, whether they are enabled, and which stack owns them",

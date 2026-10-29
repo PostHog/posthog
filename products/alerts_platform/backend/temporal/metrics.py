@@ -62,7 +62,7 @@ ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS = [
     120_000.0,
 ]
 
-ALERTS_PLATFORM_TICK_KEYS_METRIC = "alerts_platform_tick_keys"
+ALERTS_PLATFORM_TICK_KEYS_METRICS = ("alerts_platform_tick_keys",)
 
 ALERTS_PLATFORM_TICK_KEYS_BUCKETS = [
     0.0,
@@ -317,21 +317,11 @@ def record_delivery_lag(source: str, provider: str, lag_ms: int) -> None:
     ).record(dt.timedelta(milliseconds=lag_ms))
 
 
-def record_tick_start(start_delay: dt.timedelta) -> None:
-    """How late a tick's first workflow task ran after its scheduled minute. Called from workflow code;
-    the workflow meter emits nothing during replay."""
-    get_metric_meter().create_histogram_timedelta(
-        name="alerts_platform_tick_start_delay_ms",
-        description="Time from a tick's scheduled minute to its first workflow task",
-        unit="ms",
-    ).record(start_delay)
-
-
 def record_tick_keys(keys: int) -> None:
     """Batch keys one tick's discovery found due, the ones its limits left out included. Called
     from workflow code; the workflow meter emits nothing during replay."""
     get_metric_meter().create_histogram(
-        name=ALERTS_PLATFORM_TICK_KEYS_METRIC,
+        name=ALERTS_PLATFORM_TICK_KEYS_METRICS[0],
         description="Batch keys one tick's discovery found due, including those its limits left out",
     ).record(keys)
 

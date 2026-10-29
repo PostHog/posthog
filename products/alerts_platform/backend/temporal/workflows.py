@@ -25,7 +25,6 @@ from products.alerts_platform.backend.temporal.metrics import (
     increment_holds_expired,
     record_tick_end,
     record_tick_keys,
-    record_tick_start,
     safe_record,
 )
 from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
@@ -39,6 +38,8 @@ with workflow.unsafe.imports_passed_through():
     from asgiref.sync import sync_to_async
 
     from posthog.sync import database_sync_to_async_pool
+    from posthog.temporal.common.metrics import record_schedule_to_start_latency
+    from posthog.temporal.common.schedule import a_describe_schedule
 
     from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
@@ -59,7 +60,11 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts_platform.backend.logic import delivery_holds
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.logic.inventory import count_inventory
-    from products.alerts_platform.backend.temporal.inventory_metrics import TickScheduleRuns, push_inventory
+    from products.alerts_platform.backend.temporal.inventory_metrics import (
+        TickScheduleRuns,
+        push_inventory,
+        push_tick_schedule_runs,
+    )
     from products.alerts_platform.backend.temporal.postgres import check_postgres_connection
     from products.alerts_platform.backend.temporal.schedule import SCHEDULE_ID
     from products.alerts_platform.backend.temporal.sources import SOURCE_BINDINGS, discovery_limits
@@ -126,7 +131,7 @@ async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs
 async def _tick_schedule_runs() -> TickScheduleRuns | None:
     """The tick schedule's own run counts. Temporal's namespace metrics do not say which schedule skipped."""
     try:
-        info = (await activity.client().get_schedule_handle(SCHEDULE_ID).describe()).info
+        info = (await a_describe_schedule(activity.client(), SCHEDULE_ID)).info
     except Exception as error:
         await LOGGER.awarning("alerts_platform_schedule_describe_failed", error=str(error))
         return None
@@ -140,15 +145,17 @@ async def _tick_schedule_runs() -> TickScheduleRuns | None:
 @activity.defn
 async def alerts_platform_record_inventory_activity() -> None:
     """A failed count is logged rather than raised, so a slow count never reads as a failed workflow."""
+    schedule_runs = await _tick_schedule_runs()
+    # A failed push is logged and captured inside `push_registry`, never raised.
+    if schedule_runs is not None:
+        await asyncio.to_thread(push_tick_schedule_runs, schedule_runs)
     now = dt.datetime.now(dt.UTC)
     try:
         inventories = await database_sync_to_async_pool(count_inventory)(now)
     except Exception as error:
         await LOGGER.awarning("alerts_platform_inventory_failed", error=str(error))
         return
-    schedule_runs = await _tick_schedule_runs()
-    # A failed push is logged and captured inside `push_registry`, never raised.
-    await asyncio.to_thread(push_inventory, inventories, schedule_runs)
+    await asyncio.to_thread(push_inventory, inventories)
 
 
 @activity.defn
@@ -590,7 +597,12 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
                 SearchAttributeKey.for_datetime("TemporalScheduledStartTime"), info.workflow_start_time
             )
             now = workflow.now()
-            safe_record(record_tick_start, info.start_time - cutoff)
+            record_schedule_to_start_latency(
+                "alerts_platform_tick_start_delay_ms",
+                scheduled_time=cutoff,
+                started_time=info.start_time,
+                description="Time from a tick's scheduled minute to its first workflow task",
+            )
             hard_stop = info.execution_timeout or (TICK_DISPATCH_BUDGET + TICK_HARD_STOP_MARGIN)
             inputs = replace(
                 inputs,
