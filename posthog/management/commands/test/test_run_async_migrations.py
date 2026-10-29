@@ -1,6 +1,7 @@
 import logging
 
 import pytest
+from posthog.test.base import reset_clickhouse_database_if_dirty
 
 from django.core.management import call_command
 
@@ -75,3 +76,12 @@ def test_complete_noop_migrations(caplog):
 @pytest.fixture(autouse=True)
 def set_log_level(caplog):
     caplog.set_level(logging.INFO)
+
+
+@pytest.fixture(autouse=True)
+def clean_clickhouse():
+    # Whether a migration is required depends on ClickHouse data, which persists across test files.
+    # Events left by an earlier test would make 0007 run its full backfill, so start and end clean.
+    reset_clickhouse_database_if_dirty()
+    yield
+    reset_clickhouse_database_if_dirty()
