@@ -32,13 +32,13 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.review_hog.backend.facade.enums import ReviewRequestRefusal
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver

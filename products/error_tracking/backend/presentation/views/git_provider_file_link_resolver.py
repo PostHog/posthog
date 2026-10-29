@@ -15,9 +15,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, GitLabIntegrationError
-
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 

@@ -13,14 +13,13 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import SlackIntegration
 
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.customer_analytics.backend.facade.contracts import EventStreamTestMessageError
 from products.customer_analytics.backend.models import EventStream, TeamCustomerAnalyticsConfig
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 if TYPE_CHECKING:
     from posthog.models import Team, User

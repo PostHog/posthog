@@ -15,14 +15,13 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import SlackIntegration
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.slack.formatting import channel_id_from_target, escape_slack_mrkdwn
 from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_block
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import SignalReport, SignalReportSlackThread, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url

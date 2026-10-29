@@ -63,6 +63,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import OrganizationMembership, Tag
 from posthog.models.activity_logging.activity_log import AuditableScope, Detail, Trigger, changes_between, log_activity
 from posthog.models.group.util import get_group_by_key
@@ -185,8 +186,6 @@ from products.customer_analytics.backend.models.custom_property_definition impor
     DataType,
 )
 from products.customer_analytics.backend.tasks.tasks import send_announcement
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.notebooks.backend.facade import (
     api as notebooks,
     contracts as notebook_contracts,

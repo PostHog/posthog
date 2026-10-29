@@ -20,13 +20,11 @@ from typing import assert_never
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user import User
 from posthog.slack.channels import post_message
 from posthog.slack.markdown import slack_markdown_block
-
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 from ...facade.contracts import SlackMention
 from ...logic.admission import claim, rolled_out_team_ids, within_rate_limit

@@ -366,9 +366,8 @@ def mock_github_integration(team, mocker):
     """
     Create a mock GitHub integration for the team.
     """
+    from posthog.integrations import IntegrationManager
     from posthog.models.integration import GitHubIntegration, Integration
-
-    from products.integrations.backend.facade.api import IntegrationManager
 
     mock_integration = MagicMock(spec=Integration)
     mock_integration.id = 1

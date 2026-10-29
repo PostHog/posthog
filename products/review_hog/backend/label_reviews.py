@@ -19,12 +19,12 @@ from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.permissions import posthog_feature_flag_enabled
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.review_hog.backend.automatic_reviews import connector_user_id
 from products.review_hog.backend.ownership import RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import PullRequestOwnerResolver

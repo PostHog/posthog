@@ -22,6 +22,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
+from posthog.integrations import IntegrationManager
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -44,7 +45,6 @@ from products.ai_observability.backend.models.evaluation_reports import (
     EvaluationReportRun,
 )
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
-from products.integrations.backend.facade.api import IntegrationManager
 from products.workflows.backend.facade.api import validate_rrule
 
 logger = structlog.get_logger(__name__)

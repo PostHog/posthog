@@ -16,6 +16,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import consume_github_installation_sync
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 
@@ -24,8 +25,6 @@ from products.engineering_analytics.backend.logic.job_logs.badges import parse_j
 from products.engineering_analytics.backend.logic.job_logs.fetcher import FetchedJobLog, fetch_bounded_job_log
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_job
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 
 logger = structlog.get_logger(__name__)

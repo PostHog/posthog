@@ -10,10 +10,10 @@ follows ``Subject``, a case in each function below, and the kind to the commands
 
 from typing import Any, Protocol, assert_never
 
+from posthog.integrations import IntegrationManager
 from posthog.utils import absolute_uri
 
 from products.error_tracking.backend.facade import api as error_tracking
-from products.integrations.backend.facade.api import IntegrationManager
 
 from .commands import (
     Answer,

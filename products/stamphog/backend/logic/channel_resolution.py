@@ -37,10 +37,9 @@ from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.ownership.github_files import AuthenticatedRepoFiles, GitHubFilesFetcher
 from posthog.slack.channels import SlackChannel, fetch_channel_map, find_channel
-
-from products.integrations.backend.facade.api import IntegrationManager
 
 from ..facade.enums import ChannelResolutionSource
 from ..models import StamphogRepoConfig

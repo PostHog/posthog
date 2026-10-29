@@ -43,6 +43,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.integrations import IntegrationManager
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.team.team import Team
@@ -64,7 +65,6 @@ from products.dashboards.backend.models.dashboard import Dashboard
 # enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.integrations.backend.facade.api import IntegrationManager
 from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.constants import SYSTEM_SCOUT_NAMES
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig

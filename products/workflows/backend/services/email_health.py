@@ -12,9 +12,9 @@ from django.utils import timezone
 import structlog
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals_by_source, fetch_app_metric_totals_by_team_and_source
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import Integration
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.workflows.backend.facade.contracts import (
     EMAIL_HEALTH_METRIC_NAMES,
     EmailSendingAllowance,

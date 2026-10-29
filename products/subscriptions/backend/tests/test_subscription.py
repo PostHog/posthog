@@ -18,6 +18,7 @@ from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models import Team
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
@@ -30,7 +31,6 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
-from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.api import (
     AI_REPORT_CHARTS_KEY,

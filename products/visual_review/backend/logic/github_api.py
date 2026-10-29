@@ -18,9 +18,8 @@ if TYPE_CHECKING:
 
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError
-
-from products.integrations.backend.facade.api import IntegrationManager
 
 from ..models import Repo
 from . import content_cache, errors

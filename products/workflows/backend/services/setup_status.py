@@ -1,8 +1,8 @@
 """Which messaging setup steps a project has done, in the order the setup wizard asks for them."""
 
+from posthog.integrations import IntegrationManager
 from posthog.models import Team
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.messaging.backend.facade.api import list_email_templates
 from products.messaging.backend.facade.categories import list_categories
 from products.workflows.backend.facade.contracts import SetupStep

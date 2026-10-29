@@ -9,12 +9,12 @@ from django.db import transaction
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import GitHubIntegration
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import external_references
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 
 # A cheap shed before we spend a Celery task and a GitHub API call, not a trust gate: OWNER and
 # MEMBER say nothing about access to this repo, and COLLABORATOR covers read/triage-only invites.

@@ -10,12 +10,11 @@ GitHub integration, and then to the anonymous public reader.
 """
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.ownership.github_files import EGRESS_SOURCE, AuthenticatedRepoFiles, GitHubFilesFetcher, fetcher_for_team
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
 

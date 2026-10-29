@@ -4,10 +4,9 @@ from typing import Any
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.tasks.backend.facade.sandbox import SandboxBase, sandbox_repo_path
 from products.wizard.backend.logic.workers.commands import bound_command_output
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest, SignedRepositoryCommit

@@ -12,6 +12,7 @@ from celery import shared_task
 from posthog.comment.formatting import rich_content_to_markdown
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.team import Team
@@ -21,8 +22,6 @@ from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.models import GithubCommentMapping
 from products.conversations.backend.models.constants import Status
 from products.conversations.backend.models.ticket import Ticket, deleted_ticket_holds_thread
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60

@@ -7,10 +7,9 @@ from uuid import UUID
 
 from django.db import transaction
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.scoping import with_team_scope
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.workflows.backend.facade.contracts import (
     TRANSACTIONAL_EMAIL_ACTION_ID,
     TransactionalEmailContent,

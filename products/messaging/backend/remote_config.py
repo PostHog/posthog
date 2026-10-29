@@ -1,4 +1,4 @@
-from products.integrations.backend.facade.api import IntegrationManager
+from posthog.integrations import IntegrationManager
 
 # Firebase identifies an app by its project_id, APNs by its bundle_id. Kept in step with
 # nodejs/src/messaging/push-subscriptions/push-subscriptions.service.ts, which resolves the same

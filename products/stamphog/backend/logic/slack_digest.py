@@ -19,12 +19,10 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import SlackPostRefused, post_message, post_with_join
 from posthog.slack.formatting import escape_slack_mrkdwn
-
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 from .digest import as_channel_paragraph
 

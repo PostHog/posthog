@@ -13,9 +13,8 @@ import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
-
-from products.integrations.backend.facade.api import IntegrationManager
 
 from .commands import REPOSITORY_NAME_RE, PullRequestFacts
 

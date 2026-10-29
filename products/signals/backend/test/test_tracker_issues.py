@@ -9,6 +9,7 @@ from django.utils import timezone
 from celery.exceptions import Retry
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models import Team, User
 from posthog.models.integration import (
     GitHubIntegration,
@@ -19,7 +20,6 @@ from posthog.models.integration import (
     LinearIntegration,
 )
 
-from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 from products.signals.backend.serializers import SignalTeamConfigSerializer
 from products.signals.backend.tasks import close_report_tracker_issue

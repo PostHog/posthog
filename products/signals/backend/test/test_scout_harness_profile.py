@@ -21,6 +21,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.product_intent.product_intent import ProductIntent
@@ -37,7 +38,6 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.models import (

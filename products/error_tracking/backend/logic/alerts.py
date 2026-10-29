@@ -8,6 +8,7 @@ from django.db.models import QuerySet
 
 import structlog
 
+from posthog.integrations import IntegrationManager
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -15,7 +16,6 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.cdp.backend.filters import compile_filters_bytecode
 from products.error_tracking.backend.models import ErrorTrackingAlert, ErrorTrackingAlertDestination
-from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 

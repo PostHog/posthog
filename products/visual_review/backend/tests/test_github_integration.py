@@ -238,9 +238,8 @@ def mock_github_integration(team, mocker):
     This patches the Integration lookup to return a fake integration
     with valid credentials structure.
     """
+    from posthog.integrations import IntegrationManager
     from posthog.models.integration import GitHubIntegration, Integration
-
-    from products.integrations.backend.facade.api import IntegrationManager
 
     # Create a mock integration object
     mock_integration = MagicMock(spec=Integration)

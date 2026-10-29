@@ -24,6 +24,7 @@ from temporalio.service import RPCError
 
 from posthog.dataclasses import frozen
 from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
+from posthog.integrations import IntegrationManager
 from posthog.models.comment import Comment
 from posthog.models.team import Team
 from posthog.slack.identity import resolve_slack_profile_by_email
@@ -69,7 +70,6 @@ from products.conversations.backend.support_slack_channels import (
     SupportSlackNotConfigured as SupportSlackNotConfigured,
     list_support_bot_channels as _list_support_bot_channels,
 )
-from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 

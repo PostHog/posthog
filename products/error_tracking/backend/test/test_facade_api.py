@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY, IntegrationManager
 from posthog.models import Team
 from posthog.models.event_filter_config import EventFilterPipelineOverride
 from posthog.models.event_ingestion_restriction_config import IngestionPipeline
@@ -25,8 +26,6 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueFingerprintV2,
     ErrorTrackingSymbolSet,
 )
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY
 
 
 class TestErrorTrackingFacadeAPI(BaseTest):

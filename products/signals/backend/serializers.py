@@ -19,11 +19,11 @@ from posthog.api.fields import RepeatedOrCommaSeparatedListField
 from posthog.auth import is_mcp_request
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationKind
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
 from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
-from products.integrations.backend.facade.kinds_generated import IntegrationKind
-from products.integrations.backend.presentation.fields import IntegrationReferenceField
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason

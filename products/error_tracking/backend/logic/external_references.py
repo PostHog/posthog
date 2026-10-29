@@ -7,6 +7,7 @@ from django.db.models import QuerySet
 import requests
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import (
     GitHubIntegration,
     GitHubIntegrationError,
@@ -20,9 +21,6 @@ from posthog.models.integration import (
 
 from products.error_tracking.backend.logic import get_issue_permalink_by_fingerprint
 from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
-from products.integrations.backend.facade.kinds_generated import IntegrationKind
 
 _EXTERNAL_ISSUE_INTEGRATIONS = IntegrationManager.kinds(
     IntegrationKind.GITHUB, IntegrationKind.GITLAB, IntegrationKind.LINEAR, IntegrationKind.JIRA

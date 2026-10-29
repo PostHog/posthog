@@ -14,14 +14,13 @@ import requests
 import structlog
 from prometheus_client import Counter, Histogram
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import (
     reload_hog_flows_on_workers,
     send_transactional_email as run_transactional_workflow,
 )
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.messaging.backend.facade.contracts import (
     DeliveryUnavailable,
     IdempotencyKeyInFlight,

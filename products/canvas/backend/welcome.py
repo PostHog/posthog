@@ -13,13 +13,13 @@ from uuid import UUID
 
 import structlog
 
+from posthog.integrations import IntegrationManager
 from posthog.models.user import User
 
 from products.canvas.backend import build_service
 from products.canvas.backend.layout import default_layout
 from products.canvas.backend.models import Canvas, CanvasState
 from products.canvas.backend.source import synthetic_source_project
-from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 

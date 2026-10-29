@@ -27,6 +27,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import User
 from posthog.models.integration import SlackIntegration
 from posthog.ph_client import ph_scoped_capture
@@ -37,7 +38,6 @@ from posthog.slack.formatting import (
 )
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.models import (
     AutonomyPriority,

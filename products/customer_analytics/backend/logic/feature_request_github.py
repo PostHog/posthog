@@ -15,6 +15,7 @@ from structlog.contextvars import bound_contextvars, get_contextvars
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration.github import GitHubIntegration
 from posthog.permissions import posthog_feature_flag_enabled
@@ -35,8 +36,6 @@ from products.customer_analytics.backend.models import (
     FeatureRequestHistorySource,
     FeatureRequestStatus,
 )
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl

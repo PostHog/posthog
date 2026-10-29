@@ -7,9 +7,9 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.email import EmailDeliveryError
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationRecord
 from posthog.sync import database_sync_to_async
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS, _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
     SLACK_DISCONNECTED_DISABLE_REASON,

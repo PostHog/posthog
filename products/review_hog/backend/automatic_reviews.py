@@ -4,9 +4,9 @@ from typing import Literal
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager
 from posthog.otel_metrics import OtelInstrumentFactory
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.review_hog.backend.automatic_review_rules import AutomaticReviewReason, decide_automatic_review
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef

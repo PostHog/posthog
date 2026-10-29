@@ -25,10 +25,9 @@ from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationRecord
 from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
-
-from products.integrations.backend.facade.api import IntegrationRecord
 
 from ..marketplace.packaging import SPEC_DESCRIPTION_MAX_LENGTH
 from ..models.community_skills import CommunitySkillKind

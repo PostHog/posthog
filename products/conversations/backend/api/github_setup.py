@@ -10,13 +10,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
 from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.tasks.github import create_github_issue
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 logger = structlog.get_logger(__name__)
 

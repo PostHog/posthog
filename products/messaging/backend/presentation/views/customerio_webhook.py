@@ -6,9 +6,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.auth import WebhookSignatureAuthentication
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.messaging.backend.facade.customerio import (
     record_global_resubscribe,
     record_global_unsubscribe,

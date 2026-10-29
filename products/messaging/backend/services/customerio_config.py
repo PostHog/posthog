@@ -3,9 +3,8 @@ from typing import IO, Any
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationReader, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 from products.messaging.backend.services.customerio_import_service import CustomerIOImportService
 
@@ -51,7 +50,7 @@ def save_app_integration(team_id: int, api_key: str, created_by_id: int | None) 
         )
 
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
-    config.app_integration = integration
+    config.app_integration_id = integration.id
     config.save(update_fields=["app_integration"])
     return integration
 
@@ -165,7 +164,7 @@ def save_webhook_config(
         )
 
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
-    config.webhook_integration = integration
+    config.webhook_integration_id = integration.id
     config.webhook_enabled = enabled
     config.save(update_fields=["webhook_integration", "webhook_enabled"])
 
@@ -208,7 +207,7 @@ def save_track_config(
         )
 
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
-    config.track_integration = integration
+    config.track_integration_id = integration.id
     config.track_enabled = enabled
     config.save(update_fields=["track_integration", "track_enabled"])
 

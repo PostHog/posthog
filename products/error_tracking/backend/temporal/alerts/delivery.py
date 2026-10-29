@@ -27,6 +27,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import ApplicationError
 
+from posthog.integrations import IntegrationKind
 from posthog.models.integration import SlackIntegration
 from posthog.redis import get_client
 
@@ -49,7 +50,6 @@ from products.error_tracking.backend.temporal.alerts.messages import (
     build_root_message,
 )
 from products.error_tracking.backend.temporal.alerts.types import AlertDeliveryWorkflowInputs
-from products.integrations.backend.facade.kinds_generated import IntegrationKind
 
 logger = structlog.get_logger(__name__)
 

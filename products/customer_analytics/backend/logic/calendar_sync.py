@@ -11,12 +11,12 @@ import structlog
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.egress.google_workspace import google_workspace_request
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 from posthog.models.team import Team
 
 from products.customer_analytics.backend.logic.email_account_matching import match_accounts_for_emails
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 
@@ -116,7 +116,7 @@ def sync_calendar_integration(integration_id: int, team_id: int) -> CalendarSync
     and re-lists the whole window in the same run.
     """
     integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
-    team = integration.team
+    team = Team.objects.get(id=integration.team_id)
     counts = CalendarSyncCounts()
     try:
         access_token = _get_fresh_access_token(integration)
@@ -170,7 +170,7 @@ def sync_calendar_integration_backfill_page(
     payload = _get_events_page(access_token, str(integration.integration_id), params)
     counts = CalendarSyncCounts(fetched=len(payload.get("items", [])))
     _process_events(
-        integration.team,
+        Team.objects.get(id=integration.team_id),
         payload.get("items", []),
         _domain_of((integration.config or {}).get("email", "")),
         counts,

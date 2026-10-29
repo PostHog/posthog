@@ -19,6 +19,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration import SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
@@ -32,8 +33,6 @@ from posthog.utils import human_list
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import (

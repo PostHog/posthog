@@ -51,6 +51,7 @@ from posthog.helpers.trigram_search import (
     apply_trigram_search,
     drop_similar_when_exact_exists,
 )
+from posthog.integrations import IntegrationManager
 from posthog.models import User
 from posthog.models.tag import tagify
 from posthog.models.tagged_item import TaggedItem
@@ -140,7 +141,6 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_start_time
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
-from products.integrations.backend.facade.api import IntegrationManager
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 

@@ -20,6 +20,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationKind, IntegrationRecord
 from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     GitHubIntegration,
@@ -29,8 +30,6 @@ from posthog.models.integration import (
     external_issue_url,
 )
 
-from products.integrations.backend.facade.api import IntegrationRecord
-from products.integrations.backend.facade.kinds_generated import IntegrationKind
 from products.signals.backend.github_actor import github_mention_for_user
 from products.signals.backend.models import SignalReport, SignalReportTrackerIssue, SignalTeamConfig
 from products.signals.backend.pull_request_body import BodyEditOutcome, edit_pull_request_body
@@ -190,7 +189,7 @@ def _claim_tracker_issue(
         if claim.failure_reason == ABANDONED_CLAIM_REASON:
             return None
         claim.status = SignalReportTrackerIssue.Status.PENDING
-        claim.integration = target.integration
+        claim.integration_id = target.integration.id
         claim.provider = target.integration.kind
         claim.save(update_fields=["status", "integration", "provider", "updated_at"])
         return claim

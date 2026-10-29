@@ -28,10 +28,10 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration
 from posthog.utils import pluralize
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (

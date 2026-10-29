@@ -22,6 +22,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import acquire_github_installation
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -32,7 +33,6 @@ from products.engineering_analytics.backend.logic.job_logs.emitter import JobLog
 from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_depot_job_log, fetch_job_log
 from products.engineering_analytics.backend.logic.job_logs.thinning import thin_log_lines
 from products.engineering_analytics.backend.logic.sources import depot_source_api_token
-from products.integrations.backend.facade.api import IntegrationManager
 
 logger = structlog.get_logger(__name__)
 
@@ -100,7 +100,11 @@ def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, s
         github.refresh_access_token()
     if not integration.access_token:
         raise ValueError(f"No GitHub access token for integration {integration_id}")
-    return integration.access_token, str(github.github_installation_id), integration.team.api_token
+    return (
+        integration.access_token,
+        str(github.github_installation_id),
+        Team.objects.values_list("api_token", flat=True).get(id=team_id),
+    )
 
 
 def _resolve_depot_credentials(team_id: int, source_id: str) -> _DepotCredentials:

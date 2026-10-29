@@ -17,12 +17,12 @@ from django.db import IntegrityError, transaction
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 from products.review_hog.backend.activity_logging import log_repository_taken
 from products.review_hog.backend.automatic_review_rules import (
     AuthorPreferences,

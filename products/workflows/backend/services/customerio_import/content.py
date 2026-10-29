@@ -9,7 +9,8 @@ from typing import Any
 
 import structlog
 
-from products.integrations.backend.facade.api import IntegrationManager
+from posthog.integrations import IntegrationManager
+
 from products.messaging.backend.facade.categories import list_categories
 from products.workflows.backend.facade.contracts import (
     CampaignSource,

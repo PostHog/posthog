@@ -9,6 +9,7 @@ from typing import Any, Final
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import (
     MAX_SECTION_CHARS,
@@ -27,8 +28,6 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, AlertEventKind, MessageDetail
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 PROVIDER: Final = "slack"
 

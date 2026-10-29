@@ -20,12 +20,12 @@ from django.core.cache import cache
 from rest_framework import serializers
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationRecord
 from posthog.models.integration import SlackIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 from posthog.slack.formatting import channel_id_from_target
 
-from products.integrations.backend.facade.api import IntegrationRecord
 from products.signals.backend.models import SignalUserAutonomyConfig
 
 logger = logging.getLogger(__name__)

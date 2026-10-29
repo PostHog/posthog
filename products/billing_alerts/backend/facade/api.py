@@ -11,6 +11,7 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.integrations import IntegrationManager
 from posthog.models.team.team import Team
 
 from products.alerts.backend.facade.destinations import (
@@ -22,7 +23,6 @@ from products.alerts.backend.facade.destinations import (
     validate_destination_data,
 )
 from products.alerts_platform.backend.facade.contracts import AlertDestinationData, DestinationType
-from products.integrations.backend.facade.api import IntegrationManager
 
 from ..alert_destinations import (
     BILLING_ALERT_EVENT_IDS,

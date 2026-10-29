@@ -10,12 +10,12 @@ from uuid import UUID
 
 from django.db import models
 
+from posthog.integrations import IntegrationManager
 from posthog.models.activity_logging.activity_log import AuditableScope, Change, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.review_hog.backend.models import (
     ReviewInstallationClaim,
     ReviewProjectSettings,

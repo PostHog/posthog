@@ -26,6 +26,7 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.event_usage import report_user_action
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.github_integration_base import GitHubIntegrationError, _is_safe_github_repo_path
 from posthog.models.integration import GitHubIntegration
 from posthog.models.integration_repository_cache import (
@@ -35,9 +36,6 @@ from posthog.models.integration_repository_cache import (
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
-
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 from .learning_settings import get_environment_business_knowledge_config
 from .models import TeamBusinessKnowledgeConfig

@@ -12,6 +12,7 @@ from owners_yaml.resolver import Purpose, team_channel
 from owners_yaml.schema import Producer, TeamEntry
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import SlackIntegration
 from posthog.slack.channels import (
     SlackChannel,
@@ -22,8 +23,6 @@ from posthog.slack.channels import (
     post_message,
     post_with_join,
 )
-
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
 
 logger = structlog.get_logger(__name__)
 

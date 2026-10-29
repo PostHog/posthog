@@ -16,8 +16,11 @@ from bs4 import BeautifulSoup, NavigableString, PageElement, Tag
 
 from posthog.dataclasses import frozen
 from posthog.egress.google_workspace import google_workspace_request
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, EmailThreadMessageDirection
 from products.conversations.backend.services.email_thread_ingestion import (
@@ -25,8 +28,6 @@ from products.conversations.backend.services.email_thread_ingestion import (
     ParsedEmail,
     ingest_customer_email,
 )
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 GMAIL_HISTORY_ID_CONFIG_KEY = "gmail_history_id"
@@ -159,8 +160,14 @@ def sync_gmail_backfill_batch(
     return next_page_token, len(message_ids)
 
 
+def _owner(integration: IntegrationRecord) -> User | None:
+    if integration.created_by_id is None:
+        return None
+    return User.objects.filter(id=integration.created_by_id).first()
+
+
 def _has_active_owner(integration: IntegrationRecord) -> bool:
-    owner = integration.created_by
+    owner = _owner(integration)
     return bool(owner and owner.is_active and owner.teams.filter(id=integration.team_id).exists())
 
 
@@ -177,14 +184,14 @@ def _get_fresh_access_token(integration: IntegrationRecord) -> str:
 
 
 def _email_channel(integration: IntegrationRecord) -> EmailChannel:
-    owner = integration.created_by
+    owner = _owner(integration)
     email = str(integration.config.get("email") or "").strip().lower()
     if owner is None or not email or "@" not in email:
         raise GmailSyncError(f"Integration {integration.id} has no mailbox owner")
 
     name = " ".join(part for part in (owner.first_name, owner.last_name) if part).strip() or email
     return EmailChannel(
-        team=integration.team,
+        team=Team.objects.get(id=integration.team_id),
         kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
         owner=owner,
         inbound_token="",
@@ -201,7 +208,7 @@ def _organization_member_emails(integration: IntegrationRecord) -> set[str]:
     return {
         email.lower()
         for email in OrganizationMembership.objects.filter(
-            organization_id=integration.team.organization_id,
+            organization__teams__id=integration.team_id,
             user__is_active=True,
         ).values_list("user__email", flat=True)
     }
