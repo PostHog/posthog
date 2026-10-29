@@ -92,6 +92,9 @@ class GateAttestation:
     # The first condition that failed, or empty when attested.
     reason: str
     gates: list[dict]
+    # The manifests whose texts the engine needs for the scripts scan, when the reason is
+    # ``dependency_manifest``.
+    manifests: tuple[str, ...] = ()
 
 
 def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: str) -> str | None:
@@ -312,8 +315,10 @@ def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, 
     if not isinstance(parsed, dict):
         raise EnginePregateError("the engine attestation result is not an object")
     gates = parsed.get("gates")
+    manifests = parsed.get("manifests")
     return GateAttestation(
         attested=parsed.get("attested") is True,
         reason=str(parsed.get("reason") or ""),
         gates=[gate for gate in gates if isinstance(gate, dict)] if isinstance(gates, list) else [],
+        manifests=tuple(str(path) for path in manifests) if isinstance(manifests, list) else (),
     )

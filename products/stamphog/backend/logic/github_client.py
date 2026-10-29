@@ -100,6 +100,8 @@ _MAX_PAGES = 20
 _PER_PAGE = 100
 # GitHub lists at most 250 commits for a pull request, which is three pages of _PER_PAGE.
 _MAX_PR_COMMIT_PAGES = 3
+# GitHub's limit on the files that one compare response lists.
+_MAX_COMPARE_FILES = 300
 
 # Ceiling on a single compare diff. The value sits well above any diff that stamphog could have
 # approved, because stamphog's size gate refuses much smaller diffs. It also sits well below the
@@ -847,6 +849,30 @@ class StamphogGitHubClient:
             status=str(data.get("status") or ""),
             merge_base_sha=str((merge_base or {}).get("sha") or "") if isinstance(merge_base, dict) else "",
         )
+
+    def compare_files(self, repo: str, base_sha: str, head_sha: str) -> list[dict] | None:
+        """The changed files between two commits, or None when GitHub may have cut the list short.
+
+        Both ends are commit shas, so the list belongs to those two commits. ``get_pr_files`` answers
+        for whichever head is live when the request runs. The list is in the ``get_pr_files`` shape,
+        renames included. GitHub returns at most ``_MAX_COMPARE_FILES`` files and does not page them,
+        so a list of that length can be incomplete.
+        """
+        path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
+        # The files come with the first page of commits whatever its size.
+        response = self._request(
+            "GET", path, endpoint="/repos/{owner}/{repo}/compare/{basehead}", params={"per_page": 1}
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to compare {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        data = self._json(response, path)
+        files = data.get("files") if isinstance(data, dict) else None
+        if not isinstance(files, list) or len(files) >= _MAX_COMPARE_FILES:
+            return None
+        return [file for file in files if isinstance(file, dict)]
 
     def get_pr_reviews(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's top-level reviews, paginating through GitHub's list endpoint.

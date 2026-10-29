@@ -136,6 +136,8 @@ _ENGINE_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_ENGINE_DIR).relative_to(ST
 _OWNERS_RELATIVE_DIR = PurePosixPath(STAMPHOG_SANDBOX_OWNERS_DIR).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
 _OWNERS_PACKAGE_RELATIVE_DIR = f"{_OWNERS_RELATIVE_DIR}/owners_yaml"
 _CONTEXT_RELATIVE_PATH = PurePosixPath(STAMPHOG_SANDBOX_CONTEXT_PATH).relative_to(STAMPHOG_SANDBOX_REPO_DIR).as_posix()
+# Each manifest costs two contents reads inside post_verdict. A PR past this escalates instead.
+_MAX_ATTESTED_MANIFESTS = 10
 
 
 # The context reads are a dozen GitHub round trips plus the familiarity reads, which run their own pool.
@@ -1030,7 +1032,32 @@ def _engine_gate_inputs(run: ReviewRun) -> tuple[dict, dict[str, str]]:
     return context, policy_files
 
 
-def _attest_gates(run: ReviewRun) -> GateAttestation:
+def _touched_paths(files: list[dict]) -> set[str]:
+    return {path for file in files for path in (file.get("filename"), file.get("previous_filename")) if path}
+
+
+def _manifest_contents(
+    client: StamphogGitHubClient, repo: str, base_sha: str, head_sha: str, paths: tuple[str, ...]
+) -> dict[str, dict[str, str]]:
+    """Each manifest's text at the merge base and at the head, for the engine's scripts scan.
+
+    A file absent at one end reads as empty, as in the checkout scan. A path that is not a readable
+    file at either end is left out, and the engine then refuses to attest.
+    """
+    contents: dict[str, dict[str, str]] = {}
+    for path in paths:
+        texts: dict[str, str] = {}
+        for side, sha in (("base", base_sha), ("head", head_sha)):
+            entry = client.get_file_at_ref(repo, path, sha)
+            if entry is not None and entry.kind != "file":
+                break
+            texts[side] = entry.text if entry is not None else ""
+        else:
+            contents[path] = texts
+    return contents
+
+
+def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestation:
     """The worker's own gate run for an approval that the sandbox reported.
 
     Nothing authenticates the sandbox's stdout, so its gate results do not decide an approval. Any
@@ -1038,14 +1065,30 @@ def _attest_gates(run: ReviewRun) -> GateAttestation:
     """
     output = run.output or {}
     pr = output.get("pr") or {}
+    merge_base_sha = output.get("merge_base_sha") or ""
     if (pr.get("head") or {}).get("sha") != run.head_sha:
         return GateAttestation(attested=False, reason="head_moved", gates=[])
-    # A renamed file still attests: the engine checks the deny-list against its previous path too.
-    if pregate_skip_reason(pr, output.get("files") or [], run.head_sha) == "file_list_incomplete":
-        return GateAttestation(attested=False, reason="file_list_incomplete", gates=[])
+    if not merge_base_sha:
+        return GateAttestation(attested=False, reason="merge_base_unknown", gates=[])
+    repo = run.pull_request.repo_config.repository
     try:
+        # The stored list came from get_pr_files, which answers for whatever head is live, so a push
+        # between two fetches can leave another head's files there. The compare is pinned to the
+        # reviewed commits. The folder files were read for the stored list, so the two must match.
+        pinned_files = client.compare_files(repo, merge_base_sha, run.head_sha)
+        if pinned_files is None:
+            return GateAttestation(attested=False, reason="file_list_incomplete", gates=[])
+        if _touched_paths(pinned_files) != _touched_paths(output.get("files") or []):
+            return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
-        return run_engine_attest(context, policy_files)
+        context["files"] = pinned_files
+        attestation = run_engine_attest(context, policy_files)
+        if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
+            context["manifest_contents"] = _manifest_contents(
+                client, repo, merge_base_sha, run.head_sha, attestation.manifests
+            )
+            attestation = run_engine_attest(context, policy_files)
+        return attestation
     except Exception:
         activity.logger.exception(f"Run {run.id}: gate attestation failed")
         return GateAttestation(attested=False, reason="error", gates=[])
@@ -1882,8 +1925,27 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     # A retry after the approval posted skips this, because the gates attested before that post.
     if parsed.verdict == ReviewVerdict.APPROVED and not parsed.gate_blocked and run.posted_review_id is None:
-        attestation = _attest_gates(run)
-        _merge_run_output(run, {"gate_attestation": {"attested": attestation.attested, "reason": attestation.reason}})
+        stored = output.get("gate_attestation")
+        if isinstance(stored, dict):
+            # A retry reuses the first answer. Another check could attest where the first did not,
+            # and post an approval over the escalation that the first attempt already delivered.
+            attestation = GateAttestation(
+                attested=stored.get("attested") is True,
+                reason=str(stored.get("reason") or ""),
+                gates=list(stored.get("gates") or []),
+            )
+        else:
+            attestation = _attest_gates(run, client)
+            _merge_run_output(
+                run,
+                {
+                    "gate_attestation": {
+                        "attested": attestation.attested,
+                        "reason": attestation.reason,
+                        "gates": attestation.gates,
+                    }
+                },
+            )
         if not attestation.attested:
             if attestation.reason == "gate_failed":
                 # The sandbox reported every gate passed, so its output disagrees with the worker's.

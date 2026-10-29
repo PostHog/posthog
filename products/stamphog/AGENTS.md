@@ -281,7 +281,10 @@ Anything in doubt, and any error, falls through to the full review.
 
 The sandbox runs over a PR-controlled checkout, and nothing authenticates its stdout, so `post_verdict` never posts an approval on the sandbox's report alone.
 Before the approve branch, `_attest_gates` runs `review_local.py --attest` on the worker in the same tree as the pre-check, and a run that does not attest is posted as ESCALATE.
-Every input the worker cannot confirm fails the check: a truncated file list, unread folder files, a dependency manifest that the git scan would read, or an engine error.
+The check reads the file list from a compare pinned to the merge base and the reviewed head, never from `get_pr_files`, which answers for whatever head is live.
+It reads each dependency manifest at both commits from GitHub, so the scripts scan runs without a checkout.
+Every input the worker cannot confirm fails the check: a file list GitHub may have cut short, one that differs from the stored list, unread folder files or manifests, or an engine error.
+A retry of `post_verdict` reuses the stored answer, because a second check that attests would post an approval over a delivered escalation.
 A new path to an approval must go through this check too.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a

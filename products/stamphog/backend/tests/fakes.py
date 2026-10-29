@@ -194,6 +194,10 @@ class GitHubRecorder:
         self.repo_files: dict[tuple[str, str], str] = {}
         # (repo, path) -> link target, for a symlink the contents API reports as a symlink object.
         self.repo_symlinks: dict[tuple[str, str], str] = {}
+        # (path, ref) -> text, for a file whose contents differ between two commits.
+        self.files_at_ref: dict[tuple[str, str], str] = {}
+        # The files every compare lists, for a caller that pins a PR's file list to two commits.
+        self.compare_files: list[dict] = []
         # Repositories with no commits at all. GitHub answers their head lookup with a null
         # defaultBranchRef, which is what a freshly created connected repo looks like.
         self.empty_repositories: set[str] = set()
@@ -239,7 +243,9 @@ class GitHubRecorder:
         if method == "GET" and path == "/search/issues":
             return self._search_issues(params)
         if method == "GET" and _COMPARE_RE.match(path):
-            return FakeResponse(200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}})
+            return FakeResponse(
+                200, json_data={"merge_base_commit": {"sha": self.merge_base_sha}, "files": self.compare_files}
+            )
         if method == "GET" and _CHECK_RUNS_RE.match(path):
             return FakeResponse(200, json_data={"check_runs": []})
         if method == "GET" and (m := _COLLABORATOR_PERMISSION_RE.match(path)):
@@ -256,7 +262,7 @@ class GitHubRecorder:
             return self._remove_reaction(m.group("repo"), int(m.group("number")), int(m.group("rid")))
         if method == "GET" and (m := _CONTENTS_RE.match(path)):
             raw = "raw" in (kwargs.get("headers") or {}).get("Accept", "")
-            return self._get_contents(m.group("repo"), m.group("path"), raw=raw)
+            return self._get_contents(m.group("repo"), m.group("path"), raw=raw, ref=str(params.get("ref") or ""))
         if method == "POST" and path == "/graphql":
             return self._graphql(json_body or {})
         if method == "GET" and (m := _REVIEWS_RE.match(path)):
@@ -310,11 +316,11 @@ class GitHubRecorder:
         numbers = self.author_merged.get((repo, author), []) if page == 1 else []
         return FakeResponse(200, json_data={"items": [{"number": n} for n in numbers]})
 
-    def _get_contents(self, repo: str, path: str, *, raw: bool = True) -> FakeResponse:
+    def _get_contents(self, repo: str, path: str, *, raw: bool = True, ref: str = "") -> FakeResponse:
         if (repo, path) in self.repo_symlinks:
             target = self.repo_symlinks[(repo, path)]
             return FakeResponse(200, json_data={"type": "symlink", "path": path, "target": target})
-        content = self.repo_files.get((repo, path), self.policy_files.get(path))
+        content = self.files_at_ref.get((path, ref), self.repo_files.get((repo, path), self.policy_files.get(path)))
         if content is None:
             return FakeResponse(404, text="not found")
         if not raw:

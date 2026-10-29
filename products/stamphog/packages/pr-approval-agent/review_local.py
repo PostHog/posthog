@@ -611,9 +611,11 @@ def attest(context: dict) -> dict:
     every condition that the sandbox needs before it may ask the LLM: no refused bot author, every
     gate passed, and no reviewer in flight. ``reason`` names the first condition that failed.
 
-    Two inputs need the checkout, so an unknown value fails the check rather than guessing. The
-    folder files can lower a size ceiling, so ``folder_policies_known`` must be set. The manifest
-    scripts scan reads git and can add a deny, so a dependency manifest without its lockfile fails.
+    Two inputs come from the checkout in the sandbox, so an unknown value fails the check rather
+    than guessing. The folder files can lower a size ceiling, so ``folder_policies_known`` must be
+    set. The manifest scripts scan can add a deny, so each dependency manifest without its lockfile
+    needs its texts in ``manifest_contents``. Without them the reason is ``dependency_manifest``,
+    and ``manifests`` names the paths for the server to read and pass in on a second run.
     """
     pipeline = Pipeline(
         0,
@@ -633,8 +635,12 @@ def attest(context: dict) -> dict:
         return outcome("bot_author")
     if context.get("folder_policies_known") is not True:
         return outcome("folder_policies_unknown")
-    if dependency_manifests_without_lockfile(pipeline.pr.file_paths):
-        return outcome("dependency_manifest")
+    manifests = dependency_manifests_without_lockfile(pipeline.pr.file_paths)
+    manifest_contents = context.get("manifest_contents")
+    if manifests:
+        if not isinstance(manifest_contents, dict) or any(path not in manifest_contents for path in manifests):
+            return {**outcome("dependency_manifest"), "manifests": manifests}
+        pipeline.manifest_contents = manifest_contents
 
     pipeline.author_team_slugs = _author_team_slugs(context)
     pipeline._classify()

@@ -15,9 +15,10 @@ directives). Parse failures fail closed.
 
 import re
 import json
+import difflib
 import tomllib
 import subprocess
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import NamedTuple
 
@@ -193,5 +194,30 @@ def manifest_script_changes(
             head_show.stdout if head_show.returncode == 0 else "",
             diff.stdout if diff.returncode == 0 else "",
         ):
+            risky.append(path)
+    return risky
+
+
+def manifest_script_changes_from_contents(
+    manifest_paths: list[str], contents: Mapping[str, Mapping[str, str]]
+) -> list[str]:
+    """``manifest_script_changes`` over texts that a caller read at the merge base and at the head.
+
+    The server's gate check has no checkout, so it reads each manifest from GitHub and passes the
+    texts in. A manifest without both texts counts as risky, the same fail-closed answer that the
+    checkout scan gives for an unreadable repo state.
+    """
+    risky = []
+    for path in manifest_paths:
+        entry = contents.get(path)
+        base_text = entry.get("base") if isinstance(entry, Mapping) else None
+        head_text = entry.get("head") if isinstance(entry, Mapping) else None
+        if not isinstance(base_text, str) or not isinstance(head_text, str):
+            risky.append(path)
+            continue
+        diff = "".join(
+            difflib.unified_diff(base_text.splitlines(True), head_text.splitlines(True), f"a/{path}", f"b/{path}")
+        )
+        if manifest_change_is_risky(path, base_text, head_text, diff):
             risky.append(path)
     return risky
