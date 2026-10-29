@@ -124,7 +124,7 @@ function TracingSceneContents(): JSX.Element {
         latencyHeatmapData,
         latencyHeatmapLoading,
         showHeatmap,
-        activeTracingTab,
+        displayMode,
         compareActive,
         sceneTabsEnabled,
         activeSceneTab,
@@ -154,7 +154,6 @@ function TracingSceneContents(): JSX.Element {
     } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
     const { facetRailCollapsed, spanColumns } = useValues(tracingConfigLogic)
-    const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
     const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
     const heatmapEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_LATENCY_HEATMAP]
     const impactStripEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_IMPACT_STRIP]
@@ -312,10 +311,20 @@ function TracingSceneContents(): JSX.Element {
                     {facetRailEnabled && !facetRailCollapsed && <TracingFacetRail />}
                     <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                         <TracingDisplayBar />
-                        {compareActive && (!operationsViewEnabled || activeTracingTab !== 'operations') && (
+                        {compareActive && displayMode !== 'operations' && displayMode !== 'endpoints' && (
                             <ComparisonBar />
                         )}
-                        {operationsViewEnabled && activeTracingTab === 'operations' ? (
+                        {displayMode === 'endpoints' ? (
+                            // No row click yet: an endpoint row can merge span names, and the
+                            // operation page opens one span name.
+                            <OperationsTable
+                                rows={aggregation.current}
+                                loading={aggregationLoading}
+                                windowMs={operationsWindowMs}
+                                showImpact={impactStripEnabled}
+                                groupedByEndpoint
+                            />
+                        ) : displayMode === 'operations' ? (
                             <OperationsTable
                                 rows={aggregation.current}
                                 loading={aggregationLoading}

@@ -2890,6 +2890,7 @@ const api = {
                 limit?: number
                 offset?: number
                 includeImpact?: boolean
+                groupByEndpoint?: boolean
             },
             signal?: AbortSignal
         ): Promise<{

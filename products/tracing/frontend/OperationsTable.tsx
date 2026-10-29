@@ -56,7 +56,11 @@ const impactCell =
         )
     }
 
-function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableColumn<AggregatedSpanRow>[] {
+function buildColumns(
+    windowMs: number,
+    showImpact: boolean,
+    groupedByEndpoint: boolean
+): VirtualizedTableColumn<AggregatedSpanRow>[] {
     const impactColumns: VirtualizedTableColumn<AggregatedSpanRow>[] = showImpact
         ? [
               {
@@ -96,7 +100,7 @@ function buildColumns(windowMs: number, showImpact: boolean): VirtualizedTableCo
         },
         {
             key: 'name',
-            title: 'Operation',
+            title: groupedByEndpoint ? 'Endpoint' : 'Operation',
             width: 320,
             grow: true,
             sorter: (a, b) => a.name.localeCompare(b.name),
@@ -195,6 +199,8 @@ export interface OperationsTableProps {
     windowMs: number
     /** Show the Sessions and Users columns. Must match the `includeImpact` the rows were fetched with. */
     showImpact?: boolean
+    /** Rows are `METHOD route` endpoints. Must match the `groupByEndpoint` the rows were fetched with. */
+    groupedByEndpoint?: boolean
     onRowClick?: (row: AggregatedSpanRow) => void
 }
 
@@ -203,9 +209,13 @@ export function OperationsTable({
     loading,
     windowMs,
     showImpact = false,
+    groupedByEndpoint = false,
     onRowClick,
 }: OperationsTableProps): JSX.Element {
-    const columns = useMemo(() => buildColumns(windowMs, showImpact), [windowMs, showImpact])
+    const columns = useMemo(
+        () => buildColumns(windowMs, showImpact, groupedByEndpoint),
+        [windowMs, showImpact, groupedByEndpoint]
+    )
     return (
         <VirtualizedTable<AggregatedSpanRow>
             // pinned: identifies stored column widths — renaming resets everyone's widths
@@ -216,7 +226,11 @@ export function OperationsTable({
             rowKey={operationRowKey}
             onRowClick={onRowClick}
             defaultSort={{ columnKey: 'total_time', order: -1 }}
-            emptyLabel="No operations found for these filters"
+            emptyLabel={
+                groupedByEndpoint
+                    ? 'No HTTP server spans found for these filters'
+                    : 'No operations found for these filters'
+            }
             data-attr="tracing-operations-table"
         />
     )

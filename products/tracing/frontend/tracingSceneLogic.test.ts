@@ -143,14 +143,19 @@ describe('tracingSceneLogic', () => {
         expect(filtersLogic.values.comparison).toMatchObject({ preset: 'yesterday' })
     })
 
-    it('opens the operations view from a ?view=operations deep link', () => {
-        enableOperationsView()
-        mountAt({ view: 'operations' })
-        expect(logic.values.activeTracingTab).toBe('operations')
+    it.each([
+        ['operations', FEATURE_FLAGS.TRACING_OPERATIONS_VIEW, undefined],
+        ['endpoints', FEATURE_FLAGS.TRACING_ENDPOINTS_VIEW, true],
+    ] as const)('opens the %s view from a deep link and fetches its aggregate', (view, flag, groupByEndpoint) => {
+        const aggregate = jest.spyOn(api.tracing, 'aggregate')
+        featureFlagLogic.actions.setFeatureFlags([], { [flag]: true })
+        mountAt({ view })
+        expect(logic.values.activeTracingTab).toBe(view)
+        expect(aggregate).toHaveBeenLastCalledWith(expect.objectContaining({ groupByEndpoint }), expect.anything())
     })
 
-    it('ignores ?view=operations when the operations view flag is off', () => {
-        const filtersLogic = mountAt({ view: 'operations' })
+    it.each(['operations', 'endpoints'])('ignores ?view=%s when its flag is off', (view) => {
+        const filtersLogic = mountAt({ view })
         expect(logic.values.activeTracingTab).toBe('traces')
         expect(filtersLogic.values.viewMode).toBe('spans')
     })
