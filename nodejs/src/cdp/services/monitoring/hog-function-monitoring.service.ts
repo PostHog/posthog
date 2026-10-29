@@ -70,6 +70,9 @@ export const isHogFlowResult = (
     return 'hogFlow' in result.invocation
 }
 
+// Bounded so that shutdown still fits inside the pod's termination grace period.
+const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
+
 export class HogFunctionMonitoringService {
     queuedLogMessages: LogEntrySerialized[] = []
 
@@ -83,10 +86,9 @@ export class HogFunctionMonitoringService {
     }
 
     // Required by ResultSink. This sink writes through the shared Kafka outputs, which the server
-    // disconnects separately on shutdown. Internal logs still queued or in flight are dropped, and
-    // `log_entries` still has every row.
+    // disconnects separately on shutdown.
     async stop(): Promise<void> {
-        return Promise.resolve()
+        await this.internalLogsProducer?.drain(INTERNAL_LOGS_DRAIN_TIMEOUT_MS)
     }
 
     async flush() {
@@ -159,19 +161,19 @@ export class HogFunctionMonitoringService {
     }
 
     queueLogs(logEntries: LogEntry[], source: MetricLogSource) {
-        const logs = fixLogDeduplication(
-            logEntries.map((logEntry) => ({
-                ...logEntry,
-                log_source: source,
-            }))
-        )
+        const sourcedLogEntries = logEntries.map((logEntry) => ({
+            ...logEntry,
+            log_source: source,
+        }))
+        // Sorts its input in place and moves equal timestamps apart, which `sourcedLogEntries` then carries.
+        const logs = fixLogDeduplication(sourcedLogEntries)
 
         logs.forEach((logEntry) => {
             this.queuedLogMessages.push(logEntry)
         })
         hogFunctionMonitoringPendingMessages.set(this.queuedLogMessages.length)
 
-        this.internalLogsProducer?.enqueue(source, logEntries)
+        this.internalLogsProducer?.enqueue(source, sourcedLogEntries)
     }
 
     queueInvocationResults(results: CyclotronJobInvocationResult[]): void {

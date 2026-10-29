@@ -124,7 +124,7 @@ describe('HogFunctionMonitoringService', () => {
         ])
     })
 
-    it('sends accepted logs to the logs product on flush and still writes every log entry', async () => {
+    it('sends accepted logs to the logs product with the log entry timestamps, and drains them on stop', async () => {
         const fetchMock = jest.mocked(internalFetch).mockResolvedValue({ status: 200, dump: jest.fn() } as any)
         const producer = new InternalLogsProducer(
             {
@@ -132,6 +132,8 @@ describe('HogFunctionMonitoringService', () => {
                 LOGS_INTERNAL_PRODUCER_URL: 'http://capture-logs.test/i/v1/logs',
                 LOGS_INTERNAL_PRODUCER_TEAMS: '2',
                 LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT: 20,
+                LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES: 1024 * 1024,
+                LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS: 1_000,
             },
             { getTeam: (teamId: number) => Promise.resolve({ id: teamId, api_token: `phc_${teamId}` } as any) }
         )
@@ -146,16 +148,26 @@ describe('HogFunctionMonitoringService', () => {
             level: 'info',
             message: `team ${teamId}`,
         })
-        service.queueLogs([log(2), log(3)], 'hog_flow')
+        service.queueLogs([log(2), log(2), log(3)], 'hog_flow')
         service.queueLogs([log(2)], 'hog_function')
 
         await service.flush()
         await producerFlush.mock.results[0].value
 
-        expect(produceMock).toHaveBeenCalledTimes(3)
+        expect(produceMock).toHaveBeenCalledTimes(4)
         expect(fetchMock).toHaveBeenCalledTimes(1)
         const [, options] = fetchMock.mock.calls[0]
         const body = parseJSON(options!.body as string) as any
-        expect(body.resourceLogs[0].scopeLogs[0].logRecords.map((r: any) => r.body.stringValue)).toEqual(['team 2'])
+        const records = body.resourceLogs[0].scopeLogs[0].logRecords
+        expect(records.map((r: any) => r.body.stringValue)).toEqual(['team 2', 'team 2'])
+        const entryMillis = produceMock.mock.calls
+            .map(([message]) => parseJSON(message.value.toString()) as Record<string, unknown>)
+            .filter((row) => row.team_id === 2 && row.log_source === 'hog_flow')
+            .map((row) => DateTime.fromSQL(row.timestamp as string, { zone: 'utc' }).toMillis())
+        expect(records.map((r: any) => Number(BigInt(r.timeUnixNano) / 1_000_000n))).toEqual(entryMillis)
+
+        service.queueLogs([log(2)], 'hog_flow')
+        await service.stop()
+        expect(fetchMock).toHaveBeenCalledTimes(2)
     })
 })
