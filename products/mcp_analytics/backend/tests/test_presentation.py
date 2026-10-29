@@ -662,6 +662,7 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             ("empty_pattern", {"name": "Ok", "match_pattern": " "}),
             ("reserved_other", {"name": "other", "match_pattern": "ok"}),
             ("reserved_unidentified", {"name": "Unidentified client", "match_pattern": "ok"}),
+            ("built_in_harness_label", {"name": " cursor ", "match_pattern": "ok"}),
             ("icon_not_an_image", {"name": "Ok", "match_pattern": "ok", "icon": "data:text/plain;base64,aGk="}),
         ]
     )
@@ -680,6 +681,31 @@ class TestMCPCustomHarnessEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         )
         over_limit = self.client.post(self._url(), {"name": "Extra", "match_pattern": "extra"}, format="json")
         assert over_limit.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            ("same_case", "Acme"),
+            ("other_case", " ACME "),
+        ]
+    )
+    def test_create_rejects_a_name_another_rule_uses(self, _name: str, duplicate_name: str) -> None:
+        self.client.post(self._url(), {"name": "Acme", "match_pattern": "acme"}, format="json")
+
+        response = self.client.post(self._url(), {"name": duplicate_name, "match_pattern": "acme-cli"}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "name"
+
+    def test_update_keeps_its_own_name_but_cannot_take_another_rules_name(self) -> None:
+        first = self.client.post(self._url(), {"name": "Acme", "match_pattern": "acme"}, format="json").json()
+        self.client.post(self._url(), {"name": "Beta", "match_pattern": "beta"}, format="json")
+
+        same_name = self.client.patch(self._url(f"{first['id']}/"), {"name": "acme"}, format="json")
+        taken_name = self.client.patch(self._url(f"{first['id']}/"), {"name": "Beta"}, format="json")
+
+        assert same_name.status_code == status.HTTP_200_OK
+        assert taken_name.status_code == status.HTTP_400_BAD_REQUEST
+        assert taken_name.json()["attr"] == "name"
 
     def test_a_redis_outage_falls_back_to_postgres_without_reporting_an_exception(self) -> None:
         MCPCustomHarness.objects.create(team=self.team, name="One", match_pattern="one")
