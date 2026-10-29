@@ -1033,8 +1033,8 @@ def _engine_gate_inputs(run: ReviewRun) -> tuple[dict, dict[str, str]]:
     return context, policy_files
 
 
-def _touched_paths(files: list[dict]) -> set[str]:
-    return {path for file in files for path in (file.get("filename"), file.get("previous_filename")) if path}
+def _file_entries(files: list[dict]) -> set[tuple[str | None, str | None]]:
+    return {(file.get("filename"), file.get("previous_filename")) for file in files}
 
 
 def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestation:
@@ -1054,11 +1054,12 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
     try:
         # The stored list came from get_pr_files, which answers for whatever head is live, so a push
         # between two fetches can leave another head's files there. The compare is pinned to the
-        # reviewed commits. The folder files were read for the stored list, so the two must match.
+        # reviewed commits. The folder files were read for the stored list's filenames, so the two
+        # must match entry for entry: a rename split into a deletion and an addition adds a filename.
         pinned_files = client.compare_files(repo, merge_base_sha, run.head_sha)
         if pinned_files is None:
             return GateAttestation(attested=False, reason="file_list_incomplete", gates=[])
-        if _touched_paths(pinned_files) != _touched_paths(output.get("files") or []):
+        if _file_entries(pinned_files) != _file_entries(output.get("files") or []):
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files

@@ -838,6 +838,19 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
             "gate_failed",
             id="go-mod-replace-after-an-unterminated-line",
         ),
+        pytest.param(
+            {
+                **_pregate_context([_api_file("go.mod")], folder_policies_known=True),
+                "manifest_contents": {
+                    "go.mod": {
+                        "base": "module example.com/app\n\n// note\vreplace example.com/lib => example.org/lib v1.0.0\n",
+                        "head": "module example.com/app\n\n// note\nreplace example.com/lib => example.org/lib v1.0.0\n",
+                    }
+                },
+            },
+            "gate_failed",
+            id="go-mod-replace-uncommented-by-a-vertical-tab-swap",
+        ),
     ],
 )
 def test_attest_confirms_only_what_the_full_review_would_approve(

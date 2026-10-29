@@ -331,6 +331,14 @@ def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, s
     assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
 
 
+def _api_file(filename: str) -> dict:
+    return {"filename": filename, "status": "modified", "additions": 8, "deletions": 1, "patch": "@@ -1 +1 @@"}
+
+
+def _as_api_file(entry: str | dict) -> dict:
+    return _api_file(entry) if isinstance(entry, str) else entry
+
+
 _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite build"}}\n'
 
 
@@ -339,6 +347,17 @@ _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite
     [
         pytest.param(["src/util.py"], ["src/util.py"], None, None, "", id="pinned-list-matches"),
         pytest.param(["src/util.py"], ["terraform/main.tf"], None, None, "file_list_moved", id="pinned-list-moved"),
+        pytest.param(
+            [{**_api_file("src/new/util.py"), "status": "renamed", "previous_filename": "src/old/util.py"}],
+            [
+                {**_api_file("src/old/util.py"), "status": "removed"},
+                {**_api_file("src/new/util.py"), "status": "added"},
+            ],
+            None,
+            None,
+            "file_list_moved",
+            id="pinned-rename-split-into-delete-and-add",
+        ),
         pytest.param(
             ["frontend/package.json"],
             ["frontend/package.json"],
@@ -369,8 +388,8 @@ _MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite
 def test_the_worker_attests_from_the_reviewed_commits(
     team,
     stamphog_chain: StamphogChain,
-    files: list[str],
-    compare_files: list[str],
+    files: list[str | dict],
+    compare_files: list[str | dict],
     manifest_head: str | None,
     head_link: str | None,
     expect_reason: str,
@@ -378,8 +397,8 @@ def test_the_worker_attests_from_the_reviewed_commits(
     repo_config = _repo_config(team.id)
     recorder = stamphog_chain.recorder
     author, head_sha = "devex-dev", "sha103a"
-    recorder.register_pr(REPO, 103, _pr_object(103, author, head_sha), [_api_file(path) for path in files])
-    recorder.compare_files = [_api_file(path) for path in compare_files]
+    recorder.register_pr(REPO, 103, _pr_object(103, author, head_sha), [_as_api_file(entry) for entry in files])
+    recorder.compare_files = [_as_api_file(entry) for entry in compare_files]
     if manifest_head is not None or head_link is not None:
         recorder.files_at_ref[("frontend/package.json", recorder.merge_base_sha)] = _MANIFEST_BASE
     if manifest_head is not None:
@@ -398,10 +417,6 @@ def test_the_worker_attests_from_the_reviewed_commits(
     assert (run.verdict, len(approvals)) == (
         (ReviewVerdict.APPROVED, 1) if not expect_reason else (ReviewVerdict.ESCALATE, 0)
     )
-
-
-def _api_file(filename: str) -> dict:
-    return {"filename": filename, "status": "modified", "additions": 8, "deletions": 1, "patch": "@@ -1 +1 @@"}
 
 
 def _big_api_file(filename: str, additions: int) -> dict:

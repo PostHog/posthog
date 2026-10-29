@@ -198,6 +198,18 @@ def manifest_script_changes(
     return risky
 
 
+def _git_diff_lines(text: str) -> list[str]:
+    """The lines ``git diff`` sees: split on LF alone, each one ending in a newline.
+
+    ``str.splitlines`` also splits on characters such as a vertical tab, which git keeps inside a
+    line, so a change between the two would not show in the diff. And difflib joins a last line
+    without a newline onto the next diff line, where the line scan misses a key at its start.
+    """
+    if not text:
+        return []
+    return [f"{line}\n" for line in text.removesuffix("\n").split("\n")]
+
+
 def manifest_script_changes_from_contents(
     manifest_paths: list[str], contents: Mapping[str, Mapping[str, str]]
 ) -> list[str]:
@@ -215,12 +227,10 @@ def manifest_script_changes_from_contents(
         if not isinstance(base_text, str) or not isinstance(head_text, str):
             risky.append(path)
             continue
-        # Every line gets its own newline. difflib joins a last line that has none onto the next diff
-        # line, and the line scan would then miss a key at the start of that line.
         diff = "".join(
             difflib.unified_diff(
-                [f"{line}\n" for line in base_text.splitlines()],
-                [f"{line}\n" for line in head_text.splitlines()],
+                _git_diff_lines(base_text),
+                _git_diff_lines(head_text),
                 f"a/{path}",
                 f"b/{path}",
             )
