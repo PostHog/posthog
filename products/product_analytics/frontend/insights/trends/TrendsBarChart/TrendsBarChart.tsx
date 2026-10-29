@@ -116,6 +116,7 @@ export function TrendsBarChart({
         isStickiness,
         labelGroupType,
         hasPersonsModal,
+        actionNames,
         querySource,
         getTrendsColor,
         getTrendsHidden,
@@ -131,8 +132,8 @@ export function TrendsBarChart({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource),
-        [querySource]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const seriesIdentification = useMemo(
@@ -165,18 +166,20 @@ export function TrendsBarChart({
         (r: IndexedTrendResult): string =>
             getAggregatedDisplayLabelFn(r, {
                 querySource,
+                actionNames,
                 stackBreakdowns,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
             }),
-        [querySource, stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+        [querySource, actionNames, stackBreakdowns, breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
     )
 
     const getLabel = useCallback(
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts?.results,
                 formatPropertyValueForDisplay,
@@ -185,6 +188,7 @@ export function TrendsBarChart({
             }),
         [
             querySource,
+            actionNames,
             breakdownFilter,
             allCohorts?.results,
             formatPropertyValueForDisplay,
