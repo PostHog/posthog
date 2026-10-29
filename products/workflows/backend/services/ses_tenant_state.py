@@ -16,7 +16,7 @@ from posthog.tasks.email import (
 
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.providers.ses import SESProvider
-from products.workflows.backend.services.email_sending_tier import SesTenantState
+from products.workflows.backend.services.email_sending_tier import SesTenantState, recompute_email_sending_tier_for_team
 from products.workflows.backend.services.email_sending_tier_audit import log_email_sending_tier_change
 from products.workflows.backend.utils.email_sending_tiers import MIN_EMAIL_SENDING_TIER
 
@@ -59,6 +59,17 @@ def _announce_state_change(team_id: int) -> None:
         reload_team_workflows_config_on_workers(team_id)
     except Exception:
         logger.exception("Failed to announce SES tenant state change to workers", team_id=team_id)
+
+
+def _recompute_tier(team_id: int) -> None:
+    """
+    Best effort, like the announcement: the state change has already committed, and the daily
+    sweep applies the same decision if this one fails.
+    """
+    try:
+        recompute_email_sending_tier_for_team(team_id)
+    except Exception:
+        logger.exception("Failed to recompute email sending tier after SES tenant state change", team_id=team_id)
 
 
 def sync_ses_tenant_state(team_id: int, provider: SESProvider | None = None, *, verify_team: bool = True) -> None:
@@ -152,6 +163,15 @@ def apply_ses_tenant_state(
         # sending and a reinstatement keeps blocking until the entry expires. After commit, so the
         # worker cannot re-read the row before the new state is visible and cache it again.
         transaction.on_commit(lambda: _announce_state_change(team_id))
+
+        is_verified_clean = SesTenantState(sending_status=sending_status, reputation_impact=impact).is_verified_clean
+        was_verified_clean = SesTenantState(
+            sending_status=previous_status, reputation_impact=previous_impact
+        ).is_verified_clean
+        if is_verified_clean and not was_verified_clean:
+            # A trusted account qualifies for its floor once AWS confirms the tenant, so raise it now
+            # rather than at the next daily sweep, before the team's first send meets the tier 0 cap.
+            transaction.on_commit(lambda: _recompute_tier(team_id))
 
         notify = _pick_notification(
             previous_status=previous_status,

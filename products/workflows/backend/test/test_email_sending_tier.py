@@ -378,7 +378,9 @@ class TestEmailSendingTierDecision(SimpleTestCase):
             ("never synced by billing", None, 120, 7, 5, False, 0, 0, "tier_not_used_enough"),
             ("not paying", False, 120, 7, 5, False, 0, 0, "tier_not_used_enough"),
             ("organization too new", True, 30, 7, 5, False, 0, 0, "tier_not_used_enough"),
-            ("no recent sends", True, 120, 7, 0, False, 0, 0, "tier_not_used_enough"),
+            ("before its first send", True, 120, 7, 0, False, 0, 3, "trusted_account"),
+            ("dormant at the floor", True, 120, 7, 0, False, 3, 3, "tier_not_used_enough"),
+            ("dormant above the floor", True, 120, 7, 0, False, 4, 3, "inactive"),
             ("demoted for its rates before", True, 120, 7, 5, True, 0, 0, "tier_not_used_enough"),
             ("already at the floor", True, 120, 7, 5, False, 3, 3, "tier_not_used_enough"),
             ("bounces on a sample too small to demote", True, 120, 7, 100, False, 0, 0, "tier_not_used_enough", 100),
@@ -484,7 +486,8 @@ class TestRecomputeEmailSendingTiers(BaseTest):
         assert (detail["trigger"] or {}).get("job_type") == expected_job_type
         assert [(c["field"], c["before"], c["after"]) for c in detail["changes"]] == [("email_sending_tier", 0, 1)]
 
-    def test_sweep_lifts_an_established_paying_account_to_the_trusted_floor(self) -> None:
+    @parameterized.expand([("sending", 5), ("before its first send", 0)])
+    def test_sweep_lifts_an_established_paying_account_to_the_trusted_floor(self, _name: str, sent: int) -> None:
         self.organization.has_active_subscription = True
         self.organization.created_at = timezone.now() - timedelta(days=120)
         self.organization.customer_trust_scores = {"workflow_emails": 7}
@@ -496,11 +499,32 @@ class TestRecomputeEmailSendingTiers(BaseTest):
             ses_tenant_reputation_impact="NONE",
         )
 
-        self._run({self.team.id: history(team_id=self.team.id, sent=5, daily_sends=clean_days(1, 5))})
+        self._run(
+            {self.team.id: history(team_id=self.team.id, sent=sent, daily_sends=clean_days(1, sent))} if sent else {}
+        )
 
         assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 3
         entry = ActivityLog.objects.get(scope="Team", team_id=self.team.id, activity="email_sending_tier_changed")
         assert (entry.detail or {})["context"] == {"reason": "trusted_account"}
+
+    def test_trusted_account_gets_the_floor_when_aws_first_enables_its_tenant(self) -> None:
+        self.organization.has_active_subscription = True
+        self.organization.created_at = timezone.now() - timedelta(days=120)
+        self.organization.customer_trust_scores = {"workflow_emails": 7}
+        self.organization.save()
+        self._config(email_sending_tier=0)
+
+        with (
+            patch(
+                "products.workflows.backend.services.email_sending_tier.build_sending_history_windows",
+                return_value=SendingHistoryWindows(window={}, recent={}),
+            ),
+            patch("products.workflows.backend.services.ses_tenant_state.reload_team_workflows_config_on_workers"),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            apply_ses_tenant_state(self.team.id, sending_status="ENABLED", reputation_impact="NONE")
+
+        assert TeamWorkflowsConfig.objects.get(team=self.team).email_sending_tier == 3
 
     @parameterized.expand([("staff_suspension",), ("ses_tenant_pause",)])
     def test_reinstated_team_does_not_regain_the_trusted_floor(self, suspension: str) -> None:

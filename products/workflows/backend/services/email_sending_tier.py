@@ -266,10 +266,19 @@ def decide_tier(
             reason=demotion_reason,
         )
 
+    # The floor rests on the account's standing rather than its sending, so a qualifying team gets it
+    # before its first send and keeps it through a quiet month. A team that was ever demoted,
+    # suspended or paused climbs on its own sending only.
+    trusted_floor = (
+        trusted_floor_tier(account_trust, now=now)
+        if last_rate_demotion_at is None and history.observed_rates_are_clean and tenant.is_verified_clean
+        else MIN_EMAIL_SENDING_TIER
+    )
+
     decay_days = settings.WORKFLOWS_EMAIL_TIER_INACTIVITY_DECAY_DAYS
     if (
         decay_days > 0
-        and current_tier > MIN_EMAIL_SENDING_TIER
+        and current_tier > trusted_floor
         and history.sent == 0
         and tier_updated_at is not None
         and now - tier_updated_at >= timedelta(days=decay_days)
@@ -307,19 +316,10 @@ def decide_tier(
             reason="ses_reputation_not_clean",
         )
 
-    # Only a team that sends now gets the floor. A dormant team then still decays below it, and a
-    # team that was ever demoted or suspended climbs on its own sending only.
-    if (
-        history.sent > 0
-        and last_rate_demotion_at is None
-        and history.observed_rates_are_clean
-        and tenant.is_verified_clean
-    ):
-        floor = trusted_floor_tier(account_trust, now=now)
-        if floor > current_tier:
-            return TierDecision(
-                team_id=history.team_id, previous_tier=current_tier, new_tier=floor, reason="trusted_account"
-            )
+    if trusted_floor > current_tier:
+        return TierDecision(
+            team_id=history.team_id, previous_tier=current_tier, new_tier=trusted_floor, reason="trusted_account"
+        )
 
     if require_time_at_tier:
         anchor = tier_updated_at
@@ -500,7 +500,8 @@ def recompute_email_sending_tiers(
     Move every candidate team at most one tier, up or down.
 
     Candidates are teams that sent workflow email in the window plus teams whose stored state can
-    only be corrected by a run: a suspended team owed a demotion, and any team already above tier 0.
+    only be corrected by a run: a suspended team owed a demotion, any team already above tier 0, and
+    a team at tier 0 with a healthy tenant, which may qualify for the trusted floor before it sends.
     A pinned team is skipped in both directions.
 
     Returns every decision, including holds (`changed` False, with the reason), so callers like the
@@ -517,10 +518,23 @@ def recompute_email_sending_tiers(
     stateful_teams = TeamWorkflowsConfig.objects.filter(email_sending_tier_pinned=False).exclude(
         email_sending_tier=MIN_EMAIL_SENDING_TIER, email_sending_suspended_at__isnull=True
     )
+    floor_candidates = TeamWorkflowsConfig.objects.filter(
+        email_sending_tier_pinned=False,
+        email_sending_tier=MIN_EMAIL_SENDING_TIER,
+        email_sending_tier_demoted_at__isnull=True,
+        email_sending_suspended_at__isnull=True,
+        ses_tenant_sending_status="ENABLED",
+        ses_tenant_reputation_impact="NONE",
+    )
     if team_ids is not None:
         stateful_teams = stateful_teams.filter(team_id__in=team_ids)
+        floor_candidates = floor_candidates.filter(team_id__in=team_ids)
 
-    candidate_ids = set(histories) | set(stateful_teams.values_list("team_id", flat=True))
+    candidate_ids = (
+        set(histories)
+        | set(stateful_teams.values_list("team_id", flat=True))
+        | set(floor_candidates.values_list("team_id", flat=True))
+    )
     if not candidate_ids:
         return []
 

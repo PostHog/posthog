@@ -48,12 +48,13 @@ None of them are wired there yet; the charts change is part of turning the rollo
 
 In order: staff suspension or an AWS-paused tenant drops to tier 0; a dirty 7-day window, a workflow auto-pause, or a HIGH tenant reputation impact demotes one tier (at most once per cooldown, anchored on the last rate demotion); a tier above 0 with zero sends for the decay period drops one step per period; promotion needs the dwell served, real use of the tier (at least the use ratio of the daily cap on the minimum number of separate days, counted only after the tier anchor), a clean 30-day window, and a clean tenant reputation.
 A trusted account skips the dwell and the use bar and moves straight to the floor, tier 3.
-It qualifies when its organization has an active subscription and a Billing `workflow_emails` trust score of at least 7, is at least 90 days old, the team sent workflow email inside the 30-day window with clean rates, AWS has synced its tenant as enabled with no reputation impact, and the team was never demoted, suspended by staff, or paused by AWS.
+It qualifies when its organization has an active subscription and a Billing `workflow_emails` trust score of at least 7, is at least 90 days old, the team's rates inside the 30-day window are clean, AWS has synced its tenant as enabled with no reputation impact, and the team was never demoted, suspended by staff, or paused by AWS.
 For the floor, the bounce and complaint rates count on any number of sends, because the floor skips the volume bar that otherwise backs up a small sample.
 An AWS pause drops an unpinned team to tier 0 at once, as a staff suspension does.
 Billing counts a free trial as an active subscription and gives it the same score as most paid plans (3), so the score bar is what keeps trials out.
 An unsynced subscription (`NULL`) or a missing score does not qualify.
-A dormant trusted team still decays below its floor, and it returns to the floor on the first sweep after it sends again.
+A qualifying team does not need to have sent anything: it gets the floor as soon as AWS reports its tenant as enabled with no reputation impact, without waiting for the daily sweep, so its first sends are not held to the tier 0 cap.
+Inactivity decay stops at the floor, so a dormant trusted team keeps tier 3.
 Rates only count on a meaningful denominator; below the complaint floor, the absolute complaint backstop still applies, including in windows with no sends.
 Pinned teams never move automatically.
 
