@@ -1204,9 +1204,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
         self._in_grouped_clause = False
-        # Identity set of the WHERE/PREWHERE comparisons (and call-form comparisons) that sit under only `and`/`or`
-        # nodes. The only place `_property_group_key_guard` may land: there a NULL and a false comparison filter alike.
-        self._key_guard_nodes: set[int] = set()
+        # The WHERE/PREWHERE comparisons (and call-form comparisons) that sit under only `and`/`or` nodes, keyed by
+        # `id()`. The only place `_property_group_key_guard` may land: there a NULL and a false comparison filter alike.
+        # The values pin each node so its id can't be reused; only comparisons read the dict, other calls are inert.
+        self._key_guard_nodes: dict[int, ast.Expr] = {}
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         self._collect_key_guard_nodes(node.where)
@@ -1243,7 +1244,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             elif isinstance(expr, ast.Call) and expr.name in ("and", "or"):
                 stack.extend(expr.args)
             elif isinstance(expr, ast.CompareOperation | ast.Call):
-                self._key_guard_nodes.add(id(expr))
+                self._key_guard_nodes[id(expr)] = expr
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
         """True if the property's source table is in the current SELECT's FROM/JOIN chain (by object identity)."""
@@ -1447,11 +1448,11 @@ class ClickHousePropertyResolver(CloningVisitor):
             )
             # `comparison` is a temporary: drop its id once visited so a later node can't inherit it from the freed address.
             if id(node) in self._key_guard_nodes:
-                self._key_guard_nodes.add(id(comparison))
+                self._key_guard_nodes[id(comparison)] = comparison
             try:
                 return self.visit_compare_operation(comparison)
             finally:
-                self._key_guard_nodes.discard(id(comparison))
+                self._key_guard_nodes.pop(id(comparison), None)
 
         return super().visit_call(node)
 

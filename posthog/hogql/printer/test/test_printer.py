@@ -1916,6 +1916,12 @@ class TestPrinter(BaseTest):
             "select 1 from events order by properties.key < 'b'",
             "select 1 from events group by properties.key having properties.key < 'b'",
             "select 1 from events as a join events as b on a.properties.key < 'b'",
+            "select 1 from events where arrayExists(x -> properties.key < 'b', [1])",
+            "select 1 from events where event in (select properties.key < 'b' from events)",
+            "select 1 from events where not(less(properties.key, 'b'))",
+            "select 1 from events limit 1 by properties.key < 'b'",
+            "select 1 from events window w as (partition by properties.key < 'b')",
+            "select 1 from events array join [properties.key < 'b'] as x",
         )
         for query in guarded:
             with self.subTest(query):
@@ -1925,6 +1931,18 @@ class TestPrinter(BaseTest):
         for query in unguarded:
             with self.subTest(query):
                 self.assertNotIn(guard, optimized_sql(query))
+        # A guarded WHERE comparison next to the same comparison in another clause: only the WHERE one is guarded.
+        select_sql = optimized_sql("select less(properties.key, 'b') from events where less(properties.other, 'c')")
+        select_part, _, where_part = select_sql.partition("WHERE")
+        self.assertNotIn(guard, select_part)
+        order_sql = optimized_sql(
+            "select 1 from events where less(properties.other, 'c') order by less(properties.key, 'b')"
+        )
+        where_part_with_order, _, order_part = order_sql.partition("ORDER BY")
+        self.assertNotIn(guard, order_part)
+        if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            self.assertIn(guard, where_part)
+            self.assertIn(guard, where_part_with_order)
 
     def test_property_groups_optimized_range_and_pattern_query_results(self):
         event_name = "property_groups_range_pattern_result_test"
