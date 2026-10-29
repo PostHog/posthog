@@ -31,31 +31,27 @@ export async function loadTicketsAcrossTabs(
     deps: AcrossTabsDeps = browserDeps()
 ): Promise<ConversationTicket[] | null> {
     const readFresh = async (): Promise<ConversationTicket[] | null> => {
+        if (options.force) {
+            return null
+        }
         const snapshot = await deps.read()
         return snapshot && deps.now() - snapshot.fetchedAt < options.maxAgeMs ? snapshot.tickets : null
     }
 
-    if (!options.force) {
-        const fresh = await readFresh()
-        if (fresh) {
-            return fresh
-        }
-    }
-    return deps.withLock(async () => {
-        if (!options.force) {
+    return (
+        (await readFresh()) ??
+        deps.withLock(async () => {
             const fresh = await readFresh()
             if (fresh) {
                 return fresh
             }
-        }
-        const tickets = await fetchTickets()
-        if (tickets) {
-            if (await deps.write({ tickets, fetchedAt: deps.now() })) {
+            const tickets = await fetchTickets()
+            if (tickets && (await deps.write({ tickets, fetchedAt: deps.now() }))) {
                 deps.announce()
             }
-        }
-        return tickets
-    })
+            return tickets
+        })
+    )
 }
 
 /** Query side. Calls `onChange` with the stored tickets each time another tab writes new ones. */
