@@ -79,6 +79,8 @@ const MAX_RANKED_SEARCH_RESULTS = 25
 
 const DATA_DOMAIN_TOOL_PREFIXES = ['billing-', 'web-analytics-', 'usage-metrics-', 'query-', 'marketing-']
 
+const DATA_DOMAIN_HINT_RANK_CUTOFF = 3
+
 const METRIC_RUN_TOOL_NAME = 'data-catalog-metric-run'
 const APPROVED_METRIC_STATUS = 'approved'
 const PROPOSED_METRIC_STATUS = 'proposed'
@@ -118,9 +120,12 @@ function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[])
         availableToolNames.has('metric-list') &&
         availableToolNames.has('metric-describe') &&
         availableToolNames.has('data-catalog-metric-run')
-    const hasDataDomainMatch = matches.some((name) =>
-        DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))
-    )
+    // Matches are ranked, so a data-domain tool near the top means the search was about a
+    // measure. One further down is incidental: `search persons-` reaches query-logs and used
+    // to answer a question about people with advice about the metric catalog.
+    const hasDataDomainMatch = matches
+        .slice(0, DATA_DOMAIN_HINT_RANK_CUTOFF)
+        .some((name) => DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix)))
     if (!hasMetricCatalog || !hasDataDomainMatch) {
         return undefined
     }
@@ -326,8 +331,10 @@ function execHelp(command: string, learnEnabled: boolean): string {
     }
     const help = commands[command]
     if (typeof help !== 'string') {
+        // `help <prefix>` is a natural way to ask "what can I do with workflows", so the
+        // refusal names the command that answers it rather than only listing the verbs.
         throw new ExecCommandError(
-            `Unknown command: "${command}". Run "help" to list available commands.`,
+            `Unknown command: "${command}". Run "help" to list available commands, or "search ${command}" to find tools for it.`,
             'unknown_command'
         )
     }
