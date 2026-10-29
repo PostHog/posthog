@@ -16,7 +16,7 @@ from posthog.schema import (
 )
 
 from products.mcp_analytics.backend.facade.constants import MAX_CUSTOM_HARNESSES, UNIDENTIFIED_HARNESS_LABEL
-from products.mcp_analytics.backend.mcp_harness import HARNESS_LABELS
+from products.mcp_analytics.backend.mcp_harness import HARNESS_LABELS, MARKED_CLIENT_NAMES
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 _PROPERTY_FILTERS_ADAPTER: pydantic.TypeAdapter[list[AnyPropertyFilterDiscriminated]] = pydantic.TypeAdapter(
@@ -866,7 +866,9 @@ class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializ
 
 
 DUPLICATE_MATCH_PATTERN_ERROR = "A custom harness already uses this pattern."
-_BUILT_IN_HARNESS_LABELS = frozenset(label.lower() for label in (*HARNESS_LABELS, UNIDENTIFIED_HARNESS_LABEL))
+_BUILT_IN_HARNESS_LABELS = frozenset(
+    label.lower() for label in (*HARNESS_LABELS, *MARKED_CLIENT_NAMES, UNIDENTIFIED_HARNESS_LABEL)
+)
 
 
 class MCPCustomHarnessSerializer(serializers.ModelSerializer):
@@ -894,6 +896,8 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
 
     def validate_name(self, value: str) -> str:
         name = value.strip()
+        if self.instance is not None and name == self.instance.name:
+            return name
         # The dashboard shows its own logo for a built-in label, so a team rule with that name would lose its icon.
         if name.lower() in _BUILT_IN_HARNESS_LABELS:
             raise serializers.ValidationError(f"{name} is a built-in label. Choose another name.")
@@ -903,7 +907,7 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
             others = others.exclude(pk=self.instance.pk)
         if others.exists():
             raise serializers.ValidationError("Another custom harness already uses this name.")
-        return value
+        return name
 
     def validate_match_pattern(self, value: str) -> str:
         pattern = value.strip().lower()
