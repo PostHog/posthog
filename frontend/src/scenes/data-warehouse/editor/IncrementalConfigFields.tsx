@@ -1,3 +1,7 @@
+import { useValues } from 'kea'
+import { FormContext } from 'kea-forms'
+import { useContext } from 'react'
+
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -8,6 +12,8 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { DataWarehouseSavedQueryIncrementalCheck } from '~/types'
+
+import { saveViewIncrementalLogic } from 'products/data_warehouse/frontend/sql_editor/saveViewIncrementalLogic'
 
 export const LOOKBACK_OPTIONS = [
     { value: 0, label: 'No lookback' },
@@ -40,8 +46,7 @@ const UNIQUE_KEY_HELP =
 const LOOKBACK_HELP = 'Include this much previously processed data in each run to catch late arrivals and updates.'
 
 interface IncrementalConfigFieldsProps {
-    /** Result of the backend eligibility check for the query being saved. */
-    check: DataWarehouseSavedQueryIncrementalCheck | null
+    queries: string[]
 }
 
 /** What the user has picked so far, before it becomes a saved incremental config. */
@@ -285,9 +290,34 @@ export function IncrementalConfigOptions({
  * Rendered only when the view is being materialized, since incremental describes how a
  * materialized table is refreshed and means nothing without one.
  */
-export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps): JSX.Element | null {
+export function IncrementalConfigFields({ queries }: IncrementalConfigFieldsProps): JSX.Element {
+    const { logic: formLogic } = useContext(FormContext)
+    if (!formLogic) {
+        throw new Error('IncrementalConfigFields requires a form')
+    }
+    const { form } = useValues(formLogic)
+    const { check, checkLoading } = useValues(
+        saveViewIncrementalLogic({
+            query: queries[form.saveTarget] ?? '',
+            dialogKey: String(formLogic.key),
+            setFormValue: formLogic.actions.setFormValue,
+        })
+    )
+
+    if (checkLoading) {
+        return (
+            <div className="mt-4 deprecated-space-y-2" data-attr="sql-editor-save-view-incremental-loading">
+                <LemonSkeleton className="h-8 w-full" repeat={2} />
+            </div>
+        )
+    }
+
     if (!check) {
-        return null
+        return (
+            <LemonBanner type="info" className="mt-2">
+                Incremental options are unavailable. You can still save this view with a full refresh.
+            </LemonBanner>
+        )
     }
 
     if (!check.eligible || check.key_candidates.length === 0) {
