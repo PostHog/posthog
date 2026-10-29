@@ -8,6 +8,7 @@ errors all the time does not fill the feed.
 """
 
 import math
+import uuid
 import asyncio
 from collections import Counter
 from collections.abc import Mapping, Sequence
@@ -381,6 +382,7 @@ def select_embedding_picks(
     categories: Sequence[str],
     window_start: datetime,
     window_end: datetime,
+    excluded_ids: Sequence[uuid.UUID] = (),
 ) -> list[dict[str, Any]]:
     """The window's pick rows for the embedding ranker, with each row's percentile and the reach of its feed group.
 
@@ -402,7 +404,9 @@ def select_embedding_picks(
     # Bounds the fetch, since a client-side cursor buffers every row. A window full of copies reads a wider slice
     # once, still bounded, and a feed that stays short past it shows fewer picks rather than reading every row.
     fetch_limit = cap * (HIGHLIGHT_PICK_GROUP_CANDIDATES + 1)
-    scanner_rows = scanner_rank_counts(ranked, team_id, ANCHOR_VERSION, scanner_ids, window_start, window_end)
+    scanner_rows = scanner_rank_counts(
+        ranked, team_id, ANCHOR_VERSION, scanner_ids, window_start, window_end, excluded_ids
+    )
     rows = _pick_window_rows(current_ranks, scanner_rows, fetch_limit, categories)
     window_values = _cap_feed_groups(rows, cap)
     if len(window_values) < cap and len(rows) == fetch_limit:

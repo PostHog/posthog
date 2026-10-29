@@ -9,6 +9,7 @@ from collections.abc import Iterable, Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
+from django.db import transaction
 from django.db.models import Count, QuerySet, Sum
 from django.db.models.functions import TruncDate
 
@@ -53,10 +54,12 @@ def scanner_rank_counts(
     scanner_ids: Sequence[Any],
     date_from: datetime,
     date_to: datetime,
+    excluded_ids: Sequence[uuid.UUID] = (),
 ) -> dict[uuid.UUID, int]:
     """Each scanner's ranked rows in the window: whole days from the day counts, the two edge days counted exactly.
 
-    `ranked` holds the window's ranked rows, so the edge counts apply the same filters as the picks.
+    `ranked` holds the window's ranked rows, so the edge counts apply the same filters as the picks. The whole days
+    leave out `excluded_ids`, the rows the viewer dismissed, and still hold rows completed after the feed's `as_of`.
     """
     first_day = date_from.astimezone(UTC).date()
     last_day = date_to.astimezone(UTC).date()
@@ -75,6 +78,22 @@ def scanner_rank_counts(
             .values_list("scanner_id", "rows")
         )
         counts.update(dict(inner))
+        if excluded_ids:
+            excluded = (
+                ReplayObservation.objects.filter(
+                    team_id=team_id,
+                    id__in=excluded_ids,
+                    scanner_id__in=scanner_ids,
+                    status=ObservationStatus.SUCCEEDED,
+                    watch_rank__anchor_version=anchor_version,
+                    created_at__gte=_midnight(first_day + timedelta(days=1)),
+                    created_at__lt=_midnight(last_day),
+                )
+                .values("scanner_id")
+                .annotate(rows=Count("id"))
+                .values_list("scanner_id", "rows")
+            )
+            counts.subtract(dict(excluded))
     # Each edge is its own created_at range, so both counts read the ranked rows' scanner index in one statement.
     first_edge = ranked.filter(created_at__lt=_midnight(first_day + timedelta(days=1)))
     edges = [first_edge]
@@ -99,8 +118,7 @@ def backfill_team_rank_days(
 ) -> RankDayBackfillResult:
     """Recount the team's ranked rows per scanner and day since `since`, replacing the stored day counts.
 
-    A rank the consumer writes during the recount can land in both, which overcounts that day by one row until the
-    next recount.
+    A rank the consumer commits between the recount's read and its write is lost from that day until the next recount.
     """
     first_day = since.astimezone(UTC).date()
     days = list(
@@ -119,20 +137,24 @@ def backfill_team_rank_days(
     if dry_run:
         return RankDayBackfillResult(days=len(days))
     row_team_id = resolve_effective_team_id(team_id)
-    ReplayScannerRankDay.objects.for_team(team_id).bulk_create(
-        [
-            ReplayScannerRankDay(
-                team_id=row_team_id,
-                scanner_id=scanner_id,
-                anchor_version=anchor_version,
-                day=day,
-                observation_count=rows,
-            )
-            for scanner_id, day, rows in days
-        ],
-        batch_size=_WRITE_CHUNK,
-        update_conflicts=True,
-        unique_fields=["scanner", "anchor_version", "day"],
-        update_fields=["observation_count"],
-    )
+    stored = ReplayScannerRankDay.objects.for_team(team_id)
+    with transaction.atomic():
+        # Cleared first, so a scanner day whose rows are all gone stops counting them.
+        stored.filter(anchor_version=anchor_version, day__gte=first_day).delete()
+        stored.bulk_create(
+            [
+                ReplayScannerRankDay(
+                    team_id=row_team_id,
+                    scanner_id=scanner_id,
+                    anchor_version=anchor_version,
+                    day=day,
+                    observation_count=rows,
+                )
+                for scanner_id, day, rows in days
+            ],
+            batch_size=_WRITE_CHUNK,
+            update_conflicts=True,
+            unique_fields=["scanner", "anchor_version", "day"],
+            update_fields=["observation_count"],
+        )
     return RankDayBackfillResult(days=len(days))
