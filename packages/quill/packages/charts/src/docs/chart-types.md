@@ -86,7 +86,7 @@ Reduce a series to that value before you pass it in.
 - `thresholds: { value, color }[]` colors the fill and the value text with the highest threshold at or below the value. Below every threshold the gauge uses the item's `color`, then `theme.colors` by index.
 - A radial gauge draws each threshold's range as a band outside its arc. `showThresholdMarkers: false` hides them.
 - A `null` value draws an empty gauge that reads "No data".
-- Each gauge is a `role="meter"` element with its value, range, and label for assistive technology.
+- Each gauge is a `role="meter"` element with its value, range, and label for assistive technology. Without a `label`, its `key` names it.
 - It renders SVG and DOM, not canvas, so it needs no fixed-height parent for a bar layout; a radial or vertical layout fills the height it is given.
 
 ## BarList

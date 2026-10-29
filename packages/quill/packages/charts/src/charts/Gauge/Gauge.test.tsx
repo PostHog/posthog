@@ -57,10 +57,11 @@ describe('Gauge', () => {
         }
     )
 
-    it('fills a bar gauge in proportion to its value between min and max', () => {
+    it('fills a bar gauge in proportion to its value between min and max, named by key without a label', () => {
         const { container } = render(
-            <Gauge variant="bar" theme={THEME} min={50} max={150} items={[{ key: 'a', value: 75 }]} />
+            <Gauge variant="bar" theme={THEME} min={50} max={150} items={[{ key: 'cpu', value: 75 }]} />
         )
         expect(container.querySelector<HTMLElement>('[data-attr="hog-chart-gauge-fill"]')?.style.width).toBe('25%')
+        expect(container.querySelector('[role="meter"]')?.getAttribute('aria-label')).toBe('cpu')
     })
 })
