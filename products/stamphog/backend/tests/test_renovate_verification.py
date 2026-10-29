@@ -116,6 +116,7 @@ class TestManifestProblems(SimpleTestCase):
             ("trust_policy_expires", _PNPM_POLICY + "trustPolicyIgnoreAfter: 1\n", False),
             ("other_package_exempt", _PNPM_POLICY + "minimumReleaseAgeExclude:\n  - right-pad\n", True),
             ("age_exempt_by_glob", _PNPM_POLICY + "minimumReleaseAgeExclude:\n  - left-*\n", False),
+            ("age_exempt_by_negation", _PNPM_POLICY + "minimumReleaseAgeExclude:\n  - '!right-pad'\n", False),
             ("trust_exempt_by_version", _PNPM_POLICY + "trustPolicyExclude:\n  - left-pad@1.1.0 || 1.2.0\n", False),
         ]
     )
