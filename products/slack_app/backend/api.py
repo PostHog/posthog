@@ -930,13 +930,12 @@ def slack_workspace_claims_view(request: HttpRequest) -> HttpResponse:
     if not filtered:
         return HttpResponse("No valid kinds", status=400)
 
-    claim_reader = IntegrationManager.kinds(*filtered)
-    claimed = bool(claim_reader.list_by_external_id(slack_team_id))
+    claimed = IntegrationManager.slack.oauth.exists_by_external_id(slack_team_id)
     channel, thread_ts = data.get("channel"), data.get("thread_ts")
     if channel is not None or thread_ts is not None:
         if not isinstance(channel, str) or not channel or not isinstance(thread_ts, str) or not thread_ts:
             return HttpResponse("Invalid thread", status=400)
-        candidates = sorted(claim_reader.list_by_external_id(slack_team_id), key=lambda row: row.id)
+        candidates = workspace_integrations(slack_team_id)
         result = resolve_from_candidates(candidates, slack_team_id=slack_team_id, channel=channel, thread_ts=thread_ts)
         return JsonResponse({"claimed": claimed, "thread_claimed": result.source == "thread"})
     return JsonResponse({"claimed": claimed})

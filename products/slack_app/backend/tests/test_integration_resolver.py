@@ -125,6 +125,12 @@ class TestResolveIntegration:
             mentioning_slack_user_id=SLACK_USER,
         )
 
+    def test_load_integrations_for_user_does_not_query_per_candidate(self, django_assert_num_queries):
+        with django_assert_num_queries(4):
+            result = load_integrations(slack_team_id=WORKSPACE, kinds=["slack"], user=self.user)
+
+        assert {c.id for c in result.candidates} == {self.integration_a.id, self.integration_b.id}
+
     @pytest.mark.parametrize("mapping_kind", ["task", "report", "fork"])
     @pytest.mark.parametrize("has_default", [False, True])
     def test_thread_mapping_wins_over_everything(self, mapping_kind, has_default):

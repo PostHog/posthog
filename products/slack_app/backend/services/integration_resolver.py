@@ -22,6 +22,8 @@ from products.slack_app.backend.services.workspace_integrations import workspace
 
 logger = structlog.get_logger(__name__)
 
+SLACK_INTEGRATION_KIND = "slack"
+
 ResolutionSource = Literal[
     "thread",
     "user_default",
@@ -293,7 +295,7 @@ def load_integrations(
     """
     from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
 
-    candidates = sorted(IntegrationManager.kinds(*kinds).list_by_external_id(slack_team_id), key=lambda row: row.id)
+    candidates = workspace_integrations(slack_team_id) if SLACK_INTEGRATION_KIND in kinds else []
     candidates = check_integrations_auth_and_filter(candidates, slack_user_id=slack_user_id or None)
     return resolve_from_candidates(
         candidates,
@@ -324,11 +326,10 @@ def multiple_accessible_projects(*, slack_team_id: str, user: User) -> bool:
     there is anything to tell apart should not pay an ``auth.test`` per candidate.
     ``routable_projects`` asks the stricter question of where a run may actually be sent.
     """
-    installs = workspace_integrations(slack_team_id)
-    # Accessible is a subset of installed, so one install settles it without the membership scan.
-    if len(installs) < 2:
+    # Accessible is a subset of installed, so one install settles it without loading any row.
+    if IntegrationManager.slack.oauth.count_by_external_id(slack_team_id) < 2:
         return False
-    return len(accessible_candidates(installs, user=user)) > 1
+    return len(accessible_candidates(workspace_integrations(slack_team_id), user=user)) > 1
 
 
 def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> list[IntegrationRecord]:
