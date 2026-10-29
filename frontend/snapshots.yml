@@ -11307,9 +11307,9 @@ snapshots:
     scenes-app-experiments--experiment-with-funnel-metric--light:
         hash: v1.k794b7964.fd105a9918bab77db9fb47b351ffa32065556aae7f46736d002f5edbf4b7eb2a.kz6qe5r99nmq8xrOvZhI2qeQLpYwhaRXTTQZEyWb9oU
     scenes-app-experiments--experiment-with-health-findings--dark:
-        hash: v1.k794b7964.faefb925c567f7c0eb5a4f2ae9917dde4e9eb921962f84741b5cc1a6b5432380.PQWwqeGafkc59AJxJKBNcJrFGiBjpf-w39TJnqQpnbc
+        hash: v1.k794b7964.0e6c443c539e742e42e4d46604810c76b934acefbb12e610dd59403a9852406d.EL4WPQY3idMVDczVAea7lHhCOYuI1ATfdmoFZ691SEo
     scenes-app-experiments--experiment-with-health-findings--light:
-        hash: v1.k794b7964.6d6b9880448c14f529cb9635926a38fe12007676e8d5557c87b640c0abc9e057.iEXS3Y8Z5ODCZGBk6ytDTq4Uub1aGuonJqbNkx3lzqA
+        hash: v1.k794b7964.8c72c764757a385da276373c4df108ea8f309820467cd77e624a11db5b50e405.ScKZnCot1howsO9pqK1Em_QrS8u_AQNFM2xDWJ7u18k
     scenes-app-experiments--experiment-with-long-flag-key--dark:
         hash: v1.k794b7964.72ab9fcbc06f35556a7d96e0fe3bd56e8a2796ed5653d6b279ec05c8a9cce9de.1HcvRm0AN_gzYBTpwvzGMG55FWmg2E7lQZD_w3f_xJc
     scenes-app-experiments--experiment-with-long-flag-key--light:
