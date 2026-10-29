@@ -4,6 +4,7 @@ import { Message } from 'node-rdkafka'
 import { parseKafkaHeaders } from '~/common/kafka/consumer/consumer-v1'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
+import { CapturedData } from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 
 import { V4Index, V4IndexRow, selectIndexRow } from './index-columns'
 import { V4ParquetSinkMetrics, V4RowRejection } from './metrics'
@@ -19,8 +20,19 @@ export interface V4IndexMessage {
     row: V4IndexRow
 }
 
+/** Block rows feed the event metadata watermark and image rows the inline image one, as in v3. */
+export const INDEX_CAPTURED_DATA: Readonly<Record<V4Index, CapturedData>> = {
+    blocks: 'event_metadata',
+    images: 'inline_images',
+}
+
 function isIndex(value: string | undefined): value is V4Index {
     return value === 'blocks' || value === 'images'
+}
+
+export function indexCapturedData(message: Message): CapturedData | undefined {
+    const index = parseKafkaHeaders(message.headers)[INDEX_HEADER]
+    return isIndex(index) ? INDEX_CAPTURED_DATA[index] : undefined
 }
 
 function isWriteDay(value: string | undefined): value is string {
