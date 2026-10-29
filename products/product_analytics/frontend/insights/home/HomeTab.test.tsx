@@ -8,6 +8,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
+import { DashboardType } from '~/types'
 
 import { HomeTab } from './HomeTab'
 import { homeTabDashboardProps } from './homeTabDashboardLogic'
@@ -34,6 +35,28 @@ describe('HomeTab', () => {
         })
 
         render(<HomeTab />)
+        expect(screen.getByText(expectedContent)).toBeInTheDocument()
+    })
+
+    it.each([
+        ['offers a way back when the selected dashboard has no charts', [], 'This dashboard has no charts yet'],
+        ['shows the selected dashboard when it has charts', [{ id: 1, deleted: false }], 'Home dashboard 42'],
+    ])('%s', (_scenario, tiles, expectedContent) => {
+        initKeaTests()
+        teamLogic.mount()
+        teamLogic.actions.loadCurrentTeamSuccess({
+            ...MOCK_DEFAULT_TEAM,
+            home_tab_dashboard: 42,
+        })
+        render(<HomeTab />)
+
+        act(() => {
+            dashboardLogic(homeTabDashboardProps(42)).actions.loadDashboardSuccess({
+                id: 42,
+                tiles,
+            } as unknown as DashboardType)
+        })
+
         expect(screen.getByText(expectedContent)).toBeInTheDocument()
     })
 

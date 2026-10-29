@@ -3,7 +3,7 @@ import { MakeLogicType, connect, kea, key, listeners, path, props, selectors } f
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DashboardPlacement, DashboardType } from '~/types'
+import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
 export interface HomeTabDashboardLogicProps {
     dashboardId: number
@@ -19,6 +19,8 @@ export const homeTabDashboardProps = (dashboardId: number): DashboardLogicProps 
 export interface homeTabDashboardLogicValues {
     dashboard: DashboardType | null // dashboardLogic
     error404: boolean // dashboardLogic
+    tiles: DashboardTile[] // dashboardLogic
+    dashboardEmpty: boolean
     dashboardMissing: boolean
 }
 
@@ -34,6 +36,7 @@ export interface homeTabDashboardLogicActions {
 export interface homeTabDashboardLogicMeta {
     key: number
     __keaTypeGenInternalSelectorTypes: {
+        dashboardEmpty: (dashboard: DashboardType | null, tiles: DashboardTile[]) => boolean
         dashboardMissing: (error404: boolean, dashboard: DashboardType | null) => boolean
     }
 }
@@ -50,7 +53,7 @@ export const homeTabDashboardLogic = kea<homeTabDashboardLogicType>([
     key((props) => props.dashboardId),
     path((key) => ['products', 'product_analytics', 'home', 'homeTabDashboardLogic', key]),
     connect((props: HomeTabDashboardLogicProps) => ({
-        values: [dashboardLogic(homeTabDashboardProps(props.dashboardId)), ['dashboard', 'error404']],
+        values: [dashboardLogic(homeTabDashboardProps(props.dashboardId)), ['dashboard', 'error404', 'tiles']],
         actions: [
             dashboardLogic(homeTabDashboardProps(props.dashboardId)),
             ['dashboardNotFound'],
@@ -59,6 +62,10 @@ export const homeTabDashboardLogic = kea<homeTabDashboardLogicType>([
         ],
     })),
     selectors({
+        dashboardEmpty: [
+            (s) => [s.dashboard, s.tiles],
+            (dashboard: DashboardType | null, tiles: DashboardTile[]): boolean => !!dashboard && tiles.length === 0,
+        ],
         dashboardMissing: [
             (s) => [s.error404, s.dashboard],
             (error404: boolean, dashboard: DashboardType | null): boolean => error404 && !dashboard,

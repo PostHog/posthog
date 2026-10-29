@@ -33,9 +33,9 @@ export function HomeTab({ dashboardActions }: { dashboardActions?: ReactNode }):
                     className="flex min-h-80 flex-col gap-3 py-3"
                     role="status"
                     aria-live="polite"
-                    aria-label="Creating your Home dashboard"
+                    aria-label="Creating your dashboard"
                 >
-                    <div className="font-semibold">Creating your Home dashboard…</div>
+                    <div className="font-semibold">Creating your dashboard…</div>
                     <LemonSkeleton.Row repeat={3} />
                 </div>
             ) : currentTeam?.home_tab_dashboard ? (
