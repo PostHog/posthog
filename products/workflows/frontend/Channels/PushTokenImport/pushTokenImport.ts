@@ -3,15 +3,21 @@ import Papa from 'papaparse'
 import { ApiError } from 'lib/api'
 
 import type {
+    PushTokenImportFailureApi,
     PushTokenImportResponseApi,
     PushTokenSubscriptionApi,
 } from 'products/integrations/frontend/generated/api.schemas'
+import { PushTokenImportFailureReasonEnumApi } from 'products/integrations/frontend/generated/api.schemas'
 
 // Limits of the import endpoint. A request over them is refused as a whole.
 export const ROWS_PER_REQUEST = 1000
+// Parsing runs on the page, so a file this size still previews in a second or two.
+export const MAX_FILE_BYTES = 20 * 1024 * 1024
 const MAX_DISTINCT_ID_LENGTH = 200
 const MAX_DEVICE_TOKEN_LENGTH = 4096
 
+// A stalled request is given up and retried, like a network error.
+const REQUEST_TIMEOUT_MS = 60_000
 const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000]
 const MAX_RATE_LIMIT_WAITS = 10
 const DEFAULT_RATE_LIMIT_WAIT_MS = 10_000
@@ -22,24 +28,53 @@ export interface PushTokenRow extends PushTokenSubscriptionApi {
     line: number
 }
 
-export interface RejectedPushTokenRow {
-    line: number
-    distinct_id: string
-    device_token: string
+export interface FailedPushTokenRow extends PushTokenRow {
+    /** Plain sentence shown to the person importing. */
     reason: string
+    /** Set when no person had the distinct ID, so the row can be imported again with new persons. */
+    unknownPerson?: boolean
 }
 
 export interface ParsedPushTokenCsv {
     rows: PushTokenRow[]
-    rejected: RejectedPushTokenRow[]
+    rejected: FailedPushTokenRow[]
     duplicates: number
 }
 
 export interface PushTokenImportOutcome {
     imported: number
-    failed: RejectedPushTokenRow[]
+    failed: FailedPushTokenRow[]
     /** Set when the import stopped before sending every row. */
     stoppedReason: string | null
+}
+
+export type SendPushTokens = (
+    subscriptions: PushTokenSubscriptionApi[],
+    options: { create_missing_persons: boolean },
+    signal: AbortSignal
+) => Promise<PushTokenImportResponseApi>
+
+export type Sleep = (ms: number, signal: AbortSignal) => Promise<void>
+
+/** Waits, but returns as soon as the import is stopped. */
+export const sleepUnlessAborted: Sleep = (ms, signal) =>
+    new Promise((resolve) => {
+        const timer = setTimeout(done, ms)
+        function done(): void {
+            clearTimeout(timer)
+            signal.removeEventListener('abort', done)
+            resolve()
+        }
+        signal.addEventListener('abort', done)
+    })
+
+class ImportStopped extends Error {}
+
+const SERVER_REASONS: Record<PushTokenImportFailureApi['reason'], string> = {
+    [PushTokenImportFailureReasonEnumApi.UnknownPerson]: 'No person has this distinct ID',
+    [PushTokenImportFailureReasonEnumApi.TokenMismatch]: "The token doesn't fit this channel",
+    [PushTokenImportFailureReasonEnumApi.NotStored]: 'Not stored, import it again',
+    [PushTokenImportFailureReasonEnumApi.PersonProcessingDisabled]: 'Person processing is off for this person',
 }
 
 function rejectReason(distinctId: string, deviceToken: string): string | null {
@@ -79,7 +114,7 @@ export function parsePushTokenCsv(text: string): ParsedPushTokenCsv {
     }
 
     const rows: PushTokenRow[] = []
-    const rejected: RejectedPushTokenRow[] = []
+    const rejected: FailedPushTokenRow[] = []
     const seen = new Set<string>()
     let duplicates = 0
     lines.forEach((cells, index) => {
@@ -105,12 +140,37 @@ export function parsePushTokenCsv(text: string): ParsedPushTokenCsv {
     return { rows, rejected, duplicates }
 }
 
-export function chunkRows(rows: PushTokenRow[]): PushTokenRow[][] {
-    const chunks: PushTokenRow[][] = []
+export function chunkRows<T>(rows: T[]): T[][] {
+    const chunks: T[][] = []
     for (let start = 0; start < rows.length; start += ROWS_PER_REQUEST) {
         chunks.push(rows.slice(start, start + ROWS_PER_REQUEST))
     }
     return chunks
+}
+
+/** Matches the API's failures, which carry only a token suffix, back to the rows that were sent. */
+function failedRowsOf(chunk: PushTokenRow[], failures: PushTokenImportFailureApi[]): FailedPushTokenRow[] {
+    const unmatched = [...chunk]
+    const failed: FailedPushTokenRow[] = []
+    for (const failure of failures) {
+        const index = unmatched.findIndex(
+            (row) => row.distinct_id === failure.distinct_id && row.device_token.endsWith(failure.device_token_suffix)
+        )
+        if (index === -1) {
+            continue
+        }
+        const [row] = unmatched.splice(index, 1)
+        failed.push({
+            ...row,
+            // The API's sentence for a token mismatch names the token it saw, such as an Expo token.
+            reason:
+                failure.reason === PushTokenImportFailureReasonEnumApi.TokenMismatch
+                    ? failure.detail
+                    : (SERVER_REASONS[failure.reason] ?? failure.detail),
+            unknownPerson: failure.reason === PushTokenImportFailureReasonEnumApi.UnknownPerson,
+        })
+    }
+    return failed
 }
 
 function rateLimitWaitMs(error: ApiError): number {
@@ -122,8 +182,9 @@ function rateLimitWaitMs(error: ApiError): number {
 }
 
 function isRetryable(error: unknown): boolean {
+    // A request that timed out rejects with the timeout's reason rather than an ApiError.
     if (!(error instanceof ApiError)) {
-        return false
+        return error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')
     }
     // A network error carries no status.
     return error.status === undefined || error.status >= 500
@@ -141,29 +202,45 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'Unknown error'
 }
 
-/** Sends one chunk, waiting out rate limits and retrying server and network errors. */
-async function sendChunk(
-    chunk: PushTokenRow[],
-    send: (subscriptions: PushTokenSubscriptionApi[]) => Promise<PushTokenImportResponseApi>,
-    sleep: (ms: number) => Promise<void>
+/** Sends one chunk, waiting out rate limits and retrying server, network and timeout errors. */
+async function sendWithRetries(
+    send: (signal: AbortSignal) => Promise<PushTokenImportResponseApi>,
+    sleep: Sleep,
+    stop: AbortSignal
 ): Promise<PushTokenImportResponseApi> {
-    const subscriptions = chunk.map(({ distinct_id, device_token }) => ({ distinct_id, device_token }))
     let retries = 0
     let rateLimitWaits = 0
     for (;;) {
+        if (stop.aborted) {
+            throw new ImportStopped()
+        }
+        // One controller per attempt: aborted by the stop signal or by the timeout, whichever comes first.
+        const attempt = new AbortController()
+        const abortAttempt = (): void => attempt.abort()
+        stop.addEventListener('abort', abortAttempt)
+        const timer = setTimeout(
+            () => attempt.abort(new DOMException('The request took too long', 'TimeoutError')),
+            REQUEST_TIMEOUT_MS
+        )
         try {
-            return await send(subscriptions)
+            return await send(attempt.signal)
         } catch (error) {
+            if (stop.aborted) {
+                throw new ImportStopped()
+            }
             if (error instanceof ApiError && error.status === 429 && rateLimitWaits < MAX_RATE_LIMIT_WAITS) {
                 rateLimitWaits++
-                await sleep(rateLimitWaitMs(error))
+                await sleep(rateLimitWaitMs(error), stop)
                 continue
             }
             if (isRetryable(error) && retries < RETRY_DELAYS_MS.length) {
-                await sleep(RETRY_DELAYS_MS[retries++])
+                await sleep(RETRY_DELAYS_MS[retries++], stop)
                 continue
             }
             throw error
+        } finally {
+            clearTimeout(timer)
+            stop.removeEventListener('abort', abortAttempt)
         }
     }
 }
@@ -172,41 +249,48 @@ async function sendChunk(
 export async function runPushTokenImport({
     rows,
     send,
+    createMissingPersons = false,
     sleep,
     onChunkDone,
-    isCancelled,
+    stop,
 }: {
     rows: PushTokenRow[]
-    send: (subscriptions: PushTokenSubscriptionApi[]) => Promise<PushTokenImportResponseApi>
-    sleep: (ms: number) => Promise<void>
+    send: SendPushTokens
+    createMissingPersons?: boolean
+    sleep: Sleep
     onChunkDone: (rowsDone: number, imported: number) => void
-    isCancelled: () => boolean
+    /** Aborted when the person stops the import or leaves the page. Cancels the request in flight too. */
+    stop: AbortSignal
 }): Promise<PushTokenImportOutcome> {
     const chunks = chunkRows(rows)
-    const failed: RejectedPushTokenRow[] = []
+    const failed: FailedPushTokenRow[] = []
     let imported = 0
     let rowsDone = 0
     for (let index = 0; index < chunks.length; index++) {
         const chunk = chunks[index]
-        const notSent = (reason: string): RejectedPushTokenRow[] =>
+        const notSent = (reason: string): FailedPushTokenRow[] =>
             chunks.slice(index).flatMap((rest) => rest.map((row) => ({ ...row, reason })))
-        if (isCancelled()) {
-            return {
-                imported,
-                failed: [...failed, ...notSent('Not sent, the import was stopped')],
-                stoppedReason: 'cancelled',
-            }
+        const stopped = (): PushTokenImportOutcome => ({
+            imported,
+            failed: [...failed, ...notSent('The import was stopped, import it again')],
+            stoppedReason: 'cancelled',
+        })
+        if (stop.aborted) {
+            return stopped()
         }
+        const subscriptions = chunk.map(({ distinct_id, device_token }) => ({ distinct_id, device_token }))
         try {
-            const result = await sendChunk(chunk, send, sleep)
+            const result = await sendWithRetries(
+                (signal) => send(subscriptions, { create_missing_persons: createMissingPersons }, signal),
+                sleep,
+                stop
+            )
             imported += result.imported
-            const failedIds = new Set(result.failed_distinct_ids)
-            for (const row of chunk) {
-                if (failedIds.has(row.distinct_id)) {
-                    failed.push({ ...row, reason: 'Not stored, import it again' })
-                }
-            }
+            failed.push(...failedRowsOf(chunk, result.failed))
         } catch (error) {
+            if (error instanceof ImportStopped) {
+                return stopped()
+            }
             const reason = errorMessage(error)
             if (stopsImport(error)) {
                 return { imported, failed: [...failed, ...notSent(`Not sent: ${reason}`)], stoppedReason: reason }
@@ -217,13 +301,4 @@ export async function runPushTokenImport({
         onChunkDone(rowsDone, imported)
     }
     return { imported, failed, stoppedReason: null }
-}
-
-export function failedRowsCsv(rows: RejectedPushTokenRow[]): string {
-    return Papa.unparse({
-        fields: ['line', 'distinct_id', 'device_token', 'reason'],
-        data: [...rows]
-            .sort((a, b) => a.line - b.line)
-            .map((row) => [row.line, row.distinct_id, row.device_token, row.reason]),
-    })
 }

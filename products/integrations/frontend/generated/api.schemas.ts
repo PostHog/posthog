@@ -701,12 +701,12 @@ export interface LinearTeamsResponseApi {
 
 export interface PushTokenSubscriptionApi {
     /**
-     * The person's distinct ID in this project.
+     * The person's distinct ID in this project: the ID your app passes to `identify`.
      * @maxLength 200
      */
     distinct_id: string
     /**
-     * The APNs device token or FCM registration token of one device.
+     * The token of one device. An APNs channel takes the hex APNs device token. A Firebase channel takes the FCM registration token. Expo push tokens are not accepted.
      * @maxLength 4096
      */
     device_token: string
@@ -715,12 +715,52 @@ export interface PushTokenSubscriptionApi {
 export interface PushTokenImportRequestApi {
     /** Up to 1000 devices to register on this push channel. List a person once per device. */
     subscriptions: PushTokenSubscriptionApi[]
+    /** Check every row and report what would fail, without storing anything. Run this first and fix the failed rows before importing. */
+    dry_run?: boolean
+    /** Create a person for a distinct ID that has none. Off by default, because a distinct ID that does not match your app's identify call creates a person that never gets a push. */
+    create_missing_persons?: boolean
+}
+
+/**
+ * * `unknown_person` - No person has this distinct ID
+ * * `token_mismatch` - The token does not fit this channel
+ * * `not_stored` - The device was not stored
+ * * `person_processing_disabled` - Person processing is off for this person
+ */
+export type PushTokenImportFailureReasonEnumApi =
+    (typeof PushTokenImportFailureReasonEnumApi)[keyof typeof PushTokenImportFailureReasonEnumApi]
+
+export const PushTokenImportFailureReasonEnumApi = {
+    UnknownPerson: 'unknown_person',
+    TokenMismatch: 'token_mismatch',
+    NotStored: 'not_stored',
+    PersonProcessingDisabled: 'person_processing_disabled',
+} as const
+
+export interface PushTokenImportFailureApi {
+    /** The distinct ID of the row. */
+    distinct_id: string
+    /** The last 6 characters of the row's device token, to find the row. */
+    device_token_suffix: string
+    /** Why the device was not stored. `unknown_person`: no person has this distinct ID, so check the ID or set `create_missing_persons`. `token_mismatch`: the token is the wrong kind for this channel, for example an Expo token, or an APNs token on a Firebase channel. `not_stored` and `person_processing_disabled`: ingestion did not store the device.
+     *
+     * * `unknown_person` - No person has this distinct ID
+     * * `token_mismatch` - The token does not fit this channel
+     * * `not_stored` - The device was not stored
+     * * `person_processing_disabled` - Person processing is off for this person */
+    reason: PushTokenImportFailureReasonEnumApi
+    /** A sentence a person can act on. */
+    detail: string
 }
 
 export interface PushTokenImportResponseApi {
-    /** Number of devices stored on their person. */
+    /** Number of devices stored on their person. On a dry run, the number that would be stored. */
     imported: number
-    /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+    /** True when nothing was stored. */
+    dry_run: boolean
+    /** One entry per device that was not stored. */
+    failed: PushTokenImportFailureApi[]
+    /** Distinct IDs with at least one device that was not stored. Prefer `failed`, which says why. */
     failed_distinct_ids: string[]
 }
 

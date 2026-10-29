@@ -1,6 +1,6 @@
 import { ApiError } from 'lib/api'
 
-import { PushTokenRow, parsePushTokenCsv, runPushTokenImport } from './pushTokenImport'
+import { PushTokenRow, parsePushTokenCsv, runPushTokenImport, sleepUnlessAborted } from './pushTokenImport'
 
 const rows = (count: number): PushTokenRow[] =>
     Array.from({ length: count }, (_, index) => ({
@@ -18,7 +18,7 @@ const run = (
         send,
         sleep: () => Promise.resolve(),
         onChunkDone: () => {},
-        isCancelled: () => false,
+        stop: new AbortController().signal,
     })
 
 describe('push token import', () => {
@@ -61,18 +61,35 @@ describe('push token import', () => {
         expect(() => parsePushTokenCsv(csv)).toThrow()
     })
 
-    it('sends 1000 rows per request and reports rows the API could not store', async () => {
-        const sent: number[] = []
-        const outcome = await run(async (subscriptions) => {
-            sent.push(subscriptions.length)
-            const failed = subscriptions.some((s) => s.distinct_id === 'user-1500') ? ['user-1500'] : []
-            return { imported: subscriptions.length - failed.length, failed_distinct_ids: failed }
+    it('sends 1000 rows per request and matches each failure the API reports back to its line', async () => {
+        const sent: [number, boolean][] = []
+        const outcome = await run(async (subscriptions, options) => {
+            sent.push([subscriptions.length, options.create_missing_persons])
+            const failed = subscriptions
+                .filter((s) => s.distinct_id === 'user-1500' || s.distinct_id === 'user-2400')
+                .map((s) => ({
+                    distinct_id: s.distinct_id,
+                    device_token_suffix: s.device_token.slice(-6),
+                    reason: s.distinct_id === 'user-1500' ? ('unknown_person' as const) : ('not_stored' as const),
+                    detail: '',
+                }))
+            return {
+                imported: subscriptions.length - failed.length,
+                dry_run: false,
+                failed,
+                failed_distinct_ids: failed.map((f) => f.distinct_id),
+            }
         }, 2500)
 
-        expect(sent).toEqual([1000, 1000, 500])
-        expect(outcome.imported).toBe(2499)
-        expect(outcome.failed.map((row) => [row.distinct_id, row.reason])).toEqual([
-            ['user-1500', 'Not stored, import it again'],
+        expect(sent).toEqual([
+            [1000, false],
+            [1000, false],
+            [500, false],
+        ])
+        expect(outcome.imported).toBe(2498)
+        expect(outcome.failed.map((row) => [row.line, row.distinct_id, row.reason, row.unknownPerson])).toEqual([
+            [1502, 'user-1500', 'No person has this distinct ID', true],
+            [2402, 'user-2400', 'Not stored, import it again', false],
         ])
     })
 
@@ -89,13 +106,38 @@ describe('push token import', () => {
             if (error) {
                 throw error
             }
-            return { imported: subscriptions.length, failed_distinct_ids: [] }
+            return { imported: subscriptions.length, dry_run: false, failed: [], failed_distinct_ids: [] }
         }, 1500)
 
         // The first batch gets through after a rate limit and a 500, the second exhausts its retries.
         expect(outcome.imported).toBe(1000)
         expect(outcome.failed).toHaveLength(500)
         expect(outcome.stoppedReason).toBeNull()
+    })
+
+    it('stops during a rate limit wait instead of sleeping it out', async () => {
+        const stop = new AbortController()
+        let calls = 0
+        const started = Date.now()
+        const outcome = await runPushTokenImport({
+            rows: rows(2500),
+            send: async (subscriptions) => {
+                calls++
+                if (calls === 1) {
+                    return { imported: subscriptions.length, dry_run: false, failed: [], failed_distinct_ids: [] }
+                }
+                setTimeout(() => stop.abort(), 0)
+                throw new ApiError('slow down', 429, new Headers({ 'Retry-After': '60' }))
+            },
+            sleep: sleepUnlessAborted,
+            onChunkDone: () => {},
+            stop: stop.signal,
+        })
+
+        expect(Date.now() - started).toBeLessThan(5000)
+        expect(calls).toBe(2)
+        expect(outcome).toMatchObject({ imported: 1000, stoppedReason: 'cancelled' })
+        expect(outcome.failed).toHaveLength(1500)
     })
 
     it('stops on a permission error and marks every unsent row', async () => {

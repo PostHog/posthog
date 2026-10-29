@@ -164,6 +164,29 @@ tools:
                 - errors
                 - created_at
                 - created_by
+    integrations-push-tokens-create:
+        operation: integrations_push_tokens_create
+        enabled: true
+        scopes:
+            - integration:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Import push device tokens
+        description: >
+            Register existing mobile devices, for example exported from another push provider, on an APNs or Firebase
+            push channel so workflows can send them push notifications. Find the channel with integrations-list: kind
+            apns takes hex APNs device tokens, kind firebase takes FCM registration tokens. Expo push tokens
+            (ExponentPushToken[...]) work on neither and are always rejected. Each row pairs a device token with a
+            distinct_id, which must be the ID the app passes to identify, so the device lands on the person workflows
+            target. A distinct ID with no person fails as unknown_person unless create_missing_persons is true; leave
+            it false unless the user confirms those IDs are right. Always call with dry_run=true first: it reports
+            every failing row (unknown_person, token_mismatch) without storing anything. Fix or drop those rows, then
+            call again without dry_run. Send at most 1000 rows per call and at most 60 calls per minute per project;
+            on HTTP 429 wait a minute and retry. Rows that fail as not_stored can be sent again. Importing the same
+            row twice stores it once.
+        feature_flag: workflows-push-token-import-mcp
     integrations-users-retrieve:
         operation: integrations_users_retrieve
         enabled: true

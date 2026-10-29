@@ -3,29 +3,16 @@ import { useActions, useValues } from 'kea'
 import { IconUpload } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 
-import { downloadBlob } from 'lib/components/ExportButton/exporter'
 import { getIntegrationNameFromKind } from 'lib/integrations/utils'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { cn } from 'lib/utils/css-classes'
 
-import { RejectedPushTokenRow, failedRowsCsv } from './pushTokenImport'
+import { PushTokenFailedRowsTable } from './PushTokenFailedRowsTable'
 import { pushTokenImportLogic } from './pushTokenImportLogic'
 
 const PREVIEW_ROWS = 5
 const EXAMPLE_CSV = 'distinct_id,device_token\nuser-123,9f2c1a…\nuser-456,dGVzdC1mY20…'
-
-function countByReason(rows: RejectedPushTokenRow[]): [string, number][] {
-    const counts = new Map<string, number>()
-    for (const row of rows) {
-        counts.set(row.reason, (counts.get(row.reason) ?? 0) + 1)
-    }
-    return [...counts.entries()]
-}
-
-function downloadFailedRows(rows: RejectedPushTokenRow[]): void {
-    downloadBlob(new Blob([failedRowsCsv(rows)], { type: 'text/csv' }), 'devices-not-imported.csv')
-}
 
 function plural(count: number, one: string, many: string): string {
     return `${count.toLocaleString()} ${count === 1 ? one : many}`
@@ -45,11 +32,12 @@ export function PushTokenImportModal(): JSX.Element {
         outcome,
         rowCount,
         failedRows,
+        unknownPersonRows,
         startDisabledReason,
     } = useValues(pushTokenImportLogic)
-    const { closeImport, setFile, startImport, stopImport } = useActions(pushTokenImportLogic)
+    const { closeImport, setFile, startImport, importUnknownPersons, stopImport } = useActions(pushTokenImportLogic)
 
-    const percent = rowCount ? (progress.rowsDone / rowCount) * 100 : 0
+    const percent = progress.total ? (progress.rowsDone / progress.total) * 100 : 0
 
     return (
         <LemonModal
@@ -61,33 +49,33 @@ export function PushTokenImportModal(): JSX.Element {
                     ? `${getIntegrationNameFromKind(integration.kind)} channel: ${integration.display_name}`
                     : undefined
             }
-            width={640}
+            width={720}
             footer={
-                outcome ? (
+                importing ? (
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        onClick={stopImport}
+                        disabledReason={stopping ? 'Stopping the import' : null}
+                        data-attr="push-token-import-stop"
+                    >
+                        Stop import
+                    </LemonButton>
+                ) : outcome ? (
                     <>
-                        {failedRows.length > 0 ? (
+                        {unknownPersonRows.length > 0 ? (
                             <LemonButton
                                 type="secondary"
-                                onClick={() => downloadFailedRows(failedRows)}
-                                data-attr="push-token-import-download-failed"
+                                onClick={importUnknownPersons}
+                                data-attr="push-token-import-create-persons"
                             >
-                                Download rows that failed
+                                Import anyway and create new persons
                             </LemonButton>
                         ) : null}
                         <LemonButton type="primary" onClick={closeImport}>
                             Done
                         </LemonButton>
                     </>
-                ) : importing ? (
-                    <LemonButton
-                        type="secondary"
-                        status="danger"
-                        onClick={stopImport}
-                        disabledReason={stopping ? 'Stopping after the current batch' : null}
-                        data-attr="push-token-import-stop"
-                    >
-                        Stop import
-                    </LemonButton>
                 ) : (
                     <>
                         <LemonButton type="secondary" onClick={closeImport}>
@@ -105,35 +93,45 @@ export function PushTokenImportModal(): JSX.Element {
                 )
             }
         >
-            <div className="flex flex-col gap-4" data-attr="push-token-import-modal">
-                {outcome ? (
+            {/* Distinct IDs and device tokens stay out of session recordings. */}
+            <div className="flex flex-col gap-4 ph-no-capture ph-replay-block" data-attr="push-token-import-modal">
+                {importing ? (
+                    <div className="flex flex-col gap-2">
+                        <span>
+                            <span>{stopping ? 'Stopping the import…' : 'Importing devices…'}</span>{' '}
+                            <span translate="no">{progress.rowsDone.toLocaleString()}</span> of{' '}
+                            <span translate="no">{progress.total.toLocaleString()}</span> sent.
+                        </span>
+                        <LemonProgress percent={percent} />
+                        <span className="text-xs text-secondary">Keep this page open until the import finishes.</span>
+                    </div>
+                ) : outcome ? (
                     <>
                         <LemonBanner type={failedRows.length ? 'warning' : 'success'}>
                             {plural(outcome.imported, 'device', 'devices')} imported.
                             {failedRows.length
-                                ? ` ${plural(failedRows.length, 'row was', 'rows were')} not imported. Download them to see why, fix them, and import that file again.`
+                                ? ` ${plural(failedRows.length, 'line was', 'lines were')} not imported.`
                                 : null}
                         </LemonBanner>
                         {outcome.stoppedReason && outcome.stoppedReason !== 'cancelled' ? (
                             <LemonBanner type="error">The import stopped: {outcome.stoppedReason}</LemonBanner>
                         ) : null}
+                        {unknownPersonRows.length > 0 ? (
+                            <span className="text-sm">
+                                {plural(unknownPersonRows.length, 'device has', 'devices have')} a distinct ID that no
+                                person in PostHog has. Check that it's the ID your app passes to identify. If the IDs
+                                are right, import them anyway to create those persons.
+                            </span>
+                        ) : null}
+                        {failedRows.length > 0 ? <PushTokenFailedRowsTable rows={failedRows} /> : null}
                     </>
-                ) : importing ? (
-                    <div className="flex flex-col gap-2">
-                        <span>
-                            {stopping ? 'Stopping after the current batch…' : 'Importing devices…'}{' '}
-                            {progress.rowsDone.toLocaleString()} of {rowCount.toLocaleString()} sent.
-                        </span>
-                        <LemonProgress percent={percent} />
-                        <span className="text-xs text-secondary">Keep this page open until the import finishes.</span>
-                    </div>
                 ) : (
                     <>
                         <span className="text-sm text-secondary">
                             Upload a CSV file of devices, for example an export from your previous push provider. The
                             first line must name the columns, and the file needs a <code>distinct_id</code> column with
-                            the person's ID in your app and a <code>device_token</code> column with the APNs device
-                            token or FCM registration token. Add one line per device. Other columns are ignored.
+                            the ID your app passes to identify, and a <code>device_token</code> column with the APNs
+                            device token or FCM registration token. Add one line per device. Other columns are ignored.
                         </span>
                         <pre className="text-xs bg-surface-secondary rounded p-2 m-0">{EXAMPLE_CSV}</pre>
                         <LemonFileInput
@@ -184,29 +182,16 @@ export function PushTokenImportModal(): JSX.Element {
                                     />
                                 ) : null}
                                 {parsed.rejected.length > 0 ? (
-                                    <LemonBanner
-                                        type="warning"
-                                        action={{
-                                            children: 'Download skipped lines',
-                                            onClick: () => downloadFailedRows(parsed.rejected),
-                                            'data-attr': 'push-token-import-download-skipped',
-                                        }}
-                                    >
-                                        <div>{plural(parsed.rejected.length, 'line', 'lines')} will be skipped.</div>
-                                        <ul className="list-disc pl-4 mt-1">
-                                            {countByReason(parsed.rejected).map(([reason, count]) => (
-                                                <li key={reason}>
-                                                    {reason}: {count.toLocaleString()}
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </LemonBanner>
+                                    <>
+                                        <span>{plural(parsed.rejected.length, 'line', 'lines')} will be skipped:</span>
+                                        <PushTokenFailedRowsTable rows={parsed.rejected} />
+                                    </>
                                 ) : null}
                             </div>
                         ) : null}
                         <span className="text-xs text-secondary">
-                            People who aren't in PostHog yet are created. Each device is saved with one event, so it
-                            counts toward your event usage.
+                            A distinct ID that no person in PostHog has is not imported, and the result lets you create
+                            those persons. Each device is saved with one event, so it counts toward your event usage.
                         </span>
                     </>
                 )}

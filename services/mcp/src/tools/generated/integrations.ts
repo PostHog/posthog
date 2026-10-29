@@ -233,6 +233,39 @@ const integrationsList = (): ToolBase<
     },
 })
 
+const IntegrationsPushTokensCreateSchema = () => {
+    const IntegrationsPushTokensCreateBody = orvalSchemas.IntegrationsPushTokensCreateBody()
+    const IntegrationsPushTokensCreateParams = orvalSchemas.IntegrationsPushTokensCreateParams()
+    return IntegrationsPushTokensCreateParams.omit({ project_id: true }).extend(IntegrationsPushTokensCreateBody.shape)
+}
+
+const integrationsPushTokensCreate = (): ToolBase<
+    ReturnType<typeof IntegrationsPushTokensCreateSchema>,
+    Schemas.PushTokenImportResponse
+> => ({
+    name: 'integrations-push-tokens-create',
+    schema: IntegrationsPushTokensCreateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof IntegrationsPushTokensCreateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.subscriptions !== undefined) {
+            body['subscriptions'] = params.subscriptions
+        }
+        if (params.dry_run !== undefined) {
+            body['dry_run'] = params.dry_run
+        }
+        if (params.create_missing_persons !== undefined) {
+            body['create_missing_persons'] = params.create_missing_persons
+        }
+        const result = await context.api.request<Schemas.PushTokenImportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/integrations/${encodeURIComponent(String(params.id))}/push_tokens/`,
+            body,
+        })
+        return result
+    },
+})
+
 const IntegrationsUsersRetrieveSchema = () => {
     const IntegrationsUsersRetrieveParams = orvalSchemas.IntegrationsUsersRetrieveParams()
     const IntegrationsUsersRetrieveQueryParams = orvalSchemas.IntegrationsUsersRetrieveQueryParams()
@@ -310,6 +343,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'integrations-jira-projects-retrieve': integrationsJiraProjectsRetrieve,
     'integrations-linear-teams-retrieve': integrationsLinearTeamsRetrieve,
     'integrations-list': integrationsList,
+    'integrations-push-tokens-create': integrationsPushTokensCreate,
     'integrations-users-retrieve': integrationsUsersRetrieve,
     'posthog-connection-forward': posthogConnectionForward,
 }
