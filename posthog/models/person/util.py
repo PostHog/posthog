@@ -4,13 +4,13 @@ import json
 import time
 import datetime
 import contextvars
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import StrEnum
 from functools import partial
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
-from uuid import UUID
+from uuid import UUID, uuid5
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
@@ -40,8 +40,12 @@ from posthog.personhog_client.interceptor import is_transient_rpc_error, semanti
 from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.personhog_client.proto import (
     CONSISTENCY_LEVEL_STRONG,
+    DELETE_PERSON_OUTCOME_DELETED,
+    DELETE_PERSON_OUTCOME_NOT_FOUND,
+    DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT,
     AckedPersonTombstone,
     AckPersonTombstonesRequest,
+    DeletePersonOutcome,
     DeletePersonsMode,
     DeletePersonsRequest,
     DistinctIdRow,
@@ -55,6 +59,8 @@ from posthog.personhog_client.proto import (
     GetPersonsByDistinctIdsInTeamRequest,
     GetPersonsByUuidsRequest,
     GetPersonTombstonesRequest,
+    LifecycleDeletePersonResult,
+    LifecycleDeletePersonsRequest,
     ListPersonsForTeamRequest,
     ListPersonTombstoneQueueRequest,
     PersonListEntry,
@@ -759,6 +765,91 @@ def tombstone_persons_in_postgres(team_id: int, person_uuids: list[UUID]) -> lis
     return personhog_call("tombstone_persons", personhog_fn)
 
 
+# The identity server's cap on person ids per lifecycle DeletePersons request.
+LIFECYCLE_DELETE_PERSONS_PER_RPC = 250
+
+# Namespace for the saga op_id. Changing it makes a retry of an in-flight deletion start a second op.
+_LIFECYCLE_DELETE_OP_NAMESPACE = UUID("4b4d2d2e-5a3e-4c1f-9d4a-7c0b2f4e8a61")
+
+PERSON_DELETION_LIFECYCLE_OUTCOMES_COUNTER = Counter(
+    "posthog_person_deletion_lifecycle_outcomes_total",
+    "Per-person outcomes the lifecycle delete saga reported to a Django deletion.",
+    labelnames=["outcome"],
+)
+
+
+class PersonDeletionConflict(Exception):
+    """Another live lifecycle op holds the person, so the saga skipped it; it is still live and a retry can delete it."""
+
+
+@frozen
+class LifecycleDeleteOutcome:
+    """What one saga call left behind: the tombstones Postgres now holds, and the persons it could not claim."""
+
+    tombstones: list[PersonTombstone]
+    conflicts: list[UUID]
+
+
+def lifecycle_delete_op_id(run_id: str, team_id: int, person_ids: Sequence[int]) -> UUID:
+    """The saga op_id for one chunk of a deletion run.
+
+    The engine attaches a repeated op_id to its op, and a completed op answers from its record without
+    touching the persons. ``run_id`` keeps that attach to retries of the same request: the same ids
+    deleted again later, after a revival, carry another run_id and so start a new op.
+    """
+    return uuid5(_LIFECYCLE_DELETE_OP_NAMESPACE, f"{run_id}|{team_id}|{','.join(str(i) for i in sorted(person_ids))}")
+
+
+def tombstone_persons_via_lifecycle(
+    team_id: int, person_uuids_by_id: Mapping[int, UUID], *, run_id: str, timeout: float | None = None
+) -> LifecycleDeleteOutcome:
+    """Delete up to LIFECYCLE_DELETE_PERSONS_PER_RPC persons through the identity server's fenced saga.
+
+    The saga answers with an outcome per id and the person's tombstone version, not the distinct-id
+    versions, so the tombstones to publish are read back from the replica afterwards. That read also
+    covers an already tombstoned person (NOT_FOUND), which republishes like the replica path does. A
+    person the saga deleted but the read-back no longer shows tombstoned was revived in between: it
+    is reported at the version the saga returned, with no distinct ids, so it still counts as deleted.
+    """
+    person_ids = sorted(person_uuids_by_id)
+    request = LifecycleDeletePersonsRequest(
+        team_id=team_id, person_ids=person_ids, op_id=str(lifecycle_delete_op_id(run_id, team_id, person_ids))
+    )
+
+    def personhog_fn() -> dict[int, LifecycleDeletePersonResult]:
+        response = _get_client().lifecycle.delete_persons(request, timeout=timeout)
+        return {result.person_id: result for result in response.results}
+
+    results = personhog_call("lifecycle_delete_persons", personhog_fn, caller_tag="persons/deletion-lifecycle")
+
+    conflicts: list[UUID] = []
+    settled: list[UUID] = []
+    deleted_versions: dict[UUID, int] = {}
+    for person_id in person_ids:
+        uuid = person_uuids_by_id[person_id]
+        result = results.get(person_id)
+        # An id the response left out never had a live row to claim.
+        outcome = result.outcome if result is not None else DELETE_PERSON_OUTCOME_NOT_FOUND
+        PERSON_DELETION_LIFECYCLE_OUTCOMES_COUNTER.labels(
+            outcome=DeletePersonOutcome.Name(outcome).removeprefix("DELETE_PERSON_OUTCOME_").lower()
+        ).inc()
+        if outcome == DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT:
+            conflicts.append(uuid)
+            continue
+        settled.append(uuid)
+        if outcome == DELETE_PERSON_OUTCOME_DELETED and result is not None and result.HasField("person_version"):
+            deleted_versions[uuid] = int(result.person_version)
+
+    tombstones = get_person_tombstones(team_id, settled) if settled else []
+    stored = {tombstone.uuid for tombstone in tombstones}
+    tombstones.extend(
+        PersonTombstone(uuid=uuid, version=version, distinct_ids=[])
+        for uuid, version in deleted_versions.items()
+        if uuid not in stored
+    )
+    return LifecycleDeleteOutcome(tombstones=tombstones, conflicts=conflicts)
+
+
 @frozen
 class QueuedPersonTombstone:
     team_id: int
@@ -921,10 +1012,14 @@ class PersonTombstonePublication:
 
     A person that fails to produce or deliver is reported in ``failures`` and stays queued for
     the weekly sweep. A failed ack is only logged, because the sweep republishes those rows too.
+
+    ``ack_queue`` is off for tombstones the lifecycle saga wrote: the saga queues nothing, and the
+    death document and the outbox carry those rows to ClickHouse behind this publish.
     """
 
     team_id: int
     source: str = "delete"
+    ack_queue: bool = True
     failures: list[PersonTombstonePublishFailure] = field(default_factory=list)
     _pending: list[tuple[PersonTombstone, list[ProduceResult]]] = field(default_factory=list, init=False, repr=False)
 
@@ -956,6 +1051,8 @@ class PersonTombstonePublication:
                 self.failures.append(PersonTombstonePublishFailure(person_uuid=tombstone.uuid, error=exc))
                 continue
             delivered.append((tombstone.uuid, tombstone.version))
+        if not self.ack_queue:
+            return
         for i in range(0, len(delivered), 1000):
             chunk = delivered[i : i + 1000]
             try:

@@ -157,6 +157,7 @@ def delete_persons_async(
             was_impersonated=was_impersonated,
             organization_id=uuid_lib.UUID(organization_id) if organization_id else None,
             unmatched_distinct_ids=unmatched_distinct_ids,
+            run_id=self.request.id,
         )
     except Exception as exc:
         # Nothing per person was recorded, so the same arguments go round again.

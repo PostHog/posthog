@@ -9,6 +9,16 @@ PERSONHOG_LIFECYCLE_ADDR = get_from_env("PERSONHOG_LIFECYCLE_ADDR", "")
 # UNAVAILABLE itself; a shorter client deadline would abandon calls the server was about to answer.
 PERSONHOG_LIFECYCLE_TIMEOUT_MS = get_from_env("PERSONHOG_LIFECYCLE_TIMEOUT_MS", 45_000, type_cast=int)
 
+# Route person deletes through the lifecycle delete saga instead of the replica's TOMBSTONE RPC. Must be
+# on before ingestion moves to the personhog leader path: the replica never tells the leader, so the
+# leader's cached person outlives a replica tombstone and its next write revives the person.
+PERSON_DELETE_VIA_LIFECYCLE = get_from_env("PERSON_DELETE_VIA_LIFECYCLE", False, type_cast=str_to_bool)
+# Deadline per saga call on the request path (the person API), which holds a web worker while the saga
+# runs and retries. Background callers keep PERSONHOG_LIFECYCLE_TIMEOUT_MS.
+PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS = get_from_env(
+    "PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS", 10_000, type_cast=int
+)
+
 # gRPC channel options
 PERSONHOG_KEEPALIVE_TIME_MS = get_from_env("PERSONHOG_KEEPALIVE_TIME_MS", 30_000, type_cast=int)
 PERSONHOG_KEEPALIVE_TIMEOUT_MS = get_from_env("PERSONHOG_KEEPALIVE_TIMEOUT_MS", 5_000, type_cast=int)

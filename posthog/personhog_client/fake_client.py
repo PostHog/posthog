@@ -41,6 +41,8 @@ class _Call:
     method: str
     request: Any
     response: Any = None
+    # The per-call deadline the caller passed, for the lifecycle sagas; None means the channel default.
+    timeout: float | None = None
 
 
 class _FakeRpcError(grpc.RpcError):
@@ -101,7 +103,7 @@ class _FakeLifecycleClient:
     def delete_persons(
         self, request: lifecycle_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> lifecycle_pb2.DeletePersonsResponse:
-        return self._fake._lifecycle_delete_persons(request)
+        return self._fake._lifecycle_delete_persons(request, timeout)
 
 
 class FakePersonHogClient:
@@ -757,9 +759,9 @@ class FakePersonHogClient:
     # ── Lifecycle sagas ───────────────────────────────────────────────
 
     def _lifecycle_delete_persons(
-        self, request: lifecycle_pb2.DeletePersonsRequest
+        self, request: lifecycle_pb2.DeletePersonsRequest, timeout: float | None = None
     ) -> lifecycle_pb2.DeletePersonsResponse:
-        self.calls.append(_Call("lifecycle.delete_persons", request))
+        self.calls.append(_Call("lifecycle.delete_persons", request, timeout=timeout))
         self._validate_lifecycle_delete(request)
 
         frozen = (request.team_id, tuple(request.person_ids))
@@ -778,6 +780,7 @@ class FakePersonHogClient:
 
         # One decision per distinct person, so a duplicated id reports the same outcome twice.
         outcomes: dict[int, lifecycle_pb2.DeletePersonOutcome] = {}
+        versions: dict[int, int] = {}
         for person_id in request.person_ids:
             if person_id in outcomes:
                 continue
@@ -788,7 +791,7 @@ class FakePersonHogClient:
                 outcomes[person_id] = lifecycle_pb2.DELETE_PERSON_OUTCOME_SKIPPED_CONFLICT
             else:
                 # No publish-queue row: the death document and the outbox carry the ClickHouse tombstones.
-                self._tombstone_person(request.team_id, person, person_pb2.TombstonedPerson())
+                versions[person_id] = self._tombstone_person(request.team_id, person, person_pb2.TombstonedPerson())
                 self._cohort_memberships.pop(person.id, None)
                 for key in [key for key in self._cohort_members if key[1] == person.id]:
                     del self._cohort_members[key]
@@ -796,7 +799,9 @@ class FakePersonHogClient:
 
         response = lifecycle_pb2.DeletePersonsResponse(op_id=request.op_id)
         for person_id in request.person_ids:
-            response.results.add(person_id=person_id, outcome=outcomes[person_id])
+            result = response.results.add(person_id=person_id, outcome=outcomes[person_id])
+            if person_id in versions:
+                result.person_version = versions[person_id]
         self._lifecycle_ops[request.op_id] = (frozen[0], frozen[1], response)
         copy = lifecycle_pb2.DeletePersonsResponse()
         copy.CopyFrom(response)

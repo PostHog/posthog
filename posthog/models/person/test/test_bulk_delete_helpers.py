@@ -5,6 +5,7 @@ from uuid import uuid4
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 from confluent_kafka import KafkaError
@@ -16,7 +17,9 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
 from posthog.models.person.bulk_delete import (
+    DeletionRun,
     PersonDeletionStep,
+    PersonTombstoneFailed,
     _start_recording_workflows,
     delete_persons_profile,
     process_queued_person_deletion,
@@ -28,6 +31,7 @@ from posthog.models.person.bulk_delete import (
 from posthog.models.person.util import (
     TOMBSTONE_DELIVERY_TIMEOUT_SECONDS,
     PersonTombstone,
+    lifecycle_delete_op_id,
     tombstone_persons_in_postgres,
 )
 from posthog.personhog_client.fake_client import get_active_fake
@@ -284,6 +288,96 @@ class DeletePersonsProfileTests(BaseTest):
         ]
         assert result.errors == [p1.uuid, p2.uuid]
         assert get_active_fake().tombstone_queue == {}
+
+
+@override_settings(PERSON_DELETE_VIA_LIFECYCLE=True)
+class LifecycleDeletePersonsProfileTests(BaseTest):
+    def _saga_calls(self):
+        return [call for call in get_active_fake().calls if call.method == "lifecycle.delete_persons"]
+
+    def test_runs_the_saga_with_the_sorted_ids_then_publishes_the_stored_tombstones_without_a_queue_ack(self):
+        p1 = create_person(team=self.team, distinct_ids=["a"], properties={})
+        p2 = create_person(team=self.team, distinct_ids=["b", "c"], properties={})
+        deleted_before = _sample("posthog_person_deletion_lifecycle_outcomes_total", outcome="deleted")
+        with _no_publish() as publish:
+            result = delete_persons_profile(
+                self.team.pk, [p2, p1], actor=self.user, run=DeletionRun(run_id="run-1", rpc_timeout=7.5)
+            )
+
+        assert result.deleted_count == 2
+        assert result.failures == []
+        [call] = self._saga_calls()
+        assert list(call.request.person_ids) == sorted([p1.pk, p2.pk])
+        assert call.request.op_id == str(lifecycle_delete_op_id("run-1", self.team.pk, [p2.pk, p1.pk]))
+        assert call.timeout == 7.5
+        # The saga reports no distinct-id versions, so the publish takes what the replica now stores.
+        published = {c.args[1].uuid: c.args[1] for c in publish.call_args_list}
+        assert published[p1.uuid].version == 1
+        assert [(d.id, d.version) for d in published[p2.uuid].distinct_ids] == [("b", 1), ("c", 1)]
+        assert {call.method for call in get_active_fake().calls} & {"delete_persons", "ack_person_tombstones"} == set()
+        assert _sample("posthog_person_deletion_lifecycle_outcomes_total", outcome="deleted") == deleted_before + 2
+
+    def test_a_retry_of_the_run_attaches_to_its_op_and_a_new_run_starts_another(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with _no_publish():
+            for run_id in ("run-1", "run-1", "run-2"):
+                result = delete_persons_profile(self.team.pk, [p], actor=self.user, run=DeletionRun(run_id=run_id))
+                # The retry is answered from the op's record and the new run finds the tombstone; both republish.
+                assert result.deleted_count == 1
+
+        ops = [call.request.op_id for call in self._saga_calls()]
+        assert ops[0] == ops[1] != ops[2]
+        assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].version == 1
+
+    def test_a_person_held_by_another_op_stays_live_and_fails_the_tombstone_step_for_a_retry(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        get_active_fake().hold_lifecycle_mark(team_id=self.team.pk, person_id=p.pk)
+        with _no_publish() as publish:
+            result = delete_persons_profile(self.team.pk, [p], actor=self.user, organization_id=self.organization.id)
+            with self.assertRaises(PersonTombstoneFailed) as raised:
+                tombstone_and_publish_persons(self.team.pk, [p])
+
+        assert result.deleted_count == 0
+        assert [(f.step, f.person_uuid) for f in result.failures] == [(PersonDeletionStep.TOMBSTONE_POSTGRES, p.uuid)]
+        assert result.failures[0].error.startswith("PersonDeletionConflict")
+        assert result.retryable_errors == [p.uuid]
+        assert "PersonDeletionConflict" in str(raised.exception)
+        publish.assert_not_called()
+        assert not ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
+        assert get_active_fake()._persons_by_uuid[(self.team.pk, str(p.uuid))].is_deleted is False
+
+    def test_an_already_tombstoned_person_is_republished_and_a_missing_one_is_dropped(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        tombstone_persons_in_postgres(self.team.pk, [p.uuid])
+        ghost = Person(id=10**9, uuid=uuid4(), team=self.team)
+        ghost._distinct_ids = []
+        with _no_publish() as publish:
+            result = delete_persons_profile(self.team.pk, [p, ghost], actor=self.user)
+
+        assert result.deleted_count == 1
+        assert result.failures == []
+        assert [(c.args[1].uuid, c.args[1].version) for c in publish.call_args_list] == [(p.uuid, 1)]
+
+    def test_a_person_revived_before_the_read_back_counts_at_the_version_the_saga_returned(self):
+        p = create_person(team=self.team, distinct_ids=["a"], properties={})
+        with (
+            _no_publish() as publish,
+            patch("posthog.models.person.util.get_person_tombstones", return_value=[]),
+        ):
+            result = delete_persons_profile(self.team.pk, [p], actor=self.user, organization_id=self.organization.id)
+
+        assert result.deleted_count == 1
+        tombstone = publish.call_args.args[1]
+        assert (tombstone.uuid, tombstone.version, tombstone.distinct_ids) == (p.uuid, 1, [])
+        assert ActivityLog.objects.filter(team_id=self.team.pk, scope="Person", item_id=str(p.pk)).exists()
+
+    def test_splits_a_batch_at_the_saga_person_cap(self):
+        persons = [create_person(team=self.team, distinct_ids=[f"d{i}"], properties={}) for i in range(3)]
+        with patch("posthog.models.person.bulk_delete.LIFECYCLE_DELETE_PERSONS_PER_RPC", 2), _no_publish():
+            result = delete_persons_profile(self.team.pk, persons, actor=self.user)
+
+        assert result.deleted_count == 3
+        assert [len(call.request.person_ids) for call in self._saga_calls()] == [2, 1]
 
 
 class TombstoneAndPublishPersonsTests(BaseTest):
