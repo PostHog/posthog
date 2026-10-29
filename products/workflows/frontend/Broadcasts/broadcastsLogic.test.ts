@@ -33,7 +33,7 @@ describe('broadcastsLogic', () => {
         expect(router.values.searchParams).toMatchObject({ status: 'sent', search: 'welcome' })
     })
 
-    it('fills in filters that were saved before a filter existed', () => {
+    it('defaults the tags filter when the saved filters have none', () => {
         logic.actions.setFilters({ search: 'welcome' })
         const key = Object.keys(localStorage).find((k) => k.includes('broadcasts_list_filters'))!
         const { tags: _, ...savedBeforeTags } = JSON.parse(localStorage.getItem(key)!)
