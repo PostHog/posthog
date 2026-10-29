@@ -21,8 +21,8 @@ export type FlagCallCriterionProblem = 'type' | 'window' | 'filters'
  * are only in flag_evaluations, or null.
  *
  * Mirrors the type, window and filter checks in `posthog/api/cohort.py`, which explain the 88-day limit and why the
- * API refuses a SQL expression filter on this event. A behavioral criterion holds only event property and SQL
- * expression filters.
+ * API refuses a SQL expression filter on this event. The filter check also flags element filters, which the API
+ * accepts.
  */
 export function flagCallCriterionProblem(criteria: AnyCohortCriteriaType): FlagCallCriterionProblem | null {
     if (!CRITERIA_ACCEPTING_HIDDEN_EVENTS.includes(String(criteria.value))) {
