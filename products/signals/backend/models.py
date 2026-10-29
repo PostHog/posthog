@@ -1169,7 +1169,6 @@ class SignalReportAssignment(TeamScopedRootMixin, UUIDModel):
     class Meta:
         default_manager_name = "all_teams"
         indexes = [
-            models.Index(fields=["repository", "pr_number", "team"], name="signals_assign_pr_identity"),
             models.Index(fields=["team", "actor_kind", "actor_user", "actor_agent"], name="signals_assign_actor_idx"),
             models.Index(fields=["team", "actor_kind", "actor_task_id"], name="signals_assign_task_idx"),
         ]
