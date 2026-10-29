@@ -188,7 +188,7 @@ def search_trace(
     loaded = load_trace_search(team, user, trace_id, query, timestamp_hint)
     if not loaded.rows:
         raise TraceNotFoundError(trace_id)
-    result = TraceSearchResult.of(Trace(trace_id, loaded.rows, None), loaded.counts)
+    result = TraceSearchResult.of(Trace(trace_id, loaded.rows, None), loaded.counts, query)
     return contracts.TraceSearchResults(
         total=result.total,
         matches=[contracts.TraceSearchMatch(node_id=match.node_id, count=match.count) for match in result.matches],

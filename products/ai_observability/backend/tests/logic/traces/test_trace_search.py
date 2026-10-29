@@ -19,7 +19,7 @@ TRACE = Trace(
 
 
 def test_matches_follow_the_tree_with_the_root_first() -> None:
-    result = TraceSearchResult.of(TRACE, {"gen-2": 1, "gen-1": 4, "root-event": 2, "fb-1": 9, "span-1": 0})
+    result = TraceSearchResult.of(TRACE, {"gen-2": 1, "gen-1": 4, "root-event": 2, "fb-1": 9, "span-1": 0}, "trace")
 
     assert result == TraceSearchResult(
         total=7,
@@ -32,4 +32,12 @@ def test_matches_follow_the_tree_with_the_root_first() -> None:
 
 
 def test_no_counts_is_an_empty_result() -> None:
-    assert TraceSearchResult.of(TRACE, {}) == TraceSearchResult(total=0, matches=())
+    assert TraceSearchResult.of(TRACE, {}, "trace") == TraceSearchResult(total=0, matches=())
+
+
+def test_without_a_trace_event_the_root_counts_its_title() -> None:
+    trace = Trace("trace-1", [make_row(uuid="span-1", span_name="Fetch invoice", timestamp=T0)], None)
+
+    assert TraceSearchResult.of(trace, {"span-1": 1}, "INVOICE") == TraceSearchResult(
+        total=2, matches=(NodeMatch(node_id="trace-1", count=1), NodeMatch(node_id="span-1", count=1))
+    )
