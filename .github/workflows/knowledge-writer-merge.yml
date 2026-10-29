@@ -27,4 +27,4 @@ jobs:
                           --data "{\"commit_sha\": \"$commit_sha\"}" "$KNOWLEDGE_WRITER_MERGE_PUSHES_URL" \
                           || failed_commit_shas+=("$commit_sha")
                   done
-                  [ ${#failed_commit_shas[@]} -eq 0 ] || { echo "::error::Merge push delivery failed for: ${failed_commit_shas[*]}"; exit 1; }
+                  [ ${#failed_commit_shas[@]} -eq 0 ] || echo "::warning::Knowledge writer merge check not delivered for: ${failed_commit_shas[*]}"
