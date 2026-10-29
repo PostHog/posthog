@@ -54,6 +54,7 @@ from posthog.auth import (
     mint_export_renderer_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod, get_query_tags, tags_context
+from posthog.helpers.dev_oauth_connectors import DEV_OAUTH_CONNECTOR_CIMD_URLS
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -782,10 +783,31 @@ class TestDevLoginAPI(APIBaseTest):
 
     @override_settings(DEBUG=True, ALLOW_DEV_LOGIN=True)
     def test_dev_login_list_and_create_when_allowed(self):
+        for url in DEV_OAUTH_CONNECTOR_CIMD_URLS:
+            OAuthApplication.objects.create(
+                name=f"Connector {url}",
+                client_id=url,
+                client_type="public",
+                authorization_grant_type="authorization-code",
+                redirect_uris="https://connector.example.com/callback",
+                algorithm="RS256",
+                is_cimd_client=True,
+            )
+
         response = self.client.get("/api/login/dev")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
         emails = {user["email"] for user in response.json()["users"]}
         self.assertIn(self.user.email, emails)
+
+        authorize_paths = {
+            connector["client_id"]: connector["authorize_path"] for connector in response.json()["oauth_connectors"]
+        }
+        self.assertEqual(set(authorize_paths), set(DEV_OAUTH_CONNECTOR_CIMD_URLS))
+        self.assertIn(
+            "redirect_uri=https%3A%2F%2Fconnector.example.com%2Fcallback",
+            authorize_paths[DEV_OAUTH_CONNECTOR_CIMD_URLS[0]],
+        )
 
         self.client.logout()
         response = self.client.post("/api/login/dev", {"email": self.user.email})

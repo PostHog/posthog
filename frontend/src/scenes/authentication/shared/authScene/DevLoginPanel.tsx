@@ -10,6 +10,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { OAUTH_REGIONS } from 'lib/oauth/oauthClient'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
 import { hashCodeForString } from 'lib/utils/strings'
+import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { Region } from '~/types'
@@ -19,8 +20,17 @@ import { DevUser, devLoginLogic } from '../devLoginLogic'
 /** Floating dev-only panel (top-right) combining dev-login shortcuts and OAuth prod-data login. */
 export function DevLoginPanel(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { devUsers, devUsersLoading, devLoginPanelOpen, createFreshAccountLoading } = useValues(devLoginLogic)
-    const { devLogin, loadDevUsers, createFreshAccount, setDevLoginPanelOpen } = useActions(devLoginLogic)
+    const { devUsers, devOAuthConnectors, devLoginOptionsLoading, devLoginPanelOpen, createFreshAccountLoading } =
+        useValues(devLoginLogic)
+    const {
+        devLogin,
+        loadDevLoginOptions,
+        createFreshAccount,
+        setDevLoginPanelOpen,
+        clearPendingOAuthConnection,
+        startPendingOAuthConnection,
+    } = useActions(devLoginLogic)
+    const { pendingConnection } = useValues(pendingOAuthConnectionLogic)
     const { loginInProgress } = useValues(oauthLogic)
     const { beginLogin } = useActions(oauthLogic)
 
@@ -29,9 +39,9 @@ export function DevLoginPanel(): JSX.Element | null {
 
     useEffect(() => {
         if (allowDevLogin && devLoginPanelOpen) {
-            loadDevUsers(null)
+            loadDevLoginOptions(null)
         }
-    }, [allowDevLogin, devLoginPanelOpen, loadDevUsers])
+    }, [allowDevLogin, devLoginPanelOpen, loadDevLoginOptions])
 
     if (!isDebug) {
         return null
@@ -64,12 +74,12 @@ export function DevLoginPanel(): JSX.Element | null {
                     {devUsers.map((user) => (
                         <DevUserButton key={user.email} user={user} onClick={devLogin} />
                     ))}
-                    {devUsersLoading && (
+                    {devLoginOptionsLoading && (
                         <div className="flex justify-center py-4">
                             <Spinner />
                         </div>
                     )}
-                    {!devUsersLoading && devUsers.length === 0 && (
+                    {!devLoginOptionsLoading && devUsers.length === 0 && (
                         <p className="text-xs text-muted text-center px-2 py-4 m-0">
                             No accounts yet. Create a fresh demo account below.
                         </p>
@@ -92,6 +102,59 @@ export function DevLoginPanel(): JSX.Element | null {
                     >
                         Create fresh demo account
                     </LemonButton>
+                )}
+                {allowDevLogin && !pendingConnection && (
+                    <div>
+                        <p className="text-xs font-medium text-muted mb-1">Start an OAuth connection</p>
+                        {devOAuthConnectors.length > 0 ? (
+                            <div className="grid grid-cols-2 gap-1">
+                                {devOAuthConnectors.map((connector) => (
+                                    <LemonButton
+                                        key={connector.client_id}
+                                        type="secondary"
+                                        size="small"
+                                        fullWidth
+                                        center
+                                        icon={
+                                            connector.logo_uri ? (
+                                                <img
+                                                    src={connector.logo_uri}
+                                                    alt=""
+                                                    className="w-4 h-4 object-contain"
+                                                />
+                                            ) : undefined
+                                        }
+                                        onClick={() => startPendingOAuthConnection(connector)}
+                                        data-attr={`dev-start-oauth-connection-${connector.client_id}`}
+                                        tooltip="Sets the ph_pending_oauth_connection cookie and a next= link to the consent page, as a connector would."
+                                    >
+                                        <span className="truncate">{connector.client_name}</span>
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        ) : (
+                            !devLoginOptionsLoading && (
+                                <p className="text-xs text-muted m-0">Run generate_demo_data to add connector apps.</p>
+                            )
+                        )}
+                    </div>
+                )}
+                {pendingConnection && (
+                    <div>
+                        <p className="text-xs font-medium text-muted mb-1">Pending OAuth connection</p>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            fullWidth
+                            center
+                            icon={<IconX />}
+                            onClick={clearPendingOAuthConnection}
+                            data-attr="dev-clear-pending-oauth-connection"
+                            tooltip="Deletes the ph_pending_oauth_connection cookie, so these screens stop showing the app. The next= link in the URL still goes to the consent page after login."
+                        >
+                            Clear {pendingConnection.clientName}
+                        </LemonButton>
+                    </div>
                 )}
                 <div>
                     <p className="text-xs font-medium text-muted mb-1">Log in via OAuth</p>
