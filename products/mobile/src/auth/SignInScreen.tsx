@@ -1,3 +1,4 @@
+import { getCalendars, getLocales } from 'expo-localization'
 import { useRouter } from 'expo-router'
 import { type ReactElement, useState } from 'react'
 import { ActivityIndicator, Linking, ScrollView, Text, View } from 'react-native'
@@ -11,17 +12,18 @@ import { useAsyncAction } from '@/lib/useAsyncAction'
 import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
 import { PostHogLogo } from '@/ui/icons/PostHogLogo'
 import { Pressable44 } from '@/ui/Pressable44'
-import { SegmentedPill } from '@/ui/SegmentedPill'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, radii, type } from '@/ui/tokens'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
-import { type AuthMethod, useAuthStore } from './authStore'
+import { useAuthStore } from './authStore'
 import { OAuthError } from './oauth'
+import { RegionSelect } from './RegionSelect'
 import {
     CLOUD_REGIONS,
+    type CloudRegion,
     DEFAULT_CUSTOM_CLIENT_ID,
-    REGIONS,
+    defaultCloudRegion,
     type RegionId,
     SHOW_SIGNUP_LINK,
     signupUrl,
@@ -36,11 +38,18 @@ export function SignInScreen(): ReactElement {
     const router = useRouter()
     const insets = useScreenInsets()
     const signIn = useAuthStore((state) => state.signIn)
-    const signInWithPersonalApiKey = useAuthStore((state) => state.signInWithPersonalApiKey)
     const signedOutReason = useAuthStore((state) => state.signedOutReason)
     const setDemo = useDemoMode((state) => state.setEnabled)
-    // The last sign-in's region, host and client id survive sign out, so the form starts there.
-    const [region, setRegion] = useState<RegionId>(() => useAuthStore.getState().region)
+    const [cloudRegion, setCloudRegion] = useState<CloudRegion['id']>(() => {
+        const { region, host } = useAuthStore.getState()
+        return defaultCloudRegion(
+            getLocales()[0]?.regionCode ?? null,
+            getCalendars()[0]?.timeZone ?? null,
+            host ? region : undefined
+        )
+    })
+    const [selfHosted, setSelfHosted] = useState(() => useAuthStore.getState().region === 'custom')
+    const region: RegionId = selfHosted ? 'custom' : cloudRegion
     const [customHost, setCustomHost] = useState(() => {
         const { region: lastRegion, host } = useAuthStore.getState()
         return lastRegion === 'custom' && host ? host : ''
@@ -49,27 +58,19 @@ export function SignInScreen(): ReactElement {
         const { region: lastRegion, clientId: lastClientId } = useAuthStore.getState()
         return lastRegion === 'custom' && lastClientId ? lastClientId : DEFAULT_CUSTOM_CLIENT_ID
     })
-    const [mode, setMode] = useState<AuthMethod>('oauth')
-    const [apiKey, setApiKey] = useState('')
     const [error, setError] = useState<{ message: string; retryable: boolean } | null>(null)
 
-    const selected = REGIONS.find((option) => option.id === region)
-    const selfHosted = region === 'custom'
-    const usingKey = __DEV__ && mode === 'personal_api_key'
+    const selected = CLOUD_REGIONS.find((option) => option.id === cloudRegion)
     const customHostCheck = selfHosted ? validateHost(customHost) : null
     const formHost = customHostCheck ? (customHostCheck.ok ? customHostCheck.host : null) : (selected?.host ?? null)
 
     const submit = useAsyncAction(async () => {
         setError(null)
         const host = selfHosted ? customHost : (selected?.host ?? '')
-        const method: AuthMethod = usingKey ? 'personal_api_key' : 'oauth'
+        const method = 'oauth'
         track('mobile_sign_in_started', { method, region, after_expiry: signedOutReason === 'expired' })
         try {
-            if (usingKey) {
-                await signInWithPersonalApiKey(host, apiKey)
-            } else {
-                await signIn(host, selfHosted ? clientId : (selected?.clientId ?? ''))
-            }
+            await signIn(host, selfHosted ? clientId : (selected?.clientId ?? ''))
             if (useDemoMode.getState().enabled) {
                 track('mobile_demo_ended', { from: 'sign_in' })
             }
@@ -92,7 +93,11 @@ export function SignInScreen(): ReactElement {
         if (next !== region) {
             track('mobile_sign_in_region_changed', { region: next })
         }
-        setRegion(next)
+        setError(null)
+        setSelfHosted(next === 'custom')
+        if (next !== 'custom') {
+            setCloudRegion(next)
+        }
     }
 
     const tryDemo = (): void => {
@@ -143,54 +148,22 @@ export function SignInScreen(): ReactElement {
                                     editable={!submit.pending}
                                     testID="sign-in-host"
                                 />
-                                {usingKey ? null : (
-                                    <SignInField
-                                        label="Client ID"
-                                        value={clientId}
-                                        onChangeText={setClientId}
-                                        placeholder="OAuth client ID"
-                                        hint="The client ID of the PostHog mobile app registered on this instance."
-                                        editable={!submit.pending}
-                                        testID="sign-in-client-id"
-                                    />
-                                )}
+                                <SignInField
+                                    label="Client ID"
+                                    value={clientId}
+                                    onChangeText={setClientId}
+                                    placeholder="OAuth client ID"
+                                    hint="The client ID of the PostHog mobile app registered on this instance."
+                                    editable={!submit.pending}
+                                    testID="sign-in-client-id"
+                                />
                             </>
                         ) : (
                             <View style={styles.field}>
                                 <Text style={[type.eyebrow, styles.label]}>DATA REGION</Text>
-                                <SegmentedPill
-                                    height={48}
-                                    segments={CLOUD_REGIONS.map((option) => ({
-                                        key: option.id,
-                                        accessibilityLabel: `${option.label} cloud`,
-                                        selected: region === option.id,
-                                        disabled: submit.pending,
-                                        onPress: () => changeRegion(option.id),
-                                        testID: `region-${option.id}`,
-                                        children: (
-                                            <Text style={styles.segmentText} numberOfLines={1}>
-                                                {option.flag} {option.label}
-                                            </Text>
-                                        ),
-                                    }))}
-                                />
-                                <Text style={styles.hint}>
-                                    Not sure? Check the address you use for PostHog: us.posthog.com or eu.posthog.com.
-                                </Text>
+                                <RegionSelect value={cloudRegion} onChange={changeRegion} disabled={submit.pending} />
                             </View>
                         )}
-                        {usingKey ? (
-                            <SignInField
-                                label="Personal API key"
-                                value={apiKey}
-                                onChangeText={setApiKey}
-                                placeholder="phx_..."
-                                secret
-                                hint="Development builds only. The key needs user:read, organization:read and project:read."
-                                editable={!submit.pending}
-                                testID="sign-in-api-key"
-                            />
-                        ) : null}
                         {signedOutReason === 'expired' && !error ? (
                             <Text style={styles.notice} testID="sign-in-expired">
                                 Your session ended. Log in again to continue.
@@ -225,8 +198,21 @@ export function SignInScreen(): ReactElement {
                             {submit.pending ? (
                                 <ActivityIndicator color={colors.onAccent} />
                             ) : (
-                                <Text style={styles.primaryText}>{usingKey ? 'Log in with key' : 'Log in'}</Text>
+                                <Text style={styles.primaryText}>Log in</Text>
                             )}
+                        </Pressable44>
+                    </View>
+                    <View style={styles.links}>
+                        <Pressable44
+                            onPress={() => changeRegion(selfHosted ? cloudRegion : 'custom')}
+                            disabled={submit.pending}
+                            pressedStyle={styles.linkPressed}
+                            style={styles.link}
+                            testID="sign-in-self-hosted"
+                        >
+                            <Text style={styles.linkText}>
+                                {selfHosted ? 'Use PostHog Cloud instead' : 'Use a self-hosted instance'}
+                            </Text>
                         </Pressable44>
                     </View>
                     <View style={styles.divider} />
@@ -239,38 +225,6 @@ export function SignInScreen(): ReactElement {
                     >
                         <Text style={styles.secondaryText}>Try the demo</Text>
                     </Pressable44>
-                    <View style={styles.links}>
-                        <Pressable44
-                            onPress={() => {
-                                setError(null)
-                                changeRegion(selfHosted ? 'us' : 'custom')
-                            }}
-                            disabled={submit.pending}
-                            pressedBackground={colors.sunken}
-                            style={styles.link}
-                            testID="sign-in-self-hosted"
-                        >
-                            <Text style={styles.linkText}>
-                                {selfHosted ? 'Use PostHog Cloud instead' : 'Use a self-hosted instance'}
-                            </Text>
-                        </Pressable44>
-                        {__DEV__ ? (
-                            <Pressable44
-                                onPress={() => {
-                                    setError(null)
-                                    setMode(usingKey ? 'oauth' : 'personal_api_key')
-                                }}
-                                disabled={submit.pending}
-                                pressedBackground={colors.sunken}
-                                style={styles.link}
-                                testID="sign-in-mode"
-                            >
-                                <Text style={styles.linkText}>
-                                    {usingKey ? 'Log in with PostHog instead' : 'Use a personal API key'}
-                                </Text>
-                            </Pressable44>
-                        ) : null}
-                    </View>
                 </View>
                 {SHOW_SIGNUP_LINK && !selfHosted ? (
                     <Pressable44
@@ -376,15 +330,6 @@ const useStyles = createStyles(({ colors }) => ({
         color: colors.tertiary,
         paddingHorizontal: 4,
     },
-    segmentText: {
-        ...type.buttonSmall,
-        color: colors.ink,
-    },
-    hint: {
-        ...type.metaSmall,
-        color: colors.secondary,
-        paddingHorizontal: 4,
-    },
     notice: {
         ...type.metaSmall,
         color: colors.muted,
@@ -458,9 +403,12 @@ const useStyles = createStyles(({ colors }) => ({
     },
     link: {
         height: 44,
-        borderRadius: radii.card,
+        alignSelf: 'center',
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    linkPressed: {
+        opacity: 0.6,
     },
     linkText: {
         ...type.buttonSmall,

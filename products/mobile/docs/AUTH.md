@@ -169,7 +169,13 @@ Actions: `restore()`, `signIn(host, clientId)`, `signInWithPersonalApiKey(host, 
 
 ## Sign-in screen
 
-The screen mirrors the web login page: data region, Log in, Try the demo.
+The screen shows a data region dropdown, Log in, a self-hosted link, and a separate Try the demo button.
+On first use, the device's region selects EU for European countries and US elsewhere.
+If the device has no region setting, a European time zone selects EU; otherwise the default is US.
+Returning users keep the region from their last sign-in. The dropdown can always override the default.
+"Use a self-hosted instance" sits directly below Log in and shows the host and OAuth client ID fields.
+Returning to PostHog Cloud restores the selected cloud region. Try the demo stays below the divider.
+The sign-in screen uses OAuth in every build and has no personal API key option.
 Every build shows "Try the demo", including preview and store builds, so app reviewers can try the app without an account.
 In a release build it is the only way to start demo mode. Settings there can only leave demo mode, with "Exit demo".
 Development bundles (`__DEV__`) also have the Settings demo toggle and start in demo mode with `EXPO_PUBLIC_DEMO_MODE=1`.
@@ -194,7 +200,7 @@ The sign-in, session and settings events never carry the host, the error text or
 - `mobile_sign_in_started` with `method` (`oauth` or `personal_api_key`), `region` and `after_expiry` (the screen showed "Your session ended").
 - `mobile_sign_in_failed` with `method`, `region`, `retryable` and `reason`: an `OAuthErrorKind` (`cancelled`, `denied`, `network`, ...), `invalid_input`, `invalid_key`, `account_rejected`, `account_forbidden`, `account_load` or `unknown` (`signInFailureReason()` in `src/auth/signInErrors.ts`).
 - `mobile_signed_in` with `method` and `region`.
-- `mobile_sign_in_region_changed` with `region`, from the region pill and "Use a self-hosted instance".
+- `mobile_sign_in_region_changed` with `region`, from the region dropdown and "Use a self-hosted instance".
 - `mobile_create_account_opened` with `region`.
 - `mobile_session_restored` with `method`, once per cold start that opens signed in.
 - `mobile_signed_out` with `reason` (`user`, or `expired` when the server ended the session) and `method`. It fires before the analytics identity resets.
@@ -216,8 +222,8 @@ The sign-in, session and settings events never carry the host, the error text or
   The dev app is not first-party, so the consent screen shows and access tokens last 1 hour, which exercises refresh often.
   - iOS simulator: `localhost` reaches the Mac.
   - Android emulator: run `adb reverse tcp:8010 tcp:8010` first, so `localhost` on the emulator reaches the Mac.
-- **Personal API key** (dev builds only, `__DEV__`). Tap "Use a personal API key", pick the region or a custom host, paste a key with `user:read`, `organization:read`, `project:read` and the scopes of the screens you test (`task:read`, `task:write`, `user:write`, `conversation:write`, `today:read`, `query:read`, and for Views `dashboard:read`, `insight:read`, `file_system_shortcut:write`; for Errors `error_tracking:read`, `error_tracking:write`; for Sessions `session_recording:read`, `replay_scanner:read`, `replay_scanner:write`).
-  The key never refreshes; a 401 ends the session.
+- The auth store retains support for existing development sessions that use personal API keys.
+  The sign-in screen no longer starts these sessions. Keys never refresh; a 401 ends the session.
 - **Demo** (every build). "Try the demo" needs no account. "Exit demo" in Settings returns to the sign-in screen.
 
 ## Register a new OAuth app

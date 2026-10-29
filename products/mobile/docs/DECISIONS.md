@@ -244,7 +244,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **One redirect to sign in.** `useAuthRedirect()` sends every screen to `/sign-in` when the session ends and demo mode is off, including a refresh failure in the middle of a session.
 - **In-place confirmation.** Sign out confirms inside Settings, and inside the inbox menu, instead of `Alert.alert`, which does nothing on react-native-web.
   Both use `SignOutConfirm` and `useSignOutAction`. A demo session without an account leaves the demo with no confirmation.
-- **OAuth sign in is native only.** The web build has no registered redirect, so Sign in on the web says to use the apps or the demo. Dev builds can use a personal API key on the web.
+- **OAuth sign in is native only.** The web build has no registered redirect, so Sign in on the web says to use the apps or the demo. The sign-in screen does not offer personal API keys, including in development builds.
 - **Sign-out tasks.** `addSignOutTask()` lets the notifications feature unregister its token without the auth store importing a feature.
   `addSessionEndTask()` runs device cleanup on every session end, an expired session too: the snooze feature clears its store and cancels the reminders, and the hand-off feature clears its store.
 - **Push prompt.** The app asks for notification permission once, right after the first sign in, never on the sign-in screen. Later prompts come only from the Settings button.

@@ -1,4 +1,22 @@
-import { validateHost } from './regions'
+import { defaultCloudRegion, type RegionId, validateHost } from './regions'
+
+describe('defaultCloudRegion', () => {
+    it.each<[string | null, string | null, RegionId | undefined, 'us' | 'eu']>([
+        ['DE', 'Europe/Berlin', undefined, 'eu'],
+        ['GB', 'Europe/London', undefined, 'eu'],
+        ['CY', 'Asia/Nicosia', undefined, 'eu'],
+        ['fi', null, undefined, 'eu'],
+        ['US', 'America/New_York', undefined, 'us'],
+        ['AU', 'Australia/Sydney', undefined, 'us'],
+        [null, 'Europe/Paris', undefined, 'eu'],
+        [null, null, undefined, 'us'],
+        ['DE', 'Europe/Berlin', 'us', 'us'],
+        ['US', 'America/New_York', 'eu', 'eu'],
+        ['DE', 'Europe/Berlin', 'custom', 'eu'],
+    ])('device region %s, timezone %s and saved region %s select %s', (regionCode, timeZone, saved, expected) => {
+        expect(defaultCloudRegion(regionCode, timeZone, saved)).toBe(expected)
+    })
+})
 
 describe('regions', () => {
     const originalUsClientId = process.env.EXPO_PUBLIC_OAUTH_US_CLIENT_ID
