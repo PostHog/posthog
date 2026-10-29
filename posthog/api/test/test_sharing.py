@@ -349,7 +349,8 @@ class TestSharing(APIBaseTest):
             team=self.team, dashboard=self.dashboard, enabled=True, shared_by=other
         )
         url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing"
-        for payload in ({"settings": {}}, {"enabled": False}):
+        payloads: list[dict[str, object]] = [{"settings": {}}, {"enabled": False}]
+        for payload in payloads:
             assert self.client.patch(url, payload, format="json").status_code == 200
             configuration.refresh_from_db()
             assert configuration.shared_by_id == other.id
@@ -361,7 +362,7 @@ class TestSharing(APIBaseTest):
     @patch("posthog.api.sharing.export_asset_for_opengraph")
     def test_settings_edits_do_not_log_publishing(self, kind: str, scope: str, _export: Mock) -> None:
         resource = self.insight if kind == "insight" else Notebook.objects.create(team=self.team, created_by=self.user)
-        identifier = resource.pk if kind == "insight" else resource.short_id
+        identifier = resource.short_id if isinstance(resource, Notebook) else resource.pk
         url = f"/api/projects/{self.team.id}/{kind}s/{identifier}/sharing"
         assert self.client.patch(url, {"enabled": True}, format="json").status_code == 200
         logs = ActivityLog.objects.filter(scope=scope, item_id=str(identifier), activity="sharing enabled")

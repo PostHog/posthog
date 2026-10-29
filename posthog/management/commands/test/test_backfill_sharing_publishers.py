@@ -33,7 +33,11 @@ class TestBackfillSharingPublishers(BaseTest):
             "recording": lambda: SessionRecording.objects.create(team=self.team, session_id="test-recording"),
         }[kind]()
         identifier = (
-            resource.short_id if kind == "notebook" else resource.session_id if kind == "recording" else resource.pk
+            resource.short_id
+            if isinstance(resource, Notebook)
+            else resource.session_id
+            if isinstance(resource, SessionRecording)
+            else resource.pk
         )
         share = SharingConfiguration.objects.create(team=self.team, **{kind: resource}, enabled=True)
         known = SharingConfiguration.objects.create(team=self.team, **{kind: resource}, shared_by=self.user)
@@ -97,7 +101,7 @@ class TestBackfillSharingPublishers(BaseTest):
             team_id=self.team.pk,
             scope=scope,
             activity="sharing enabled",
-            item_id=str(resource.pk if kind == "insight" else resource.short_id),
+            item_id=str(resource.short_id if isinstance(resource, Notebook) else resource.pk),
             user=self.user,
             detail={"changes": [{"field": "sharing", "after": True}]},
         )
