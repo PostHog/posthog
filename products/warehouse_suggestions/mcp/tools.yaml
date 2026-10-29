@@ -28,26 +28,26 @@ tools:
             its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization`
             says whether refreshes stopped. A deprecate suggestion can be about a plain view too, with no refresh cost.
             Pass delete_view=true on a deprecate suggestion to delete the view instead of marking it deprecated; this
-            cannot be undone, and a 409 means another view now reads from it. Unmaterialize suggestions turn a rarely read materialized view back into a
-            plain view: its refreshes stop, its stored table is deleted, and each read computes the view, taking about
-            `read_seconds`. A 409 means the view changed since the suggestion was made, for example another view now
-            reads from it or it now refreshes incrementally. Materialize suggestions turn on materialization for the
-            view on the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use
-            another schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by
-            incremental_key and update rows by unique_key, full refreshes rebuild the whole table. The payload is a
-            starting point. To change it, pass any of refresh_interval_seconds, refresh_mode, incremental_key,
-            unique_key and lookback_seconds; an omitted field keeps the suggested value. Check keys the person chose
-            with view-check-incremental first. A 400 names the field the server refused and why. A 409 means the view
-            changed since the suggestion was made and its suggested keys no longer apply. Requires human typed
-            confirmation.
+            cannot be undone, and a 409 means another view now reads from it. Unmaterialize suggestions turn a rarely
+            read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each
+            read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was
+            made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions
+            turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass
+            refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental
+            refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the
+            whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds,
+            refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value.
+            Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and
+            why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply.
+            Requires human typed confirmation.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
                 If it is a materialize suggestion, the view then refreshes on a schedule, which adds a recurring compute
                 cost. If it is a deprecate suggestion on a materialized view, its refreshes stop and its stored table is
-                deleted, unless keep_materialized is true. If delete_view is true, the view is deleted for good. If it is
-                an unmaterialize suggestion, the view's refreshes
-                stop, its stored table is deleted, and each read computes the view instead. Reply 'confirm' to proceed.
+                deleted, unless keep_materialized is true. If delete_view is true, the view is deleted for good. If it
+                is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read
+                computes the view instead. Reply 'confirm' to proceed.
             action_label: accept warehouse suggestion
     warehouse-suggestions-assign:
         operation: warehouse_suggestions_assign_create
