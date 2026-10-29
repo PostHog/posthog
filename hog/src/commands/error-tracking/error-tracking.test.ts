@@ -1,9 +1,22 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+    chmodSync,
+    cpSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
+import { stripCredentials } from '@/error-tracking/git'
+import { loadMapContent, serializeMapContent } from '@/error-tracking/kinds/js'
 import { ZipWriter } from '@/error-tracking/native/zip'
 import { deriveBaseName } from '@/error-tracking/symbols'
 import { runHog } from '@/testing'
@@ -143,6 +156,30 @@ describe('hog error-tracking upload', () => {
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
     })
 
+    test('--delete-after leaves maps outside the selected paths, and skips unreadable CSS references', () => {
+        const bundle = 'a();\n//# sourceMappingURL=../maps/a.js.map\n'
+        const stylesheet = 'a{}\n/*# sourceMappingURL=%FF.css.map */\n'
+        const folder = project({ 'dist/a.js': bundle, 'maps/a.js.map': MAP, 'dist/site.css': stylesheet })
+        const warnings: string[] = []
+        const outside = {
+            sourcePath: join(folder, 'dist/a.js'),
+            mapPath: join(folder, 'maps/a.js.map'),
+            sourceFingerprint: contentHash(bundle),
+            mapFingerprint: contentHash(serializeMapContent(loadMapContent(MAP))),
+            kind: 'js' as const,
+        }
+        const css = cssTargets([join(folder, 'dist/site.css')], undefined, warnings)
+        const result = cleanUp([outside, ...css], [join(folder, 'dist')])
+
+        expect(result.deletedMaps).toEqual([])
+        expect([...warnings, ...result.warnings]).toEqual([
+            expect.stringContaining("site.css: its sourcemap reference can't be read"),
+            expect.stringContaining('resolves outside the selected paths'),
+        ])
+        expect(existsSync(join(folder, 'maps/a.js.map'))).toBe(true)
+        expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
+    })
+
     test.skipIf(process.getuid?.() === 0)('inject changes no bundle when a map cannot be written', async () => {
         const bundle = 'a();\n//# sourceMappingURL=a.js.map\n'
         const folder = project({ 'dist/a.js': bundle, 'dist/a.js.map': MAP })
@@ -249,6 +286,37 @@ describe('hog error-tracking upload', () => {
         })
     })
 
+    test('--include-source leaves out sources that match an ignore glob', async () => {
+        // The fixture's DWARF names its sources under this folder.
+        const sources = '/tmp/hog-parity-native'
+        rmSync(sources, { recursive: true, force: true })
+        cpSync(join(NATIVE, '../src'), sources, { recursive: true })
+        cpSync(join(NATIVE, 'linux/checkout'), join(sources, 'bin/checkout'))
+        const plan = async (ignore: string[]): Promise<string> => {
+            const folder = project({
+                'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: sources, ignore }] } }),
+            })
+            const result = await runHog(['et', 'upload', '--dry-run', '--include-source'], {
+                env: { CLAUDECODE: '1' },
+                cwd: folder,
+                useDisk: true,
+            })
+            expect(result.exitCode).toBe(0)
+            return result.json().symbolSets[0].contentHash
+        }
+        try {
+            const all = await plan([])
+            rmSync(join(sources, 'checkout.c'))
+            const withoutCheckout = await plan([])
+            cpSync(join(NATIVE, '../src/checkout.c'), join(sources, 'checkout.c'))
+
+            expect(withoutCheckout).not.toBe(all)
+            expect(await plan(['checkout.c'])).toBe(withoutCheckout)
+        } finally {
+            rmSync(sources, { recursive: true, force: true })
+        }
+    })
+
     test('--dry-run reads the release from the repository a symlinked mapping points into', async () => {
         const repository = project({ ...GIT_REPO, 'app/mapping.txt': SMALL_MAPPING })
         const outside = project({})
@@ -263,6 +331,15 @@ describe('hog error-tracking upload', () => {
             version: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
             id: null,
         })
+    })
+
+    test.each([
+        ['git@github.com:org/repo.git', 'git@github.com:org/repo.git'],
+        ['ghp_token@github.com:org/repo.git', 'github.com:org/repo.git'],
+        ['https://x-access-token:secret@github.com/org/repo.git', 'https://github.com/org/repo.git'],
+        ['git@github.com:org/repo@secret.git', undefined],
+    ])('the release keeps no credential from the remote %s', (remote, stored) => {
+        expect(stripCredentials(remote)).toBe(stored)
     })
 
     test.each([
