@@ -11,7 +11,7 @@ from cryptography.fernet import Fernet
 from parameterized import parameterized
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.integrations import AuthType, IntegrationInUse, IntegrationManager, IntegrationUsage
+from posthog.integrations import AuthType, IntegrationInUse, IntegrationManager, IntegrationRecord, IntegrationUsage
 from posthog.models.integration import WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, AuthTypeSelector, Integration
 from posthog.models.integration.auth_types import catalogued_kinds, kind_auth_types
 from posthog.models.integration.model import integration_kind_choices
@@ -621,7 +621,7 @@ class TestWarehouseSourceUsageProvider(BaseTest):
             deleted=deleted,
         )
 
-    def _row(self) -> Integration:
+    def _row(self) -> IntegrationRecord:
         return IntegrationManager.source("postgresql").credentials.create(
             self.team.id, external_id="pg", config={WAREHOUSE_SOURCE_TYPE_CONFIG_KEY: "Postgres"}
         )

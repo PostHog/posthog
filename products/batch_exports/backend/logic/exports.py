@@ -290,6 +290,7 @@ def validate_destination(
     merged_config = _recursive_dict_merge(existing_config, config)
 
     # The integration the request sent. None when it sent none, or sent an explicit null.
+    requested_integration: IntegrationRecord | None
     if instance is not None and integration_id is not None and instance.destination.integration_id == integration_id:
         # A PATCH usually sends the export's current integration again, which is already loaded.
         requested_integration = instance.destination.integration

@@ -54,7 +54,7 @@ from posthog.credentials_service.errors import (
 )
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
-from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
     ANY as ANY_AUTH_TYPE,
@@ -8233,7 +8233,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
 
 
 class TestWarehouseSourceIntegrationKind(APIBaseTest):
-    def _credentials_row(self, kind: str, auth_type: str = "credentials") -> Integration:
+    def _credentials_row(self, kind: str, auth_type: str = "credentials") -> IntegrationRecord:
         rows = IntegrationManager.source(kind)
         return (rows.token if auth_type == "token" else rows.credentials).create(
             self.team.id,
@@ -8243,7 +8243,7 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         )
 
     def _source_pointing_at(
-        self, integration: Integration, team=None, deleted: bool = False, key: str = "linear_integration_id"
+        self, integration: IntegrationRecord, team=None, deleted: bool = False, key: str = "linear_integration_id"
     ) -> ExternalDataSource:
         return ExternalDataSource.objects.create(
             team=team or self.team,
