@@ -30,6 +30,15 @@ enum DeletePersonOutcome {
 message DeletePersonResult {
   int64 person_id = 1;
   DeletePersonOutcome outcome = 2;
+  // The version the person's Postgres tombstone committed at, set when
+  // outcome = DELETED. A lower bound on the row's final version, not the
+  // final version: the leader may produce the death document higher, and
+  // the writer moves the row there. A caller that publishes its own
+  // ClickHouse person tombstone uses this version; never use it as a
+  // revival or version floor. The distinct-id tombstones are published
+  // from the outbox. Absent for an operation recorded before this field
+  // existed.
+  optional int64 person_version = 3;
 }
 
 message DeletePersonsResponse {
