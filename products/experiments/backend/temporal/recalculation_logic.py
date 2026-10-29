@@ -32,6 +32,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.errors import NonReportableApplicationError
+from posthog.temporal.common.utils import on_asyncify_pool
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -71,7 +72,7 @@ _MAX_ERROR_MESSAGE_LENGTH = 2000
 
 _OUT_OF_TIME_MESSAGE = "The calculation ran out of time."
 
-# Calculations can fill the event loop's default executor, so a query kill there waits behind the query it kills.
+# A query kill on the pool that runs the calculations would wait behind the query it kills.
 _CANCELLATION_EXECUTOR = ThreadPoolExecutor(max_workers=10, thread_name_prefix="experiment-recalc-cancel")
 
 # ---------------------------------------------------------------------------
@@ -608,7 +609,7 @@ def _cancel_metric_query_sync(recalculation_id: str, metric_uuid: str, attempt: 
         cancel_query_on_cluster(state.team_id, _client_query_id(recalculation_id, metric_uuid, attempt))
 
 
-@database_sync_to_async_pool
+@on_asyncify_pool
 def _calculate_experiment_metric_for_recalculation_sync(
     experiment_id: int,
     metric_uuid: str,

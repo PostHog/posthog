@@ -26,6 +26,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.tests.utils.asyncify import restored_asyncify_executor
 
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
@@ -58,7 +59,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defined]
 _update_raw = _update_recalculation_progress_sync.func  # type: ignore[attr-defined]
-_calculate_raw = _calculate_experiment_metric_for_recalculation_sync.func  # type: ignore[attr-defined]
+_calculate_raw = _calculate_experiment_metric_for_recalculation_sync.__wrapped__  # type: ignore[attr-defined]
 _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
 _record_out_of_time_raw = _record_metric_out_of_time_failure_sync.func  # type: ignore[attr-defined]
 
@@ -1594,6 +1595,25 @@ class TestCalculateActivityCancellation:
             calculations_running.set()
 
         assert killed == ["experiment_metric_recalc_r1_m1_attempt01"]
+
+    async def test_calculation_runs_while_the_default_executor_is_full(self) -> None:
+        # The default executor has node CPUs + 4 threads, so calculations there run fewer at once than the worker's slots.
+        default_executor_full = threading.Event()
+        busy_default_executor = ThreadPoolExecutor(max_workers=1)
+        asyncio.get_running_loop().set_default_executor(busy_default_executor)
+        busy_default_executor.submit(default_executor_full.wait)
+        try:
+            with (
+                restored_asyncify_executor() as configure_asyncify_executor,
+                patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
+            ):
+                configure_asyncify_executor(1)
+                with pytest.raises(ApplicationError, match="not a valid ISO datetime"):
+                    await asyncio.wait_for(
+                        _calculate_experiment_metric_for_recalculation_sync(1, "m1", "r1", "not-a-date"), timeout=5
+                    )
+        finally:
+            default_executor_full.set()
 
     async def test_heartbeats_while_the_body_runs_and_stops_after(self) -> None:
         # Temporal delivers a cancellation only in a heartbeat response, so without heartbeats the drain above
