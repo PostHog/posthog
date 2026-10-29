@@ -43,6 +43,13 @@ import { steppedMatchId, toMatchingNodeIds, toSearchBox } from './toSearch'
 import { toThread } from './toThread'
 import { findTreeNode } from './toTraceTree'
 
+// kea-router reads a numeric param as a number, which turns a typed `1.50` into `1.5`. It also pads a value shaped like
+// a JSON array or object with one space, so it reads that value back as a string.
+function searchParamFromUrl(): string {
+    const value = new URLSearchParams(router.values.location.search).get('search') ?? ''
+    return /^(\[.*\]|\{.*\}) +$/.test(value) ? value.slice(0, -1) : value
+}
+
 export interface TraceViewAdapterLogicProps {
     traceId: string
     timestampHint: string | null
@@ -524,7 +531,7 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             // The URL follows the debounced query rather than each keystroke.
             setQuery: async ({ query }, breakpoint) => {
                 await breakpoint(SEARCH_DEBOUNCE_MS)
-                if (String(values.searchParams.search ?? '') !== query) {
+                if (searchParamFromUrl() !== query) {
                     writeUrl(query)
                 }
             },
@@ -535,8 +542,8 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
         }
     }),
     urlToAction(({ actions, values, props }) => ({
-        [`${urls.aiObservabilityTraces()}/:id`]: ({ id }, { search }) => {
-            const query = search === undefined || search === null ? '' : String(search)
+        [`${urls.aiObservabilityTraces()}/:id`]: ({ id }) => {
+            const query = searchParamFromUrl()
             if (tryDecodeURIComponent(id ?? '') === props.traceId && query !== values.query) {
                 actions.setQuery(query)
             }

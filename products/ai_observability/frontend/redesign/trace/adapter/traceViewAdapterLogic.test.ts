@@ -1,5 +1,5 @@
 import { waitFor } from '@testing-library/react'
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -303,6 +303,30 @@ describe('traceViewAdapterLogic', () => {
             event: 'gen-1',
         })
         expect(logic.values.selectedNodeId).toBe('gen-1')
+    })
+
+    it.each(['1.50', '[draft]'])('keeps the typed search %s when the browser restores its URL', async (query) => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setQuery(query)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const { pathname, search } = router.values.location
+
+        // Back and forward decode the URL again, as a page load does.
+        await expectLogic(logic, () => {
+            router.actions.locationChanged({
+                method: 'POP',
+                pathname,
+                search,
+                searchParams: decodeParams(search, '?'),
+                hash: '',
+                hashParams: {},
+                url: `${pathname}${search}`,
+            })
+        }).toFinishAllListeners()
+
+        expect(logic.values.query).toBe(query)
     })
 
     it('steps to the next match from another mode and shows it in spans', async () => {
