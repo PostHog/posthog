@@ -1,0 +1,6 @@
+rules:
+    - id: mq-probe-import-subprocess
+      languages: [python]
+      severity: ERROR
+      message: THROWAWAY probe, matches unchanged code to prove the whole-tree rule scan runs.
+      pattern: import subprocess
