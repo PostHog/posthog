@@ -10,26 +10,35 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.hogql.database.models import SavedQuery
+
 from posthog.models.team import Team
 
 from products.data_catalog.backend.facade.contracts import (
     AdjustedRun,
+    ChartSource,
     MetricRunCounts,
+    ProposedMetric,
     TableSource,
     TopicDefinition,
+    UncoveredGroup,
     UsageSnapshotPayload,
 )
-from products.data_catalog.backend.facade.enums import JudgeRelation, UsageSnapshotStatus
+from products.data_catalog.backend.facade.enums import JudgeRelation, ShapeOutcome, UsageSnapshotStatus
 from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.logic.usage_snapshots import (
     SCAN_STOPPED_MESSAGE,
     UsageReader,
+    _denied_tables_and_views,
+    _viewable_charts,
     payload_to_json,
     visible_payload,
 )
 from products.data_catalog.backend.models import Metric, UsageSnapshot
 
+_SNAPSHOTS = "products.data_catalog.backend.logic.usage_snapshots"
 _FLAG = "products.data_catalog.backend.logic.usage_snapshots.posthoganalytics.feature_enabled"
+_VIEWABLE = "products.data_catalog.backend.logic.usage_snapshots.viewable_insight_definitions"
 _WINDOW_END = datetime(2026, 10, 26, tzinfo=UTC)
 
 
@@ -51,6 +60,42 @@ _VISIBLE = UUID("00000000-0000-0000-0000-000000000001")
 _HIDDEN = UUID("00000000-0000-0000-0000-000000000002")
 
 
+def _group(sql: str, matched: UUID | None = None) -> UncoveredGroup:
+    return UncoveredGroup(
+        fingerprint_digest=sql,
+        measure=sql,
+        outcome=ShapeOutcome.SLICE if matched else ShapeOutcome.UNCOVERED,
+        matched_metric_id=matched,
+        distinct_people=2,
+        built=1,
+        sample_sql=sql,
+        draft_name=None,
+        draft_description=None,
+    )
+
+
+def _proposal(
+    definition: str,
+    charts: list[ChartSource] | None = None,
+    *,
+    digests: list[str] | None = None,
+    other_charts: int = 0,
+) -> ProposedMetric:
+    return ProposedMetric(
+        name="revenue",
+        description="Revenue.",
+        definition=definition,
+        measures=1,
+        people=2,
+        built=1,
+        charts=charts or [],
+        other_charts=other_charts,
+        surfaces=[],
+        agents=None,
+        fingerprint_digests=digests or [],
+    )
+
+
 def _counts(metric_id: UUID) -> MetricRunCounts:
     return MetricRunCounts(metric_id=metric_id, direct_runs={"web": 1}, direct_people=1, scout_runs=0)
 
@@ -61,6 +106,7 @@ class TestVisiblePayload(SimpleTestCase):
             ("no_denied_tables_keeps_every_query", frozenset(), "select sum(amount) from billing", True),
             ("query_over_a_denied_table", frozenset({"billing"}), "select sum(amount) from billing", False),
             ("query_over_another_table", frozenset({"billing"}), "select count() from events", True),
+            ("call_of_a_denied_view", frozenset({"revenue_view"}), "select * from revenue_view()", False),
             ("unparseable_query_with_denied_tables", frozenset({"billing"}), "select count( from", False),
             (
                 "cut_query_with_denied_tables",
@@ -106,6 +152,131 @@ class TestVisiblePayload(SimpleTestCase):
         visible = visible_payload(payload, UsageReader(visible_metric_ids=frozenset(), denied_tables=denied))
 
         assert len(visible.topic_definitions or []) == kept
+
+    def test_reader_does_not_see_measures_or_proposals_over_denied_tables_or_hidden_metrics(self) -> None:
+        payload = UsageSnapshotPayload(
+            uncovered=[
+                _group("select sum(amount) from billing"),
+                _group("select count() from events", matched=_HIDDEN),
+                _group("select count() from events", matched=_VISIBLE),
+                _group("select count() from events where " + "x = 1 and " * 200 + "1", matched=_VISIBLE),
+            ],
+            proposed_metrics=[
+                _proposal("select sum(amount) from billing", digests=["select sum(amount) from billing"]),
+                _proposal("select count() from events", digests=["select count() from events"]),
+                # The draft names no denied table, but the measure it drafts from reads one.
+                _proposal("select count() from invoices", digests=["select sum(amount) from billing"]),
+                # A proposal with no measures, or a measure the payload does not hold, cannot be checked.
+                _proposal("select count() from events", digests=[]),
+                _proposal("select count() from events", digests=["select avg(amount) from events"]),
+            ],
+        )
+
+        visible = visible_payload(
+            payload, UsageReader(visible_metric_ids=frozenset({_VISIBLE}), denied_tables=frozenset({"billing"}))
+        )
+
+        assert [group.matched_metric_id for group in visible.uncovered or []] == [_VISIBLE]
+        assert [proposal.definition for proposal in visible.proposed_metrics or []] == ["select count() from events"]
+
+
+class TestViewableCharts(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_dashboard_access", False, set(), None),
+            ("dashboard_hidden_by_its_own_rule", True, set(), None),
+            ("dashboard_the_reader_may_open", True, {7}, "Growth"),
+        ]
+    )
+    def test_reader_sees_only_charts_and_dashboards_they_may_open(
+        self, _name: str, sees_dashboards: bool, viewable_dashboards: set[int], dashboard_name: str | None
+    ) -> None:
+        access = MagicMock()
+        access.check_access_level_for_resource.return_value = sees_dashboards
+        charts = [
+            ChartSource(
+                insight_short_id=short_id, insight_name=short_id, dashboard_id=7, dashboard_name="Growth", people=3
+            )
+            for short_id in ("allowed", "blocked")
+        ]
+        reader = UsageReader(
+            visible_metric_ids=frozenset(),
+            denied_tables=frozenset(),
+            team=MagicMock(),
+            user=MagicMock(),
+            user_access_control=access,
+        )
+
+        with (
+            patch(_VIEWABLE, return_value={"allowed": MagicMock()}),
+            patch(f"{_SNAPSHOTS}.viewable_dashboard_ids", return_value=viewable_dashboards),
+        ):
+            visible = _viewable_charts(
+                UsageSnapshotPayload(proposed_metrics=[_proposal("select count() from events", charts)]), reader
+            )
+
+        assert [
+            (chart.insight_short_id, chart.dashboard_name) for chart in (visible.proposed_metrics or [])[0].charts
+        ] == [("allowed", dashboard_name)]
+
+    def test_charts_the_reader_may_not_open_leave_their_places_to_the_next_ones(self) -> None:
+        access = MagicMock()
+        access.check_access_level_for_resource.return_value = False
+        charts = [
+            ChartSource(
+                insight_short_id=short_id, insight_name=short_id, dashboard_id=None, dashboard_name=None, people=3
+            )
+            for short_id in [f"blocked{index}" for index in range(6)] + [f"allowed{index}" for index in range(7)]
+        ]
+        reader = UsageReader(
+            visible_metric_ids=frozenset(),
+            denied_tables=frozenset(),
+            team=MagicMock(),
+            user=MagicMock(),
+            user_access_control=access,
+        )
+
+        with (
+            patch(_VIEWABLE, return_value={f"allowed{index}": MagicMock() for index in range(7)}),
+            patch(f"{_SNAPSHOTS}.viewable_dashboard_ids", return_value=set()),
+        ):
+            visible = _viewable_charts(
+                UsageSnapshotPayload(
+                    proposed_metrics=[_proposal("select count() from events", charts, other_charts=3)]
+                ),
+                reader,
+            )
+
+        [proposal] = visible.proposed_metrics or []
+        assert [chart.insight_short_id for chart in proposal.charts] == [f"allowed{index}" for index in range(5)]
+        # Two allowed charts past the shown ones, and the three the scan did not store.
+        assert proposal.other_charts == 5
+
+
+class TestDeniedViews(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("same_name", "select * from revenue_view"),
+            ("qualified_name_in_another_case", "select * from models.Revenue_View"),
+            ("call_of_the_view", "select * from revenue_view()"),
+        ]
+    )
+    def test_a_view_over_a_denied_table_is_denied_directly_or_through_another_view(
+        self, _name: str, rollup_sql: str
+    ) -> None:
+        views = {
+            "revenue_view": "select sum(amount) from billing",
+            "revenue_rollup": rollup_sql,
+            "events_view": "select count() from events",
+        }
+        database = MagicMock(_denied_tables={"billing"})
+        database.get_view_names.return_value = list(views)
+        database.get_table.side_effect = lambda name: SavedQuery(id=name, name=name, query=views[name], fields={})
+
+        with patch(f"{_SNAPSHOTS}.Database.create_for", return_value=database):
+            denied = _denied_tables_and_views(MagicMock(), MagicMock(), MagicMock())
+
+        assert denied == {"billing", "revenue_view", "revenue_rollup"}
 
 
 class TestUsageSnapshotAPI(APIBaseTest):
