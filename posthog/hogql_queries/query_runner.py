@@ -302,6 +302,7 @@ def _contains_user_hogql_label() -> str:
 
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
+CACHE_ENTRY_FRESHNESS_KEY = "_freshness"
 
 QUERY_HASH_VERSION = 1
 
@@ -2282,6 +2283,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if raw_results is not None:
                 cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
+            self._read_cache_entry_freshness(cached_response_candidate.pop(CACHE_ENTRY_FRESHNESS_KEY, None))
             # When rolling out schema changes, cached responses may not match the new schema.
             # Trigger recomputation in this case.
             try:
@@ -2311,7 +2313,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if custom_names_modified:
                 # Update cache with patched response so subsequent requests get the updated names
                 cache_manager.store_result(
-                    response=cached_response.model_dump(),
+                    response=self._cache_entry_with_freshness(cached_response.model_dump()),
                     target_age=cached_response.cache_target_age,
                 )
 
@@ -3056,14 +3058,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if cacheable:
                 with self.timings.measure("cache_write"):
                     stored = cache_manager.store_result(
-                        response=fresh_response_dict,
+                        response=self._cache_entry_with_freshness(fresh_response_dict),
                         # This would be a possible place to decide to not ever keep this cache warm
                         # Example: Not for super quickly calculated insights
                         # Set target_age to None in that case
                         target_age=target_age,
                     )
-                if stored:
-                    self._after_result_cached(last_refresh)
                 if stored and flight is not None:
                     # Published as soon as the entry lands, so followers do not wait on this run's reporting.
                     flight.succeed(last_refresh)
@@ -3529,7 +3529,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _staleness_event_properties(self) -> dict[str, Any]:
         return {}
 
-    def _after_result_cached(self, last_refresh: datetime) -> None:
+    def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
+        return response
+
+    def _read_cache_entry_freshness(self, record: Any) -> None:
         pass
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:

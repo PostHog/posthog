@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import cast
 
+import time_machine
 from posthog.test.base import (
     APIBaseTest,
     BaseTest,
@@ -35,7 +36,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
-from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
 from posthog.hogql_queries.sql_cache_window import API_SQL_WINDOW_CACHE_AGE_FLAG
 from posthog.models.utils import UUIDT
 
@@ -585,37 +586,47 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
+    def _flag(self, on: bool):
+        return patch(
+            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
+        )
+
     @parameterized.expand(
         [
             ("api_key_uses_its_window", "personal_api_key", True, True, False),
             ("app_keeps_default", None, True, True, True),
             ("flag_off_keeps_default", "personal_api_key", False, True, True),
-            ("result_replaced_since", "personal_api_key", True, False, True),
+            ("entry_recomputed_without_window", "personal_api_key", True, False, True),
         ]
     )
-    def test_stored_window_age_applies_only_to_flagged_api_key_reads(
-        self, _name: str, access_method: str | None, flag_on: bool, same_result: bool, expected_stale: bool
+    def test_entry_window_age_applies_only_to_flagged_api_key_reads(
+        self, _name: str, access_method: str | None, flag_on: bool, entry_has_window: bool, expected_stale: bool
     ) -> None:
         query = HogQLQuery(query="select count() from events where timestamp > now() - interval 7 day")
-        computed_at = datetime.now(UTC) - timedelta(minutes=10)
-        with (
-            patch(
-                "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key == API_SQL_WINDOW_CACHE_AGE_FLAG,
-            ),
-            tags_context(access_method="personal_api_key"),
-        ):
+        with self._flag(True), tags_context(access_method="personal_api_key"):
             writer = HogQLQueryRunner(team=self.team, query=query)
             writer._computed_sql_freshness = writer._classify_sql_freshness(writer.to_query())
-            writer._after_result_cached(computed_at)
+            entry = writer._cache_entry_with_freshness({}) if entry_has_window else {}
 
-        read_refresh = computed_at if same_result else computed_at + timedelta(seconds=1)
-        with (
-            patch(
-                "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: flag_on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
-            ),
-            tags_context(access_method=access_method),
-        ):
-            stale = HogQLQueryRunner(team=self.team, query=query)._is_stale_for_request(last_refresh=read_refresh)
+        with self._flag(flag_on), tags_context(access_method=access_method):
+            reader = HogQLQueryRunner(team=self.team, query=query)
+            reader._read_cache_entry_freshness(entry.get(CACHE_ENTRY_FRESHNESS_KEY))
+            stale = reader._is_stale_for_request(last_refresh=datetime.now(UTC) - timedelta(minutes=10))
         assert stale is expected_stale
+
+    @parameterized.expand([("project_timezone", None, "fixed_past"), ("utc", False, "up_to_now_long")])
+    def test_bounds_follow_the_query_timezone(
+        self, _name: str, convert_to_project_timezone: bool | None, expected_window: str
+    ) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
+        query = HogQLQuery(
+            query="select count() from events where timestamp >= '2026-10-20' and timestamp < '2026-10-29'",
+            modifiers=HogQLQueryModifiers(convertToProjectTimezone=convert_to_project_timezone),
+        )
+        with time_machine.travel(datetime(2026, 10, 28, 16, 0, tzinfo=UTC), tick=False):
+            runner = HogQLQueryRunner(team=self.team, query=query)
+            freshness = runner._classify_sql_freshness(runner.to_query())
+        assert freshness is not None
+        assert freshness.window.value == expected_window

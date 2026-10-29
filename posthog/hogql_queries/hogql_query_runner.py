@@ -2,6 +2,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Optional, cast
+from zoneinfo import ZoneInfo
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
@@ -37,12 +38,13 @@ from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, AnalyticsQueryRunner, ExecutionMode
 from posthog.hogql_queries.sql_cache_window import (
     API_SQL_WINDOW_CACHE_AGE_FLAG,
     SqlFreshness,
     SqlFreshnessClassifier,
-    SqlFreshnessStore,
+    freshness_from_record,
+    freshness_record,
 )
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
@@ -63,6 +65,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
     _computed_sql_freshness: Optional[SqlFreshness] = None
+    _stored_sql_freshness: Optional[SqlFreshness] = None
     _applied_sql_freshness: Optional[SqlFreshness] = None
     # p95 duration of a query service HogQL query is 2.78sec
     QUERY_SERVICE_MAX_EXECUTION_TIME = 10
@@ -98,21 +101,21 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             and self._team_flag_enabled_locally(API_SQL_WINDOW_CACHE_AGE_FLAG)
         )
 
-    @cached_property
-    def _sql_freshness_store(self) -> SqlFreshnessStore:
-        return SqlFreshnessStore(self.get_cache_key())
-
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
-        if self._api_sql_freshness_enabled and last_refresh is not None:
-            freshness = self._sql_freshness_store.get(last_refresh)
-            if freshness is not None:
-                self._applied_sql_freshness = freshness
-                return datetime.now(UTC) > freshness.fresh_until
+        freshness = self._stored_sql_freshness
+        if freshness is not None and last_refresh is not None and self._api_sql_freshness_enabled:
+            self._applied_sql_freshness = freshness
+            return datetime.now(UTC) > freshness.fresh_until
         return super()._is_stale(last_refresh, lazy=lazy)
 
-    def _after_result_cached(self, last_refresh: datetime) -> None:
-        if self._computed_sql_freshness is not None:
-            self._sql_freshness_store.set(last_refresh, self._computed_sql_freshness)
+    def _cache_entry_with_freshness(self, response: dict[str, Any]) -> dict[str, Any]:
+        freshness = self._computed_sql_freshness or self._stored_sql_freshness
+        if freshness is None:
+            return response
+        return {**response, CACHE_ENTRY_FRESHNESS_KEY: freshness_record(freshness)}
+
+    def _read_cache_entry_freshness(self, record: Any) -> None:
+        self._stored_sql_freshness = freshness_from_record(record) if record is not None else None
 
     def _staleness_event_properties(self) -> dict[str, Any]:
         freshness = self._computed_sql_freshness or self._applied_sql_freshness
@@ -131,7 +134,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             resolved = resolve_types(clone_expr(query), context, dialect="hogql")
             classifier = SqlFreshnessClassifier(
                 now=datetime.now(UTC),
-                timezone=self.team.timezone_info,
+                timezone=ZoneInfo("UTC")
+                if self.modifiers.convertToProjectTimezone is False
+                else self.team.timezone_info,
                 relative_date_range=self._has_relative_date_range(),
             )
             return classifier.classify(resolved)

@@ -3,9 +3,6 @@ from enum import StrEnum
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
-from django.core.cache import caches
-
-import structlog
 from dateutil.parser import isoparse
 from dateutil.relativedelta import relativedelta
 
@@ -16,10 +13,7 @@ from posthog.hogql.functions.clickhouse.datetime import DATE_GENERATOR_FUNCTIONS
 from posthog.hogql.functions.mapping import find_hogql_function
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.caching.redis_cluster_connection_factory import QUERY_CACHE_ALIAS
 from posthog.dataclasses import frozen
-
-logger = structlog.get_logger(__name__)
 
 
 class SqlWindowClass(StrEnum):
@@ -41,9 +35,6 @@ SQL_WINDOW_MAX_AGE: dict[SqlWindowClass, timedelta] = {
 LIVE_WINDOW_MAX_LENGTH = timedelta(hours=1)
 SHORT_WINDOW_MAX_LENGTH = timedelta(days=1)
 FIXED_PAST_SETTLE_TIME = timedelta(hours=1)
-
-_FRESHNESS_KEY_PREFIX = "api_sql_freshness:"
-_FRESHNESS_RECORD_TTL = max(SQL_WINDOW_MAX_AGE.values()) + timedelta(hours=1)
 
 _DATE_PREFIX_LENGTH = len("2026-01-01")
 _TIMESTAMP_COLUMN = "timestamp"
@@ -469,27 +460,12 @@ class SqlFreshnessClassifier:
         )
 
 
-class SqlFreshnessStore:
-    def __init__(self, cache_key: str) -> None:
-        self._key = f"{_FRESHNESS_KEY_PREFIX}{cache_key}"
+def freshness_record(freshness: SqlFreshness) -> dict[str, str]:
+    return {"window": freshness.window.value, "fresh_until": freshness.fresh_until.astimezone(UTC).isoformat()}
 
-    def get(self, last_refresh: datetime) -> Optional[SqlFreshness]:
-        try:
-            record = caches[QUERY_CACHE_ALIAS].get(self._key)
-            if not isinstance(record, dict) or isoparse(record["last_refresh"]) != last_refresh:
-                return None
-            return SqlFreshness(window=SqlWindowClass(record["window"]), fresh_until=isoparse(record["fresh_until"]))
-        except Exception:
-            logger.warning("api_sql_freshness_read_failed", exc_info=True)
-            return None
 
-    def set(self, last_refresh: datetime, freshness: SqlFreshness) -> None:
-        record = {
-            "last_refresh": last_refresh.astimezone(UTC).isoformat(),
-            "window": freshness.window.value,
-            "fresh_until": freshness.fresh_until.astimezone(UTC).isoformat(),
-        }
-        try:
-            caches[QUERY_CACHE_ALIAS].set(self._key, record, timeout=int(_FRESHNESS_RECORD_TTL.total_seconds()))
-        except Exception:
-            logger.warning("api_sql_freshness_write_failed", exc_info=True)
+def freshness_from_record(record: Any) -> Optional[SqlFreshness]:
+    try:
+        return SqlFreshness(window=SqlWindowClass(record["window"]), fresh_until=isoparse(record["fresh_until"]))
+    except (KeyError, TypeError, ValueError):
+        return None
