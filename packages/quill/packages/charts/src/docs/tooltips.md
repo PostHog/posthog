@@ -29,7 +29,7 @@ Usable from a custom `tooltip` render prop by spreading the context: `<DefaultTo
 - `showHeader` (default true) toggles the header row. Pass false where there is no meaningful header (pie slices, aggregated single-column bars).
 - `showTotal` appends a row summing the visible series. It excludes `overlay` series (goal lines) and series with `visibility.total: false` (a percentage column beside counts; the row itself still renders), and is suppressed when fewer than two summable series remain. `totalFormatter` defaults to `valueFormatter` applied with the first summable row's entry; `totalLabel` defaults to `'Total'`.
 - `sortedByValue` sorts rows by value: `true` or `'desc'` puts the highest first, `'asc'` the lowest.
-- `mode: 'single'` lists only the series closest to the cursor: the nearest line, or the hovered segment of a stacked bar. With no series under the cursor, such as on a pinned tooltip, it lists every row.
+- `mode: 'single'` lists only the series closest to the cursor: the nearest line, or the hovered segment of a stacked bar. A pinned tooltip, or one with no series under the cursor, lists every row.
 - `hideZeroRows` drops rows whose value is exactly `0` (lifecycle statuses absent for a period).
 - `onRowClick(entry)` makes each row clickable. The tooltip must be pinned for clicks to land. Use it for a per-series drill-down (the persons modal).
 - `footer` renders arbitrary content below all rows, after a divider. Useful for "click to inspect" hints.
