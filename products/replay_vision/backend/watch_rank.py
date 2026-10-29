@@ -396,16 +396,25 @@ def select_embedding_picks(
         .filter(member_root__in=list(roots))
         .values_list("id", flat=True)
     )
+    # Read by id with the rank checks in Python, since the rank filters steer Postgres onto the partial rank indexes.
+    readable_scanners = {str(scanner_id) for scanner_id in scanner_ids}
+    members = (
+        accessible_observations(access, team_id, walkable.filter(id__in=member_ids))
+        .values_list("id", "scanner_id", "watch_rank", person)
+        .iterator()
+    )
+    reach_sessions: Counter[str] = Counter()
+    reach_people: dict[str, set[str]] = {}
+    for member_id, scanner_id, watch_rank, member_person in members:
+        rank = current_rank({"watch_rank": watch_rank})
+        if str(scanner_id) not in readable_scanners or rank is None or rank.get("category") not in categories:
+            continue
+        group = rank.get("group")
+        root = str(group) if group is not None else str(member_id)
+        reach_sessions[root] += 1
+        reach_people.setdefault(root, set()).add(member_person)
     group_reach = {
-        row["watch_group_root"]: row
-        for row in accessible_observations(
-            access,
-            team_id,
-            current_ranks.filter(id__in=member_ids, watch_category__in=list(categories)),
-        )
-        .annotate(watch_group_root=group_root)
-        .values("watch_group_root")
-        .annotate(sessions=Count("id"), people=Count(person, distinct=True))
+        root: {"sessions": sessions, "people": len(reach_people[root])} for root, sessions in reach_sessions.items()
     }
     # The row-gate reads each row's snapshot JSON, so it runs on the picks only.
     rows = cast(

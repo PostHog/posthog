@@ -140,6 +140,9 @@ So every event in the tile that live will ever count is already counted, and `ma
 Without the fence, a tile could apply while an event it already counted is still waiting in the live topic.
 When that event arrived, live would add 1 on top of the tile and double count it.
 A shuffler stall longer than the margin can still cause that.
+This applies to both shufflers.
+When a run reads flag calls from `flag_evaluations`, a tile counts flag calls that reach the live path through `cohort-event-shuffler-realtime-only`.
+A stall of that shuffler alone opens the fence early in the same way.
 
 One residue remains.
 A late event that reaches ClickHouse after `S_chunk` is not in the tile.
