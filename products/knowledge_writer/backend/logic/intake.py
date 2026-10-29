@@ -113,8 +113,8 @@ def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
                     "reason": verdict.reason,
                     "change_kind": request.change_kind if request else None,
                     "dedupe_id": request.dedupe_id if request else None,
-                    "requested_by": request.requested_by if request else None,
-                    "requested_by_user_id": request.requested_by_user_id if request else None,
+                    "requested_by": verdict.requested_by,
+                    "requested_by_user_id": verdict.requested_by_user_id,
                     "team_id": team_id,
                 },
             )

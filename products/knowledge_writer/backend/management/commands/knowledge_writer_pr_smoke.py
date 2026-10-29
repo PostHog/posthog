@@ -19,8 +19,8 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskRunDTO
 
 from ...adapters.registry import REGISTRY
-from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest
-from ...facade.enums import DocsRequestSource
+from ...facade.contracts import AdapterVerdict, DocsCommandRequest, DocsRequest, MergeCheckReport
+from ...facade.enums import DocsChangeKind, DocsRequestSource
 from ...feature_flags import AGENT_LAUNCH_FLAG
 from ...logic import intake
 from ...logic.intake import pull_request_to_join
@@ -226,8 +226,20 @@ def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
     )
 
 
+def requested_report(source: DocsCommandRequest) -> MergeCheckReport:
+    return MergeCheckReport(
+        commit_sha=None,
+        commit_url=source.pull_request_url,
+        title="",
+        needs_docs=True,
+        reason="smoke",
+        change_kind=DocsChangeKind.UPDATE,
+        command=source,
+    )
+
+
 def smoke_verdict(section: str, source: DocsCommandRequest, smoke_suffix: str) -> AdapterVerdict:
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(source)
+    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(requested_report(source))
     return dataclasses.replace(verdict, request=smoke_request(verdict, section, smoke_suffix))
 
 
@@ -284,7 +296,9 @@ def ended_run_problem(run: TaskRunDTO, docs_repository: str) -> str | None:
 
 def run_writer_request(writer: WriterSettings, team: Team, section: str, branch: str) -> tuple[WriterPullRequest, bool]:
     request = smoke_request(
-        REGISTRY[DocsRequestSource.COMMAND_TAG].assess(unreachable_source(writer.user_id)), section, branch
+        REGISTRY[DocsRequestSource.COMMAND_TAG].assess(requested_report(unreachable_source(writer.user_id))),
+        section,
+        branch,
     )
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)

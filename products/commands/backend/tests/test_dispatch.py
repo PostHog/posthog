@@ -58,7 +58,6 @@ from products.review_hog.backend.facade.reviews import (
     PRReviewRequestOutcome,
     PRReviewRequestStatus,
 )
-from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import DesktopAccessDecision
 
 INSTALLATION_ID = "31337"
@@ -78,10 +77,8 @@ RUN_SLACK_COMMAND = "products.commands.backend.tasks.tasks.run_slack_command.del
 DELIVER_FOLLOW_UP = "products.commands.backend.tasks.tasks.deliver_follow_up.delay"
 SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.InstallationGitHub.for_installation"
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
-KNOWLEDGE_WRITER_LAUNCH_FLAG = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
-KNOWLEDGE_WRITER_CAPTURE = "products.knowledge_writer.backend.logic.intake.ph_scoped_capture"
 START_TASK_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
-KNOWLEDGE_WRITER_OPEN_PULL_REQUESTS = "products.knowledge_writer.backend.logic.intake.open_writer_pull_requests"
+START_KNOWLEDGE_WRITER_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_merge_check"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
 _github_ids = count(10_000)
@@ -357,52 +354,39 @@ class TestDispatchCommentCommand(BaseTest):
         request_review.assert_not_called()
         start_workflow.assert_not_called()
 
-    def test_docs_on_a_merged_pull_request_starts_the_knowledge_writer_without_its_judge(self) -> None:
+    def test_docs_on_a_merged_pull_request_queues_the_knowledge_writer_merge_check(self) -> None:
         self._link_github_login()
         github = FakeGitHub(pull_request=_pull_request(state="merged"))
 
         with (
             patch.dict(os.environ, self._knowledge_writer_env()),
-            patch(KNOWLEDGE_WRITER_LAUNCH_FLAG, return_value=True),
-            patch(KNOWLEDGE_WRITER_OPEN_PULL_REQUESTS, return_value=[]),
-            patch(START_TASK_WORKFLOW),
-            patch(KNOWLEDGE_WRITER_CAPTURE) as scoped_capture,
+            patch(START_KNOWLEDGE_WRITER_MERGE_CHECK, return_value=True) as start_merge_check,
         ):
             outcome = dispatch_comment_command(
                 self._request(verb="docs", argument="Mention the new flag"), github=github
             )
 
         assert outcome == "accepted"
-        verdict_properties = scoped_capture.return_value.__enter__.return_value.call_args.kwargs["properties"]
-        assert (verdict_properties["requested_by"], verdict_properties["requested_by_user_id"]) == (
-            "@octo",
-            self.user.id,
-        )
         assert github.replies[-1].endswith(
-            "Queued. The knowledge writer will open a docs pull request for this change."
+            "Queued. The knowledge writer is checking this pull request for docs changes."
         )
-        task = tasks_facade.get_task_by_origin_key(
-            self.team.id, f"knowledge_writer:command_tag:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
-        )
-        assert task is not None
-        assert "@octo asked: Mention the new flag" in task.description
+        (inputs,) = start_merge_check.call_args.args
+        assert (inputs.team_id, inputs.repository, inputs.commit_sha) == (self.team.id, "acme/widgets", None)
+        assert (inputs.command.pull_request_number, inputs.command.note) == (7, "Mention the new flag")
+        assert (inputs.command.requested_by, inputs.command.requested_by_user_id) == ("@octo", self.user.id)
 
-    def test_docs_on_a_private_repository_starts_no_writer(self) -> None:
+    def test_docs_on_a_private_repository_starts_no_merge_check(self) -> None:
         self._link_github_login()
         github = FakeGitHub(pull_request=_pull_request(state="merged", is_private=True))
 
         with (
             patch.dict(os.environ, self._knowledge_writer_env()),
-            patch(KNOWLEDGE_WRITER_LAUNCH_FLAG, return_value=True),
-            patch(START_TASK_WORKFLOW) as start_workflow,
+            patch(START_KNOWLEDGE_WRITER_MERGE_CHECK) as start_merge_check,
         ):
             dispatch_comment_command(self._request(verb="docs"), github=github)
 
         assert github.replies[-1].endswith("The knowledge writer only runs on public repositories.")
-        start_workflow.assert_not_called()
-        assert not tasks_facade.get_task_by_origin_key(
-            self.team.id, f"knowledge_writer:command_tag:{hashlib.sha256(b'acme.widgets#7').hexdigest()}"
-        )
+        start_merge_check.assert_not_called()
 
     @parameterized.expand([("writer_project", True), ("another_project", False)])
     def test_help_lists_docs_only_where_the_knowledge_writer_runs(self, _name: str, is_writer_project: bool) -> None:

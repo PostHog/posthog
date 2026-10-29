@@ -8,13 +8,10 @@ from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubR
 from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegrationError
 
-from products.business_knowledge.backend.facade import api as business_knowledge_facade
-
 from ..facade.contracts import DocsRequest
 
 DOCS_SECTION_PATTERN = re.compile(r"^https://posthog\.com/docs/([a-z0-9-]+)")
 DOCS_PAGE_PATTERN = re.compile(r"^https://posthog\.com/docs/(.+)$")
-SEARCH_QUERY_MAX_LENGTH = 500
 SOURCE_REPOSITORY = "PostHog/posthog"
 SOURCE_LOOKUP_ERRORS = (
     requests.RequestException,
@@ -78,12 +75,8 @@ def is_writable_on_docs_site(github: GitHubReader | None, page_url: str) -> bool
 
 
 def route_request(request: DocsRequest, *, team_id: int, github: GitHubReader | None) -> SectionRouting:
-    page_urls = request.suggested_page_urls
-    if not page_urls:
-        query = f"{request.trigger_instructions} {request.evidence}"[:SEARCH_QUERY_MAX_LENGTH]
-        hits = business_knowledge_facade.search_knowledge(team_id=team_id, query=query)
-        docs_urls = [hit.url for hit in hits if docs_section(hit.url)]
-        page_urls = tuple(dict.fromkeys(docs_urls))
-    writable_page_urls = tuple(page_url for page_url in page_urls if is_writable_on_docs_site(github, page_url))
+    writable_page_urls = tuple(
+        page_url for page_url in request.suggested_page_urls if is_writable_on_docs_site(github, page_url)
+    )
     sections = [section for section in map(docs_section, writable_page_urls) if section]
     return SectionRouting(section=sections[0] if sections else None, page_urls=writable_page_urls)

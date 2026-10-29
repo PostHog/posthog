@@ -10,8 +10,8 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 
 from products.knowledge_writer.backend.adapters.registry import REGISTRY
-from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
-from products.knowledge_writer.backend.facade.enums import DocsRequestSource
+from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest, MergeCheckReport
+from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
 from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_label, section_marker
@@ -91,18 +91,24 @@ def _open_on_github(
     return respond
 
 
-def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...] = ()):
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
-        dataclasses.replace(
-            COMMAND,
-            pull_request_number=pull_request_number,
-            pull_request_url=f"https://github.com/PostHog/posthog/pull/{pull_request_number}",
-        )
+def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...] = (), **command_changes):
+    command = dataclasses.replace(
+        COMMAND,
+        **command_changes,
+        pull_request_number=pull_request_number,
+        pull_request_url=f"https://github.com/PostHog/posthog/pull/{pull_request_number}",
     )
-    assert verdict.request is not None
-    return dataclasses.replace(
-        verdict, request=dataclasses.replace(verdict.request, suggested_page_urls=suggested_page_urls)
+    report = MergeCheckReport(
+        commit_sha="e" * 40,
+        commit_url=f"https://github.com/PostHog/posthog/commit/{'e' * 40}",
+        title="Add a retention option",
+        needs_docs=True,
+        reason="judge",
+        change_kind=DocsChangeKind.UPDATE,
+        page_urls=suggested_page_urls,
+        command=command,
     )
+    return REGISTRY[DocsRequestSource.COMMAND_TAG].assess(report)
 
 
 def _finish_run(task_id, django_capture_on_commit_callbacks) -> None:
@@ -329,9 +335,7 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(team, writer_env
 @pytest.mark.django_db
 def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, user, writer_env) -> None:
     verdict = _verdict()
-    renewed_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
-        dataclasses.replace(COMMAND, head_sha="fff999", note="Only touch the API reference.")
-    )
+    renewed_verdict = _verdict(head_sha="fff999", note="Only touch the API reference.")
 
     with (
         patch(FLAG_CHECK, return_value=True),

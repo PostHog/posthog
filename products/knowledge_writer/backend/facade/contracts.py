@@ -26,7 +26,6 @@ class DocsRequest:
     dedupe_id: DedupeId
     requested_by: str | None = None
     requested_by_user_id: int | None = None
-    skip_judge: bool = False
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
@@ -36,6 +35,8 @@ class AdapterVerdict:
     needs_docs: bool
     reason: str
     request: DocsRequest | None
+    requested_by: str | None = None
+    requested_by_user_id: int | None = None
 
     def __post_init__(self) -> None:
         if self.needs_docs != (self.request is not None):
@@ -52,18 +53,6 @@ class Adapter(Protocol[RawEvent]):
 
 
 @dataclass(frozen=True, config={"extra": "forbid"})
-class MergeCheckReport:
-    commit_sha: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")]
-    commit_url: str
-    title: str
-    needs_docs: bool
-    reason: str
-    change_kind: DocsChangeKind | None = None
-    page_urls: tuple[str, ...] = ()
-    evidence: str = ""
-
-
-@dataclass(frozen=True, config={"extra": "forbid"})
 class DocsCommandRequest:
     repository: str
     pull_request_number: int
@@ -73,6 +62,22 @@ class DocsCommandRequest:
     requested_by: str
     requested_by_user_id: int
 
+
+@dataclass(frozen=True, config={"extra": "forbid"})
+class MergeCheckReport:
+    commit_sha: Annotated[str, Field(pattern=r"^[0-9a-f]{40}$")] | None
+    commit_url: str
+    title: str
+    needs_docs: bool
+    reason: str
+    change_kind: DocsChangeKind | None = None
+    page_urls: tuple[str, ...] = ()
+    evidence: str = ""
+    docs_query: str = ""
+    command: DocsCommandRequest | None = None
+
+
+CommandCheckStatus = Literal["queued", "duplicate"]
 
 IntakeStatus = Literal["no_docs", "unconfigured", "duplicate", "capped", "shadow", "section_busy", "joined", "started"]
 

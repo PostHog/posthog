@@ -16,14 +16,23 @@ from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsR
 from products.knowledge_writer.backend.logic import intake
 
 SAMPLE_EVENTS: dict[DocsRequestSource, Any] = {
-    DocsRequestSource.COMMAND_TAG: DocsCommandRequest(
-        repository="PostHog/posthog",
-        pull_request_number=123,
-        pull_request_url="https://github.com/PostHog/posthog/pull/123",
-        head_sha="abc123",
-        note="Document the new retention option.",
-        requested_by="@octo",
-        requested_by_user_id=42,
+    DocsRequestSource.COMMAND_TAG: MergeCheckReport(
+        commit_sha="b" * 40,
+        commit_url=f"https://github.com/PostHog/posthog/commit/{'b' * 40}",
+        title="Add a retention option to session replay",
+        needs_docs=True,
+        reason="judge",
+        change_kind=DocsChangeKind.UPDATE,
+        page_urls=("https://posthog.com/docs/session-replay/data-retention",),
+        command=DocsCommandRequest(
+            repository="PostHog/posthog",
+            pull_request_number=123,
+            pull_request_url="https://github.com/PostHog/posthog/pull/123",
+            head_sha="abc123",
+            note="Document the new retention option.",
+            requested_by="@octo",
+            requested_by_user_id=42,
+        ),
     ),
     DocsRequestSource.REPO_MERGE: MergeCheckReport(
         commit_sha="a" * 40,
@@ -85,7 +94,10 @@ def test_docs_requests_for_one_pull_request_share_a_dedupe_id_across_repository_
     adapter = REGISTRY[DocsRequestSource.COMMAND_TAG]
 
     original_casing = adapter.assess(sample)
-    lowercase = adapter.assess(dataclasses.replace(sample, repository="posthog/posthog"))
+    assert sample.command is not None
+    lowercase = adapter.assess(
+        dataclasses.replace(sample, command=dataclasses.replace(sample.command, repository="posthog/posthog"))
+    )
 
     assert original_casing.request is not None and lowercase.request is not None
     assert original_casing.request.dedupe_id == lowercase.request.dedupe_id

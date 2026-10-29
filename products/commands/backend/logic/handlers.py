@@ -100,22 +100,11 @@ def docs_target(subject: SubjectRef, team_ids: tuple[int, ...]) -> CommandTarget
     )
 
 
-DOCS_REPLIES: dict[knowledge_writer_contracts.IntakeStatus, CommandOutcome] = {
-    "started": CommandOutcome(
-        accepted=True, message="Queued. The knowledge writer will open a docs pull request for this change."
+DOCS_REPLIES: dict[knowledge_writer_contracts.CommandCheckStatus, CommandOutcome] = {
+    "queued": CommandOutcome(
+        accepted=True, message="Queued. The knowledge writer is checking this pull request for docs changes."
     ),
-    "joined": CommandOutcome(
-        accepted=True, message="Queued. The knowledge writer will add this change to its open docs pull request."
-    ),
-    "duplicate": CommandOutcome(accepted=True, message="The knowledge writer already has this pull request."),
-    "shadow": CommandOutcome(accepted=False, message="The knowledge writer isn't starting runs yet."),
-    "capped": CommandOutcome(accepted=False, message="The knowledge writer hit its run limit. Try again tomorrow."),
-    "section_busy": CommandOutcome(
-        accepted=False,
-        message="The knowledge writer is already updating that docs section. Try again once its pull request is up.",
-    ),
-    "unconfigured": CommandOutcome(accepted=False, message="The knowledge writer isn't set up."),
-    "no_docs": CommandOutcome(accepted=False, message="The knowledge writer found no docs to change."),
+    "duplicate": CommandOutcome(accepted=True, message="The knowledge writer is already checking this pull request."),
 }
 
 
@@ -123,7 +112,7 @@ def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
     pull_request = context.pull_request
     if pull_request.is_private:
         return CommandOutcome(accepted=False, message="The knowledge writer only runs on public repositories.")
-    outcome = knowledge_writer_facade.request_docs_for_pull_request(
+    status = knowledge_writer_facade.request_docs_for_pull_request(
         knowledge_writer_contracts.DocsCommandRequest(
             repository=pull_request.repository,
             pull_request_number=pull_request.number,
@@ -135,7 +124,7 @@ def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
         ),
         team_id=context.members[0].team_id,
     )
-    return DOCS_REPLIES[outcome.status]
+    return DOCS_REPLIES[status]
 
 
 def _follow_up(context: CommandContext) -> follow_ups.FollowUp | None:
