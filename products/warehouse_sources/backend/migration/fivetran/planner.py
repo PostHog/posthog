@@ -148,15 +148,19 @@ def plan_items(
 
 def _with_unique_prefixes(items: list[PlannedItem]) -> tuple[PlannedItem, ...]:
     # Fivetran names are unique only within a destination, but a PostHog prefix must be unique per source type.
-    seen: Counter[tuple[ExternalDataSourceType, str]] = Counter()
+    taken = {(item.proposal.source_type, item.proposal.prefix) for item in items if item.proposal is not None}
+    used: set[tuple[ExternalDataSourceType, str]] = set()
     unique: list[PlannedItem] = []
     for item in items:
         proposal = item.proposal
         if proposal is not None:
-            seen[(proposal.source_type, proposal.prefix)] += 1
-            count = seen[(proposal.source_type, proposal.prefix)]
-            if count > 1:
+            key = (proposal.source_type, proposal.prefix)
+            if key in used:
+                count = 2
+                while (proposal.source_type, f"{proposal.prefix}_{count}") in taken | used:
+                    count += 1
                 prefix = f"{proposal.prefix}_{count}"
+                used.add((proposal.source_type, prefix))
                 item = dataclasses.replace(
                     item,
                     verdict=Verdict.CAVEATS,
@@ -166,6 +170,8 @@ def _with_unique_prefixes(items: list[PlannedItem]) -> tuple[PlannedItem, ...]:
                     ),
                     proposal=dataclasses.replace(proposal, prefix=prefix),
                 )
+            else:
+                used.add(key)
         unique.append(item)
     return tuple(unique)
 
@@ -296,6 +302,9 @@ def _plan_tables(
             name = table.name
         if any(schema.name == name for schema in schemas):
             caveats.append(f"The Fivetran table `{table.name}` lands in the same PostHog table as another one.")
+            if known is not None:
+                # Listed, so the user can pick this table over the other one, or map it elsewhere.
+                unmatched.append(table.name)
             continue
         if is_inferred:
             inferred.append(TablePair(vendor_table=table.name, posthog_table=name))
@@ -321,7 +330,7 @@ def _plan_tables(
         caveats.append(f"PostHog paired some tables by a naming rule: {pairs}. Confirm them before applying.")
     if unmatched:
         names = ", ".join(f"`{name}`" for name in unmatched)
-        caveats.append(f"These Fivetran tables have no PostHog table, so they are not planned: {names}.")
+        caveats.append(f"These Fivetran tables are not planned, because no free PostHog table matched them: {names}.")
     if not schemas:
         caveats.append("No Fivetran table of this connection moves to PostHog, so every table starts with syncing off.")
     # Only needed to place the unmatched tables, so the payload stays small otherwise.

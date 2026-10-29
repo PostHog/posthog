@@ -13,20 +13,28 @@ _SECRET_KEY_PARTS = (
     "connectionstring",
     "dsn",
     "credential",
+    "privatekey",
+    "keystore",
+    "truststore",
 )
-# Any key that ends in "key" or "keys" is a secret (`sasl_plain_key`, `api_keys`), except these.
+# Secret fields whose names fit no rule above (GitHub personal access tokens, Alchemer's API key).
+_SECRET_KEYS = frozenset({"pat", "pats", "queryparamvalue"})
+# Any key that ends in "key" or "keys", maybe with a number (`sasl_plain_key`, `api_keys`, `api_key_2`), is a
+# secret, except these.
 _NON_SECRET_KEYS = frozenset(
     {f"{name}{suffix}" for name in ("public", "primary", "partition", "sort") for suffix in ("key", "keys")}
 )
-# A URL with a password in it: `scheme://user:password@host`.
+_KEY_SUFFIX = re.compile(r"keys?\d*$")
+# A URL with a password in it (`scheme://user:password@host`), or a token in its query (an Azure SAS `sig`).
 _URL_WITH_PASSWORD = re.compile(r"://[^/@\s]+:[^/@\s]+@")
+_URL_WITH_TOKEN = re.compile(r"://\S*[?&](sig|signature|token|access_token|api_key|apikey|key)=", re.IGNORECASE)
 
 
 def is_secret_key(key: str) -> bool:
     normalized = re.sub(r"[_\-]", "", key.lower())
-    if normalized.startswith("auth"):
+    if normalized.startswith("auth") or normalized in _SECRET_KEYS:
         return True
-    if normalized.endswith(("key", "keys")) and normalized not in _NON_SECRET_KEYS:
+    if _KEY_SUFFIX.search(normalized) and normalized not in _NON_SECRET_KEYS:
         return True
     return any(part in normalized for part in _SECRET_KEY_PARTS)
 
@@ -34,7 +42,11 @@ def is_secret_key(key: str) -> bool:
 def _is_secret_value(value: Any) -> bool:
     if not isinstance(value, str):
         return False
-    return (len(value) > 0 and set(value) == {"*"}) or bool(_URL_WITH_PASSWORD.search(value))
+    return (
+        (len(value) > 0 and set(value) == {"*"})
+        or bool(_URL_WITH_PASSWORD.search(value))
+        or bool(_URL_WITH_TOKEN.search(value))
+    )
 
 
 def strip_secrets(config: Mapping[str, Any]) -> dict[str, Any]:

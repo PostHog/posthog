@@ -191,7 +191,7 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        if not migrations.is_migration_import_enabled(self.team):
+        if not migrations.is_migration_import_enabled(self.team, getattr(request.user, "distinct_id", None)):
             raise exceptions.NotFound()
 
     @extend_schema(responses={200: WarehouseMigrationSerializer(many=True)})
