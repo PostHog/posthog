@@ -123,7 +123,7 @@ export default defineConfig(({ mode }) => {
                     index: resolve(__dirname, 'src/index.tsx'),
                     exporter: resolve(__dirname, 'src/exporter/index.tsx'),
                     render_query: resolve(__dirname, 'src/render-query/index.tsx'),
-                    toolbar: resolve(__dirname, 'src/toolbar/index.tsx'),
+                    toolbar: resolve(__dirname, 'src/toolbar/floating/index.tsx'),
                 },
                 output: {
                     entryFileNames: isDev ? '[name].js' : '[name]-[hash].js',

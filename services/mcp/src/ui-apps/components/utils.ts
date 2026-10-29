@@ -86,7 +86,10 @@ export function formatDate(dateStr: string): string {
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export function formatTooltipDate(dateStr: string): string {
+const SUB_DAY_INTERVALS = new Set(['second', 'minute', 'hour'])
+const WALL_CLOCK_TIME = /^\d{4}-\d{2}-\d{2}[T ](\d{2}:\d{2})/
+
+export function formatTooltipDate(dateStr: string, interval?: string): string {
     if (!ISO_DATE_PREFIX.test(dateStr)) {
         return dateStr
     }
@@ -94,7 +97,9 @@ export function formatTooltipDate(dateStr: string): string {
     if (Number.isNaN(date.getTime())) {
         return dateStr
     }
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    const day = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    const time = interval && SUB_DAY_INTERVALS.has(interval) ? WALL_CLOCK_TIME.exec(dateStr)?.[1] : undefined
+    return time ? `${day} ${time}` : day
 }
 
 export function getSeriesLabel(item: { label?: string; action?: { name?: string } }, index: number): string {
