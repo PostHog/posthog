@@ -149,7 +149,7 @@ jobs:
                       scan-setup:
                         - '.semgrep/rules/security/**'
                         - '!.semgrep/rules/security/idor-team-scoped-models.yaml'
-                        - '.github/workflows/ci-security.yaml'
+                        # THROWAWAY: drops this file so the PR behaves like one that edits only the IDOR rule.
                       idor-rule:
                         - '.semgrep/rules/security/idor-team-scoped-models.yaml'
 
