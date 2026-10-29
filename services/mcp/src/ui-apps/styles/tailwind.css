@@ -65,11 +65,39 @@
     --color-graph-crosshair: var(--color-text-secondary);
 }
 
+/*
+ * The workflow preview draws the editor's own tiles, which read PostHog app tokens.
+ * Those tokens resolve only inside the preview, so other apps keep their own meaning of
+ * `bg-secondary` and `text-secondary`. Quill's `text-primary` and `text-success` read its
+ * brand and success background colors from `--primary` and `--success`, which Quill sets on
+ * every element, so the preview resets them to text colors on each one.
+ */
+@theme inline {
+    --color-surface-primary: var(--preview-surface-primary);
+    --color-surface-secondary: var(--preview-surface-secondary);
+    --color-secondary: var(--preview-text-secondary);
+}
+
+.WorkflowCanvasPreview {
+    --preview-surface-primary: var(--color-background-primary);
+    --preview-surface-secondary: var(--color-background-secondary);
+    --preview-text-secondary: var(--color-text-secondary);
+}
+
+.WorkflowCanvasPreview,
+.WorkflowCanvasPreview * {
+    --primary: var(--color-text-primary);
+    --success: var(--color-text-success, #059669);
+}
+
 /* Scan our own source files (apps, components, shared lib) plus product MCP apps and Quill primitives. */
 @source "../lib/**/*.tsx";
 @source "../components/**/*.tsx";
 @source "../apps/**/*.tsx";
 @source "../../../../../products/*/mcp/**/*.tsx";
+@source "../../../../../products/workflows/frontend/Workflows/hogflows/editor/tile-canvas/**/*.tsx";
+@source "../../../../../products/workflows/frontend/Workflows/hogflows/steps/stepLook.tsx";
+@source "../../../../../frontend/src/lib/components/EmailPreviewThumbnail/EmailPreviewThumbnail.tsx";
 @source "../../../../../packages/quill/packages/primitives/src/**/*.{ts,tsx}";
 @source "../../../../../packages/quill/packages/components/src/**/*.{ts,tsx}";
 @source "../../../../../packages/quill/packages/charts/src/**/*.{ts,tsx}";
