@@ -10,6 +10,7 @@ from .sources import (
     GitHubReader,
     find_merged_pull_request,
     is_generated_path,
+    is_published_from_repository,
     is_test_path,
     read_commit_diff_by_path,
     read_docs_page_urls,
@@ -46,9 +47,10 @@ def run_merge_check(
     )
     if not verdict.needs_docs or verdict.change_kind is None:
         return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason=verdict.reason or "judge")
-    listed_page_urls = tuple(
-        dict.fromkeys(page_url_by_path[path] for path in verdict.page_urls if path in page_url_by_path)
-    )
+    named_page_paths = tuple(dict.fromkeys(path.strip("/") for path in verdict.page_urls))
+    if any(is_published_from_repository(github, commit_sha, path) for path in named_page_paths):
+        return no_docs_report(commit_sha, commit_url, title=pull_request.title, reason="docs_in_source_repo")
+    listed_page_urls = tuple(page_url_by_path[path] for path in named_page_paths if path in page_url_by_path)
     has_nothing_to_update = verdict.change_kind == DocsChangeKind.UPDATE and not listed_page_urls
     return MergeCheckReport(
         commit_sha=commit_sha,

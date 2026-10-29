@@ -3,6 +3,8 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import cast
 
+import pytest
+
 import httpx
 import requests
 from anthropic import Anthropic
@@ -20,8 +22,9 @@ FLAGS_PAGES = [f"https://posthog.com/docs/{path}" for path in FLAGS_PATHS]
 
 
 class FakePostHogGitHub:
-    def __init__(self, commit_sha: str) -> None:
+    def __init__(self, commit_sha: str, published_page_paths: tuple[str, ...] = ()) -> None:
         self.commit_sha = commit_sha
+        self.published_page_paths = published_page_paths
 
     def api_request(self, method: str, path: str, **_options: object) -> requests.Response:
         if path.endswith("/pulls"):
@@ -37,14 +40,18 @@ class FakePostHogGitHub:
                 }
             ]
             return github_response(json.dumps(pulls))
+        if "/contents/docs/published/docs/" in path:
+            page_file = path.split("/contents/docs/published/docs/", 1)[1]
+            is_published = any(page_file == f"{page_path}.mdx" for page_path in self.published_page_paths)
+            return github_response("", status_code=200 if is_published else 404)
         if path.endswith("/.gitattributes"):
             return github_response("# Generated code\nposthog/schema.py linguist-generated\n")
         return github_response(GENERATED_CHUNK + SCRIPT_CHUNK + COMPONENT_CHUNK)
 
 
-def github_response(body: str) -> requests.Response:
+def github_response(body: str, status_code: int = 200) -> requests.Response:
     response = requests.Response()
-    response.status_code = 200
+    response.status_code = status_code
     response._content = body.encode()
     return response
 
@@ -115,6 +122,26 @@ def test_update_naming_no_sitemap_page_becomes_create() -> None:
     )
 
     assert (report.needs_docs, report.change_kind, report.page_urls) == (True, DocsChangeKind.CREATE, ())
+
+
+@pytest.mark.parametrize("published_page_path", [FLAGS_PATHS[1], "surveys/not-in-the-sitemap-yet"])
+def test_a_page_published_from_this_repository_skips_the_writer(published_page_path: str) -> None:
+    commit_sha = "d" * 40
+    verdict = JudgeVerdict(
+        needs_docs=True,
+        change_kind=DocsChangeKind.UPDATE,
+        page_urls=[FLAGS_PATHS[0], f"{published_page_path}/"],
+        reason="new option",
+    )
+
+    report = run_merge_check(
+        commit_sha,
+        github=FakePostHogGitHub(commit_sha, published_page_paths=(published_page_path,)),
+        http=fake_sitemap(),
+        anthropic_client=judge_recording(verdict, []),
+    )
+
+    assert (report.needs_docs, report.reason) == (False, "docs_in_source_repo")
 
 
 def test_malformed_judge_output_declines_instead_of_raising() -> None:
