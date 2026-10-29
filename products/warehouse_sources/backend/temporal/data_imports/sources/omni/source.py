@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OmniSource(ResumableSource[OmniSourceConfig, OmniResumeConfig]):
+    codebase_detection = detect(
+        env=("^OMNI_API_TOKEN$", "^OMNI_API_KEY$", "^OMNI_BASE_URL$", "^OMNI_URL$"),
+        npm=("@omni-co/embed", "@omni-co/mcp"),
+        pypi=("omni-python-sdk",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.omni.co/api"
 
@@ -104,8 +111,8 @@ class OmniSource(ResumableSource[OmniSourceConfig, OmniResumeConfig]):
             name=ExternalDataSourceType.OMNI,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Omni Analytics",
-            releaseStatus=ReleaseStatus.ALPHA,
-            caption="Sync documents, folders, connections, schedules, users, and user groups from your Omni instance.\n\nUse an **Organization API key** for full coverage (**Settings > API access**) — Personal Access Tokens only see content the token owner can access, and can't read the Users or User groups tables at all.",
+            releaseStatus=ReleaseStatus.BETA,
+            caption="Sync documents, folders, connections, schedules, models, users, user groups, and access settings from your Omni instance.\n\nUse an **Organization API key** for full coverage (**Settings > API access**) — Personal Access Tokens only see content the token owner can access, and can't read the Users or User groups tables at all.",
             docsUrl="https://posthog.com/docs/cdp/sources/omni",
             iconPath="/static/services/omni.png",
             keywords=["bi", "business intelligence"],

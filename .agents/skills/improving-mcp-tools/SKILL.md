@@ -2,7 +2,7 @@
 name: improving-mcp-tools
 description: >
   Run an improve-my-MCP campaign: an autoresearch-style loop that measures the
-  MCP agent experience with the eval harness, picks the highest-impact tool
+  MCP agent experience with a supplied eval harness, picks the highest-impact tool
   problem from production data, makes one bounded fix, and keeps it only if
   before/after scores improve. Use when asked to "improve my MCP", run an MCP
   improvement campaign, fix tool discoverability or descriptions based on
@@ -21,22 +21,17 @@ repeating work.
 
 ## The objective function
 
-`services/mcp/evals/` is the harness. `benchmark/tasks.yaml` is a fixed set of
-agent tasks with `expected_tools` and `success_criteria`; scores are only
-comparable across runs of the same benchmark `version`.
+This repository does not include an MCP benchmark or eval runner.
+Before starting a campaign, obtain a benchmark and runnable harness from the operator.
+Record the task set, expected tools, success criteria, benchmark version, and exact commands in the journal.
+If those inputs are unavailable, report the missing evidence and stop the campaign.
 
-- **Probe mode** (deterministic, no LLM):
-  `LIVE_MCP_URL=... LIVE_MCP_TOKEN=... pnpm exec tsx evals/runner/probe.ts --out score.json`
-  from `services/mcp/`. Reports tool-presence misses (discoverability), probe
-  failures, and latency p50/p95. Non-zero exit = regression.
-- **Agent mode** (LLM replay + judge): scores task success and tool-selection
-  accuracy. Use it for description/discoverability changes — probes cannot
-  detect that an agent picks the wrong tool.
+- **Probe mode** (deterministic, no LLM): measures tool-presence misses, probe failures, and latency p50/p95.
+- **Agent mode** (LLM replay + judge): scores task success and tool-selection accuracy.
+  Use it for description/discoverability changes, since probes cannot detect that an agent picks the wrong tool.
 
-Run the harness against a **seeded local or devbox stack**, never against a
-customer project. Local recipe: `NODE_ENV=development PORT=9876
-POSTHOG_API_BASE_URL=http://localhost:8000 pnpm dev:hono`, personal API key as
-`LIVE_MCP_TOKEN`.
+Run the supplied harness against a seeded local or devbox stack.
+Use the same benchmark version for baseline and after scores.
 
 ## One iteration
 
@@ -69,7 +64,7 @@ POSTHOG_API_BASE_URL=http://localhost:8000 pnpm dev:hono`, personal API key as
 These are not suggestions; violating any of them ends the campaign pass.
 
 - **Allowlist** — a campaign PR may only touch: `products/*/mcp/tools.yaml`,
-  `products/*/skills/**`, `services/mcp/evals/**`, the codegen outputs of
+  `products/*/skills/**`, the codegen outputs of
   `pnpm generate-tools` / `scaffold-yaml` (`services/mcp/src/tools/generated/**`
   and `services/mcp/schema/generated-tool-definitions.json`), and docs.
   Anything else (handler code, package manifests, workflows, migrations, auth
@@ -80,7 +75,7 @@ These are not suggestions; violating any of them ends the campaign pass.
   measuring.
 - **Evidence or it didn't happen.** No PR without a baseline score, an after
   score, and the exact harness commands used.
-- **Benchmark integrity.** Never edit `benchmark/tasks.yaml` in the same PR as
+- **Benchmark integrity.** Never edit the supplied benchmark in the same PR as
   a fix it validates — changing the exam and the answer together proves
   nothing. Benchmark changes are their own PR and bump `version`.
 - **Budgets.** Respect the operator's iteration/token/PR caps (default: stop

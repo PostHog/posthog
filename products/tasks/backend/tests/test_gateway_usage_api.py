@@ -273,4 +273,4 @@ class TestTaskRunGatewayUsageAPI(APIBaseTest):
         assert response.json()["state"] == {}
         assert run.state["compute_cost"] == (7 if refresh_fails else 12)
         assert response.json()["updated_at"] == run.updated_at.isoformat().replace("+00:00", "Z")
-        signal.assert_called_once_with(run.id, TaskRun.Status.COMPLETED, None)
+        signal.assert_called_once_with(run.id, TaskRun.Status.COMPLETED, None, None)

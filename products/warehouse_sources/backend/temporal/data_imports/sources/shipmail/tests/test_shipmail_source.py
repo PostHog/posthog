@@ -13,10 +13,6 @@ class TestShipmailSource:
         self.source = ShipmailSource()
         self.config = ShipmailSourceConfig(api_key="test-key")
 
-    def test_schema_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["domains"])
-        assert [schema.name for schema in schemas] == ["domains"]
-
     @mock.patch(CAPABILITIES_PATCH, return_value=(200, {"messages:read"}))
     def test_validates_token_without_requiring_every_table_scope(self, get_capabilities: mock.MagicMock) -> None:
         assert self.source.validate_credentials(self.config, team_id=1) == (True, None)

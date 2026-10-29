@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAuthMixin):
+    codebase_detection = detect(env=("^PARDOT_",), script_hosts=("pi.pardot.com", "cdn.pardot.com"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v5",)
     default_version = "v5"
@@ -76,7 +79,7 @@ class PardotSource(ResumableSource[PardotSourceConfig, PardotResumeConfig], OAut
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             keywords=["salesforce pardot", "marketing cloud account engagement"],
             label="Pardot",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Connect Salesforce Marketing Cloud Account Engagement (formerly Pardot) to pull your marketing data into the PostHog Data warehouse.
 
 Connect a Salesforce account that has access to Account Engagement, then enter the ID of the business unit you want to sync.""",
@@ -105,6 +108,7 @@ Connect a Salesforce account that has access to Account Engagement, then enter t
                     ),
                     SourceFieldInputConfig(
                         name="business_unit_id",
+                        account_selector=True,
                         label="Business unit ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,

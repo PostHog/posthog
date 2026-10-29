@@ -24,3 +24,9 @@ class HogQLMetricDefinition:
 class MetricRead:
     summary: MetricSummary
     hogql_definition: HogQLMetricDefinition | None
+
+
+@dataclass(frozen=True)
+class MetricBulkOwnerChange:
+    updated_ids: list[UUID]
+    skipped_ids: list[UUID]

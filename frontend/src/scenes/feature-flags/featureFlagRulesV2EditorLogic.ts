@@ -30,7 +30,7 @@ import {
     FeatureFlagConfig,
     FeatureFlagRulesV2DraftConfig,
     FeatureFlagRulesV2DraftRule,
-    FeatureFlagRulesV2Rule,
+    FeatureFlagRulesV2ReturnType,
     FeatureFlagType,
     PropertyOperator,
     TeamPublicType,
@@ -56,6 +56,13 @@ import {
     validateFeatureFlagKey,
     variantKeyToIndexFeatureFlagPayloads,
 } from './featureFlagLogic'
+import {
+    NEW_TARGETED_RELEASE_RULE,
+    moved,
+    rulesV2DraftErrors,
+    rulesV2InitialValue,
+    withReturnType,
+} from './featureFlagRulesV2Draft'
 
 export interface FeatureFlagRulesV2Draft {
     key: string
@@ -88,64 +95,11 @@ export const NEW_RULES_V2_DRAFT: FeatureFlagRulesV2Draft = {
     version: null,
 }
 
-export const BOOLEAN_OPTIONS = [
-    { value: 'true', label: 'true' },
-    { value: 'false', label: 'false' },
-]
-
-export const NEW_TARGETED_RELEASE_RULE: FeatureFlagRulesV2DraftRule = {
-    rule_type: 'targeted_release',
-    targeting: { properties: [] },
-    value: true,
-}
-
-// The rollout fields a rule gains when it becomes a percentage rollout; the server assigns its seed.
-export const NEW_ROLLOUT_FIELDS = {
-    rollout_percentage: 0,
-    on_rollout_miss: 'continue',
-    assignment_algorithm: 'sha1_60_v1',
-    assign_by: 'person',
-} as const
-
 // React keys for rule cards: new rules have no id, and index keys would follow a moved rule's position.
 let lastRuleKey = 0
 const nextRuleKey = (): number => ++lastRuleKey
 
-function moved<T>(items: T[], from: number, to: number): T[] {
-    const result = [...items]
-    result.splice(to, 0, ...result.splice(from, 1))
-    return result
-}
-
-const RULE_FIELDS = new Set(['rule_type', 'description', 'targeting', 'value', 'rollout_percentage', 'on_rollout_miss'])
-
-/** Keeps the rule's identity and shared fields; rollout fields come and go with the type. */
-export function withRuleType(
-    rule: FeatureFlagRulesV2DraftRule,
-    ruleType: FeatureFlagRulesV2DraftRule['rule_type']
-): FeatureFlagRulesV2DraftRule {
-    if (rule.rule_type === ruleType) {
-        return rule
-    }
-    const { id, targeting, description, metadata, value } = rule
-    const shared = { id, targeting, description, metadata, value }
-    return ruleType === 'percentage_rollout'
-        ? { ...shared, rule_type: ruleType, ...NEW_ROLLOUT_FIELDS }
-        : { ...shared, rule_type: ruleType }
-}
-
-function toDraftRule(rule: FeatureFlagRulesV2Rule): FeatureFlagRulesV2DraftRule {
-    if (rule.rule_type === 'targeted_release') {
-        return rule
-    }
-    if (rule.rule_type === 'percentage_rollout') {
-        const { seed: _seed, ...draftRule } = rule
-        return draftRule
-    }
-    // Only editable documents reach the editor; dropping a rule here would delete it on save.
-    throw new Error('Experiment rules cannot be edited here.')
-}
-
+/** The draft holds the stored document as loaded, seeds and unrendered fields included, so a save echoes them. */
 export function rulesV2DraftFromFlag(flag: FeatureFlagType): FeatureFlagRulesV2Draft {
     if (!isRulesV2FeatureFlagConfig(flag.filters)) {
         return NEW_RULES_V2_DRAFT
@@ -154,7 +108,7 @@ export function rulesV2DraftFromFlag(flag: FeatureFlagType): FeatureFlagRulesV2D
         key: flag.key,
         name: flag.name ?? '',
         tags: flag.tags ?? [],
-        config: { ...flag.filters, rules: flag.filters.rules.map(toDraftRule) },
+        config: flag.filters,
         version: flag.version,
     }
 }
@@ -170,15 +124,45 @@ export function rulesV2WriteBody(draft: FeatureFlagRulesV2Draft): RulesV2WriteBo
     }
 }
 
+const RULE_FIELDS = [
+    'rule_type',
+    'description',
+    'targeting',
+    'value',
+    'rollout_percentage',
+    'on_rollout_miss',
+    'paused',
+    'seed',
+    'variants',
+    'variants[]',
+    'variants[].key',
+    'variants[].weight',
+    'variants[].value',
+    'holdout',
+    'holdout.exclusion_percentage',
+    'holdout.seed',
+]
+// The paths, with list indices removed, that the editor shows an error against.
+const EDITOR_FIELDS = new Set([
+    'key',
+    'name',
+    'tags',
+    'filters.return_type',
+    'filters.default_value',
+    'filters.rules[]',
+    ...RULE_FIELDS.map((field) => `filters.rules[].${field}`),
+])
+
+/** The longest prefix of `path` that the editor has a field for, so a nested error lands on its nearest field. */
 function editorField(path: string): string | null {
-    if (path === 'key' || path === 'name' || path === 'tags' || path === 'filters.default_value') {
-        return path
+    let prefix: string | undefined = path
+    while (prefix) {
+        if (EDITOR_FIELDS.has(prefix.replace(/\[\d+\]/g, '[]'))) {
+            return prefix
+        }
+        prefix = /^(.+)(?:\.\w+|\[\d+\])$/.exec(prefix)?.[1]
     }
-    const rule = /^filters\.rules\[(\d+)\](?:\.(\w+))?/.exec(path)
-    if (!rule) {
-        return null
-    }
-    return rule[2] && RULE_FIELDS.has(rule[2]) ? `filters.rules[${rule[1]}].${rule[2]}` : `filters.rules[${rule[1]}]`
+    return null
 }
 
 /** `attr` joins nested keys with `__`; a document path that is not the input's own stays in the message. */
@@ -202,6 +186,7 @@ export interface featureFlagRulesV2EditorLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     draft: FeatureFlagRulesV2Draft
+    draftErrors: Record<string, string>
     fieldError: (field: string) => string | null
     hasUnsavedChanges: boolean
     ruleKeys: number[]
@@ -273,6 +258,9 @@ export interface featureFlagRulesV2EditorLogicActions {
     setDraft: (draft: Partial<FeatureFlagRulesV2Draft>) => {
         draft: Partial<FeatureFlagRulesV2Draft>
     }
+    setReturnType: (returnType: FeatureFlagRulesV2ReturnType) => {
+        returnType: FeatureFlagRulesV2ReturnType
+    }
     setRule: (
         index: number,
         rule: FeatureFlagRulesV2DraftRule
@@ -296,9 +284,14 @@ export interface featureFlagRulesV2EditorLogicActions {
 export interface featureFlagRulesV2EditorLogicMeta {
     key: number | 'link' | 'new'
     __keaTypeGenInternalSelectorTypes: {
-        fieldError: (saveError: RulesV2SaveError | null) => (field: string) => string | null
+        draftErrors: (draft: FeatureFlagRulesV2Draft) => Record<string, string>
+        fieldError: (
+            saveError: RulesV2SaveError | null,
+            draftErrors: Record<string, string>
+        ) => (field: string) => string | null
         saveDisabledReason: (
             draft: FeatureFlagRulesV2Draft,
+            draftErrors: Record<string, string>,
             currentTeam: TeamPublicType | TeamType | null,
             enabledFeatures: FeatureFlagsSet,
             id: number | 'link' | 'new'
@@ -335,6 +328,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         loadDraft: (draft: FeatureFlagRulesV2Draft) => ({ draft }),
         setDraft: (draft: Partial<FeatureFlagRulesV2Draft>) => ({ draft }),
         setConfig: (config: Partial<FeatureFlagRulesV2DraftConfig>) => ({ config }),
+        setReturnType: (returnType: FeatureFlagRulesV2ReturnType) => ({ returnType }),
         addRule: true,
         updateRule: (index: number, rule: FeatureFlagRulesV2DraftRule) => ({ index, rule }),
         setRule: (index: number, rule: FeatureFlagRulesV2DraftRule) => ({ index, rule }),
@@ -352,9 +346,19 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 loadDraft: (_, { draft }) => draft,
                 setDraft: (state, { draft }) => ({ ...state, ...draft }),
                 setConfig: (state, { config }) => ({ ...state, config: { ...state.config, ...config } }),
+                setReturnType: (state, { returnType }) => ({
+                    ...state,
+                    config: withReturnType(state.config, returnType),
+                }),
                 addRule: (state) => ({
                     ...state,
-                    config: { ...state.config, rules: [...state.config.rules, NEW_TARGETED_RELEASE_RULE] },
+                    config: {
+                        ...state.config,
+                        rules: [
+                            ...state.config.rules,
+                            { ...NEW_TARGETED_RELEASE_RULE, value: rulesV2InitialValue(state.config.return_type) },
+                        ],
+                    },
                 }),
                 setRule: (state, { index, rule }) => ({
                     ...state,
@@ -389,6 +393,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 saveRulesV2Flag: () => null,
                 setDraft: () => null,
                 setConfig: () => null,
+                setReturnType: () => null,
                 addRule: () => null,
                 setRule: () => null,
                 removeRule: () => null,
@@ -402,6 +407,7 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 saveRulesV2FlagSuccess: () => false,
                 setDraft: () => true,
                 setConfig: () => true,
+                setReturnType: () => true,
                 addRule: () => true,
                 setRule: () => true,
                 removeRule: () => true,
@@ -418,16 +424,22 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
         ],
     }),
     selectors({
+        draftErrors: [
+            (s) => [s.draft],
+            (draft: FeatureFlagRulesV2Draft): Record<string, string> => rulesV2DraftErrors(draft.config),
+        ],
+        // The server's error wins: it is about the document as it was sent.
         fieldError: [
-            (s) => [s.saveError],
-            (saveError: RulesV2SaveError | null) =>
+            (s) => [s.saveError, s.draftErrors],
+            (saveError: RulesV2SaveError | null, draftErrors: Record<string, string>) =>
                 (field: string): string | null =>
-                    saveError?.field === field ? saveError.message : null,
+                    saveError?.field === field ? saveError.message : (draftErrors[field] ?? null),
         ],
         saveDisabledReason: [
-            (s, p) => [s.draft, s.currentTeam, s.enabledFeatures, p.id],
+            (s, p) => [s.draft, s.draftErrors, s.currentTeam, s.enabledFeatures, p.id],
             (
                 draft: FeatureFlagRulesV2Draft,
+                draftErrors: Record<string, string>,
                 currentTeam: TeamPublicType | TeamType | null,
                 enabledFeatures: FeatureFlagsSet,
                 id: FeatureFlagLogicProps['id']
@@ -442,13 +454,10 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 if (keyError) {
                     return keyError
                 }
-                const badRollout = draft.config.rules.some(
-                    (rule) =>
-                        rule.rule_type === 'percentage_rollout' &&
-                        !(rule.rollout_percentage >= 0 && rule.rollout_percentage <= 100)
-                )
-                if (badRollout) {
-                    return 'Rollout percentages must be between 0 and 100.'
+                const [firstErrorField, firstError] = Object.entries(draftErrors)[0] ?? []
+                if (firstErrorField) {
+                    const ruleIndex = Number(/^filters\.rules\[(\d+)\]/.exec(firstErrorField)?.[1])
+                    return `Rule ${ruleIndex + 1}: ${firstError}`
                 }
                 // The server accepts a condition with no value, but the condition never matches.
                 // Set and not-set conditions take no value, so they are not incomplete.
@@ -485,10 +494,10 @@ export const featureFlagRulesV2EditorLogic = kea<featureFlagRulesV2EditorLogicTy
                 return
             }
             // The server does not enforce the project's confirmation setting, so this check is the only gate.
-            // Both sides are compared without seeds, because the draft never holds one and a stored seed would count as a change.
+            // The draft holds the stored seeds, so only a real edit differs from the stored document.
             const confirmationEnabled = !!values.currentTeam?.feature_flag_confirmation_enabled
             const confirmationShown = checkFeatureFlagConfirmation(
-                { ...storedFlag, filters: rulesV2DraftFromFlag(storedFlag).config as FeatureFlagConfig },
+                storedFlag,
                 { ...storedFlag, key: values.draft.key, filters: values.draft.config as FeatureFlagConfig },
                 confirmationEnabled,
                 confirmationEnabled ? values.currentTeam?.feature_flag_confirmation_message : undefined,

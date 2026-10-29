@@ -1,6 +1,7 @@
 import re
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,12 @@ _ORGANIZATION_NAME_REGEX = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-_]*$")
 
 @SourceRegistry.register
 class TerraformCloudSource(ResumableSource[TerraformCloudSourceConfig, TerraformCloudResumeConfig]):
+    codebase_detection = detect(
+        env=("^(TERRAFORM_CLOUD|TERRAFORMCLOUD)_", "^TFE_TOKEN$", "^TFE_ADDRESS$", "^TF_TOKEN_app_terraform_io$"),
+        pypi=("pytfe",),
+        go=("github.com/hashicorp/go-tfe", "github.com/hashicorp/hcp-terraform-operator"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -48,7 +55,7 @@ class TerraformCloudSource(ResumableSource[TerraformCloudSourceConfig, Terraform
             name=ExternalDataSourceType.TERRAFORMCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="HashiCorp (HCP Terraform / Terraform Cloud)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["tfc", "hcp", "infrastructure as code", "iac"],
             caption="""Sync organizations, projects, teams, workspaces, runs, and state versions from HCP Terraform (formerly Terraform Cloud) into the PostHog Data warehouse to analyze infrastructure change frequency, plan/apply durations, and failure rates.
 

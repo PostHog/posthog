@@ -1,6 +1,13 @@
 import { isObject } from 'lib/utils/guards'
 
-import type { Message, MessageRole, MessageToolCall, PromptConfig, ReasoningLevel } from './llmPlaygroundPromptsLogic'
+import type {
+    Message,
+    MessageRole,
+    MessageToolCall,
+    PlaygroundResponseFormat,
+    PromptConfig,
+    ReasoningLevel,
+} from './llmPlaygroundPromptsLogic'
 
 export interface PlaygroundModelConfig {
     model: string
@@ -20,11 +27,38 @@ const PLAYGROUND_CONFIG_KEYS = new Set([
     'thinking',
     'reasoning_effort',
     'tools',
+    'response_format',
     'messages',
 ])
 
 const MESSAGE_ROLES: MessageRole[] = ['user', 'assistant', 'system', 'tool']
 const REASONING_LEVELS: Exclude<ReasoningLevel, null>[] = ['minimal', 'low', 'medium', 'high']
+
+// OpenAI requires a schema name. Providers that do not need one ignore it.
+export const DEFAULT_RESPONSE_SCHEMA_NAME = 'response'
+
+export function createResponseFormat(schema: Record<string, unknown>): PlaygroundResponseFormat {
+    return { type: 'json_schema', json_schema: { name: DEFAULT_RESPONSE_SCHEMA_NAME, schema, strict: true } }
+}
+
+// Only a `json_schema` envelope is accepted, so `json_object` or a bare schema never reaches the proxy.
+export function normalizeResponseFormat(value: unknown): PlaygroundResponseFormat | null {
+    if (!isObject(value) || value.type !== 'json_schema' || !isObject(value.json_schema)) {
+        return null
+    }
+    const { name, schema, strict } = value.json_schema
+    if (!isObject(schema)) {
+        return null
+    }
+    return {
+        type: 'json_schema',
+        json_schema: {
+            name: typeof name === 'string' && name ? name : DEFAULT_RESPONSE_SCHEMA_NAME,
+            schema,
+            strict: typeof strict === 'boolean' ? strict : true,
+        },
+    }
+}
 
 export interface ParsedPlaygroundConfig {
     model: string | null
@@ -36,13 +70,15 @@ export interface ParsedPlaygroundConfig {
     thinking: boolean
     reasoningLevel: ReasoningLevel
     tools: Record<string, unknown>[] | null
+    responseFormat: PlaygroundResponseFormat | null
     messages: Message[]
 }
 
 /**
  * Builds the config payload to store with a prompt version: the playground's model settings,
- * tools, and conversation messages, merged over any non-playground keys already in the
- * version's config. Variable placeholders in message content are stored raw, never substituted.
+ * tools, response format, and conversation messages, merged over any non-playground keys
+ * already in the version's config. Variable placeholders in message content are stored raw,
+ * never substituted.
  * Returns null when there is nothing to store, so the version's config stays null.
  */
 export function serializePlaygroundConfig(
@@ -87,6 +123,17 @@ export function serializePlaygroundConfig(
     config.reasoning_effort = prompt.reasoningLevel
     if (prompt.tools && prompt.tools.length > 0) {
         config.tools = prompt.tools
+    }
+    if (prompt.responseFormat) {
+        config.response_format = prompt.responseFormat
+    } else if (
+        isObject(existingConfig) &&
+        isObject(existingConfig.response_format) &&
+        normalizeResponseFormat(existingConfig.response_format) === null
+    ) {
+        // A format the playground cannot edit (such as `json_object`) never reached the panel,
+        // so the panel being empty is not the user clearing it. Keep it for SDK consumers.
+        config.response_format = existingConfig.response_format
     }
     if (prompt.messages.length > 0) {
         config.messages = prompt.messages.map((message) => ({
@@ -173,6 +220,7 @@ export function parsePlaygroundConfig(config: unknown): ParsedPlaygroundConfig |
                 ? (REASONING_LEVELS.find((level) => level === config.reasoning_effort) ?? null)
                 : 'medium',
         tools,
+        responseFormat: normalizeResponseFormat(config.response_format),
         messages,
     }
 }

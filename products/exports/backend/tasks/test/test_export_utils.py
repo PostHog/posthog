@@ -1,15 +1,16 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.test import SimpleTestCase
 
 from products.exports.backend.tasks import exporter_utils
 
 TEST_PREFIX = "Test-Exports"
 
 
-class TestSiteURLReachability(APIBaseTest):
+class TestSiteURLReachability(SimpleTestCase):
     @patch("products.exports.backend.tasks.exporter_utils.logger")
     def test_url_not_reachable_exception(self, logger_mock: Any) -> None:
         test_url = "http://some-bad-url.test"

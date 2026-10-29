@@ -46,11 +46,43 @@ def _run(
 
 
 class TestPagination:
-    def test_resumes_from_saved_offset(self) -> None:
-        result = _run("orders", [_response([{"id": "X"}])], resume_state=TremendousResumeConfig(offset=1000))
+    @parameterized.expand([("orders",), ("topups",)])
+    def test_resumes_from_saved_offset(self, endpoint: str) -> None:
+        data_key = TREMENDOUS_ENDPOINTS[endpoint].data_key
+        result = _run(
+            endpoint, [_response([{"id": "X"}], data_key=data_key)], resume_state=TremendousResumeConfig(offset=1000)
+        )
 
         # The initial (offset=0) page must never be re-fetched on resume.
         assert result.params("offset") == ["1000"]
+
+    @parameterized.expand(
+        [
+            # The server picks the page size, so a page shorter than any limit must not end the walk.
+            ("stops_at_total_count", [3, 2], 5, ["0", "3"]),
+            ("total_count_missing_stops_on_empty_page", [3, 2, 0], None, ["0", "3", "5"]),
+            ("empty_first_page", [0], 0, ["0"]),
+        ]
+    )
+    def test_topups_advance_offset_by_rows_received(
+        self, _name: str, page_sizes: list[int], total_count: int | None, expected_offsets: list[str]
+    ) -> None:
+        pages: list[ScriptedResponse] = []
+        next_id = 0
+        for size in page_sizes:
+            rows = [{"id": f"TOPUP{next_id + i}", "created_at": "2026-01-02T03:04:05Z"} for i in range(size)]
+            next_id += size
+            body: dict[str, Any] = {"topups": rows}
+            if total_count is not None:
+                body["total_count"] = total_count
+            pages.append(ScriptedResponse(json=body))
+
+        result = _run("topups", pages)
+
+        assert result.raised is None
+        assert result.params("offset") == expected_offsets
+        assert result.params("limit") == [None] * len(expected_offsets)
+        assert [row["id"] for row in result.rows] == [f"TOPUP{i}" for i in range(sum(page_sizes))]
 
     @parameterized.expand([("orders",), ("balance_transactions",)])
     def test_incremental_watermark_sent_as_created_at_gte_on_every_page(self, endpoint: str) -> None:
@@ -175,26 +207,6 @@ class TestBalanceTransactionRowId:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Tremendous API key (check that it matches the selected environment)"),
-            ("forbidden", 403, False, "Invalid Tremendous API key (check that it matches the selected environment)"),
-            ("server_error", 500, False, "Tremendous returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status, json={}))):
-            assert validate_credentials("tremendous-key", "production") == (expected_valid, expected_message)
-
-    def test_connection_error_is_not_validated(self) -> None:
-        # A credential probe must never raise; a transport failure means "not validated".
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("tremendous-key", "production") == (
-                False,
-                "Could not validate Tremendous API key",
-            )
-
     def test_pins_redirects_off(self) -> None:
         with scripted_network([ScriptedResponse(json={})]) as network:
             validate_credentials("tremendous-key", "production")

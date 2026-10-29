@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -105,6 +106,11 @@ class PlanetScaleMySQLSource(MySQLSource):
     different wire protocol — see `planetscale_postgres`.
     """
 
+    codebase_detection = detect(
+        env=("^PLANETSCALE_", "^PLANETSCALE_SERVICE_TOKEN$", "^PLANETSCALE_SERVICE_TOKEN_ID$", "^PLANETSCALE_ORG$"),
+        npm=("@planetscale/database",),
+    )
+
     api_docs_url = "https://planetscale.com/docs"
 
     @property
@@ -114,6 +120,11 @@ class PlanetScaleMySQLSource(MySQLSource):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.PLANETSCALEMYSQL
+
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `MySQLSource`.
+        return "planetscale-mysql"
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -172,6 +183,7 @@ class PlanetScaleMySQLSource(MySQLSource):
                     ),
                     SourceFieldInputConfig(
                         name="schema",
+                        sync_setting=True,
                         label="Schema",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -180,7 +192,7 @@ class PlanetScaleMySQLSource(MySQLSource):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

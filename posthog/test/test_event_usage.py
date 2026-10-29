@@ -5,6 +5,8 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.test import APIRequestFactory
 
@@ -237,12 +239,21 @@ class TestReportUserAction(BaseTest):
 
         assert mock_capture.call_args[1]["properties"]["access_method"] == expected
 
+    @parameterized.expand(
+        [
+            ("no_set_once", {}, {}),
+            ("caller_set_once_kept", {"$set_once": {"first_used_at": "2026-01-01"}}, {"first_used_at": "2026-01-01"}),
+        ]
+    )
     @patch("posthog.event_usage.posthoganalytics.capture")
-    def test_no_request_passes_properties_unchanged(self, mock_capture):
-        report_user_action(self.user, "test event", properties={"key": "val"})
+    def test_no_request_passes_properties_unchanged(self, _name, extra, expected_set_once, mock_capture):
+        report_user_action(self.user, "test event", properties={"key": "val", **extra})
 
         mock_capture.assert_called_once()
-        assert mock_capture.call_args[1]["properties"] == {"key": "val", "$set_once": {"email": self.user.email}}
+        assert mock_capture.call_args[1]["properties"] == {
+            "key": "val",
+            "$set_once": {**expected_set_once, "email": self.user.email},
+        }
 
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_analytics_props_merged_into_capture(self, mock_capture):
@@ -284,11 +295,12 @@ class TestReportUserAction(BaseTest):
             )
 
 
-class TestGetEventSource(BaseTest):
+class TestGetEventSource(SimpleTestCase):
     @parameterized.expand(
         [
             ("terraform", "posthog/terraform-provider 1.0", EventSource.TERRAFORM),
             ("cli_exact", "posthog-cli", EventSource.CLI),
+            ("hog_cli", "hog/1.0.0-alpha.0", EventSource.CLI),
             ("wizard", "posthog/wizard 1.0", EventSource.WIZARD),
             ("posthog_code", "posthog/code 1.2.3", EventSource.POSTHOG_CODE),
             ("desktop_app_direct", "posthog/desktop.hog.dev 0.1.0", EventSource.DESKTOP),
@@ -481,7 +493,7 @@ class TestGetEventSource(BaseTest):
         assert get_event_source(request) == expected
 
 
-class TestIsWizardSelfDrivingProgram(BaseTest):
+class TestIsWizardSelfDrivingProgram(SimpleTestCase):
     @parameterized.expand(
         [
             # Direct wizard → Django: the marker rides on the User-Agent itself.
@@ -581,7 +593,7 @@ class TestSignupCrmExclusion(BaseTest):
             mock_group_identify.assert_not_called()
 
 
-class TestSanitizeHeaderValue(BaseTest):
+class TestSanitizeHeaderValue(SimpleTestCase):
     @parameterized.expand(
         [
             ("passthrough", "posthog/wizard 1.0", "posthog/wizard 1.0"),

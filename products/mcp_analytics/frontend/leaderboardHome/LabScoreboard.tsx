@@ -3,6 +3,8 @@ import { Card, CardContent, Skeleton, ToggleGroup, ToggleGroupItem } from '@post
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { formatPercentage } from 'lib/utils/numbers'
 
+import { labMark } from '../brandMarks'
+import { BrandMark } from '../components/BrandMark'
 import { formatNumber } from '../dashboard/formatters'
 import { leadingLabs, type LabShare, type ScoreboardMetric } from './leaderboardShares'
 import { LoadErrorMessage } from './LoadErrorMessage'
@@ -83,7 +85,10 @@ export function LabScoreboard({
                             <TileDecorations badge={leaders.includes(lab) ? 'winner' : null} />
                             <Card size="sm" className="h-full" data-attr="mcp-leaderboard-lab-tile">
                                 <CardContent className="flex flex-col gap-1">
-                                    <span className="text-sm text-secondary">{lab}</span>
+                                    <span className="flex items-center gap-1.5 text-sm font-semibold text-secondary">
+                                        <BrandMark name={labMark(lab)} className="size-4 text-primary" />
+                                        {lab}
+                                    </span>
                                     <span className="text-3xl font-semibold tabular-nums text-primary">
                                         {formatPercentage(share, { compact: true })}
                                     </span>

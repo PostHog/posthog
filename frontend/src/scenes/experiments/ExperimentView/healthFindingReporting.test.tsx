@@ -53,7 +53,7 @@ const UNEVEN_EXPOSURES = {
     bias_risk: { multiple_variant_percentage: 5 },
     health_findings: [
         exposureFinding('srm', 'Users are not split across variants as configured', []),
-        exposureFinding('bias_risk_multiple_excluded', 'Setup likely introduced bias', [
+        exposureFinding('bias_risk_multiple_excluded', 'The uneven split may bias the results', [
             'adjust_distribution',
             'use_first_seen_variant',
         ]),
@@ -116,6 +116,7 @@ describe('health finding reporting', () => {
                     diagnostic_ref: 'A5',
                 },
             ],
+            checks: [],
         })
         logic.actions.loadExposuresSuccess(exposures)
         render(
@@ -194,11 +195,11 @@ describe('health finding reporting', () => {
 
         const shown = captureSpy.mock.calls
             .filter(([event]) => event === 'experiment health finding shown')
-            .map(([, properties]) => [properties.finding_code, properties.finding_variant])
+            .map(([, properties]) => [properties.finding_code, properties.finding_variant, properties.finding_severity])
         expect(shown).toEqual([
-            ['flag_off_while_running', 'running_but_flag_disabled'],
-            ['srm', null],
-            ['bias_risk_multiple_excluded', null],
+            ['flag_off_while_running', 'running_but_flag_disabled', 'warning'],
+            ['srm', null, 'warning'],
+            ['bias_risk_multiple_excluded', null, 'warning'],
         ])
     })
 

@@ -207,8 +207,15 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         mock_client.chat_delete.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("mention_is_thread_root", "1234.5678"),
+            ("mention_is_thread_reply", "1234.9999"),
+            ("mention_unknown", None),
+        ]
+    )
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_update_reaction_removes_eyes_then_adds_new(self, mock_get_client):
+    def test_update_reaction_targets_the_mention_message(self, _name, user_message_ts, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -216,15 +223,17 @@ class TestSlackThreadHandler(SimpleTestCase):
             integration_id=1,
             channel="C001",
             thread_ts="1234.5678",
-            user_message_ts="1234.5678",
+            user_message_ts=user_message_ts,
         )
         handler = SlackThreadHandler(context)
-        handler.update_reaction("hedgehog")
+        handler.update_reaction("x")
 
-        remove_calls = mock_client.reactions_remove.call_args_list
-        assert len(remove_calls) == 1
-        assert remove_calls[0].kwargs["name"] == "eyes"
-        mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp="1234.5678", name="hedgehog")
+        if user_message_ts is None:
+            mock_client.reactions_remove.assert_not_called()
+            mock_client.reactions_add.assert_not_called()
+            return
+        mock_client.reactions_remove.assert_called_once_with(channel="C001", timestamp=user_message_ts, name="eyes")
+        mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp=user_message_ts, name="x")
 
     @patch.object(SlackThreadHandler, "_get_client")
     def test_post_pr_opened_posts_buttons(self, mock_get_client):
@@ -576,6 +585,7 @@ def _stop_with_answer(handler: SlackThreadHandler) -> None:
     handler.stop_status_stream(ts="1.0", final_markdown="Done.")
 
 
+@patch("products.slack_app.backend.slack_thread.task_slack_notifications_muted", new=lambda **kwargs: False)
 class TestReplyPostedCapture(SimpleTestCase):
     @parameterized.expand(
         [
@@ -663,7 +673,9 @@ class TestReplyPostedCapture(SimpleTestCase):
         reader = MagicMock()
         mock_resolve_user.return_value = reader
         context = SlackThreadContext(integration_id=1, channel="C001", thread_ts="1234.5678")
-        handler = SlackThreadHandler(context, RunFooter(run_id="run-1", task_id="task-1"), actor_slack_user_id="U123")
+        handler = SlackThreadHandler(
+            context, RunFooter(run_id="run-1", task_id="task-1", chart_links=True), actor_slack_user_id="U123"
+        )
 
         reply(handler)
 
@@ -681,6 +693,7 @@ class TestReplyPostedCapture(SimpleTestCase):
             "slack_session_id": "T1:C001:1234.5678",
             "task_id": "task-1",
             "run_id": "run-1",
+            "chart_links": True,
         }
 
 
@@ -912,3 +925,37 @@ class TestMarkdownAnswerBlocks(SimpleTestCase):
         retry = mock_client.chat_postMessage.call_args_list[1].kwargs
         assert retry["text"] == "the answer"
         assert not retry.get("blocks")
+
+
+class TestMobileTaskNotificationTargets(SimpleTestCase):
+    @patch("products.slack_app.backend.slack_thread.task_slack_notifications_muted", return_value=True)
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_moved_recipient_does_not_start_a_targeted_stream(self, client: MagicMock, _muted: MagicMock) -> None:
+        handler = SlackThreadHandler(
+            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            RunFooter(run_id="run-1"),
+        )
+        assert handler.start_status_stream(first_markdown_text="Finished") is None
+        client.assert_not_called()
+
+    @parameterized.expand([("bare", "<@U123> Finished"), ("labeled", "<@U123|Mobile user> Finished")])
+    @patch("products.slack_app.backend.slack_thread.task_slack_notifications_muted", return_value=True)
+    def test_shared_answer_keeps_its_text_without_leading_mention(
+        self, _name: str, text: str, _muted: MagicMock
+    ) -> None:
+        handler = SlackThreadHandler(
+            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            RunFooter(run_id="run-1"),
+        )
+        assert handler._with_leading_mention(text) == "Finished"
+        assert handler._with_leading_mention("Finished with <@UOTHER>.") == "Finished with <@UOTHER>."
+
+    @patch("products.slack_app.backend.slack_thread.task_slack_notifications_muted", return_value=True)
+    @patch.object(SlackThreadHandler, "_delete_progress_and_post")
+    def test_shared_pr_card_keeps_the_card_without_ping(self, post: MagicMock, _muted: MagicMock) -> None:
+        handler = SlackThreadHandler(
+            SlackThreadContext(integration_id=1, channel="C123", thread_ts="1.2", mentioning_slack_user_id="U123"),
+            RunFooter(run_id="run-1"),
+        )
+        handler.post_pr_opened("https://example.com/pr/1", None, reply_target_slack_user_id="U123")
+        assert post.call_args.args[0] == "*Pull request opened* :rocket:"

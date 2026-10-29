@@ -6,13 +6,16 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.test.authentication_checks import covers_authentication
 
+from ee.api.agentic_provisioning.authentication import ProvisioningBearerAuthentication
 from ee.api.agentic_provisioning.credentials import maybe_create_provisioned_pat
 from ee.api.agentic_provisioning.ratelimits import RATE_LIMITED_MESSAGE
 from ee.api.agentic_provisioning.test.base import ProvisioningTestBase, provisioning_config
 
 
 class TestProvisioningResources(ProvisioningTestBase):
+    @covers_authentication(ProvisioningBearerAuthentication)
     def test_create_resource_returns_complete(self):
         token = self._get_bearer_token()
         res = self._post_with_bearer(

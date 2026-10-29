@@ -16,6 +16,15 @@ from .anthropic import (
     AnthropicIntegrationError,
 )
 from .assignees import Assignee, AssigneeLookupFailed, ReconnectRequired
+from .auth_types import (
+    ANY,
+    DEFAULT,
+    AuthRequirement,
+    AuthTypeSelector,
+    IntegrationAuthType,
+    KindAuthTypes,
+    register_kind_auth_types,
+)
 from .aws import (
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
@@ -30,7 +39,13 @@ from .aws import (
 )
 from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
 from .clickup import ClickUpIntegration
-from .common import ERROR_TOKEN_REFRESH_FAILED, META_GRAPH_API_VERSION, IntegrationError, dot_get
+from .common import (
+    ERROR_TOKEN_REFRESH_FAILED,
+    META_GRAPH_API_VERSION,
+    IntegrationError,
+    OauthClientCredentials,
+    dot_get,
+)
 from .databricks import DatabricksIntegration, DatabricksIntegrationError
 from .email import EmailIntegration, cleanup_ses_identity_on_integration_delete
 from .external_issues import (
@@ -50,7 +65,12 @@ from .github import (
     invalidate_github_repository_caches_for_installation,
 )
 from .gitlab import GitLabIntegration, GitLabIntegrationError
-from .google_ads import GoogleAdsIntegration, google_ads_hierarchy_level
+from .google_ads import (
+    GoogleAdsIntegration,
+    GoogleAdsQuotaExhaustedError,
+    GoogleAdsScopeInsufficientError,
+    google_ads_hierarchy_level,
+)
 from .google_cloud import (
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
@@ -62,7 +82,7 @@ from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
     Integration,
-    IntegrationManager,
+    IntegrationModelManager,
     IntegrationQuerySet,
     UndecryptedIntegrationSecretError,
     aget_integration_by_id,
@@ -71,6 +91,7 @@ from .model import (
 )
 from .oauth import (
     INSTAGRAM_OAUTH_SCOPE,
+    OAUTH_CLIENT_CREDENTIAL_KEYS,
     POSTHOG_CONNECT_ALLOWED_REGIONS,
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_GRANTABLE_SCOPES,
@@ -138,10 +159,17 @@ from .stripe import STRIPE_POSTHOG_SECRET_NAMES, StripeIntegration
 from .twilio import TwilioIntegration
 
 __all__ = [
+    "ANY",
+    "DEFAULT",
+    "AuthRequirement",
+    "AuthTypeSelector",
+    "IntegrationAuthType",
+    "KindAuthTypes",
+    "register_kind_auth_types",
     "UndecryptedIntegrationSecretError",
     "integration_secret_decrypt_counter",
     "IntegrationQuerySet",
-    "IntegrationManager",
+    "IntegrationModelManager",
     "Integration",
     "defer_repository_cache_fields",
     "aget_integration_by_id",
@@ -176,8 +204,10 @@ __all__ = [
     "FirebaseIntegration",
     "ApplePushIntegration",
     "INSTAGRAM_OAUTH_SCOPE",
+    "OauthClientCredentials",
     "OauthConfig",
     "POSTHOG_SLACK_SCOPE",
+    "OAUTH_CLIENT_CREDENTIAL_KEYS",
     "SALESFORCE_OAUTH_KINDS",
     "POSTHOG_CONNECT_KIND",
     "POSTHOG_CONNECT_ALLOWED_REGIONS",
@@ -198,6 +228,8 @@ __all__ = [
     "validate_slack_request",
     "google_ads_hierarchy_level",
     "GoogleAdsIntegration",
+    "GoogleAdsQuotaExhaustedError",
+    "GoogleAdsScopeInsufficientError",
     "is_unique_service_account_by_organization_id",
     "GoogleCloudServiceAccountIntegration",
     "GoogleCloudIntegration",

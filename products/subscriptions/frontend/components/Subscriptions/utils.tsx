@@ -2,7 +2,7 @@ import { IconLetter } from '@posthog/icons'
 import { LemonSelectOption, LemonSelectOptionLeaf, LemonSelectOptions } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { getGrantedScopes } from 'lib/integrations/IntegrationScopesWarning'
+import { getGrantedScopes } from 'lib/integrations/integrationScopes'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { range } from 'lib/utils/arrays'

@@ -27,6 +27,7 @@ from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_log_archive import QUERY_LOG_ARCHIVE_DATA_TABLE
 from posthog.clickhouse.query_tagging import Feature, Product, reset_query_tags, tag_queries, tags_context
 from posthog.dags.common import JobOwners
 from posthog.event_usage import EventSource
@@ -149,18 +150,119 @@ UNWARMABLE_QUERY_KINDS = ("WebVitalsQuery",)
 INTERNAL_QUERY_TYPE_SUFFIXES = ("_lazy_insert", "_preflight")
 _INTERNAL_QUERY_TYPE_FILTER = " OR ".join(f"endsWith(query_type, '{s}')" for s in INTERNAL_QUERY_TYPE_SUFFIXES)
 
-# Request kind (top-level log_comment `kind`) excluded from demand selection.
+# Request kind (top-level log_comment `kind`) excluded from the system.query_log demand selection.
 # Temporal-kind requests are batch/scheduled workflows that run web queries
 # across nearly every team; counting them made the selection reflect background
 # traffic rather than real dashboard usage. UI and personal-API-key requests are
 # kept — those are the reads warming is meant to keep fast.
 EXCLUDED_REQUEST_KIND = "temporal"
 
+# What counts as demand on the query_log_archive path. The archive has no
+# `trigger` column, so it can't exclude background replays by trigger. They are
+# told apart by kind and task id instead: the warmer's own replays run from
+# Dagster with no kind, stale revalidation and warmingV2 run as celery under
+# their own task names, and batch workflows run as temporal. UI and
+# personal-API-key reads are `request`. A UI read that executes asynchronously
+# (a dashboard tile, a scene's async load) is also user demand, but the celery
+# prerun tags it kind=celery/id=<task name> and process_query_task lets those
+# tags win over the inherited request tags, so in the archive it is a celery
+# row whose id is the async query task. Keep this in step with
+# _fetch_active_wa_team_ids in eager_web_analytics_precompute.py.
+DEMAND_REQUEST_KIND = "request"
+ASYNC_QUERY_TASK_KIND = "celery"
+ASYNC_QUERY_TASK_ID = "posthog.tasks.tasks.process_query_task"
+
 # Read-bytes ceiling for the demand-selection scan. The 14-day fleet-wide
-# query_log scan reads ~40 TiB, over the default cap, so it's raised — but to a
-# finite value (~150 TiB, generous headroom for fleet growth) rather than 0, so
-# the ClickHouse kill switch's overload cap still clamps it during an overload.
+# system.query_log scan (the preset-lane path) reads ~40 TiB, over the default
+# cap, so it's raised — but to a finite value (~150 TiB, generous headroom for
+# fleet growth) rather than 0, so the ClickHouse kill switch's overload cap still
+# clamps it during an overload.
 _SELECTION_MAX_BYTES_TO_READ = 150 * 1024**4
+
+# Demand-selection source fragments. Both sources yield the same row columns
+# (team_id, query_json_raw, web_query_kind, query_type, request_kind, feature,
+# request_id) plus the columns its own demand filter reads, so one aggregation
+# serves both.
+#
+# query_log_archive holds one row per query chain, with the log_comment tags in
+# typed lc_* columns. Its sort key starts with the chain's start hour, so the
+# window filter prunes by primary key, and the LowCardinality lc_query__kind
+# filter skips the query JSON of every non-web row. The table is an
+# AggregatingMergeTree read without FINAL, so a chain can still be split across
+# unmerged rows. is_initial_query keeps only the row that holds the initial query,
+# which is the only row with lc_query filled, and counting distinct
+# initial_query_id makes a duplicate row harmless.
+_ARCHIVE_ROW_COLUMNS = """
+                team_id,
+                lc_query AS query_json_raw,
+                -- From the query JSON, not lc_query__kind. lc_query__kind holds a
+                -- wrapped source's kind (WebVitalsQuery wraps a TrendsQuery), so
+                -- the lc_query__kind prefilter below drops any web kind with a
+                -- non-web source. That is safe only while all such kinds are in
+                -- UNWARMABLE_QUERY_KINDS.
+                JSONExtractString(lc_query, 'kind') AS web_query_kind,
+                lc_query_type AS query_type,
+                lc_kind AS request_kind,
+                lc_id AS request_task_id,
+                lc_feature AS feature,
+                initial_query_id AS request_id"""
+_ARCHIVE_SOURCE = f"""
+            FROM {QUERY_LOG_ARCHIVE_DATA_TABLE}
+            WHERE
+                initial_query_start_time >= now() - INTERVAL %(days)s DAY
+                AND startsWith(lc_query__kind, %(kind_prefix)s)
+                AND is_initial_query
+                AND type = 'QueryFinish'
+                AND query_kind = 'Select'"""
+_ARCHIVE_DEMAND_FILTER = """(
+                request_kind = %(demand_request_kind)s
+                OR (request_kind = %(async_query_task_kind)s AND request_task_id = %(async_query_task_id)s)
+            )"""
+
+# system.query_log keeps the preset_id tag the archive drops, so the preset lane
+# still reads it. Dagster connects to offline nodes, while the user traffic to
+# replay lands on other replicas, hence clusterAllReplicas. Web rows are spread
+# through every granule, so no row filter here reduces the read of the large
+# log_comment column across the window.
+_QUERY_LOG_ROW_COLUMNS = """
+                JSONExtractInt(log_comment, 'team_id') AS team_id,
+                JSONExtractRaw(log_comment, 'query') AS query_json_raw,
+                -- aliased away from the native `query_kind` column so the PREWHERE
+                -- below binds to the column (Select/Insert/…), not this JSON kind
+                -- (WebOverviewQuery/…); with prefer_column_name_to_alias=0 a name
+                -- collision would resolve `query_kind = 'Select'` against the alias
+                -- and silently select nothing.
+                JSONExtractString(log_comment, 'query', 'kind') AS web_query_kind,
+                JSONExtractString(log_comment, 'query_type') AS query_type,
+                JSONExtractString(log_comment, 'kind') AS request_kind,
+                JSONExtractString(log_comment, 'feature') AS feature,
+                JSONExtractString(log_comment, 'trigger') AS trigger,
+                query_id AS request_id"""
+_QUERY_LOG_SOURCE = f"""
+            FROM clusterAllReplicas(%(cluster)s, system.query_log)
+            -- Filter the cheap native columns first so the big log_comment String
+            -- is read only for surviving rows. is_initial_query alone drops roughly
+            -- nine-tenths of the window (the rest are distributed subqueries), and
+            -- query_kind excludes the warmer's own INSERT replays without a JSON
+            -- parse — every warmable web query executes as a Select.
+            PREWHERE
+                type = 'QueryFinish'
+                AND is_initial_query
+                AND query_kind = 'Select'
+            WHERE
+                event_date >= toDate(now() - INTERVAL %(days)s DAY)
+                AND event_time >= now() - INTERVAL %(days)s DAY
+                -- cheap substring prefilter on the query's own kind before any
+                -- JSON extraction; a superset of the kind filter below, false
+                -- positives re-checked. A bare '%%Web%%' also matches user agents
+                -- (AppleWebKit) and keeps most rows.
+                AND log_comment LIKE '%%"kind":"{WARMABLE_QUERY_KIND_PREFIX}%%'"""
+# trigger/feature exclusions keep the warmer's own replays (and every other
+# background warmer) out of the demand counts. Otherwise a once-warmed shape
+# keeps itself hot forever. Temporal-kind requests (batch/scheduled workflows)
+# run web queries across nearly every team. Left in, they dominated the selection
+# and filled the cap with shapes no dashboard reader ever loads.
+_QUERY_LOG_DEMAND_FILTER = "trigger NOT IN %(background_triggers)s AND request_kind != %(excluded_request_kind)s"
 
 
 def maybe_opt_into_lazy_precompute(query_json: dict) -> dict:
@@ -560,9 +662,12 @@ def queries_to_keep_fresh(
         f"in the last {days} days (cap {max_shapes} shapes, preset lane {'on' if preset_lane else 'off'})."
     )
 
-    # Selection reads system.query_log across the whole cluster: Dagster connects
-    # to offline nodes, while the user traffic we want to replay lands on other
-    # replicas. (metrics_query_log_mv only looks usable — its DDL in
+    # Selection reads query_log_archive, which holds every query chain in the
+    # window with the log_comment tags as typed columns. A scan of
+    # system.query_log over the same window must read the large log_comment
+    # column for every row, which can run past max_execution_time. The preset
+    # lane needs the preset_id tag, which only system.query_log keeps, so that
+    # path still scans it. (metrics_query_log_mv only looks usable — its DDL in
     # posthog/models/query_metrics/sql.py was never migrated, the table does not
     # exist in production.) Demand is grouped by the NORMALIZED shape — the query
     # JSON with the range-varying and non-shape fields stripped
@@ -575,24 +680,24 @@ def queries_to_keep_fresh(
     # worst hit. The representative to replay is the most-demanded variant (argMax
     # below); its range is then deepened to the widest the shape actually needs
     # (its distinct ranges come back in observed_date_froms). Demand is counted as
-    # distinct query_ids so duplicated log rows for one request can't inflate it.
+    # distinct query ids so duplicated log rows for one request can't inflate it.
     # The per-shape hash is
     # cityHash64 of the group key rather than normalizedQueryHash(query), which
     # would read the full `query` SQL-text column — the largest in query_log —
     # across the whole window purely for a logging id.
     #
-    # The scan spans the whole WEB_ANALYTICS_WARMING_DAYS window fleet-wide, which
-    # exceeds the default max_bytes_to_read, so the cap is raised to
+    # The system.query_log scan spans the whole WEB_ANALYTICS_WARMING_DAYS window
+    # fleet-wide, which exceeds the default max_bytes_to_read, so the cap is raised to
     # _SELECTION_MAX_BYTES_TO_READ — a finite value, not 0, so the ClickHouse
     # kill switch's overload byte cap still clamps it (min(kill_switch_cap, ours))
     # and the giant scan is refused rather than piled on during an overload. The
     # run is also bounded by max_execution_time and by the demand-selection cache
     # upstream, so this heavy scan happens on the cache TTL cadence, not every run.
     #
-    # trigger/feature exclusions keep the warmer's own replays — and every other
-    # background warmer — out of the demand counts, otherwise a once-warmed shape
-    # would keep itself hot forever. LIKE literals are %%-escaped because
-    # clickhouse_driver %-formats the query when params are passed.
+    # Each source excludes background replays its own way (see
+    # _ARCHIVE_DEMAND_FILTER and _QUERY_LOG_DEMAND_FILTER). LIKE literals
+    # are %%-escaped because clickhouse_driver %-formats the query when params are
+    # passed.
     # The preset lane's SQL is spliced in rather than always present, so with the lane off
     # the scan does no extra JSON extraction, carries no extra aggregate state, and keeps
     # the original HAVING — the kill switch costs the fleet nothing. Every fragment is
@@ -638,6 +743,11 @@ def queries_to_keep_fresh(
         preset_order_by = ""
         max_shapes_per_team = MAX_SHAPES_PER_TEAM
 
+    if preset_lane:
+        row_columns, source, demand_filter = _QUERY_LOG_ROW_COLUMNS, _QUERY_LOG_SOURCE, _QUERY_LOG_DEMAND_FILTER
+    else:
+        row_columns, source, demand_filter = _ARCHIVE_ROW_COLUMNS, _ARCHIVE_SOURCE, _ARCHIVE_DEMAND_FILTER
+
     # nosemgrep: clickhouse-fstring-param-audit (interpolations are module-level constants from hardcoded tuples, not user input; everything dynamic is parameterized)
     results = sync_execute(
         f"""
@@ -668,11 +778,10 @@ def queries_to_keep_fresh(
                 team_id,
                 normalized_shape,
                 query_json_raw,
-                uniqExact(query_id) AS variant_count
+                uniqExact(request_id) AS variant_count
                 {preset_variant_columns}
             FROM (
             SELECT
-                JSONExtractInt(log_comment, 'team_id') AS team_id,
                 -- The shape key: every top-level query field except the range-
                 -- varying / non-shape ones the precompute namespace ignores, so
                 -- date-range and compare variants of one shape group together
@@ -683,40 +792,14 @@ def queries_to_keep_fresh(
                         kv -> concat(kv.1, char(31), kv.2),
                         arrayFilter(
                             kv -> NOT has(%(shape_ignored_fields)s, kv.1),
-                            JSONExtractKeysAndValuesRaw(JSONExtractRaw(log_comment, 'query'))
+                            JSONExtractKeysAndValuesRaw(query_json_raw)
                         )
                     )),
                     char(30)
                 ) AS normalized_shape,
-                -- aliased away from the native `query_kind` column so the PREWHERE
-                -- below binds to the column (Select/Insert/…), not this JSON kind
-                -- (WebOverviewQuery/…); with prefer_column_name_to_alias=0 a name
-                -- collision would resolve `query_kind = 'Select'` against the alias
-                -- and silently select nothing.
-                JSONExtractString(log_comment, 'query', 'kind') AS web_query_kind,
-                JSONExtractString(log_comment, 'query_type') AS query_type,
-                JSONExtractString(log_comment, 'trigger') AS trigger,
-                JSONExtractString(log_comment, 'feature') AS feature,
-                JSONExtractString(log_comment, 'kind') AS request_kind,
-                JSONExtractRaw(log_comment, 'query') AS query_json_raw,
-                query_id
+                {row_columns}
                 {preset_row_columns}
-            FROM clusterAllReplicas(%(cluster)s, system.query_log)
-            -- Filter the cheap native columns first so the big log_comment String
-            -- is read only for surviving rows. is_initial_query alone drops roughly
-            -- nine-tenths of the window (the rest are distributed subqueries), and
-            -- query_kind excludes the warmer's own INSERT replays without a JSON
-            -- parse — every warmable web query executes as a Select.
-            PREWHERE
-                type = 'QueryFinish'
-                AND is_initial_query
-                AND query_kind = 'Select'
-            WHERE
-                event_date >= toDate(now() - INTERVAL %(days)s DAY)
-                AND event_time >= now() - INTERVAL %(days)s DAY
-                -- cheap substring prefilter before any JSON extraction; a
-                -- superset of the kind filter below, false positives re-checked
-                AND log_comment LIKE '%%{WARMABLE_QUERY_KIND_PREFIX}%%'
+            {source}
         ) AS sub
         WHERE
             team_id != 0
@@ -724,14 +807,10 @@ def queries_to_keep_fresh(
             AND startsWith(web_query_kind, %(kind_prefix)s)
             AND web_query_kind NOT IN %(unwarmable_kinds)s
             AND NOT ({_INTERNAL_QUERY_TYPE_FILTER})
-            AND trigger NOT IN %(background_triggers)s
             AND feature != %(cache_warmup_feature)s
             -- Demand should reflect real product usage, not background query
-            -- traffic. Temporal-kind requests (batch/scheduled workflows) run
-            -- web queries across nearly every team — left in, they dominated the
-            -- selection and filled the cap with shapes no dashboard reader ever
-            -- loads. UI and personal-API-key traffic are kept.
-            AND request_kind != %(excluded_request_kind)s
+            -- traffic.
+            AND {demand_filter}
             GROUP BY
                 team_id,
                 normalized_shape,
@@ -758,6 +837,9 @@ def queries_to_keep_fresh(
             "background_triggers": tuple(BACKGROUND_WARMING_TRIGGERS | SHARED_BACKGROUND_WARMING_TRIGGERS),
             "cache_warmup_feature": Feature.CACHE_WARMUP.value,
             "excluded_request_kind": EXCLUDED_REQUEST_KIND,
+            "demand_request_kind": DEMAND_REQUEST_KIND,
+            "async_query_task_kind": ASYNC_QUERY_TASK_KIND,
+            "async_query_task_id": ASYNC_QUERY_TASK_ID,
         },
         settings={"max_bytes_to_read": _SELECTION_MAX_BYTES_TO_READ, "max_execution_time": 600},
     )
@@ -791,7 +873,7 @@ def queries_to_keep_fresh(
     return rows
 
 
-# The demand selection scans terabytes of query_log fleet-wide, so its result is
+# The demand selection scans the whole lookback window fleet-wide, so its result is
 # cached in Redis and shared across warming runs: the hourly warmer replays the
 # cached shape list and the scan only re-runs once the cache expires
 # (WEB_ANALYTICS_WARMING_SELECTION_TTL_SECONDS). This is what lets the lookback
@@ -809,7 +891,7 @@ def queries_to_keep_fresh(
 # the selection query (new filter, different grouping) would otherwise keep replaying
 # a stale blob written by the old logic until its TTL expired. Bump the version
 # whenever the selection query changes so the new logic takes effect on deploy.
-_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v6.json.gz"
+_WARMABLE_QUERIES_STORAGE_KEY = "web_analytics/warmable_queries/v7.json.gz"
 
 
 def _read_cached_warmable_queries(

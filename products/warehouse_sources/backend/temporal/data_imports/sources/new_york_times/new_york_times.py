@@ -1,3 +1,4 @@
+import math
 import time
 import dataclasses
 from collections.abc import Iterator
@@ -7,9 +8,15 @@ from urllib.parse import urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times.settings import (
@@ -26,20 +33,41 @@ ARTICLE_SEARCH_MAX_PAGES = 100
 # NYT rate limits are tight (≈10 requests/minute) and Article Search 429s aggressively. NYT explicitly
 # recommends sleeping several seconds between calls, so we throttle paging politely and let the retry
 # handler absorb any 429s that still slip through.
-ARTICLE_SEARCH_PAGE_DELAY_SECONDS = 6.0
+REQUEST_DELAY_SECONDS = 6.0
+
+TIMES_WIRE_PAGE_SIZE = 20
+# The feed is newest first, so a run that stops early would advance the watermark past unread items.
+# This only guards against an API that never returns a short page: 30 days of items fit well inside it.
+TIMES_WIRE_MAX_PAGES = 1000
+# The {time-period} path segment accepts at most 30 days of hours.
+TIMES_WIRE_MAX_TIME_PERIOD_HOURS = 720
+
+BOOKS_LIST_NAMES_PATH = "/svc/books/v3/lists/names.json"
+BOOKS_LIST_PAGE_SIZE = 20
 
 
 class NewYorkTimesRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+class NewYorkTimesPageCapError(Exception):
+    pass
+
+
+@dataclasses.dataclass(frozen=False)
 class NewYorkTimesResumeConfig:
     # Zero-based Article Search page index to fetch next. Snapshot endpoints never populate this.
     page: int = 0
     # The begin_date (YYYYMMDD) window this run is paging through. Persisted so a resume continues the
     # exact same window rather than recomputing `now - lookback`, which would drift over a long sync.
+    # Times Newswire reuses `page` and stores its ISO window start here.
     begin_date: str | None = None
+    # Archive: the next month to fetch, as YYYY-MM.
+    month: str | None = None
+    # Books best-seller lists: the list in progress and its next edition date. A None date means the list
+    # is finished and the run continues with the next list name.
+    list_name_encoded: str | None = None
+    published_date: str | None = None
 
 
 def _get_headers() -> dict[str, str]:
@@ -54,6 +82,22 @@ def _format_begin_date(value: Any) -> str:
         return value.strftime("%Y%m%d")
     # A pre-formatted string cursor — trust it as-is.
     return str(value)
+
+
+def _parse_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, date):
+        parsed = datetime(value.year, value.month, value.day)
+    else:
+        parsed = datetime.fromisoformat(str(value))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+def _format_iso_date(value: Any) -> str:
+    if isinstance(value, datetime | date):
+        return value.strftime("%Y-%m-%d")
+    return str(value)[:10]
 
 
 def _resolve_begin_date(
@@ -84,7 +128,7 @@ def _sanitize_url(url: str) -> str:
     return url.split("?", 1)[0]
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             NewYorkTimesRetryableError,
@@ -130,10 +174,10 @@ def validate_credentials(api_key: str) -> bool:
 
 
 def _select_rows(config: NewYorkTimesEndpointConfig, data: dict[str, Any]) -> list[dict[str, Any]]:
-    if config.paginated:
-        # Article Search nests its docs under `response`.
-        return data.get("response", {}).get(config.data_selector, []) or []
-    return data.get(config.data_selector, []) or []
+    node: Any = data
+    for key in config.data_selector.split("."):
+        node = node.get(key) if isinstance(node, dict) else None
+    return node or []
 
 
 def _get_snapshot_rows(
@@ -201,7 +245,228 @@ def _get_article_search_rows(
             )
             break
 
-        time.sleep(ARTICLE_SEARCH_PAGE_DELAY_SECONDS)
+        time.sleep(REQUEST_DELAY_SECONDS)
+
+
+def _resolve_archive_start(
+    config: NewYorkTimesEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> date:
+    if should_use_incremental_field and db_incremental_field_last_value:
+        start = _parse_datetime(db_incremental_field_last_value)
+    else:
+        start = datetime.now(UTC) - timedelta(days=config.default_lookback_days or 0)
+    return date(start.year, start.month, 1)
+
+
+def _next_month(month: date) -> date:
+    return date(month.year + 1, 1, 1) if month.month == 12 else date(month.year, month.month + 1, 1)
+
+
+def _get_archive_rows(
+    session: requests.Session,
+    config: NewYorkTimesEndpointConfig,
+    api_key: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NewYorkTimesResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.month is not None:
+        month = date.fromisoformat(f"{resume.month}-01")
+        logger.debug(f"New York Times: resuming archive from month={resume.month}")
+    else:
+        month = _resolve_archive_start(config, should_use_incremental_field, db_incremental_field_last_value)
+
+    now = datetime.now(UTC)
+    current_month = date(now.year, now.month, 1)
+
+    while month <= current_month:
+        path = config.path.format(year=month.year, month=month.month)
+        data = _fetch_page(session, _build_url(path, api_key, {}), _get_headers(), logger)
+        rows = _select_rows(config, data)
+
+        month = _next_month(month)
+        resumable_source_manager.save_state(NewYorkTimesResumeConfig(month=month.strftime("%Y-%m")))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+        if month <= current_month:
+            interruptible_wait(REQUEST_DELAY_SECONDS, safe_point=resumable_source_manager.safe_point)
+
+
+def _resolve_times_wire_start(
+    config: NewYorkTimesEndpointConfig,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> datetime:
+    if should_use_incremental_field and db_incremental_field_last_value:
+        return _parse_datetime(db_incremental_field_last_value)
+    return datetime.now(UTC) - timedelta(days=config.default_lookback_days or 1)
+
+
+def _times_wire_hours_since(window_start: datetime) -> int:
+    return max(1, math.ceil((datetime.now(UTC) - window_start).total_seconds() / 3600))
+
+
+def _get_times_wire_rows(
+    session: requests.Session,
+    config: NewYorkTimesEndpointConfig,
+    api_key: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NewYorkTimesResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.begin_date is not None:
+        window_start = _parse_datetime(resume.begin_date)
+        page = resume.page
+        logger.debug(f"New York Times: resuming times_wire from page={page}, window_start={resume.begin_date}")
+    else:
+        window_start = _resolve_times_wire_start(config, should_use_incremental_field, db_incremental_field_last_value)
+        page = 0
+
+    if _times_wire_hours_since(window_start) > TIMES_WIRE_MAX_TIME_PERIOD_HOURS:
+        logger.warning(
+            "New York Times: times_wire can only look back 30 days; items published before that are not synced"
+        )
+
+    while True:
+        if page >= TIMES_WIRE_MAX_PAGES:
+            raise NewYorkTimesPageCapError(
+                f"New York Times: times_wire reached {TIMES_WIRE_MAX_PAGES} pages without reaching the end of the window"
+            )
+
+        # Recomputed per request so the window start stays fixed while a long sync pages through it.
+        time_period = min(_times_wire_hours_since(window_start), TIMES_WIRE_MAX_TIME_PERIOD_HOURS)
+        path = config.path.format(time_period=time_period)
+        params = {"limit": TIMES_WIRE_PAGE_SIZE, "offset": page * TIMES_WIRE_PAGE_SIZE}
+        data = _fetch_page(session, _build_url(path, api_key, params), _get_headers(), logger)
+        rows = _select_rows(config, data)
+
+        if not rows:
+            break
+
+        page += 1
+        resumable_source_manager.save_state(NewYorkTimesResumeConfig(page=page, begin_date=window_start.isoformat()))
+        yield rows
+
+        if len(rows) < TIMES_WIRE_PAGE_SIZE:
+            break
+
+        interruptible_wait(REQUEST_DELAY_SECONDS, safe_point=resumable_source_manager.safe_point)
+
+
+def _get_best_seller_edition(
+    session: requests.Session,
+    config: NewYorkTimesEndpointConfig,
+    api_key: str,
+    logger: FilteringBoundLogger,
+    list_name_encoded: str,
+    published_date: str,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch one list edition, flattening list metadata onto each book. Returns the rows and the previous edition date."""
+    path = config.path.format(date=published_date, list=list_name_encoded)
+    rows: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        data = _fetch_page(session, _build_url(path, api_key, {"offset": offset}), _get_headers(), logger)
+        results = data.get("results") or {}
+        books = results.get("books") or []
+        list_fields = {
+            "list_name": results.get("list_name"),
+            "list_name_encoded": list_name_encoded,
+            "display_name": results.get("display_name"),
+            "published_date": results.get("published_date") or published_date,
+            "bestsellers_date": results.get("bestsellers_date"),
+            "updated": results.get("updated"),
+        }
+        rows.extend({**book, **list_fields} for book in books)
+
+        if len(books) < BOOKS_LIST_PAGE_SIZE:
+            return rows, results.get("previous_published_date") or None
+
+        offset += BOOKS_LIST_PAGE_SIZE
+        interruptible_wait(REQUEST_DELAY_SECONDS)
+
+
+def _get_best_seller_rows(
+    session: requests.Session,
+    config: NewYorkTimesEndpointConfig,
+    api_key: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[NewYorkTimesResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Any,
+) -> Iterator[list[dict[str, Any]]]:
+    # Lists for one date can publish at different times, so editions on the watermark date are fetched
+    # again; merge dedupes them.
+    watermark = (
+        _format_iso_date(db_incremental_field_last_value)
+        if should_use_incremental_field and db_incremental_field_last_value
+        else None
+    )
+
+    names_data = _fetch_page(session, _build_url(BOOKS_LIST_NAMES_PATH, api_key, {}), _get_headers(), logger)
+    lists = sorted(
+        (
+            entry
+            for entry in names_data.get("results") or []
+            if entry.get("list_name_encoded") and entry.get("newest_published_date")
+        ),
+        key=lambda entry: entry["list_name_encoded"],
+    )
+    if watermark is not None:
+        lists = [entry for entry in lists if entry["newest_published_date"] >= watermark]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_list = resume.list_name_encoded if resume is not None else None
+
+    for entry in lists:
+        list_name_encoded: str = entry["list_name_encoded"]
+        edition_date: str | None = entry["newest_published_date"]
+        if resume is not None and resume_list is not None:
+            if list_name_encoded < resume_list:
+                continue
+            if list_name_encoded == resume_list:
+                if resume.published_date is None:
+                    continue
+                edition_date = resume.published_date
+
+        while edition_date is not None:
+            interruptible_wait(REQUEST_DELAY_SECONDS, safe_point=resumable_source_manager.safe_point)
+            rows, previous_date = _get_best_seller_edition(
+                session, config, api_key, logger, list_name_encoded, edition_date
+            )
+
+            # Without a watermark only the newest edition is synced; with one, walk back to cover editions
+            # published since the last sync. Each step must move back in time, so the walk always ends.
+            next_date = (
+                previous_date
+                if watermark is not None and previous_date and watermark <= previous_date < edition_date
+                else None
+            )
+
+            resumable_source_manager.save_state(
+                NewYorkTimesResumeConfig(list_name_encoded=list_name_encoded, published_date=next_date)
+            )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+            edition_date = next_date
+
+
+_CUSTOM_ITERATORS = {
+    "archive": _get_archive_rows,
+    "times_wire": _get_times_wire_rows,
+    "books_best_sellers": _get_best_seller_rows,
+}
 
 
 def get_rows(
@@ -225,6 +490,16 @@ def get_rows(
             logger,
             resumable_source_manager,
             query,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
+    elif endpoint in _CUSTOM_ITERATORS:
+        yield from _CUSTOM_ITERATORS[endpoint](
+            session,
+            config,
+            api_key,
+            logger,
+            resumable_source_manager,
             should_use_incremental_field,
             db_incremental_field_last_value,
         )
@@ -260,7 +535,5 @@ def new_york_times_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Article Search is paged sort=oldest (ascending pub_date); snapshots are single-batch so order is
-        # immaterial. Ascending keeps the incremental watermark advancing correctly.
-        sort_mode="asc",
+        sort_mode=config.sort_mode,
     )

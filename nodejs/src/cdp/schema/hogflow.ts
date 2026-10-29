@@ -69,6 +69,15 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('schedule'),
     }),
+    // A transactional email: Django's send endpoint runs the workflow once per call.
+    z.object({
+        type: z.literal('api'),
+    }),
+    z.object({
+        type: z.literal('cohort'),
+        cohort_id: z.number(),
+        transition: z.enum(['entered', 'left']),
+    }),
     z.object({
         type: z.literal('batch'),
         filters: z.object({
@@ -234,8 +243,16 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             // When false, no open pixel is injected, links are not rewritten, and the send uses the
             // untracked SES configuration set. Absent/true means tracked (existing behavior).
             tracking_enabled: z.boolean().optional(),
+            // Set from a transactional template marked sensitive: the stored asset keeps a placeholder instead
+            // of the body, events keep no subject, clicked links keep only their origin, and the run
+            // snapshot keeps no variables.
+            sensitive: z.boolean().optional(),
             // When true, links get utm_source, utm_medium and utm_campaign tags they don't already carry.
             utm_tags_enabled: z.boolean().optional(),
+            // When true, a marketing send ignores the team's frequency cap and takes no slot under it. Opt-outs
+            // and unsubscribe headers still apply. For product email that is marketing in form but must not
+            // crowd out, or be crowded out by, other marketing email.
+            skip_frequency_cap: z.boolean().optional(),
             // Liquid templates that replace the default tag values. An empty value keeps the default.
             utm_params: z
                 .object({

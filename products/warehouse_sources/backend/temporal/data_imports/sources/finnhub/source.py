@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,16 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
+    codebase_detection = detect(
+        env=("^FINNHUB_",),
+        npm=("finnhub",),
+        pypi=("finnhub-python",),
+        composer=("finnhub/client",),
+        go=("github.com/Finnhub-Stock-API/finnhub-go",),
+        maven=("io.finnhub:kotlin-client",),
+        rubygems=("finnhub_ruby",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -112,7 +123,7 @@ class FinnhubSource(SimpleSource[FinnhubSourceConfig]):
             name=ExternalDataSourceType.FINNHUB,
             category=DataWarehouseSourceCategory.FINANCE___ACCOUNTING,
             label="Finnhub",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Finnhub API key to pull market and company financial data into the PostHog Data warehouse.
 
 Create a free API key in your [Finnhub dashboard](https://finnhub.io/dashboard).
@@ -135,6 +146,7 @@ Note: the free tier is rate limited to 60 requests/minute, and some endpoints re
                     ),
                     SourceFieldInputConfig(
                         name="symbols",
+                        sync_setting=True,
                         label="Symbols (comma-separated)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -143,6 +155,7 @@ Note: the free tier is rate limited to 60 requests/minute, and some endpoints re
                     ),
                     SourceFieldInputConfig(
                         name="indices",
+                        sync_setting=True,
                         label="Indices (comma-separated)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -151,6 +164,7 @@ Note: the free tier is rate limited to 60 requests/minute, and some endpoints re
                     ),
                     SourceFieldInputConfig(
                         name="exchange",
+                        sync_setting=True,
                         label="Exchange (for the stock symbols table)",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

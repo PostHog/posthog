@@ -1,10 +1,12 @@
 // The Usage tab renders these charts inline for flags without a usage dashboard. Event names,
-// property keys, breakdown, and math must stay identical to the saved-dashboard insight definitions
-// in posthog/helpers/dashboard_templates.py (create_feature_flag_dashboard and
-// add_enriched_insights_to_feature_flag_dashboard), so both surfaces report the same numbers.
+// property keys, breakdown, and math must stay identical to the insights on existing usage
+// dashboards, so that both surfaces report the same numbers. The test fixture in
+// products/feature_flags/backend/test/usage_dashboard_fixtures.py reproduces the total volume and
+// unique calls insights. The function add_enriched_insights_to_feature_flag_dashboard in
+// posthog/helpers/dashboard_templates.py adds the enriched insights.
 // Titles differ on purpose: update_feature_flag_dashboard looks tiles up by name, so the Python
 // names are pinned, while these use sentence case. The interval here follows the user's date range
-// rather than the template's fixed "day".
+// rather than the saved dashboards' fixed "day".
 import { dateMapping, dateStringToDayJs, getDefaultInterval } from 'lib/utils/dateFilters'
 import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
@@ -19,6 +21,7 @@ import {
     ProductKey,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { escapeHogQLString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     AnyPropertyFilter,
@@ -55,6 +58,14 @@ export interface FlagUsageChart<Q extends FlagUsageQuery = FlagUsageQuery> {
     title: string
     description: string
     query: Q
+    emptyState?: Pick<QueryContext, 'emptyStateHeading' | 'emptyStateDetail'>
+}
+
+// A cached empty daily result can hide new calls for hours, so point at Reload and the log, not the query.
+const FLAG_CALLS_EMPTY_STATE: FlagUsageChart['emptyState'] = {
+    emptyStateHeading: 'No calls to this flag in this date range',
+    emptyStateDetail:
+        'New calls can take a few minutes to show in the charts. Click Reload to check again. The log below lists calls as they arrive.',
 }
 
 function flagCalledProperties({ flagKey, aggregationGroupTypeIndex }: FlagUsageQueryOptions): AnyPropertyFilter[] {
@@ -112,6 +123,7 @@ export function buildFlagCalledTotalVolumeChart(
             },
             ChartDisplayType.ActionsLineGraph
         ),
+        emptyState: FLAG_CALLS_EMPTY_STATE,
     }
 }
 
@@ -145,6 +157,7 @@ export function buildFlagCalledUniqueCallersChart(
             },
             ChartDisplayType.ActionsTable
         ),
+        emptyState: FLAG_CALLS_EMPTY_STATE,
     }
 }
 
@@ -188,12 +201,12 @@ function enrichedSeries(event: '$feature_view' | '$feature_interaction', seriesL
     ]
 }
 
-// The table stores a JSON-null $feature_flag_response as 'null' and a missing one as ''. The events-mode
-// breakdown puts both cases in one bucket labelled BREAKDOWN_NULL_DISPLAY, so these charts do the same.
+// The table reads a null or missing $feature_flag_response as NULL. The events-mode breakdown labels that
+// bucket BREAKDOWN_NULL_DISPLAY, so these charts do the same.
 // The label is in the query because the SQL line chart names a NULL series "[No value]" and the SQL
 // table draws a NULL cell as a dash. A variant whose key equals the label merges into this bucket. The flag
 // editor rejects that key, but the API accepts it.
-const FLAG_EVALUATIONS_VARIANT = `if(response IN ('', 'null'), ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)}, response)`
+const FLAG_EVALUATIONS_VARIANT = `ifNull(response, ${escapeHogQLString(BREAKDOWN_NULL_DISPLAY)})`
 
 /** Pulls a range back inside the retention window, where it cannot quietly show fewer rows than the events table. */
 export function clampToFlagEvaluationsRetention(dateRange: DateRange): DateRange {

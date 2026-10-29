@@ -12,8 +12,10 @@ class MacieEndpoint:
     operation: str
     result_key: str
     primary_keys: tuple[str, ...]
-    page_size: int = 50
+    page_size: int | None = 50
     timestamp_columns: tuple[str, ...] = ()
+    # Called once per bucket from DescribeBuckets, with the bucket ARN as resourceArn.
+    per_bucket: bool = False
 
 
 MACIE_ENDPOINTS = {
@@ -42,7 +44,38 @@ MACIE_ENDPOINTS = {
         page_size=25,
         timestamp_columns=("invited_at", "updated_at"),
     ),
+    "resource_profiles": MacieEndpoint(
+        operation="GetResourceProfile",
+        result_key="",
+        primary_keys=("bucket_arn",),
+        page_size=None,
+        timestamp_columns=("profile_updated_at",),
+        per_bucket=True,
+    ),
+    "resource_profile_detections": MacieEndpoint(
+        operation="ListResourceProfileDetections",
+        result_key="detections",
+        primary_keys=("bucket_arn", "id"),
+        page_size=25,
+        per_bucket=True,
+    ),
+    "resource_profile_artifacts": MacieEndpoint(
+        operation="ListResourceProfileArtifacts",
+        result_key="artifacts",
+        primary_keys=("bucket_arn", "arn"),
+        page_size=None,
+        per_bucket=True,
+    ),
+    "usage_statistics": MacieEndpoint(
+        operation="GetUsageStatistics",
+        result_key="records",
+        primary_keys=("region", "account_id"),
+        page_size=25,
+        timestamp_columns=("free_trial_start_date", "automated_discovery_free_trial_start_date"),
+    ),
 }
+BUCKET_PAGE_SIZE = 50
+USAGE_TIME_RANGE = "MONTH_TO_DATE"
 ENDPOINTS = tuple(MACIE_ENDPOINTS)
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {"findings": [incremental_field("updated_at")]}
 ENDPOINT_DESCRIPTIONS = {
@@ -50,11 +83,16 @@ ENDPOINT_DESCRIPTIONS = {
     "buckets": "S3 bucket inventory, with security settings, object counts, and discovery coverage.",
     "classification_jobs": "Sensitive data discovery jobs, with their status and bucket selection settings.",
     "members": "Accounts associated with the Macie administrator, including former members.",
+    "resource_profiles": "Sensitivity profile for each S3 bucket, with counts of analyzed, sensitive, and skipped objects.",
+    "resource_profile_detections": "Types of sensitive data that automated discovery found in each S3 bucket, with occurrence counts.",
+    "resource_profile_artifacts": "S3 objects that automated discovery selected in each bucket, with the analysis result.",
+    "usage_statistics": "Month-to-date Macie usage, quotas, and estimated costs for each account.",
 }
 
 PERMISSION_MESSAGE = (
     "Grant the required Macie read permissions: macie2:ListFindings, macie2:GetFindings, "
-    "macie2:DescribeBuckets, macie2:ListClassificationJobs, and macie2:ListMembers. "
+    "macie2:DescribeBuckets, macie2:ListClassificationJobs, macie2:ListMembers, macie2:GetResourceProfile, "
+    "macie2:ListResourceProfileDetections, macie2:ListResourceProfileArtifacts, and macie2:GetUsageStatistics. "
     "Enable Macie in the selected region."
 )
 ERROR_MESSAGES = {

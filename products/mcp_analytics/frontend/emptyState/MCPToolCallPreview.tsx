@@ -8,18 +8,14 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
-import posthogCodeLogo from 'public/posthog-icon.svg'
-
-import claudeLogo from '../harness-logos/claude.svg'
-import cursorLogo from '../harness-logos/cursor.svg'
-import openaiLogo from '../harness-logos/openai.svg'
-import windsurfLogo from '../harness-logos/windsurf.svg'
+import { type BrandMarkName } from '../brandMarks'
+import { BrandMark } from '../components/BrandMark'
 
 type PreviewHarness = 'claude' | 'cursor' | 'openai'
 
 interface PreviewCall {
     tool: string
-    logo: string
+    mark: BrandMarkName
     harness: PreviewHarness
     time: string
     error?: boolean
@@ -29,22 +25,22 @@ interface PreviewCall {
 // names (no parentheses - these are tool invocations, not function calls).
 // `harness` tags a row for the filter chips.
 const CALLS: PreviewCall[] = [
-    { tool: 'search_docs', logo: claudeLogo, harness: 'claude', time: '142ms' },
-    { tool: 'create_issue', logo: cursorLogo, harness: 'cursor', time: 'err', error: true },
-    { tool: 'run_query', logo: openaiLogo, harness: 'openai', time: '210ms' },
-    { tool: 'list_feature_flags', logo: claudeLogo, harness: 'claude', time: '53ms' },
-    { tool: 'get_schema', logo: cursorLogo, harness: 'cursor', time: '190ms' },
+    { tool: 'search_docs', mark: 'Claude', harness: 'claude', time: '142ms' },
+    { tool: 'create_issue', mark: 'Cursor', harness: 'cursor', time: 'err', error: true },
+    { tool: 'run_query', mark: 'OpenAI', harness: 'openai', time: '210ms' },
+    { tool: 'list_feature_flags', mark: 'Claude', harness: 'claude', time: '53ms' },
+    { tool: 'get_schema', mark: 'Cursor', harness: 'cursor', time: '190ms' },
 ]
 
-const FILTERS: { id: string; label: string; logo?: string }[] = [
+const FILTERS: { id: string; label: string; mark?: BrandMarkName }[] = [
     { id: 'all', label: 'All' },
-    { id: 'claude', label: 'Claude', logo: claudeLogo },
-    { id: 'cursor', label: 'Cursor', logo: cursorLogo },
-    { id: 'openai', label: 'Codex', logo: openaiLogo },
+    { id: 'claude', label: 'Claude', mark: 'Claude' },
+    { id: 'cursor', label: 'Cursor', mark: 'Cursor' },
+    { id: 'openai', label: 'Codex', mark: 'OpenAI' },
 ]
 
 // Clients shown under the sparkline (the PostHog Desktop link is rendered separately, first).
-const CLIENT_LOGOS = [claudeLogo, openaiLogo, cursorLogo, windsurfLogo]
+const CLIENT_MARKS: BrandMarkName[] = ['Claude', 'OpenAI', 'Cursor', 'Windsurf']
 
 // A hand-authored series for the sparkline — abstract, just enough to read as a rising trend.
 const SPARK = [4, 6, 5, 7, 6, 9, 8, 10, 9, 12, 11, 14]
@@ -85,7 +81,7 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                             htmlFor={`mcp-preview-${filter.id}`}
                             className={`MCPPreview__chip MCPPreview__chip--${filter.id}`}
                         >
-                            {filter.logo ? <img src={filter.logo} alt="" /> : null}
+                            {filter.mark ? <BrandMark name={filter.mark} className="size-3" /> : null}
                             {filter.label}
                         </label>
                     ))}
@@ -106,7 +102,7 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                             data-h={call.harness}
                         >
                             <span className="MCPPreview__logo">
-                                <img src={call.logo} alt="" />
+                                <BrandMark name={call.mark} className="size-3.5" />
                             </span>
                             <span className="MCPPreview__tool">{call.tool}</span>
                             <span className="MCPPreview__time">{call.time}</span>
@@ -141,10 +137,10 @@ export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): J
                         target="_blank"
                         title="PostHog Desktop"
                     >
-                        <img src={posthogCodeLogo} alt="PostHog Desktop" />
+                        <BrandMark name="PostHog" label="PostHog Desktop" />
                     </Link>
-                    {CLIENT_LOGOS.map((logo, i) => (
-                        <img key={i} src={logo} alt="" />
+                    {CLIENT_MARKS.map((mark) => (
+                        <BrandMark key={mark} name={mark} />
                     ))}
                     <span className="MCPSpark__more">+12 clients</span>
                 </div>

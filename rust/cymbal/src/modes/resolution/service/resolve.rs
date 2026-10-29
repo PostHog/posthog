@@ -22,7 +22,6 @@ use cymbal_proto::cymbal::resolution::v1::{
 use super::codes;
 use crate::modes::resolution::load_monitor::LoadMonitor;
 
-const RESOLVE_REQUEST_DURATION_MS: &str = "cymbal_remote_resolution_server_request_duration_ms";
 const SERVER_ERROR_KINDS: &str = "cymbal_remote_resolution_server_error_kinds_total";
 const SERVER_ITEM_DURATION_MS: &str = "cymbal_remote_resolution_server_item_duration_ms";
 const SERVER_ITEMS_TOTAL: &str = "cymbal_remote_resolution_server_items_total";
@@ -33,12 +32,9 @@ pub(super) async fn run_resolve(
     tx: mpsc::Sender<Result<ResolveOutcome, Status>>,
     load_monitor: LoadMonitor,
 ) {
-    let started_at = Instant::now();
-
     loop {
         let item = tokio::select! {
             _ = tx.closed() => {
-                record_resolve_duration(started_at, "cancelled");
                 return;
             }
             maybe_item = input.message() => {
@@ -47,7 +43,6 @@ pub(super) async fn run_resolve(
                     Ok(None) => break,
                     Err(err) => {
                         warn!(error = %err, "resolve input stream failed");
-                        record_resolve_duration(started_at, "input_error");
                         return;
                     }
                 }
@@ -59,7 +54,6 @@ pub(super) async fn run_resolve(
         if item.deadline_ms == 0 {
             record_item_metrics(item_started_at, "error", "timeout");
             if !send_overloaded(&tx, item.id, "item deadline expired", 0).await {
-                record_resolve_duration(started_at, "cancelled");
                 return;
             }
             continue;
@@ -68,7 +62,6 @@ pub(super) async fn run_resolve(
         if !load_monitor.try_admit() {
             record_item_metrics(item_started_at, "error", "overloaded");
             if !send_overloaded(&tx, item.id, "server overloaded", 0).await {
-                record_resolve_duration(started_at, "cancelled");
                 return;
             }
             continue;
@@ -78,7 +71,6 @@ pub(super) async fn run_resolve(
         let item_stage = stage.clone();
         if !send_accepted(&tx, item.id).await {
             load_monitor.decrement_in_flight();
-            record_resolve_duration(started_at, "cancelled");
             return;
         }
         let in_flight_guard = InFlightGuard::new(load_monitor.clone());
@@ -92,8 +84,6 @@ pub(super) async fn run_resolve(
                 .await;
         });
     }
-
-    record_resolve_duration(started_at, "completed");
 }
 
 async fn send_accepted(tx: &mpsc::Sender<Result<ResolveOutcome, Status>>, id: u64) -> bool {
@@ -216,11 +206,6 @@ fn error_result(kind: codes::ErrorKind, message: String) -> resolve_outcome::Res
         message,
         details_json: Vec::new(),
     })
-}
-
-fn record_resolve_duration(started_at: Instant, outcome: &'static str) {
-    metrics::histogram!(RESOLVE_REQUEST_DURATION_MS, "outcome" => outcome)
-        .record(started_at.elapsed().as_secs_f64() * 1000.0);
 }
 
 fn record_item_metrics(started_at: Instant, outcome: &'static str, kind: &'static str) {

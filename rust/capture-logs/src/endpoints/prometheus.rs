@@ -502,6 +502,8 @@ pub async fn export_prometheus_remote_write_http(
         ));
     }
 
+    counter!("capture_metrics_records_produced", "source" => "remote_write")
+        .increment(row_count as u64);
     debug!("Sent {row_count} remote-write data points to Kafka");
     Ok(StatusCode::NO_CONTENT)
 }

@@ -94,6 +94,17 @@
         background: var(--color-bg-fill-highlight-50);
     }
 
+    // Only the hero row plays, so the other rows must not read as clickable.
+    &__row--static {
+        cursor: default;
+        user-select: none;
+    }
+
+    &__row--static &__person {
+        font-weight: 500;
+        color: var(--color-text-secondary);
+    }
+
     &__person {
         overflow: hidden;
         font-size: 0.6875rem;
@@ -135,8 +146,11 @@
 
     &__screen {
         position: relative;
+        display: block;
         height: 7.5rem;
         overflow: hidden;
+        cursor: pointer;
+        user-select: none;
         background: var(--color-bg-fill-tertiary);
     }
 
@@ -217,6 +231,8 @@
     &__play-glyph {
         font-size: 0.625rem;
         color: var(--color-text-secondary);
+        cursor: pointer;
+        user-select: none;
     }
 
     &__timeline {

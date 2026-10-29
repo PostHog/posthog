@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import unicodedata
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.scopes import narrow_scopes_to_ceiling
 
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
@@ -98,23 +98,20 @@ def maybe_create_provisioned_pat(
         return None
 
     try:
-        api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
         # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
         # final string to match so we never violate the column constraint.
         label = label_base[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
 
-        PersonalAPIKey.objects.create(
-            user=user,
+        minted = mint_personal_api_key(
+            user,
             label=label,
-            secure_value=hash_key_value(api_key_value),
-            mask_value=mask_key_value(api_key_value),
             scopes=pat_scopes,
-            scoped_teams=[team.id],
-            scoped_organizations=[str(team.organization_id)],
+            teams=AccessibleTeams.for_user(user, [team.id]),
+            organization_ids=[str(team.organization_id)],
         )
 
-        return api_key_value
+        return minted.value
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "team_id": team.id})
         return None

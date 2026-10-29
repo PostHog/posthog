@@ -15,6 +15,7 @@ import {
     IconReceipt,
     IconRefresh,
     IconStack,
+    IconStar,
     IconSupport,
 } from '@posthog/icons'
 import { LemonTagType } from '@posthog/lemon-ui'
@@ -79,6 +80,13 @@ export interface InboxSortOption {
 }
 
 export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
+    {
+        label: 'Recommended',
+        field: 'recommended',
+        direction: 'asc',
+        icon: <IconStar />,
+        description: 'The reports most worth a look come first.',
+    },
     { label: 'Priority first', field: 'priority', direction: 'asc', icon: <IconList /> },
     { label: 'Last updated first', field: 'updated_at', direction: 'desc', icon: <IconRefresh /> },
     { label: 'Newest first', field: 'created_at', direction: 'desc', icon: <IconCalendar /> },
@@ -86,15 +94,17 @@ export const INBOX_SORT_OPTIONS: InboxSortOption[] = [
 ]
 
 /**
- * The three ranking model scores the staff UI shows, in display order. Each reads one outcome head.
+ * The three ranking model scores the inbox shows, in display order. Each reads one outcome head.
  * The model serves more heads, but the sort menu, the card tag and the activity log lead with these.
  */
 export interface InboxRankingScore {
     field: InboxRankingSortField
+    outcome: string
+    /** The model head in raw `ranking_score` artefacts. It differs from the outcome for `fix`, which reads `fixed`. */
     head: string
     name: string
     sortLabel: string
-    /** The short word the card tag uses after the lift ("2.1x fix"). */
+    /** The short word the card tag uses after a probability with no lift ("12% fix"). Staff only. */
     tagLabel: string
     description: string
 }
@@ -102,31 +112,34 @@ export interface InboxRankingScore {
 export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
     {
         field: 'ranking_open',
+        outcome: 'open',
         head: 'open',
         name: 'Open',
         sortLabel: 'Most likely to be opened',
         tagLabel: 'open',
-        description: 'A person opens the report within 3 days.',
+        description: 'A person opens the report within 7 days.',
     },
     {
         field: 'ranking_action',
+        outcome: 'action',
         head: 'action',
-        name: 'Engage',
+        name: 'Action',
         sortLabel: 'Most likely to be acted on',
-        tagLabel: 'engage',
-        description: 'A person acts on the report within 7 days.',
+        tagLabel: 'action',
+        description: 'A person or their agent acts on the report within 14 days.',
     },
     {
-        field: 'ranking_fixed',
+        field: 'ranking_fix',
+        outcome: 'fix',
         head: 'fixed',
         name: 'Fix',
         sortLabel: 'Most likely to be fixed',
         tagLabel: 'fix',
-        description: 'Someone fixes the problem within 21 days.',
+        description: 'Someone fixes the problem within 30 days.',
     },
 ]
 
-/** Staff-only sorts by the ranking model's served probability for one score. Descending only. */
+/** Sorts by the ranking model's served probability for one score, behind the model sort flag. Descending only. */
 export const INBOX_MODEL_SORT_OPTIONS: InboxSortOption[] = INBOX_RANKING_SCORES.map((score) => ({
     label: score.sortLabel,
     field: score.field,

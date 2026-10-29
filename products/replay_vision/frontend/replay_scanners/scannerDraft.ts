@@ -9,20 +9,28 @@ interface StoredScannerDraft {
     teamId: number
     savedAt: number
     scanner: ScannerFormValues
+    // The experiment the wizard was entered from. Optional, so drafts saved without it still read.
+    linkedExperimentId?: number | null
 }
 
 export interface ScannerDraft {
     scanner: ScannerFormValues
     savedAt: number
+    linkedExperimentId: number | null
 }
 
-export function writeScannerDraft(teamId: number, scanner: ScannerFormValues): number | null {
+export function writeScannerDraft(
+    teamId: number,
+    scanner: ScannerFormValues,
+    linkedExperimentId: number | null = null
+): number | null {
     const savedAt = Date.now()
     const draft: StoredScannerDraft = {
         version: DRAFT_VERSION,
         teamId,
         savedAt,
         scanner,
+        linkedExperimentId,
     }
     try {
         localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft))
@@ -48,7 +56,11 @@ export function readScannerDraft(teamId: number): ScannerDraft | null {
         ) {
             return null
         }
-        return { scanner: draft.scanner, savedAt: draft.savedAt }
+        return {
+            scanner: draft.scanner,
+            savedAt: draft.savedAt,
+            linkedExperimentId: typeof draft.linkedExperimentId === 'number' ? draft.linkedExperimentId : null,
+        }
     } catch {
         return null
     }

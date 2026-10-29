@@ -8,36 +8,55 @@ import { billingJson } from '~/mocks/fixtures/_billing'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AvailableFeature, BillingType } from '~/types'
+import { AvailableFeature, BillingProvider, BillingType } from '~/types'
 
 import { payGateMiniLogic } from './payGateMiniLogic'
 
 describe('payGateMiniLogic', () => {
-    it.each([
+    it.each<{
+        name: string
+        billing: Partial<BillingType>
+        expected: { isPaymentEntryFlow: boolean; ctaDisabledReason: string | null }
+    }>([
         {
-            name: 'disables the payment entry button',
-            subscriptionLevel: 'free' as const,
+            name: 'disables the payment entry button when a partner manages billing',
+            billing: {
+                customer_id: '',
+                subscription_level: 'free',
+                billing_managed_by_partner: { partner_name: 'Example Partner' },
+            },
             expected: {
                 isPaymentEntryFlow: true,
                 ctaDisabledReason: 'Billing for this organization is managed by Example Partner.',
             },
         },
         {
-            name: 'keeps the link to the billing page enabled',
-            subscriptionLevel: 'paid' as const,
+            name: 'keeps the link to the billing page enabled when a partner manages billing',
+            billing: {
+                customer_id: '',
+                subscription_level: 'paid',
+                billing_managed_by_partner: { partner_name: 'Example Partner' },
+            },
             expected: { isPaymentEntryFlow: false, ctaDisabledReason: null },
         },
-    ])('$name when a partner manages billing', async ({ subscriptionLevel, expected }) => {
-        const billing: BillingType = {
-            ...billingJson,
-            customer_id: '',
-            subscription_level: subscriptionLevel,
-            billing_managed_by_partner: { partner_name: 'Example Partner' },
-        }
+        {
+            name: 'disables the payment entry button when Vercel manages billing without an active subscription',
+            billing: {
+                subscription_level: 'free',
+                has_active_subscription: false,
+                billing_provider: BillingProvider.Vercel,
+            },
+            expected: {
+                isPaymentEntryFlow: true,
+                ctaDisabledReason:
+                    'Billing for this organization is managed by Vercel. Contact support to change your plan.',
+            },
+        },
+    ])('$name', async ({ billing, expected }) => {
         useMocks({
             get: {
                 '/_preflight': [200, { ...preflightJson, cloud: true }],
-                '/api/billing': [200, billing],
+                '/api/billing': [200, { ...billingJson, ...billing }],
             },
         })
         initKeaTests()

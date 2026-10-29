@@ -76,6 +76,7 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
+from products.account_audits.backend.facade.tasks import reconcile_account_audits
 from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -90,7 +91,10 @@ from products.conversations.backend.tasks.maintenance import purge_deleted_ticke
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
-from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
+from products.data_modeling.backend.facade.tasks import (
+    cleanup_deleted_saved_query_nodes,
+    cleanup_expired_test_saved_queries,
+)
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
@@ -116,8 +120,10 @@ from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.tasks import (
     pause_inactive_signal_scouts,
     prune_expired_scratchpad_entries_task,
+    reconcile_report_inbox_state_cache,
     refresh_signal_repository_activity,
     refresh_signal_scout_background_bands,
+    sweep_first_report_notifications,
     sweep_implementation_dispatches,
     sync_pending_signals_refund_credits,
 )
@@ -133,11 +139,9 @@ from products.streamlit_apps.backend.facade.api import (
 from products.surveys.backend.facade.tasks import sweep_expired_desktop_feedback_media_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
-    reconcile_loop_trigger_schedules_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
     sweep_inactive_tasks_task,
-    sweep_loop_task_retention_task,
 )
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
@@ -267,6 +271,9 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
@@ -434,6 +441,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=5 * 60,
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        sweep_first_report_notifications.s(),
+        name="send first self-driving report emails",
+        expires_seconds=5 * 60,
+    )
+
     # Re-enqueue signals PR refunds whose billing credit sync hasn't landed - hourly at minute 25
     sender.add_periodic_task(
         crontab(hour="*", minute="25"),
@@ -447,6 +462,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="50"),
         refresh_signal_scout_background_bands.s(),
         name="refresh signals scout background bands",
+    )
+
+    # Correct signals cached implementation PR flags that drifted - daily at 4:40 AM
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="40"),
+        reconcile_report_inbox_state_cache.s(),
+        name="reconcile signals report inbox state",
     )
 
     # Warn, then pause signals scouts that produce nothing anyone uses - daily at 6:15 AM
@@ -471,28 +494,11 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh signals repository activity",
     )
 
-    # Loop task retention sweep - daily at 4:30 AM
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(hour="4", minute="30"),
-        sweep_loop_task_retention_task.s(),
-        name="sweep loop task retention",
-    )
-
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="15"),
         sweep_inactive_tasks_task.s(),
         name="archive inactive tasks",
-    )
-
-    # Loop trigger schedule reconciliation - every 10 minutes, re-syncs schedules
-    # stranded pending/failed by a transient Temporal outage during create/edit.
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        reconcile_loop_trigger_schedules_task.s(),
-        name="reconcile loop trigger schedules",
     )
 
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
@@ -1000,7 +1006,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired delegation invites",
         )
 
-        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+        from posthog.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
 
         add_periodic_task_with_expiry(
             sender,
@@ -1088,6 +1094,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="3", minute="30"),
         cleanup_expired_test_saved_queries.s(),
         name="cleanup expired test saved queries",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="5", minute="30"),
+        cleanup_deleted_saved_query_nodes.s(),
+        name="cleanup deleted saved query nodes",
     )
 
     # Reopen snoozed conversation tickets whose snooze period has expired

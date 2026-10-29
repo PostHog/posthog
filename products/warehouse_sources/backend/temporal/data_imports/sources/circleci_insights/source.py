@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CircleciInsightsSource(ResumableSource[CircleciInsightsSourceConfig, CircleciInsightsResumeConfig]):
+    codebase_detection = detect(env=("^CIRCLE_TOKEN$", "^CIRCLECI_"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -66,7 +69,7 @@ class CircleciInsightsSource(ResumableSource[CircleciInsightsSourceConfig, Circl
 You can create a personal API token in your [CircleCI user settings](https://app.circleci.com/settings/user/tokens). Note that CircleCI retains Insights data for roughly 90 days.""",
             iconPath="/static/services/circleci_insights.png",
             docsUrl="https://posthog.com/docs/cdp/sources/circleci-insights",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["ci", "flaky tests"],
             fields=cast(
                 list[FieldType],
@@ -90,6 +93,7 @@ You can create a personal API token in your [CircleCI user settings](https://app
                     ),
                     SourceFieldSelectConfig(
                         name="reporting_window",
+                        sync_setting=True,
                         label="Reporting window for aggregated metrics",
                         required=False,
                         defaultValue="last-90-days",
@@ -103,6 +107,7 @@ You can create a personal API token in your [CircleCI user settings](https://app
                     ),
                     SourceFieldSelectConfig(
                         name="branch_scope",
+                        sync_setting=True,
                         label="Branch scope",
                         required=False,
                         defaultValue="default_branch",

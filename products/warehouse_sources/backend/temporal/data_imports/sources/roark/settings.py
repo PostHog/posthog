@@ -1,7 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ResponseAction
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
+from products.warehouse_sources.backend.types import IncrementalField
 
 # Roark exposes no server-side timestamp filter on any list endpoint (only client-side `sortBy`
 # ordering plus an opaque `after` cursor), so every table syncs as a full refresh. Incremental sync
@@ -9,7 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 PaginationMode = Literal["cursor", "offset", "none"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class RoarkEndpointConfig:
     name: str
     path: str
@@ -29,6 +34,36 @@ class RoarkEndpointConfig:
     # `issue` is fixed newest-first by the API and can't be reordered.
     sort_mode: SortMode = "asc"
     should_sync_default: bool = True
+    # Set on a child endpoint that is fetched once per row of a parent endpoint.
+    fanout: Optional[DependentEndpointConfig] = None
+
+    # The shared fan-out helper reads these three members from every endpoint config.
+    @property
+    def page_size(self) -> int:
+        return self.max_page_size
+
+    @property
+    def incremental_fields(self) -> list[IncrementalField]:
+        return []
+
+    @property
+    def default_incremental_field(self) -> Optional[str]:
+        return None
+
+
+# A parent row deleted between the parent listing and the child request answers 404; skip it.
+_SKIP_MISSING_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
+
+
+def _per_call() -> DependentEndpointConfig:
+    return DependentEndpointConfig(
+        parent_name="call",
+        resolve_param="callId",
+        resolve_field="id",
+        include_from_parent=["id"],
+        parent_field_renames={"id": "callId"},
+        child_response_actions=_SKIP_MISSING_PARENT,
+    )
 
 
 ROARK_ENDPOINTS: dict[str, RoarkEndpointConfig] = {
@@ -114,6 +149,45 @@ ROARK_ENDPOINTS: dict[str, RoarkEndpointConfig] = {
         path="/knowledge-base",
         pagination="cursor",
         partition_key="createdAt",
+    ),
+    # The three endpoints below make one request per parent row on every sync, so they are off by
+    # default. None of them is paginated, and none has a server-side time filter.
+    "call_metric": RoarkEndpointConfig(
+        name="call_metric",
+        path="/call/{callId}/metrics",
+        pagination="none",
+        max_page_size=0,
+        # One row per metric definition per call; the scored values stay nested under `values`
+        # because `value` is a number, a boolean or a string depending on the metric type.
+        primary_keys=["callId", "metricDefinitionId"],
+        should_sync_default=False,
+        fanout=_per_call(),
+    ),
+    "call_transcript": RoarkEndpointConfig(
+        name="call_transcript",
+        path="/call/{callId}/transcript",
+        pagination="none",
+        max_page_size=0,
+        # Transcript entries carry no id, so a row is keyed on its position in the call.
+        primary_keys=["callId", "entryIndex"],
+        should_sync_default=False,
+        fanout=_per_call(),
+    ),
+    "metric_collection_job_metric_value": RoarkEndpointConfig(
+        name="metric_collection_job_metric_value",
+        path="/metric/collection-jobs/{jobId}/metric-values",
+        pagination="none",
+        max_page_size=0,
+        primary_keys=["jobId", "metricDefinitionId"],
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="metric_collection_job",
+            resolve_param="jobId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "jobId"},
+            child_response_actions=_SKIP_MISSING_PARENT,
+        ),
     ),
 }
 

@@ -1,14 +1,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use super::{
-    store_hash_prefix, CheckpointFile, CheckpointInfo, CheckpointMetadata, PlanningCancelledError,
-    STORE_PARTITION, STORE_TOPIC,
-};
+use super::{CheckpointFile, CheckpointInfo, CheckpointMetadata, PlanningCancelledError};
 use crate::observability::metrics::CHECKPOINT_PLAN_FILES_TOTAL;
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info};
@@ -19,30 +15,23 @@ pub struct CheckpointPlan {
     pub files_to_upload: Vec<LocalCheckpointFile>,
 }
 
-/// Build a checkpoint plan: new metadata plus the files to upload.
+/// Build a checkpoint plan: `metadata` with its files tracked, plus the files to upload.
 ///
-/// Incremental dedup keyed on filename: SST files (immutable) are reused from the previous attempt;
-/// mutable files are re-uploaded only on checksum change. The cancellation token, if given, is
-/// checked during the directory walk and before hashing non-SST files.
+/// With no previous attempt, every file uploads and the plan starts a new chain. Otherwise dedup is
+/// keyed on filename: SST files (immutable) are reused from the previous attempt; mutable files are
+/// re-uploaded only on checksum change, and the plan stays in the previous attempt's chain. The
+/// caller must pass a previous attempt of the same DB, because SST names are unique only within one
+/// DB. The cancellation token, if given, is checked during the directory walk and before hashing
+/// non-SST files.
 pub fn plan_checkpoint(
     local_checkpoint_attempt_dir: &Path,
+    metadata: CheckpointMetadata,
     remote_bucket_namespace: String,
-    attempt_timestamp: DateTime<Utc>,
-    sequence: u64,
     previous_metadata: Option<&CheckpointMetadata>,
     cancel_token: Option<&CancellationToken>,
 ) -> Result<CheckpointPlan> {
     ensure_not_cancelled(cancel_token, "before planning start")?;
-    let metadata = CheckpointMetadata::new(
-        STORE_TOPIC.to_string(),
-        STORE_PARTITION,
-        attempt_timestamp,
-        sequence,
-        0,
-        0,
-    );
-    let hash = store_hash_prefix().to_string();
-    let mut info = CheckpointInfo::new(metadata, remote_bucket_namespace, Some(hash));
+    let mut info = CheckpointInfo::new(metadata, remote_bucket_namespace);
     let mut files_to_upload: Vec<LocalCheckpointFile> = Vec::new();
 
     let local_files = collect_local_files(local_checkpoint_attempt_dir, cancel_token)?;
@@ -65,6 +54,7 @@ pub fn plan_checkpoint(
         });
     };
 
+    info.metadata.full_upload_at = prev_meta.full_upload_at;
     let mut prev_file_map: HashMap<String, CheckpointFile> = HashMap::new();
     for prev_cp_file in &prev_meta.files {
         let filename = prev_cp_file
@@ -245,14 +235,32 @@ impl LocalCheckpointFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
+    use chrono::{DateTime, Duration, Utc};
     use tempfile::TempDir;
     use tokio_util::sync::CancellationToken;
 
+    use crate::store::durability::{CheckpointLineage, PodOrdinal};
+    use crate::store::DbIdentity;
+
     fn attempt_dir(base: &Path, checkpoint_id: &str) -> PathBuf {
-        base.join(STORE_TOPIC)
-            .join(STORE_PARTITION.to_string())
+        CheckpointLineage::new(PodOrdinal::STANDALONE)
+            .local_dir(base)
             .join(checkpoint_id)
+    }
+
+    fn metadata_at(attempt_timestamp: DateTime<Utc>) -> CheckpointMetadata {
+        CheckpointMetadata::new(
+            PodOrdinal::STANDALONE,
+            attempt_timestamp,
+            DbIdentity::for_test("db"),
+        )
+    }
+
+    fn remote_attempt_dir(namespace: &str, checkpoint_id: &str) -> String {
+        format!(
+            "{}{checkpoint_id}",
+            CheckpointLineage::new(PodOrdinal::STANDALONE).remote_dir(namespace)
+        )
     }
 
     #[test]
@@ -261,7 +269,6 @@ mod tests {
         let remote_bucket_namespace = "checkpoints";
         let attempt_timestamp = Utc::now();
         let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
-        let sequence = 1000;
         let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
 
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
@@ -270,9 +277,8 @@ mod tests {
 
         let plan = plan_checkpoint(
             &local_checkpoint_attempt_dir,
+            metadata_at(attempt_timestamp),
             remote_bucket_namespace.to_string(),
-            attempt_timestamp,
-            sequence,
             None,
             None,
         )
@@ -298,10 +304,7 @@ mod tests {
         assert_eq!(got_sst2, &expected_sst2);
 
         assert_eq!(plan.info.metadata.files.len(), 2);
-        let hash = store_hash_prefix();
-        let expected_remote_path = format!(
-            "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}"
-        );
+        let expected_remote_path = remote_attempt_dir(remote_bucket_namespace, &checkpoint_id);
         assert!(plan
             .info
             .metadata
@@ -320,14 +323,11 @@ mod tests {
             .files
             .iter()
             .any(|f| f.remote_filepath.ends_with("file2.sst")));
-        let meta_key = plan.info.get_metadata_key();
-        assert!(meta_key.contains(hash));
         assert_eq!(
-            meta_key,
-            format!(
-                "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}/metadata.json"
-            )
+            plan.info.get_metadata_key(),
+            format!("{expected_remote_path}/metadata.json"),
         );
+        assert_eq!(plan.info.metadata.full_upload_at, attempt_timestamp);
     }
 
     #[test]
@@ -336,16 +336,10 @@ mod tests {
         let remote_bucket_namespace = "checkpoints";
         let prev_attempt_timestamp = Utc::now() - Duration::hours(1);
         let prev_checkpoint_id = CheckpointMetadata::generate_id(prev_attempt_timestamp);
-        let prev_sequence = 1000;
 
-        let mut prev_metadata = CheckpointMetadata::new(
-            STORE_TOPIC.to_string(),
-            STORE_PARTITION,
-            prev_attempt_timestamp,
-            prev_sequence,
-            0,
-            0,
-        );
+        let mut prev_metadata = metadata_at(prev_attempt_timestamp);
+        let chain_started = prev_attempt_timestamp - Duration::hours(5);
+        prev_metadata.full_upload_at = chain_started;
 
         let prev_local_attempt_dir = attempt_dir(temp_dir.path(), &prev_checkpoint_id);
 
@@ -358,9 +352,8 @@ mod tests {
         let expected_prev_sst2 =
             build_candidate_file(&prev_local_attempt_dir.join("00002.sst"), None).unwrap();
 
-        let prev_remote_path = format!(
-            "{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{prev_checkpoint_id}"
-        );
+        let prev_remote_path =
+            format!("{remote_bucket_namespace}/cohort_stream_state/0/{prev_checkpoint_id}");
 
         let prev_sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         prev_metadata.track_file(
@@ -376,7 +369,6 @@ mod tests {
 
         let attempt_timestamp = Utc::now();
         let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
-        let sequence = 1001;
         let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
 
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
@@ -388,15 +380,18 @@ mod tests {
 
         let plan = plan_checkpoint(
             &local_checkpoint_attempt_dir,
+            metadata_at(attempt_timestamp),
             remote_bucket_namespace.to_string(),
-            attempt_timestamp,
-            sequence,
             Some(&prev_metadata),
             None,
         )
         .unwrap();
 
         assert_eq!(plan.files_to_upload.len(), 1);
+        assert_eq!(
+            plan.info.metadata.full_upload_at, chain_started,
+            "an incremental plan stays in its baseline's chain",
+        );
         let got_sst3 = plan
             .files_to_upload
             .iter()
@@ -406,10 +401,8 @@ mod tests {
 
         assert_eq!(plan.info.metadata.files.len(), 3);
 
-        let hash = store_hash_prefix();
-        let current_attempt_remote_path = format!(
-            "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}"
-        );
+        let current_attempt_remote_path =
+            remote_attempt_dir(remote_bucket_namespace, &checkpoint_id);
 
         let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
@@ -450,16 +443,8 @@ mod tests {
         let remote_bucket_namespace = "checkpoints";
         let prev_attempt_timestamp = Utc::now() - Duration::hours(1);
         let prev_checkpoint_id = CheckpointMetadata::generate_id(prev_attempt_timestamp);
-        let prev_sequence = 1000;
 
-        let mut prev_metadata = CheckpointMetadata::new(
-            STORE_TOPIC.to_string(),
-            STORE_PARTITION,
-            prev_attempt_timestamp,
-            prev_sequence,
-            0,
-            0,
-        );
+        let mut prev_metadata = metadata_at(prev_attempt_timestamp);
 
         let prev_local_attempt_dir = attempt_dir(temp_dir.path(), &prev_checkpoint_id);
 
@@ -475,9 +460,8 @@ mod tests {
         let expected_prev_sst3 =
             build_candidate_file(&prev_local_attempt_dir.join("00003.sst"), None).unwrap();
 
-        let prev_remote_path = format!(
-            "{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{prev_checkpoint_id}"
-        );
+        let prev_remote_path =
+            format!("{remote_bucket_namespace}/cohort_stream_state/0/{prev_checkpoint_id}");
         let prev_sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let prev_sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         let prev_sst3_remote_path = format!("{prev_remote_path}/00003.sst");
@@ -497,7 +481,6 @@ mod tests {
 
         let attempt_timestamp = Utc::now();
         let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
-        let sequence = 1001;
         let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
 
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
@@ -507,9 +490,8 @@ mod tests {
 
         let plan = plan_checkpoint(
             &local_checkpoint_attempt_dir,
+            metadata_at(attempt_timestamp),
             remote_bucket_namespace.to_string(),
-            attempt_timestamp,
-            sequence,
             Some(&prev_metadata),
             None,
         )
@@ -551,16 +533,8 @@ mod tests {
         let remote_bucket_namespace = "checkpoints";
         let prev_attempt_timestamp = Utc::now() - Duration::hours(1);
         let prev_checkpoint_id = CheckpointMetadata::generate_id(prev_attempt_timestamp);
-        let prev_sequence = 1000;
 
-        let mut prev_metadata = CheckpointMetadata::new(
-            STORE_TOPIC.to_string(),
-            STORE_PARTITION,
-            prev_attempt_timestamp,
-            prev_sequence,
-            0,
-            0,
-        );
+        let mut prev_metadata = metadata_at(prev_attempt_timestamp);
 
         let prev_local_attempt_dir = attempt_dir(temp_dir.path(), &prev_checkpoint_id);
 
@@ -585,9 +559,8 @@ mod tests {
         let expected_prev_log =
             build_candidate_file(&prev_local_attempt_dir.join("00001.log"), None).unwrap();
 
-        let prev_remote_path = format!(
-            "{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{prev_checkpoint_id}"
-        );
+        let prev_remote_path =
+            format!("{remote_bucket_namespace}/cohort_stream_state/0/{prev_checkpoint_id}");
         let prev_sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let prev_sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         let prev_manifest_remote_path = format!("{prev_remote_path}/MANIFEST-000000");
@@ -622,7 +595,6 @@ mod tests {
 
         let attempt_timestamp = Utc::now();
         let checkpoint_id = CheckpointMetadata::generate_id(attempt_timestamp);
-        let sequence = 1001;
         let local_checkpoint_attempt_dir = attempt_dir(temp_dir.path(), &checkpoint_id);
 
         std::fs::create_dir_all(&local_checkpoint_attempt_dir).unwrap();
@@ -648,9 +620,8 @@ mod tests {
 
         let plan = plan_checkpoint(
             &local_checkpoint_attempt_dir,
+            metadata_at(attempt_timestamp),
             remote_bucket_namespace.to_string(),
-            attempt_timestamp,
-            sequence,
             Some(&prev_metadata),
             None,
         )
@@ -670,10 +641,8 @@ mod tests {
         assert_eq!(plan.info.metadata.files.len(), 7);
 
         // New files (sst3, CURRENT, log) use the hashed path; retained files keep the previous path.
-        let hash = store_hash_prefix();
-        let current_attempt_remote_path = format!(
-            "{hash}/{remote_bucket_namespace}/{STORE_TOPIC}/{STORE_PARTITION}/{checkpoint_id}"
-        );
+        let current_attempt_remote_path =
+            remote_attempt_dir(remote_bucket_namespace, &checkpoint_id);
         let sst1_remote_path = format!("{prev_remote_path}/00001.sst");
         let sst2_remote_path = format!("{prev_remote_path}/00002.sst");
         let sst3_remote_path = format!("{current_attempt_remote_path}/00003.sst");
@@ -741,9 +710,8 @@ mod tests {
 
         let err = plan_checkpoint(
             &local_checkpoint_attempt_dir,
+            metadata_at(attempt_timestamp),
             "checkpoints".to_string(),
-            attempt_timestamp,
-            1000,
             None,
             Some(&cancel_token),
         )

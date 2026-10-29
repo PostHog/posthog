@@ -24,11 +24,17 @@ import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutRun
-from products.signals.backend.scout_harness.limits import COORDINATOR_INTERVAL_MINUTES, MAX_ENABLED_SCOUTS_PER_TEAM
+from products.signals.backend.scout_harness.limits import (
+    COORDINATOR_INTERVAL_MINUTES,
+    MAX_DISPATCH_SMEAR_SECONDS,
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -165,7 +171,7 @@ def _read_flag_payload() -> dict | None:
 ENROLL_ALL_TOKEN = "*"
 
 
-@dataclass(frozen=True)
+@frozen
 class Enrollment:
     """Parsed scout enrollment from the `signals-scout` flag payload.
 
@@ -178,6 +184,7 @@ class Enrollment:
     wildcard: bool
     explicit: set[int]
     skip: set[int]
+    drained: bool = False
 
 
 def _parse_enrollment(payload: dict | None) -> Enrollment:
@@ -219,7 +226,7 @@ def _parse_enrollment(payload: dict | None) -> Enrollment:
     else:
         skip = set()
 
-    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip)
+    return Enrollment(wildcard=wildcard, explicit=explicit, skip=skip, drained=payload.get("guaranteed_team_ids") == [])
 
 
 # Flag payload block that enrolls a pilot cohort in one scout that PostHog sets up without a person
@@ -609,12 +616,28 @@ DISPATCH_SMEAR_SECONDS_KEY = "dispatch_smear_seconds"
 
 
 def _resolve_dispatch_smear_seconds(payload: dict | None, default: int) -> int:
+    """The smear window from the flag, else `default`, capped at `MAX_DISPATCH_SMEAR_SECONDS`.
+
+    The cap keeps the runs of one tick out of the next tick.
+    """
     if payload is None:
-        return default
+        return min(default, MAX_DISPATCH_SMEAR_SECONDS)
     override = payload.get(DISPATCH_SMEAR_SECONDS_KEY)
     if isinstance(override, int) and not isinstance(override, bool) and override >= 0:
-        return override
-    return default
+        return min(override, MAX_DISPATCH_SMEAR_SECONDS)
+    return min(default, MAX_DISPATCH_SMEAR_SECONDS)
+
+
+# Flag payload key that moves the smear from the coordinator into each child. On, the coordinator
+# starts every child of the tick at once, and each child sleeps a stable per-config delay inside the
+# smear window before it starts work. Off, the coordinator dispatches in paced batches. Absent or
+# malformed → off.
+CHILD_START_DELAY_KEY = "child_start_delay"
+
+
+def _resolve_child_start_delay(payload: dict | None) -> bool:
+    """Whether children carry their own start delay. Only a literal `true` turns it on."""
+    return payload is not None and payload.get(CHILD_START_DELAY_KEY) is True
 
 
 # Flag payload key toggling slot-aligned dispatch anchors (the coordinator's `_slot_anchor`). On,
@@ -787,11 +810,11 @@ def _resolve_enrolled(canonical_team_id: int, enrollment: Enrollment) -> bool:
     A skipped team is never enrolled. Otherwise enrolled iff the wildcard is set (everyone is in —
     the UI gates whether they actually HAVE configs) or the team is in the explicit allowlist.
     Canonicalizes child-env ids the same way the coordinator does (`_is_team_enrolled`)."""
-    if _is_team_enrolled(canonical_team_id, enrollment.skip):
+    if enrollment.drained or _is_team_enrolled(canonical_team_id, enrollment.skip):
         return False
     if enrollment.wildcard:
         return True
-    return _is_team_enrolled(canonical_team_id, enrollment.explicit)
+    return _is_team_enrolled(canonical_team_id, enrollment.explicit) or ResearchAccessPolicy.enrolled(canonical_team_id)
 
 
 def team_is_enrolled(canonical_team_id: int) -> bool:

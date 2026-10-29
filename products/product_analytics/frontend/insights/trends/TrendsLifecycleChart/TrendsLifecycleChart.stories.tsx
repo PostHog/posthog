@@ -89,21 +89,8 @@ const LIFECYCLE_LABELS = [
     '10-Jul-2023',
 ]
 
-const ACTION = {
-    id: '$pageview',
-    type: 'events',
-    order: 0,
-    name: '$pageview',
-    custom_name: null,
-    math: 'total',
-    math_property: null,
-    math_hogql: null,
-    math_group_type_index: null,
-    properties: {},
-}
-
 const lifecycleSeries = (status: 'new' | 'returning' | 'resurrecting' | 'dormant', data: number[]): object => ({
-    action: ACTION,
+    order: 0,
     label: `$pageview - ${status}`,
     count: data.reduce((a, b) => a + b, 0),
     aggregated_value: data.reduce((a, b) => a + b, 0),

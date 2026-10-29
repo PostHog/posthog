@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from queue import Queue
+from time import monotonic
 from typing import Any
 from uuid import uuid4
 
@@ -10,6 +14,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
+from django.db import connection, transaction
 from django.test import override_settings
 from django.utils import timezone
 
@@ -28,6 +33,7 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalScoutRun,
     SignalScratchpad,
+    SignalSpend,
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
 from products.signals.backend.scout_harness.tools.report import (
@@ -50,11 +56,60 @@ from products.signals.backend.scout_harness.trial_state import (
     memory_snapshot,
 )
 from products.signals.backend.scout_report.persistence import MAX_REPORT_SIGNALS, set_scout_report_inferred_repository
+from products.signals.backend.spend import record_task_cost_delta
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.models import TaskRun
+
+
+@pytest.mark.django_db(transaction=True)
+def test_trial_memory_write_and_accounting_both_commit(team: Team) -> None:
+    with team_scope(team.id):
+        run = _make_run(team, metadata={"scout_trial": {"version": 1, "context_id": str(uuid4())}})
+    spend = SignalSpend.objects.for_team(team.id).create(
+        team_id=team.id,
+        kind=SignalSpend.Kind.SCOUT_RUN,
+        scout_run_id=run.id,
+        task_run_id=run.task_run_id,
+        spend=Decimal("4"),
+        billing_exempt=True,
+    )
+    trial_pid: Queue[int] = Queue()
+
+    def remember() -> None:
+        try:
+            with transaction.atomic():
+                with connection.cursor() as cursor:
+                    cursor.execute("SET LOCAL lock_timeout = '10s'")
+                    cursor.execute("SELECT pg_backend_pid()")
+                    trial_pid.put(cursor.fetchone()[0])
+                ScoutTrialStore(run, initial_memory=[]).remember(key="finding", content="Synthetic finding")
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        with transaction.atomic():
+            TaskRun.objects.select_for_update().get(id=run.task_run_id, team_id=team.id)
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '10s'")
+                future = pool.submit(remember)
+                pid = trial_pid.get(timeout=10)
+                deadline = monotonic() + 10
+                while monotonic() < deadline:
+                    cursor.execute("SELECT pg_backend_pid() = ANY(pg_blocking_pids(%s))", [pid])
+                    if cursor.fetchone()[0]:
+                        break
+                else:
+                    pytest.fail("Trial writer did not reach the held task run lock")
+            record_task_cost_delta(team_id=team.id, run_id=run.task_run_id, cost_delta_microusd=10_000)
+        future.result(timeout=15)
+
+    spend.refresh_from_db()
+    run.refresh_from_db()
+    assert spend.spend == run.total_spend == Decimal("5")
+    assert ScoutTrialStore(run, initial_memory=[]).search_memory(key="finding")[0].content == "Synthetic finding"
 
 
 class TestScoutTrialState(APIBaseTest):
@@ -861,6 +916,7 @@ class TestScoutTrialReportCapture(APIBaseTest):
             evidence = self.client.get(f"{base}{report_id}/signals/")
             assert evidence.status_code == 200
             assert evidence.json()["signals"][0]["source_id"] == "synthetic-observation"
+            assert evidence.json()["signals"][0]["spend_accounting_failed_stages"] == []
             artefacts = self.client.get(f"{base}{report_id}/artefacts/")
             assert artefacts.status_code == 200
             assert artefacts.json()["count"] == detail.json()["artefact_count"]

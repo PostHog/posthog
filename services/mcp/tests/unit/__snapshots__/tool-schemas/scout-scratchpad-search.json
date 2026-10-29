@@ -38,6 +38,10 @@
             "minimum": 1,
             "type": "number"
         },
+        "skill_name": {
+            "description": "Return only the entries this writer created, matched against `created_by_skill` (a scout skill name or a `pipeline:*` identity). Omit to return entries from every writer.",
+            "type": "string"
+        },
         "text": {
             "description": "ILIKE substring match against `content`. Omit to return the most recent entries.",
             "type": "string"

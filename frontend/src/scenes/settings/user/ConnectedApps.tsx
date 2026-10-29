@@ -9,7 +9,9 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { IconKey } from 'lib/lemon-ui/icons'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import { connectedAppsLogic, ConnectedApp } from './connectedAppsLogic'
+import type { ConnectedAppApi } from '~/generated/core/api.schemas'
+
+import { connectedAppsLogic } from './connectedAppsLogic'
 
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
@@ -50,11 +52,11 @@ function ScopesAccordion({ scopes }: { scopes: string[] }): JSX.Element {
     )
 }
 
-export function ConnectedApps(): JSX.Element {
+export function ConnectedApps({ apps }: { apps?: ConnectedAppApi[] }): JSX.Element {
     const { connectedApps, connectedAppsLoading } = useValues(connectedAppsLogic)
     const { revokeApp } = useActions(connectedAppsLogic)
 
-    const handleRevoke = (app: ConnectedApp): void => {
+    const handleRevoke = (app: ConnectedAppApi): void => {
         // Name is HTML-escaped at ingestion; decode for display (see posthog/api/oauth/client_name.py).
         const name = decode(app.name)
 
@@ -74,7 +76,7 @@ export function ConnectedApps(): JSX.Element {
 
     return (
         <LemonTable
-            dataSource={connectedApps}
+            dataSource={apps ?? connectedApps}
             loading={connectedAppsLoading}
             columns={[
                 {

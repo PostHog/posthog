@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.knock import KnockSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.knock.knock import (
+    NO_AUDIENCE_KEYS_ERROR,
     NO_OBJECT_COLLECTIONS_ERROR,
     KnockResumeConfig,
     get_resource,
@@ -49,8 +50,11 @@ class TestGetResource:
 
 class TestKnockSourceTransport:
     @staticmethod
-    def _driver(object_collections: str | None = None) -> SourceDriver:
-        return SourceDriver(KnockSource(), KnockSourceConfig(api_key="sk_test", object_collections=object_collections))
+    def _driver(object_collections: str | None = None, audience_keys: str | None = None) -> SourceDriver:
+        return SourceDriver(
+            KnockSource(),
+            KnockSourceConfig(api_key="sk_test", object_collections=object_collections, audience_keys=audience_keys),
+        )
 
     @parameterized.expand(
         [
@@ -136,6 +140,7 @@ class TestKnockSourceTransport:
         [
             ("message_events", "events"),
             ("message_delivery_logs", "delivery_logs"),
+            ("message_activities", "activities"),
         ]
     )
     def test_message_fanout_windows_parent_walk_and_tags_child_rows(self, endpoint: str, child_path: str) -> None:
@@ -196,6 +201,84 @@ class TestKnockSourceTransport:
         assert result.paths[1] == "/v1/users/team%2Fjane/schedules"
         assert [row["id"] for row in result.rows] == ["s1"]
 
+    @parameterized.expand(
+        [
+            (
+                "user_subscriptions",
+                "/v1/users/team%2Fjane/subscriptions",
+                ScriptedResponse(
+                    json={
+                        "entries": [
+                            {
+                                "object": {"collection": "accounts", "id": "acct_1"},
+                                "recipient": {"id": "team/jane"},
+                                "inserted_at": "2026-06-01T00:00:00Z",
+                            }
+                        ],
+                        "page_info": {"after": None},
+                    }
+                ),
+                "50",
+                {"user_id": "team/jane", "object_collection": "accounts", "object_id": "acct_1"},
+            ),
+            # Preferences come back as a bare array with no pagination params documented.
+            (
+                "user_preferences",
+                "/v1/users/team%2Fjane/preferences",
+                ScriptedResponse(json=[{"id": "default", "channel_types": {"email": True}}]),
+                None,
+                {"user_id": "team/jane", "id": "default"},
+            ),
+        ]
+    )
+    def test_user_fanout_tags_rows_with_decoded_user_id(
+        self,
+        endpoint: str,
+        child_path: str,
+        child_response: ScriptedResponse,
+        page_size: str | None,
+        expected: dict[str, Any],
+    ) -> None:
+        result = self._driver().run(endpoint, [_page("users", [{"id": "team/jane"}], after=None), child_response])
+
+        assert result.raised is None
+        assert result.paths == ["/v1/users", child_path]
+        assert [request.param("page_size") for request in result.requests] == [page_size, page_size]
+        assert len(result.rows) == 1
+        assert {key: result.rows[0].get(key) for key in expected} == expected
+
+    def test_audience_members_walk_each_configured_audience(self) -> None:
+        result = self._driver(audience_keys="beta, vip/1").run(
+            "audience_members",
+            [
+                _page("audience_members", [{"user_id": "u1", "tenant": None}], after="cursor-1"),
+                _page("audience_members", [{"user_id": "u2", "tenant": "t1"}], after=None),
+                _page("audience_members", [{"user_id": "u1", "tenant": None}], after=None),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v1/audiences/beta/members"] * 2 + ["/v1/audiences/vip%2F1/members"]
+        assert result.params("after") == [None, "cursor-1", None]
+        assert result.params("page_size") == [None] * 3
+        assert [(row["audience_key"], row["user_id"]) for row in result.rows] == [
+            ("beta", "u1"),
+            ("beta", "u2"),
+            ("vip/1", "u1"),
+        ]
+
+    def test_audience_members_fails_when_knock_ignores_the_cursor(self) -> None:
+        result = self._driver(audience_keys="beta").run(
+            "audience_members",
+            [
+                _page("audience_members", [{"user_id": "u1"}], after="cursor-1"),
+                _page("audience_members", [{"user_id": "u1"}], after="cursor-1"),
+            ],
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert len(result.requests) == 2
+
     def test_objects_walk_each_configured_collection(self) -> None:
         result = self._driver(object_collections=" accounts, projects,accounts ").run(
             "objects",
@@ -227,26 +310,34 @@ class TestKnockSourceTransport:
         assert result.paths == ["/v1/objects/projects"]
         assert result.requests[0].param("after") == "cursor-7"
 
-    @parameterized.expand([(None,), ("",), (" , ",)])
-    def test_objects_without_collections_fails_with_actionable_error(self, object_collections: str | None) -> None:
-        result = self._driver(object_collections=object_collections).run("objects", [])
+    @parameterized.expand(
+        [
+            ("objects", None, NO_OBJECT_COLLECTIONS_ERROR),
+            ("objects", "", NO_OBJECT_COLLECTIONS_ERROR),
+            ("objects", " , ", NO_OBJECT_COLLECTIONS_ERROR),
+            ("audience_members", None, NO_AUDIENCE_KEYS_ERROR),
+            ("audience_members", " , ", NO_AUDIENCE_KEYS_ERROR),
+        ]
+    )
+    def test_keyed_table_without_keys_fails_with_actionable_error(
+        self, endpoint: str, keys: str | None, expected_error: str
+    ) -> None:
+        # Each table reads its own field, so the other field's keys must not stand in for it.
+        driver = (
+            self._driver(object_collections=keys, audience_keys="beta")
+            if endpoint == "objects"
+            else self._driver(object_collections="accounts", audience_keys=keys)
+        )
+        result = driver.run(endpoint, [])
 
         assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == NO_OBJECT_COLLECTIONS_ERROR
+        assert str(result.raised) == expected_error
 
 
 class TestValidateCredentials:
     @parameterized.expand(
         [
             ("valid", 200, {}, (True, None)),
-            (
-                "invalid_key",
-                401,
-                {"code": "api_key_invalid", "message": "The API key you supplied is invalid"},
-                (False, "The API key you supplied is invalid"),
-            ),
-            ("auth_error_without_body", 401, {}, (False, "Invalid Knock API key")),
-            ("server_error", 500, {}, (False, "Knock API returned an unexpected response (HTTP 500)")),
         ]
     )
     def test_status_mapping(

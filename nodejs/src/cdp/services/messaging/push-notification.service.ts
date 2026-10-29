@@ -17,8 +17,15 @@ import type { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, I
 import { createAddLogFunction } from '../../utils'
 import { EncryptedFields } from '../../utils/encryption-utils'
 import { createInvocationResult } from '../../utils/invocation-utils'
-import { DeviceSubscription, getDevicePushSubscriptions } from '../../utils/push-subscription-utils'
+import {
+    DeviceSubscription,
+    NATIVE_PUSH_TEMPLATE_ID,
+    getDevicePushSubscriptions,
+    pushRecipientOtherThanRunPerson,
+    runDistinctIdMatching,
+} from '../../utils/push-subscription-utils'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { PersonsManagerService } from '../managers/persons-manager.service'
 import { MessageAssetsService } from './message-assets.service'
 import {
     NormalizedPushError,
@@ -48,7 +55,7 @@ const pushNotificationFailedCounter = new Counter({
 
 const pushNotificationSkippedCounter = new Counter({
     name: 'push_notification_skipped_total',
-    help: 'Push sends not delivered without an outright failure, by platform and reason. no_token = the recipient never registered a device; unregistered = the provider reported the token dead and it was removed.',
+    help: 'Push sends not delivered without an outright failure, by platform and reason. no_token = the recipient never registered a device; unregistered = the provider reported the token dead and it was removed; no_person = the distinct id the step named has no person.',
     labelNames: ['platform', 'reason'],
 })
 
@@ -61,7 +68,7 @@ const pushNotificationSendDurationMs = new Histogram({
 
 const apnsProviderTokenRefreshCounter = new Counter({
     name: 'push_notification_apns_token_refresh_total',
-    help: 'APNs provider tokens replaced after Apple rejected one. outcome: minted = a new token was signed; adopted = another pod had already replaced it; skipped = a refresh for this key happened inside the refresh window.',
+    help: 'APNs provider tokens replaced after Apple rejected one. outcome: minted = a new token was signed; adopted = another pod had already replaced it; skipped = a refresh for this key, or the rejected token itself, is inside the refresh window.',
     labelNames: ['outcome'],
 })
 
@@ -80,6 +87,9 @@ const APNS_JWT_TTL_SECONDS = 45 * 60
 // Apple can reject a token it accepted minutes earlier. One new token per key per window keeps a key that
 // keeps getting rejected under Apple's refresh limit.
 const APNS_JWT_REFRESH_PREFIX = '@posthog/apns-provider-jwt-refresh/'
+// A delivery on any pod proves the key works, so a pod that has not sent with it yet can still retry a rejection.
+const APNS_KEY_ACCEPTED_PREFIX = '@posthog/apns-key-accepted/'
+const APNS_KEY_ACCEPTED_SHARE_INTERVAL_MS = 60 * 1000
 const APNS_JWT_REFRESH_WINDOW_SECONDS = 20 * 60
 const APNS_REJECTED_TOKEN_CODES = new Set(['InvalidProviderToken', 'ExpiredProviderToken'])
 const APNS_JWT_REPLACEMENT_POLLS = 5
@@ -211,6 +221,38 @@ function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAf
     return new PushSendError(message, platform, err.reason, err.level, err.retriable, err.code, retryAfterMs)
 }
 
+// Apple sometimes rejects a token that the rest of the fleet keeps sending with, and the refresh limit can
+// block a new token for 20 minutes. A key that delivered recently works, so retry instead of failing the send.
+class ApnsTokenRejectionError extends PushSendError {
+    constructor(message: string, code: string, retryAfterMs: number | undefined) {
+        super(message, 'apns', 'auth_error', 'warn', true, code, retryAfterMs)
+    }
+}
+
+function retriableTokenRejection(error: PushSendError): PushSendError {
+    if (!error.code || !APNS_REJECTED_TOKEN_CODES.has(error.code)) {
+        return error
+    }
+    return new ApnsTokenRejectionError(
+        `APNs rejected the provider token, although this key delivered notifications in the last 20 minutes, so the integration credentials are likely fine. [${error.code}]`,
+        error.code,
+        error.retryAfterMs
+    )
+}
+
+// apnsAcceptedKeys holds a short prefix of each key fingerprint, never key material.
+type PushQueueMetadata = { tries?: number; apnsAcceptedKeys?: string[] }
+
+// Whose devices a send goes to. `properties` is the person snapshot the tokens are read from, and
+// `isRunPerson` says it is the run's own person, so a pruned token has to leave the invocation's
+// snapshot as well.
+type PushRecipient = {
+    distinctId: string
+    personId: string | undefined
+    properties: Record<string, any> | undefined
+    isRunPerson: boolean
+}
+
 export type PushNotificationFetchUtils = {
     trackedFetch: (args: { url: string; fetchParams: FetchOptions; templateId: string; teamId?: number }) => Promise<{
         fetchError: Error | null
@@ -231,6 +273,7 @@ export class PushNotificationService {
         private encryptedFields: EncryptedFields,
         private fetchUtils: PushNotificationFetchUtils,
         private valkey: RedisV2,
+        private personsManager: PersonsManagerService,
         private messageAssetsService?: MessageAssetsService
     ) {}
 
@@ -240,6 +283,8 @@ export class PushNotificationService {
     // fleet normally shares one token per key.
     private apnsJwtLocalCache = new Map<string, { jwt: string; expiresAtMs: number }>()
     private apnsJwtInFlight = new Map<string, Promise<string>>()
+    // Last time APNs accepted a send signed with each key, so a token rejection for a key that works can be retried.
+    private apnsKeyAcceptedAtMs = new Map<string, { acceptedAtMs: number; sharedAtMs: number }>()
 
     @instrumented('push-notification.executeSendPushNotification')
     async executeSendPushNotification(
@@ -266,7 +311,7 @@ export class PushNotificationService {
 
         // How many times this send has already been rescheduled after a transient failure, carried on the
         // invocation's queue metadata across reschedules.
-        const metadata = (invocation.queueMetadata as { tries?: number }) || {}
+        const metadata = (invocation.queueMetadata as PushQueueMetadata) || {}
         const tries = metadata.tries ?? 0
 
         // Business metrics are emitted once, at the terminal outcome below, rather than per channel — a
@@ -307,10 +352,47 @@ export class PushNotificationService {
         let otherErrorCount = 0
         const errors: PushSendError[] = []
         let firstError: string | undefined
+        const skipMessages: string[] = []
         // Which providers took delivery. Only its emptiness is read, to decide whether there is a
         // delivered notification worth capturing.
         const deliveredPlatforms = new Set<string>()
+        // Filled before device failures collapse into one error per channel, so a retry carries every key that works.
+        const apnsAcceptedKeys = new Set(metadata.apnsAcceptedKeys ?? [])
+        // Resolved once for the send: every channel reads the same person's tokens.
+        let recipient: PushRecipient | null
+        try {
+            recipient = await this.resolveRecipient(invocation, params)
+        } catch (error) {
+            // The person service is down or slow. Nothing was sent yet, so retry later instead of dropping the push.
+            if (tries >= this.fetchUtils.maxRetries) {
+                throw error
+            }
+            const nextTries = tries + 1
+            result.invocation.queueParameters = invocation.queueParameters
+            result.invocation.queueMetadata = { ...metadata, tries: nextTries }
+            result.invocation.queuePriority = nextTries
+            result.invocation.queueScheduledAt = backoffAt(
+                this.fetchUtils.backoffBaseMs,
+                this.fetchUtils.backoffMaxMs,
+                nextTries
+            )
+            result.finished = false
+            addLog(
+                'warn',
+                `Could not look up the person for distinct_id: ${params.distinctId.trim()}; retrying (attempt ${nextTries}/${this.fetchUtils.maxRetries}).`
+            )
+            return result
+        }
+        if (!recipient) {
+            addLog('warn', `No person found for distinct_id: ${params.distinctId.trim()}; push notification skipped.`)
+            pushNotificationSkippedCounter.labels({ platform: 'unknown', reason: 'no_person' }).inc()
+        }
         for (const integrationId of integrationIds) {
+            // Nobody to read tokens from, so every channel is skipped the way a person with no device is.
+            if (!recipient) {
+                skippedCount++
+                continue
+            }
             try {
                 const integration = await this.integrationManager.get(integrationId)
                 if (!integration || integration.team_id !== invocation.teamId) {
@@ -319,9 +401,17 @@ export class PushNotificationService {
 
                 let sent: boolean
                 if (integration.kind === 'firebase') {
-                    sent = await this.executeFcm(result, params, integration, invocation)
+                    sent = await this.executeFcm(result, params, integration, invocation, recipient, skipMessages)
                 } else if (integration.kind === 'apns') {
-                    sent = await this.executeApns(result, params, integration, invocation)
+                    sent = await this.executeApns(
+                        result,
+                        params,
+                        integration,
+                        invocation,
+                        recipient,
+                        apnsAcceptedKeys,
+                        skipMessages
+                    )
                 } else {
                     throw new Error(`Unsupported push integration kind: ${integration.kind}`)
                 }
@@ -347,6 +437,12 @@ export class PushNotificationService {
             }
         }
 
+        // Most recipients have a device on one platform only, so a skip next to a delivery is expected.
+        const skipLogLevel = successCount > 0 ? 'info' : 'warn'
+        for (const message of skipMessages) {
+            addLog(skipLogLevel, message)
+        }
+
         const errorCount = errors.length + otherErrorCount
         const success = successCount > 0 || errorCount === 0
         const retriableErrors = errors.filter((e) => e.retriable)
@@ -363,7 +459,12 @@ export class PushNotificationService {
             // routes on an undefined queue type and resumes the hog VM instead of re-running this send,
             // which pops an empty stack and throws a bytecode error, dropping the notification.
             result.invocation.queueParameters = invocation.queueParameters
-            result.invocation.queueMetadata = { ...metadata, tries: nextTries }
+            // A retry can land on a pod that has not delivered with this key yet, so carry the evidence that the key works.
+            result.invocation.queueMetadata = {
+                ...metadata,
+                tries: nextTries,
+                ...(apnsAcceptedKeys.size > 0 ? { apnsAcceptedKeys: [...apnsAcceptedKeys] } : {}),
+            }
             result.invocation.queuePriority = nextTries
             // Retrying re-attempts every failed channel, so wait out the LONGEST Retry-After any channel
             // asked for; fall back to exponential backoff when none provided one.
@@ -403,13 +504,18 @@ export class PushNotificationService {
         // per-channel run log explaining why.
         // Skipped for a test send for the same reason the metrics are: the Assets tab should show
         // what real recipients were sent, not what an editor preview produced.
-        if (this.messageAssetsService && successCount > 0 && !isTest) {
+        if (this.messageAssetsService && recipient && successCount > 0 && !isTest) {
             // Best-effort: the notification is already delivered by this point, so a capture failure
             // must not fail the invocation. Throwing here would send the whole batch back for a retry
             // and deliver every notification in it a second time. Losing an Assets row is the cheaper
             // outcome, and it is the same trade the flush path already makes on a Kafka failure.
             try {
-                const assetRow = this.messageAssetsService.buildRowForPush(invocation, params, [...deliveredPlatforms])
+                const assetRow = this.messageAssetsService.buildRowForPush(
+                    invocation,
+                    params,
+                    [...deliveredPlatforms],
+                    { distinctId: recipient.distinctId, personId: recipient.personId }
+                )
                 if (assetRow) {
                     result.messageAssets.push(assetRow)
                 }
@@ -429,8 +535,48 @@ export class PushNotificationService {
         }
         // Surface the error to the hog template too, otherwise its failure message renders blank.
         result.invocation.state.vmState!.stack.push({ success, error: success ? null : (firstError ?? null) })
+        // The template does not resume after this send, so the step's output is set here. It lets a workflow
+        // store the channel counts in an output variable and branch on them.
+        result.execResult = { delivered: successCount, skipped: skippedCount, failed: errorCount }
 
         return result
+    }
+
+    // The run's person snapshot is only the recipient when the step's Distinct ID input names the run's
+    // own person (the template default). A manual run's person is whoever pressed the button, and a step
+    // pointed at someone else has to read that person's tokens, so anything else is looked up fresh:
+    // a push cannot be recalled, and a cached read could predate a device that unregistered.
+    // Null when the named distinct id has no person, never the run's person in its place: that would
+    // notify someone the step did not name.
+    private async resolveRecipient(
+        invocation: CyclotronJobInvocationHogFunction,
+        params: CyclotronInvocationQueueParametersSendPushNotificationType
+    ): Promise<PushRecipient | null> {
+        const { event, person } = invocation.state.globals
+        // Only a workflow push step may name another person: the opt-out and frequency cap checks run there
+        // and nowhere else, so other hog code keeps sending to the run's person.
+        const isWorkflowPushStep =
+            !!invocation.state.actionId && invocation.hogFunction.template_id === NATIVE_PUSH_TEMPLATE_ID
+        const distinctId = isWorkflowPushStep
+            ? pushRecipientOtherThanRunPerson(params.distinctId, invocation.state.globals)
+            : null
+        if (!distinctId) {
+            return {
+                distinctId:
+                    runDistinctIdMatching(params.distinctId, invocation.state.globals) ??
+                    (event.distinct_id || person?.distinct_id || ''),
+                personId: person?.id,
+                properties: person?.properties,
+                isRunPerson: true,
+            }
+        }
+        const named = await this.personsManager.getCyclotronPerson(invocation.teamId, distinctId, 'distinct_id', {
+            forceFresh: true,
+        })
+        if (!named) {
+            return null
+        }
+        return { distinctId, personId: named.id, properties: named.properties, isRunPerson: false }
     }
 
     /** Returns true if a notification was handed off to FCM, false if skipped (no device token). */
@@ -438,7 +584,9 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         integration: IntegrationType,
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        recipient: PushRecipient,
+        skipMessages: string[]
     ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
 
@@ -448,11 +596,10 @@ export class PushNotificationService {
             throw new Error('Firebase integration is missing project_id or access_token')
         }
 
-        const personProperties = invocation.state.globals.person?.properties
-        const subscriptions = getDevicePushSubscriptions(personProperties, projectId, this.encryptedFields)
+        const subscriptions = getDevicePushSubscriptions(recipient.properties, projectId, this.encryptedFields)
 
         if (subscriptions.length === 0) {
-            addLog('warn', `No active FCM device token found for distinct_id: ${params.distinctId}`)
+            skipMessages.push(`No active FCM device token found for distinct_id: ${recipient.distinctId}`)
             pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
             return false
         }
@@ -471,7 +618,7 @@ export class PushNotificationService {
             if (outcome.sent) {
                 delivered++
             } else if (outcome.unregistered) {
-                this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'fcm')
+                this.pruneDeviceToken(result, invocation, recipient, subscription.propertyKeys, 'fcm')
                 addLog('warn', `FCM: ${outcome.message}`)
             } else if (outcome.error) {
                 failures.push(outcome.error)
@@ -569,7 +716,10 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         integration: IntegrationType,
-        invocation: CyclotronJobInvocationHogFunction
+        invocation: CyclotronJobInvocationHogFunction,
+        recipient: PushRecipient,
+        apnsAcceptedKeys: Set<string>,
+        skipMessages: string[]
     ): Promise<boolean> {
         const addLog = createAddLogFunction(result.logs)
 
@@ -581,16 +731,17 @@ export class PushNotificationService {
             throw new Error('APNS integration is missing required fields: signing_key, key_id, team_id, or bundle_id')
         }
 
-        const personProperties = invocation.state.globals.person?.properties
-        const subscriptions = getDevicePushSubscriptions(personProperties, bundleId, this.encryptedFields)
+        const subscriptions = getDevicePushSubscriptions(recipient.properties, bundleId, this.encryptedFields)
 
         if (subscriptions.length === 0) {
-            addLog('warn', `No active APNS device token found for distinct_id: ${params.distinctId}`)
+            skipMessages.push(`No active APNS device token found for distinct_id: ${recipient.distinctId}`)
             pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
             return false
         }
 
         let jwt = await this.generateApnsJwt(appleTeamId, keyId, signingKey)
+        const keyFingerprint = this.apnsKeyFingerprint(appleTeamId, keyId, signingKey)
+        const keyRef = keyFingerprint.slice(0, 16)
         const apnsHost =
             integration.config.environment === 'sandbox' ? 'api.sandbox.push.apple.com' : 'api.push.apple.com'
         const templateId = result.invocation.hogFunction.template_id ?? 'unknown'
@@ -607,32 +758,49 @@ export class PushNotificationService {
                 result,
                 params,
                 subscription,
-                { apnsHost, bundleId, jwt, templateId },
+                { apnsHost, bundleId, jwt, templateId, appleTeamId },
                 addLog
             )
-            if (!tokenRefreshed && outcome.error?.code && APNS_REJECTED_TOKEN_CODES.has(outcome.error.code)) {
+            // Apple rejects a small share of requests with a token it accepts on the next one. Retry each device
+            // here, because a person whose other device delivered is never rescheduled.
+            if (outcome.error?.code && APNS_REJECTED_TOKEN_CODES.has(outcome.error.code)) {
+                const refreshed = tokenRefreshed ? null : await this.refreshApnsJwt(appleTeamId, keyId, signingKey, jwt)
                 tokenRefreshed = true
-                const refreshed = await this.refreshApnsJwt(appleTeamId, keyId, signingKey, jwt)
                 if (refreshed) {
                     jwt = refreshed
-                    addLog('warn', 'APNs rejected the provider token. Retrying once with a new token.')
-                    outcome = await this.sendOneApns(
-                        result,
-                        params,
-                        subscription,
-                        { apnsHost, bundleId, jwt, templateId },
-                        addLog
-                    )
                 }
+                addLog(
+                    'warn',
+                    refreshed
+                        ? 'APNs rejected the provider token. Retrying once with a new token.'
+                        : 'APNs rejected the provider token. Retrying once.'
+                )
+                outcome = await this.sendOneApns(
+                    result,
+                    params,
+                    subscription,
+                    { apnsHost, bundleId, jwt, templateId, appleTeamId },
+                    addLog
+                )
             }
             if (outcome.sent) {
                 delivered++
+                this.rememberApnsKeyAccepted(keyFingerprint)
             } else if (outcome.unregistered) {
-                this.pruneDeviceToken(result, invocation, params.distinctId, subscription.propertyKeys, 'apns')
+                this.pruneDeviceToken(result, invocation, recipient, subscription.propertyKeys, 'apns')
                 addLog('warn', `APNs: ${outcome.message}`)
             } else if (outcome.error) {
-                failures.push(outcome.error)
-                retriableFailure = longestRetriableFailure(retriableFailure, outcome.error)
+                // Only a provider-token rejection depends on whether the key works, so skip the shared read otherwise.
+                const keyAccepted =
+                    !!outcome.error.code &&
+                    APNS_REJECTED_TOKEN_CODES.has(outcome.error.code) &&
+                    (apnsAcceptedKeys.has(keyRef) || (await this.apnsKeyAcceptedRecently(keyFingerprint)))
+                const error = keyAccepted ? retriableTokenRejection(outcome.error) : outcome.error
+                if (error instanceof ApnsTokenRejectionError) {
+                    apnsAcceptedKeys.add(keyRef)
+                }
+                failures.push(error)
+                retriableFailure = longestRetriableFailure(retriableFailure, error)
             }
         }
 
@@ -658,7 +826,7 @@ export class PushNotificationService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         params: CyclotronInvocationQueueParametersSendPushNotificationType,
         subscription: DeviceSubscription,
-        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string },
+        apns: { apnsHost: string; bundleId: string; jwt: string; templateId: string; appleTeamId: string },
         addLog: ReturnType<typeof createAddLogFunction>
     ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
         const payload = params.payload
@@ -684,6 +852,7 @@ export class PushNotificationService {
             // APNs requires HTTP/2
             allowH2: true,
             http2IdleTimeoutMs: APNS_IDLE_TIMEOUT_MS,
+            http2ConnectionGroup: `apns:${apns.appleTeamId}`,
         }
 
         if (params.timeoutMs !== undefined) {
@@ -768,6 +937,14 @@ export class PushNotificationService {
         const replacement = await this.readReplacementApnsJwt(cacheKey, rejectedJwt)
         if (replacement) {
             return replacement
+        }
+
+        // Apple answers a second token inside its refresh window with TooManyProviderTokenUpdates for the rest of
+        // that window, so a new token cannot help while the rejected one is still young.
+        const rejectedIssuedAtMs = apnsJwtIssuedAtMs(rejectedJwt)
+        if (rejectedIssuedAtMs !== null && Date.now() - rejectedIssuedAtMs < APNS_JWT_REFRESH_WINDOW_SECONDS * 1000) {
+            apnsProviderTokenRefreshCounter.labels({ outcome: 'skipped' }).inc()
+            return null
         }
 
         // Fails closed: without Valkey a pod cannot tell whether the fleet already refreshed this key.
@@ -866,6 +1043,36 @@ export class PushNotificationService {
         return jwt
     }
 
+    private rememberApnsKeyAccepted(fingerprint: string): void {
+        const nowMs = Date.now()
+        let sharedAtMs = this.apnsKeyAcceptedAtMs.get(fingerprint)?.sharedAtMs ?? 0
+        if (nowMs - sharedAtMs >= APNS_KEY_ACCEPTED_SHARE_INTERVAL_MS) {
+            sharedAtMs = nowMs
+            void this.valkey.useClient({ name: 'apns-key-accepted-write', failOpen: true }, (client) =>
+                client.set(`${APNS_KEY_ACCEPTED_PREFIX}${fingerprint}`, '1', 'EX', APNS_JWT_REFRESH_WINDOW_SECONDS)
+            )
+        }
+        this.apnsKeyAcceptedAtMs.delete(fingerprint)
+        this.apnsKeyAcceptedAtMs.set(fingerprint, { acceptedAtMs: nowMs, sharedAtMs })
+        if (this.apnsKeyAcceptedAtMs.size > APNS_JWT_LOCAL_CACHE_MAX) {
+            const oldest = this.apnsKeyAcceptedAtMs.keys().next().value
+            if (oldest !== undefined) {
+                this.apnsKeyAcceptedAtMs.delete(oldest)
+            }
+        }
+    }
+
+    private async apnsKeyAcceptedRecently(fingerprint: string): Promise<boolean> {
+        const acceptedAtMs = this.apnsKeyAcceptedAtMs.get(fingerprint)?.acceptedAtMs
+        if (acceptedAtMs !== undefined && Date.now() - acceptedAtMs < APNS_JWT_REFRESH_WINDOW_SECONDS * 1000) {
+            return true
+        }
+        const shared = await this.valkey.useClient({ name: 'apns-key-accepted-read', failOpen: true }, (client) =>
+            client.get(`${APNS_KEY_ACCEPTED_PREFIX}${fingerprint}`)
+        )
+        return shared !== null && shared !== undefined
+    }
+
     private rememberApnsJwtLocally(cacheKey: string, jwt: string): void {
         const nowMs = Date.now()
         // An adopted token can be older than this pod's read of it, and Apple rejects one past an hour.
@@ -950,7 +1157,7 @@ export class PushNotificationService {
     private pruneDeviceToken(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         invocation: CyclotronJobInvocationHogFunction,
-        distinctId: string,
+        recipient: PushRecipient,
         propertyKeys: string[],
         platform: 'fcm' | 'apns'
     ): void {
@@ -959,21 +1166,25 @@ export class PushNotificationService {
         result.capturedPostHogEvents.push({
             team_id: invocation.teamId,
             event: '$set',
-            distinct_id: distinctId,
+            distinct_id: recipient.distinctId,
             timestamp: new Date().toISOString(),
             properties: { $unset: propertyKeys },
         })
-        // Drop the keys from this invocation's own snapshot too. A reschedule carries `state` forward
-        // unchanged, so a retry would read the same dead token, send to it again and queue the $unset
-        // again. `person` is replaced rather than edited in place because the object can be shared with
-        // the sibling invocations built from the same event.
-        const globals = result.invocation.state.globals
-        if (globals.person?.properties) {
-            const properties = { ...globals.person.properties }
+        // Drop the keys from the recipient read by the rest of this send, and from this invocation's own
+        // snapshot when they are the same person. A reschedule carries `state` forward unchanged, so a
+        // retry would read the same dead token, send to it again and queue the $unset again. A looked-up
+        // recipient is read fresh on the retry instead. `person` is replaced rather than edited in place
+        // because the object can be shared with the sibling invocations built from the same event.
+        if (recipient.properties) {
+            const properties = { ...recipient.properties }
             for (const propertyKey of propertyKeys) {
                 delete properties[propertyKey]
             }
-            globals.person = { ...globals.person, properties }
+            recipient.properties = properties
+        }
+        const globals = result.invocation.state.globals
+        if (recipient.isRunPerson && globals.person?.properties) {
+            globals.person = { ...globals.person, properties: recipient.properties ?? {} }
         }
         pushNotificationTokenPrunedCounter.labels({ platform }).inc()
         // A dead token is a non-delivery, not a failure to fix. Record it in the reason-labeled skip

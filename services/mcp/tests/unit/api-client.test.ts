@@ -3,12 +3,44 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api/client'
 import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-signature'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
-import { PostHogTransportError } from '@/lib/errors'
+import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
+import { GENERATED_TOOLS as PROXY_TOOLS } from '@/tools/generated/proxy-records'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import type { Context } from '@/tools/types'
 
 describe('ApiClient', () => {
+    it('validates the resource path of a generated tool before fetching', async () => {
+        const send = vi.fn().mockResolvedValue(new Response('{}'))
+        vi.stubGlobal('fetch', send)
+        const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+        const context = { api: client, stateManager: { getOrgID: async () => 'example' } } as unknown as Context
+        const tool = getToolByName(PROXY_TOOLS, 'proxy-delete')
+        try {
+            await expect(tool.handler(context, tool.schema.parse({ id: '..' }))).rejects.toThrow('Invalid API path')
+            expect(send).not.toHaveBeenCalled()
+        } finally {
+            vi.unstubAllGlobals()
+        }
+    })
+
+    it.each(['.', '..', '%2e', '.%2e', '%2e.', '%2e%2e', ''])(
+        'rejects invalid resource segment case %# before sending',
+        async (id) => {
+            const send = vi.fn().mockResolvedValue(new Response('{}'))
+            vi.stubGlobal('fetch', send)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+            try {
+                await expect(
+                    client.request({ method: 'DELETE', path: `/api/organizations/example/proxy_records/${id}/` })
+                ).rejects.toThrow('Invalid API path')
+                expect(send).not.toHaveBeenCalled()
+            } finally {
+                vi.unstubAllGlobals()
+            }
+        }
+    )
+
     it.each([200, 403, 500])('reads privacy only from the API response before handling status %s', async (status) => {
         const shared = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
         const suppress = vi.fn()
@@ -469,6 +501,9 @@ describe('ApiClient', () => {
 
             expect(mockFetch).toHaveBeenCalledTimes(1)
             expect(result.success).toBe(false)
+            const error = result.success ? undefined : result.error
+            expect(error).toBeInstanceOf(PostHogApiError)
+            expect((error as PostHogApiError).status).toBe(404)
 
             vi.unstubAllGlobals()
         })
@@ -672,6 +707,100 @@ describe('ApiClient', () => {
             expect((error as PostHogTransportError).retryable).toBe(false)
             expect((error as PostHogTransportError).message).toContain('may have been applied upstream')
             expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        const stubStalledFetch = (): ReturnType<typeof vi.fn> => {
+            const mockFetch = vi.fn(
+                (_url: string, init?: RequestInit) =>
+                    new Promise<Response>((_resolve, reject) => {
+                        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason))
+                    })
+            )
+            vi.stubGlobal('fetch', mockFetch)
+            return mockFetch
+        }
+
+        it.each([
+            { method: 'GET' as const, retryable: true, advice: 'safe to retry' },
+            { method: 'POST' as const, retryable: false, advice: 'may have been applied upstream' },
+        ])('ends a $method request that never answers', async ({ method, retryable, advice }) => {
+            const mockFetch = stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+            const error = await settle(client.request({ method, path: '/api/projects/17/signals/scout/notes/' }))
+
+            expect(error).toBeInstanceOf(PostHogTransportError)
+            expect(error).toMatchObject({ retryable, timedOut: true, attempts: 1 })
+            expect((error as PostHogTransportError).message).toContain(advice)
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it.each([
+            {
+                name: 'event definition',
+                lookup: { id: 'event-id', name: 'test_event' },
+                update: (client: ApiClient) =>
+                    client.projects().updateEventDefinition({
+                        projectId: '17',
+                        eventName: 'test_event',
+                        data: { description: 'Test' },
+                    }),
+            },
+            {
+                name: 'property definition',
+                lookup: { results: [{ id: 'property-id', name: 'test_property' }] },
+                update: (client: ApiClient) =>
+                    client.projects().updatePropertyDefinition({
+                        projectId: '17',
+                        propertyName: 'test_property',
+                        data: { description: 'Test' },
+                    }),
+            },
+        ])('ends a $name update that never answers', async ({ lookup, update }) => {
+            const mockFetch = stubStalledFetch()
+            mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(lookup), { status: 200 }))
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+            const result = await settle(update(client))
+
+            expect(result).toMatchObject({ success: false })
+            const error = (result as { error: unknown }).error
+            expect(error).toBeInstanceOf(PostHogTransportError)
+            expect(error).toMatchObject({ method: 'PATCH', retryable: false, timedOut: true })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it.each(['/api/environments/17/query/', '/api/environments/17/mcp_tools/execute_sql/'])(
+            'gives a query request to %s more time than the default deadline',
+            async (path) => {
+                stubStalledFetch()
+                const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+                let settled = false
+                const pending = client
+                    .request({ method: 'POST', path })
+                    .finally(() => {
+                        settled = true
+                    })
+                    .catch((error) => error)
+
+                await vi.advanceTimersByTimeAsync(5 * 60 * 1000)
+                expect(settled).toBe(false)
+
+                await vi.runAllTimersAsync()
+                expect(await pending).toMatchObject({ timedOut: true })
+            }
+        )
+
+        it('ends a request at its own shorter deadline', async () => {
+            stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            const pending = client
+                .request({ method: 'GET', path: '/api/projects/17/integrations/', timeoutMs: 10 * 1000 })
+                .catch((error) => error)
+
+            await vi.advanceTimersByTimeAsync(10 * 1000)
+
+            expect(await pending).toMatchObject({ timedOut: true })
         })
     })
 })

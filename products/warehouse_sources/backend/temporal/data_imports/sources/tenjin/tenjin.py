@@ -14,14 +14,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.settings import TENJIN_REPORTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.tenjin.settings import (
+    DEFAULT_LOOKBACK_DAYS,
+    TENJIN_REPORTS,
+)
 
 TENJIN_BASE_URL = "https://api.tenjin.com/v2"
 # First sync backfill depth. Attribution platforms rarely keep report data useful beyond this.
 MAX_HISTORY_DAYS = 730
-# Tenjin keeps restating recent days (late SKAN postbacks, ad network cost corrections), so an
-# incremental run re-reads a trailing window; the merge dedupes on the dimension key.
-LOOKBACK_DAYS = 7
 # The documented maximum, to keep the request count low on long backfills.
 PER_PAGE = 1000
 VALIDATE_TIMEOUT_SECONDS = 30
@@ -70,12 +70,13 @@ def resolve_start_date(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
     today: date,
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
 ) -> date:
     earliest = today - timedelta(days=MAX_HISTORY_DAYS)
     if should_use_incremental_field:
         watermark = _to_date(db_incremental_field_last_value)
         if watermark is not None:
-            return min(max(watermark - timedelta(days=LOOKBACK_DAYS), earliest), today)
+            return min(max(watermark - timedelta(days=lookback_days), earliest), today)
     return earliest
 
 
@@ -93,7 +94,9 @@ def tenjin_source(
         raise ValueError(f"Unknown Tenjin report: {endpoint}")
 
     today = _today()
-    start = resolve_start_date(should_use_incremental_field, db_incremental_field_last_value, today)
+    start = resolve_start_date(
+        should_use_incremental_field, db_incremental_field_last_value, today, lookback_days=report.lookback_days
+    )
 
     config: RESTAPIConfig = {
         "client": {

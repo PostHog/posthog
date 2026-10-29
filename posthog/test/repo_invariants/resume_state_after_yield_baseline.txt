@@ -389,7 +389,6 @@ terraform_cloud/terraform_cloud.py::_get_fan_out_rows
 terraform_cloud/terraform_cloud.py::_get_top_level_rows
 transistor/transistor.py::get_rows
 travis_ci/travis_ci.py::get_rows
-trigger_dev/trigger_dev.py::_iter_cursor_pages
 trunk_io/trunk_io.py::failing_tests
 twelve_data/twelve_data.py::twelve_data_rows
 ubidots/ubidots.py::get_rows

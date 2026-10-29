@@ -177,6 +177,10 @@ pub struct Config {
     #[envconfig(default = "10")]
     pub grpc_keepalive_timeout_secs: u64,
 
+    /// Maximum age of an inbound gRPC connection before a graceful GOAWAY (0 = disabled)
+    #[envconfig(default = "300")]
+    pub grpc_max_connection_age_secs: u64,
+
     /// Interval between HTTP/2 keepalive pings sent to the replica backend (0 = disabled)
     #[envconfig(default = "30")]
     pub backend_keepalive_interval_secs: u64,
@@ -370,6 +374,14 @@ pub struct Config {
     /// a wedged handoff then really does wait for a human.
     #[envconfig(default = "120")]
     pub coordinator_handoff_deadline_secs: u64,
+
+    /// Frozen partitions are a write outage, so a migration cancels past this.
+    #[envconfig(default = "30")]
+    pub coordinator_migration_pre_flip_deadline_secs: u64,
+
+    /// Coalesces a burst of watch events into one migration pass.
+    #[envconfig(default = "10")]
+    pub coordinator_migration_debounce_ms: u64,
 
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
@@ -765,6 +777,14 @@ impl Config {
         }
     }
 
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
+        }
+    }
+
     pub fn backend_keepalive_interval(&self) -> Option<Duration> {
         if self.backend_keepalive_interval_secs == 0 {
             None
@@ -1015,6 +1035,14 @@ impl Config {
 
     pub fn coordinator_handoff_deadline(&self) -> Duration {
         Duration::from_secs(self.coordinator_handoff_deadline_secs)
+    }
+
+    pub fn coordinator_migration_pre_flip_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_migration_pre_flip_deadline_secs)
+    }
+
+    pub fn coordinator_migration_debounce_interval(&self) -> Duration {
+        Duration::from_millis(self.coordinator_migration_debounce_ms)
     }
 
     pub fn router_reconcile_interval(&self) -> Duration {

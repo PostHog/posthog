@@ -263,6 +263,7 @@ export type MinimalAppMetric = {
         | 'email_bounce_prevented'
         | 'message_frequency_capped'
         | 'email_suppressed'
+        | 'email_missing_recipient'
         | 'email_suspended'
         | 'email_paused'
         | 'email_blocked'
@@ -297,11 +298,12 @@ export type AppMetricType = MinimalAppMetric & {
  * Where an event stopped, for a record on a dead-letter topic.
  *
  * `filter` and `inputs` are the two failures the pipeline expects and handles per function.
- * `parse` and `process` are the ones it does not: a message it cannot read, and anything else
- * that throws while an event is being turned into invocations. Those two exist so an unanticipated
- * bug parks the event rather than stalling the partition it arrived on.
+ * `parse`, `lookup` and `process` are the ones it does not: a message it cannot read, a team, hog
+ * function or hog flow lookup that failed with an error that is not retriable, and anything else
+ * that throws while the pipeline turns an event into invocations. Those three park a lone
+ * unanticipated failure rather than stalling the partition it arrived on.
  */
-export type DeadLetterStep = 'parse' | 'filter' | 'inputs' | 'process'
+export type DeadLetterStep = 'parse' | 'lookup' | 'filter' | 'inputs' | 'process'
 
 export type InvocationBuildFailure = {
     sourceId: string
@@ -340,6 +342,10 @@ export type CyclotronJobInvocation = {
     queuePriority: number
     // When the invocation is scheduled to run
     queueScheduledAt?: DateTime
+    // When the queue first stored the job. A reschedule moves queueScheduledAt but not this, and a clone keeps it.
+    queueCreatedAt?: DateTime
+    // The scheduled time this job had when it was dequeued. A clone resets queueScheduledAt but keeps this.
+    queueDueAt?: DateTime
     // Metadata for the invocation - TODO: check when this gets cleared
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
@@ -361,6 +367,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
      * flag nor an error, so nothing else on the result tells the two apart.
      */
     deliveredToRecipient?: boolean
+    emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.
@@ -442,6 +449,12 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
+export type MessageOptOutRecord = {
+    identifier: string
+    // A message category id, or '$all' for all marketing messages.
+    categoryId: string
+}
+
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
@@ -467,6 +480,15 @@ export type HogFlowInvocationContext = {
     // Absent on runs parked before this was introduced — those attribute to no version at all
     // rather than to a wrong one.
     flowVersion?: number
+    // Opt-outs this run's "Opt out of messages" steps made. Message steps check them before the recipient cache,
+    // because a worker that resumes the run can hold the recipient's preferences from before the opt-out.
+    messageOptOuts?: MessageOptOutRecord[]
+    // Stamped at run start and persisted with the state, so a recovery path that holds only the
+    // workflow id still keeps a sensitive run's message data out of its snapshot.
+    sensitive?: boolean
+    // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
+    // `triggered` and clears this flag, so a rescheduled run does not count again.
+    triggerMetricPending?: boolean
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1
@@ -481,6 +503,13 @@ export type HogFlowInvocationContext = {
         // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
         // run the next step immediately, which for a "N days before X" message is worse than not sending.
         delayUntilUnresolved?: boolean
+        // Failed cohort membership lookups so far on this step. The step retries on a backoff while
+        // this stays under the limit, because a lookup timeout is usually a short stall.
+        cohortLookupAttempts?: number
+        // Set when a cohort membership lookup failed on every attempt. The run aborts on it whatever
+        // on_error says, because the default 'continue' takes the continue edge, and on a branch that
+        // edge sends a member down the path for people outside the cohort.
+        cohortLookupFailed?: boolean
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).
@@ -533,6 +562,9 @@ export type HogFlowInvocationContext = {
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
     conversionMatched?: boolean
+    // Set once the membership table has caught up with the change that started a cohort-triggered run.
+    // The writer that fills the table lags the trigger, so a mismatch read before this means a pending write.
+    cohortTriggerConfirmed?: boolean
     // Once-per-run guard for the property-based conversion metric. Executor-owned:
     // shouldExitEarly runs on every resume, so without this a persistently-true
     // conversion filter would emit a `conversion` metric on every step. Event-based
@@ -575,6 +607,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'replay_vision_scan'
         | 'task_skills'
     key: string
     label?: string

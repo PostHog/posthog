@@ -22,6 +22,7 @@ describe('AnalyticsMetricCard', () => {
         await userEvent.keyboard(' ')
         expect(onClick).toHaveBeenCalledTimes(2)
         expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'false')
+        expect(screen.getByRole('button').querySelector('svg')).toBeNull()
     })
 
     it('does not trigger a containing click action', () => {

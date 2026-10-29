@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import orjson
 import pyarrow as pa
@@ -58,6 +58,29 @@ class MailerLiteResumeConfig:
     child_state: dict[str, Any] | None = None
 
 
+# The automation activity endpoint requires `filter[status]` on every page (see api_inventory.md),
+# but MailerLite's own `links.next` for page 2+ omits it — following that link verbatim 422s with
+# "Unprocessable Entity". Carry it forward from the page that was just fetched.
+_CARRIED_QUERY_PARAMS = ("filter[status]",)
+
+
+def _carry_required_query_params(next_url: str, previous_url: Optional[str]) -> str:
+    if not previous_url:
+        return next_url
+
+    previous_query = dict(parse_qsl(urlsplit(previous_url).query))
+    next_split = urlsplit(next_url)
+    next_query = parse_qsl(next_split.query)
+    next_keys = {key for key, _ in next_query}
+    missing = [
+        (key, previous_query[key]) for key in _CARRIED_QUERY_PARAMS if key in previous_query and key not in next_keys
+    ]
+    if not missing:
+        return next_url
+
+    return next_split._replace(query=urlencode(next_query + missing)).geturl()
+
+
 class MailerLiteNextUrlPaginator(JSONResponsePaginator):
     """Follows the absolute ``links.next`` URL MailerLite returns for both cursor (subscribers) and
     page-number (everything else) pagination — but only while it stays on the canonical MailerLite
@@ -72,6 +95,8 @@ class MailerLiteNextUrlPaginator(JSONResponsePaginator):
 
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
         super().update_state(response, data)
+        if self._has_next_page and self._next_url is not None:
+            self._next_url = _carry_required_query_params(self._next_url, response.url)
         if self._has_next_page and (
             not isinstance(self._next_url, str) or not self._next_url.startswith(MAILERLITE_BASE_URL)
         ):

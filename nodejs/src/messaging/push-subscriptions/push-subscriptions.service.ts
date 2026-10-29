@@ -21,7 +21,7 @@ export type PushRejectionCode =
     | 'capture_failed'
     | 'capture_billing_limited'
 
-export type PushErrorType = 'validation_error' | 'authentication_error' | 'server_error'
+export type PushErrorType = 'validation_error' | 'authentication_error' | 'throttled_error' | 'server_error'
 
 /** The body shape Django's `generate_exception_response` produces, which SDKs already parse. */
 export type PushErrorBody = {
@@ -42,6 +42,7 @@ export type PushSuccessBody = {
 export type PushHandlerResult = {
     status: number
     body: PushErrorBody | PushSuccessBody
+    headers?: Record<string, string>
     /** Set on a rejection so the caller can log and count it with the same fields Django uses. */
     rejection?: {
         code: PushRejectionCode
@@ -60,6 +61,8 @@ export type PushHandlerResult = {
 }
 
 export const MAX_BODY_BYTES = 16 * 1024
+
+const BILLING_LIMITED_RETRY_AFTER_SECONDS = 3600
 
 const VERIFICATION_MODE_PRECEDENCE: Record<string, number> = { disabled: 0, optional: 1, required: 2 }
 
@@ -259,17 +262,20 @@ export class PushSubscriptionsService {
                 properties: { ...properties, $process_person_profile: true },
             })
         } catch (error) {
+            const detail =
+                request.method === 'POST' ? 'Failed to store push subscription.' : 'Failed to remove push subscription.'
+            if (error instanceof CaptureBillingLimitError) {
+                // SDKs keep the registration or the logout for a later retry on a 429 and a 5xx, and drop it
+                // on any other 4xx. Retry-After holds the retries back for the rest of the session, because
+                // the billing limit does not lift in minutes.
+                return {
+                    ...reject('capture_billing_limited', 429, 'throttled_error', detail, { teamId: team.id, appId }),
+                    headers: { 'Retry-After': String(BILLING_LIMITED_RETRY_AFTER_SECONDS) },
+                    identityVerification,
+                }
+            }
             return {
-                ...reject(
-                    // A code of its own lets the error-rate alert leave out projects over their billing limit.
-                    error instanceof CaptureBillingLimitError ? 'capture_billing_limited' : 'capture_failed',
-                    500,
-                    'server_error',
-                    request.method === 'POST'
-                        ? 'Failed to store push subscription.'
-                        : 'Failed to remove push subscription.',
-                    { teamId: team.id, appId, error }
-                ),
+                ...reject('capture_failed', 500, 'server_error', detail, { teamId: team.id, appId, error }),
                 identityVerification,
             }
         }

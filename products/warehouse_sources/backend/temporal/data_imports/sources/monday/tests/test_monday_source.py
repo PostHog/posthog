@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.monday import MondaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.monday import (
     MONDAY_VERSION_2026_07,
+    MONDAY_VERSION_2026_10,
     MONDAY_VERSION_V2,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.monday.source import MondaySource
@@ -31,17 +32,24 @@ class TestMondaySource:
         retryable_errors = self.source.get_retryable_errors()
         assert error_message_matches(observed_error, retryable_errors)
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["items"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "items"
+    @pytest.mark.parametrize(
+        "observed_error",
+        [
+            "monday.com GraphQL error: Not authenticated",
+            "monday.com GraphQL error: User unauthorized",
+        ],
+    )
+    def test_non_retryable_errors_match_auth_and_permission_failures(self, observed_error):
+        non_retryable_errors = self.source.get_non_retryable_errors()
+        assert error_message_matches(observed_error, non_retryable_errors)
 
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message, api_version, expected_api_version",
         [
-            (True, True, None, None, MONDAY_VERSION_2026_07),
+            (True, True, None, None, MONDAY_VERSION_2026_10),
             (True, True, None, MONDAY_VERSION_V2, MONDAY_VERSION_V2),
-            (False, False, "Invalid monday.com API token", None, MONDAY_VERSION_2026_07),
+            (True, True, None, MONDAY_VERSION_2026_07, MONDAY_VERSION_2026_07),
+            (False, False, "Invalid monday.com API token", None, MONDAY_VERSION_2026_10),
         ],
     )
     @mock.patch(
@@ -63,7 +71,8 @@ class TestMondaySource:
         [
             (MONDAY_VERSION_V2, "2024-10"),
             (MONDAY_VERSION_2026_07, "2026-07"),
-            (None, "2026-07"),
+            (MONDAY_VERSION_2026_10, "2026-10"),
+            (None, "2026-10"),
         ],
     )
     def test_sync_sends_the_source_pin(self, pinned_version: str | None, expected_header: str) -> None:

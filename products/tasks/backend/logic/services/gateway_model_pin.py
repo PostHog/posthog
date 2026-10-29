@@ -11,22 +11,51 @@ GATEWAY_PRODUCT_STATE_KEY = "ai_gateway_product"
 # subagent's bare `sonnet` alias resolves to. The catalog does not offer them for selection.
 SDK_IMPLICIT_MODELS: tuple[str, ...] = ("claude-haiku-4-5", "claude-sonnet-4-5")
 
-# Every model a run calls; an off-pin call fails with no fallback. Slash-namespaced catalog ids stay out:
-# Go serves them only on OpenAI shapes, so runs on them keep the Python gateway.
-_FIRST_PARTY_AGENT_MODELS: list[str] = list(
-    dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model.id for model in MODELS if "/" not in model.id)])
-)
+_GATEWAY_RESTRICTED_MODEL_PRODUCTS: dict[str, frozenset[str]] = {
+    "deepseek-ai/deepseek-v4-flash-0731": frozenset({"posthog_code", "review_hog"}),
+    "deepseek-ai/deepseek-v4.1-flash-1017-fast": frozenset({"posthog_code", "review_hog", "signals_scout"}),
+    # Excluded from every first-party pin; posthog_code admits it through DESKTOP_AGENT_MODELS.
+    "zai-org/glm-5.2": frozenset({"posthog_code"}),
+    "zai-org/glm-5.3": frozenset({"posthog_code", "review_hog"}),
+    "zai-org/glm-5.3-flash": frozenset({"posthog_code", "review_hog"}),
+    # Only ReviewHog's arm-set trial calls it, and the desktop pin has no room left under MAX_GATEWAY_PIN_LENGTH.
+    "gpt-6.1-terra": frozenset({"review_hog"}),
+}
+
+
+def _admits(product: str, model_id: str) -> bool:
+    return product in _GATEWAY_RESTRICTED_MODEL_PRODUCTS.get(model_id, frozenset({product}))
+
+
+def _first_party_pin(product: str) -> list[str]:
+    routed = (model.id for model in MODELS if not model.id.startswith("@cf/"))
+    return list(dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model_id for model_id in routed if _admits(product, model_id))]))
+
 
 # Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
 _DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini")
 
-# Every model a PostHog Desktop session or cloud run may call, slash ids included. Go picks the provider.
+
+def gateway_pin(models: list[str]) -> list[str]:
+    return [model for model in models if not model.startswith("@cf/")]
+
+
+# Every model a PostHog Desktop session or cloud run may call, slash ids included, except the ones reserved for
+# other products. Go picks the provider.
 DESKTOP_AGENT_MODELS: list[str] = list(
-    dict.fromkeys([*SDK_IMPLICIT_MODELS, *(model.id for model in MODELS), *_DESKTOP_LEGACY_MODELS])
+    dict.fromkeys(
+        [
+            *SDK_IMPLICIT_MODELS,
+            *(model.id for model in MODELS if _admits("posthog_code", model.id)),
+            *_DESKTOP_LEGACY_MODELS,
+        ]
+    )
 )
 # The Go gateway refuses a pin longer than this at mint.
 MAX_GATEWAY_PIN_LENGTH = 32
-assert len(DESKTOP_AGENT_MODELS) <= MAX_GATEWAY_PIN_LENGTH, "the desktop model pin outgrew the gateway limit"
+assert len(gateway_pin(DESKTOP_AGENT_MODELS)) <= MAX_GATEWAY_PIN_LENGTH, (
+    "the desktop model pin outgrew the gateway limit"
+)
 
 # The legacy gateway's free tier. GLM-5.2 is listed twice: older clients send `@cf/`, Go serves the bare id.
 FREE_TIER_MODELS: list[str] = [
@@ -41,12 +70,13 @@ FREE_TIER_MODELS: list[str] = [
 FREE_TIER_PIN_KEY = "posthog_code:free"
 
 PRODUCT_ALLOWED_MODELS: dict[str, list[str]] = {
-    "posthog_ai": _FIRST_PARTY_AGENT_MODELS,
+    "posthog_ai": _first_party_pin("posthog_ai"),
+    "account_audit": _first_party_pin("account_audit"),
     "posthog_code": DESKTOP_AGENT_MODELS,
     FREE_TIER_PIN_KEY: FREE_TIER_MODELS,
-    "review_hog": _FIRST_PARTY_AGENT_MODELS,
-    "slack_app": _FIRST_PARTY_AGENT_MODELS,
-    "workflows": _FIRST_PARTY_AGENT_MODELS,
+    "review_hog": _first_party_pin("review_hog"),
+    "slack_app": _first_party_pin("slack_app"),
+    "workflows": _first_party_pin("workflows"),
 }
 
 

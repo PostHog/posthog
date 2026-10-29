@@ -14,7 +14,7 @@ import contextlib
 import dataclasses
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from posthog.dataclasses import frozen
 
@@ -207,6 +207,7 @@ _PLACEHOLDERS_BY_NAME = (
     ("domain", "contract.example.com"),
     ("region", "us-east-1"),
     ("date", "2024-01-01"),
+    ("billing_period", "2024-01"),
 )
 _UUID = "00000000-0000-4000-8000-000000000000"
 
@@ -219,7 +220,8 @@ def _placeholder_config(config_class: type, text: str | None, fill_optional: boo
             continue
         annotation = annotations.get(field.name, field.type)
         required = field.default is dataclasses.MISSING and field.default_factory is dataclasses.MISSING
-        if not required and not (fill_optional and field.default is None and "str" in str(annotation)):
+        is_optional_str = str in get_args(annotation) or annotation in ("str | None", "Optional[str]")
+        if not required and not (fill_optional and field.default is None and is_optional_str):
             continue
         if isinstance(annotation, type) and is_config(annotation):
             kwargs[field.name] = _placeholder_config(annotation, text, fill_optional)

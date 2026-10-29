@@ -5,8 +5,11 @@ import pytest
 
 from parameterized import parameterized
 
+from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.operation import Operation as op
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.crypto import sha1, sha1HmacChain
+from common.hogvm.python.utils import HogVMException
 
 # RFC 2202 HMAC-SHA1 test vectors, limited to the cases whose key and message are text (the STL
 # only takes strings). A two-element chain is a plain HMAC of key and message.
@@ -91,3 +94,29 @@ class TestStlRegistration:
     )
     def test_callable_through_stl(self, name: str, args: list, expected: str) -> None:
         assert STL[name].fn(args, None, None, 10.0) == expected
+
+
+class TestHogQLSha1:
+    @parameterized.expand(
+        [
+            ("abc", "abc", "a9993e364706816aba3e25717850c26c9cd0d89d"),
+            ("empty", "", "da39a3ee5e6b4b0d3255bfef95601890afd80709"),
+            ("unicode", "🦔", "b1495135295ac36752f6579e93ba02140604590f"),
+            ("null", None, None),
+        ]
+    )
+    def test_lowercase_hex(self, _name: str, value: str | None, expected: str | None) -> None:
+        argument = [op.NULL] if value is None else [op.STRING, value]
+        assert execute_bytecode(["_H", 1, *argument, op.CALL_GLOBAL, "sha1", 1]).result == expected
+
+    @parameterized.expand(
+        [
+            ("missing", [], "Function sha1 requires at least 1 arguments"),
+            ("extra", ["abc", "hex", "extra"], "Function sha1 requires at most 2 arguments"),
+        ]
+    )
+    def test_argument_count(self, _name: str, values: list[str], expected_error: str) -> None:
+        arguments = [item for value in values for item in [op.STRING, value]]
+        with pytest.raises(HogVMException) as exc:
+            execute_bytecode(["_H", 1, *arguments, op.CALL_GLOBAL, "sha1", len(values)])
+        assert str(exc.value) == expected_error

@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChecklySource(ResumableSource[ChecklySourceConfig, ChecklyResumeConfig]):
+    codebase_detection = detect(env=("^CHECKLY_",), npm=("checkly", "@checkly/playwright-reporter"))
+
     lists_tables_without_credentials = True
     supported_versions = SUPPORTED_API_VERSIONS
     default_version = DEFAULT_API_VERSION
@@ -97,7 +100,7 @@ class ChecklySource(ResumableSource[ChecklySourceConfig, ChecklyResumeConfig]):
             "Copy your account ID from [account settings](https://app.checklyhq.com/settings/account/general). "
             "Check results include up to 30 days of available history.",
             iconPath="/static/services/checkly.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

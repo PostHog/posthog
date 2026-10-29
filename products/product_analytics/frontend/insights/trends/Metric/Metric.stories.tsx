@@ -1,9 +1,10 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
 
 import __trendsMetric from '~/mocks/fixtures/api/projects/team_id/insights/trendsMetric.json'
+
+import { InsightVizStory } from 'products/product_analytics/frontend/insights/shared/__mocks__/createInsightVizStory'
 
 import { MetricCard } from './Metric'
 

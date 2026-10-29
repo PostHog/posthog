@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ElasticemailSource(ResumableSource[ElasticemailSourceConfig, ElasticEmailResumeConfig]):
+    codebase_detection = detect(
+        env=("^ELASTICEMAIL_", "^ELASTIC_EMAIL_"),
+        npm=("@elasticemail/elasticemail-client", "@elasticemail/elasticemail-client-ts-axios"),
+        pypi=("elasticemail",),
+        composer=("elasticemail/elasticemail-php",),
+    )
+
     supported_versions = ("v4",)
     default_version = "v4"
     api_docs_url = "https://elasticemail.com/developers/api-documentation/rest-api"
@@ -47,7 +55,7 @@ class ElasticemailSource(ResumableSource[ElasticemailSourceConfig, ElasticEmailR
             name=ExternalDataSourceType.ELASTICEMAIL,
             category=DataWarehouseSourceCategory.MARKETING___EMAIL,
             label="Elastic Email",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Elastic Email API key to pull your Elastic Email data into the PostHog Data warehouse.
 
 You can create an API key in your [Elastic Email account settings](https://app.elasticemail.com/marketing/settings/new/manage-api).

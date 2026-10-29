@@ -17,9 +17,11 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 
 from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 from products.review_hog.backend.reviewer.constants import LEGACY_FLASH_MODE_MESSAGE_PREFIX
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
-from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.models.issues_review import DroppedIssue, Issue, IssuePriority
+from products.review_hog.backend.reviewer.persistence import replace_dropped_findings, upsert_review_report
 from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.publish_review import (
     PublishOutcome,
@@ -230,6 +232,62 @@ class TestPublishIdempotency(BaseTest):
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
     @patch(_AUTH, return_value=("tok", None))
+    def test_a_review_says_when_the_finding_budget_left_findings_out(self, _auth, _snapshot, mock_publish) -> None:
+        mock_publish.return_value = PublishOutcome(posted=True)
+        report_id = self._report()
+        cut = Issue(
+            id="1-1-2", title="Cut", file="a.py", lines=[], issue="i", suggestion="", priority=IssuePriority.CONSIDER
+        )
+        replace_dropped_findings(
+            team_id=self.team.id,
+            report_id=report_id,
+            run_index=1,
+            head_sha="sha1",
+            dropped=[
+                DroppedIssue(issue=cut, disposition="budget", rank=2),
+                DroppedIssue(issue=cut.model_copy(update={"id": "1-1-3"}), disposition="budget", rank=3),
+                DroppedIssue(issue=cut.model_copy(update={"id": "1-1-4"}), disposition="cap", rank=4),
+            ],
+            cap=4,
+            lens_part_count=1,
+        )
+
+        _publish(_publish_input(self.team.id, report_id, "sha1"))
+
+        assert mock_publish.call_args.kwargs["budget_note"] == (
+            "This pull request reached its limit of 20 automatic review findings, so this review left out "
+            "2 lower-priority findings. Must-fix findings still post."
+        )
+
+    @parameterized.expand(
+        [
+            ("second_round_stays_quiet", {"1": "sha0"}, ""),
+            (
+                "third_round_asks_for_a_rethink",
+                {"1": "sha0", "2": "sha0"},
+                "This is review round 3 on this pull request.",
+            ),
+        ]
+    )
+    @patch(_PUBLISH)
+    @patch(_SNAPSHOT, return_value=None)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_a_review_says_which_round_it_is_from_the_round_cap_on(
+        self, _name, published_head_shas, expected_prefix, _auth, _snapshot, mock_publish
+    ) -> None:
+        mock_publish.return_value = PublishOutcome(posted=True)
+        report_id = self._report()
+        ReviewReport.objects.for_team(self.team.id).filter(id=report_id).update(published_head_shas=published_head_shas)
+
+        _publish(replace(_publish_input(self.team.id, report_id, "sha1"), run_index=3))
+
+        note = mock_publish.call_args.kwargs["round_note"]
+        assert note[: len(expected_prefix)] == expected_prefix
+        assert bool(note) is bool(expected_prefix)
+
+    @patch(_PUBLISH)
+    @patch(_SNAPSHOT, return_value=None)
+    @patch(_AUTH, return_value=("tok", None))
     def test_republish_same_head_is_skipped(self, _auth, _snapshot, mock_publish) -> None:
         report_id = self._report(published_head_sha="sha1")
         _publish(_publish_input(self.team.id, report_id, "sha1"))
@@ -247,6 +305,53 @@ class TestPublishIdempotency(BaseTest):
         _publish(_publish_input(self.team.id, report_id, "sha2"))
         assert mock_publish.call_count == 1
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha2"
+
+    @parameterized.expand(
+        [
+            ("automatic_draft_with_commands", "automatic", True, True, "Comment `@posthog review` to review", False),
+            ("automatic_draft_without_commands", "automatic", True, False, "Add the `posthog-review` label to", False),
+            ("automatic_ready", "automatic", False, True, None, False),
+            # A label review also runs for authors without automatic reviews, so it cannot promise one on ready.
+            ("label_draft", "label", True, True, None, True),
+            ("comment_ready", "comment", False, True, None, True),
+            ("ui_ready", "ui", False, True, None, True),
+            ("inbox_ready", "inbox", False, True, None, False),
+        ]
+    )
+    @patch(_PUBLISH)
+    @patch(_AUTH, return_value=("tok", None))
+    def test_the_publish_notes_follow_the_trigger(
+        self,
+        _name: str,
+        trigger_source: str,
+        draft: bool,
+        commands_on: bool,
+        expected_trigger: str | None,
+        expects_reply: bool,
+        _auth,
+        mock_publish,
+    ) -> None:
+        mock_publish.return_value = PublishOutcome(posted=True)
+        report_id = self._report()
+        snapshot = PRSnapshotArtefact(
+            head_sha="sha1",
+            pr_metadata=_pr_metadata("sha1").model_copy(update={"draft": draft}),
+            pr_comments=[],
+            pr_files=[],
+        )
+        with (
+            patch(_SNAPSHOT, return_value=snapshot),
+            patch(f"{_ACTIVITIES}.comment_commands_enabled", return_value=commands_on),
+        ):
+            _publish(replace(_publish_input(self.team.id, report_id, "sha1"), trigger_source=trigger_source))
+
+        assert mock_publish.call_args.kwargs["answers_request"] is expects_reply
+        findings_footer = mock_publish.call_args.kwargs["findings_footer"]
+        if expected_trigger is None:
+            assert findings_footer == ""
+        else:
+            assert findings_footer.startswith("This is the only automatic review while this pull request is a draft.")
+            assert expected_trigger in findings_footer
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)

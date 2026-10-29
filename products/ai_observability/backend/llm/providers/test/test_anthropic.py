@@ -10,9 +10,14 @@ from products.ai_observability.backend.llm.errors import (
     ModelNotFoundError,
     ModelPermissionError,
     OutputTokenLimitError,
+    ProviderConfigurationError,
 )
-from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter, AnthropicConfig
-from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
+from products.ai_observability.backend.llm.providers.anthropic import (
+    AnthropicAdapter,
+    AnthropicConfig,
+    error_field_for_validation_message,
+)
+from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
 
 
 class TestAnthropicListModels:
@@ -140,6 +145,31 @@ class TestAnthropicTemperature:
     def test_explicit_temperature_forwarded(self, model: str):
         assert self._complete_with_model(model, temperature=0.5)["temperature"] == 0.5
         assert self._stream_with_model(model, temperature=0.5)["temperature"] == 0.5
+
+
+class TestAnthropicStreamOutputSchema:
+    def _stream_kwargs(self, output_schema: OutputSchema | None) -> dict:
+        request = CompletionRequest(
+            model="claude-haiku-4-5",
+            system="s",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="anthropic",
+            output_schema=output_schema,
+        )
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.return_value = iter([])
+            list(AnthropicAdapter().stream(request, api_key="sk-ant-test", analytics=AnalyticsContext(capture=False)))
+            return mock_client.messages.create.call_args.kwargs
+
+    def test_output_schema_is_sent_as_json_schema_output_config(self):
+        schema = {"type": "object", "properties": {"ok": {"type": "boolean"}}, "required": ["ok"]}
+
+        kwargs = self._stream_kwargs(OutputSchema(schema=schema))
+
+        assert kwargs["output_config"] == {"format": {"type": "json_schema", "schema": schema}}
+        assert "output_config" not in self._stream_kwargs(None)
 
 
 def _make_bad_request_error(message: str) -> anthropic.BadRequestError:
@@ -333,3 +363,133 @@ class TestAnthropicStreamErrorSurfacing:
 
         errors = [chunk.data["error"] for chunk in chunks if chunk.type == "error"]
         assert errors == ["The provider is rate limiting this key. Wait a moment, then try again."]
+
+
+def _make_status_error(
+    error_class: type[anthropic.APIStatusError], status_code: int, body: dict | None = None
+) -> anthropic.APIStatusError:
+    body = body or {"error": {"message": "error"}}
+    request = httpx.Request("POST", "https://my-resource.services.ai.azure.com/anthropic/v1/messages/count_tokens")
+    response = httpx.Response(status_code=status_code, request=request, json=body)
+    return error_class("error", response=response, body=body)
+
+
+class TestAnthropicFoundry:
+    @parameterized.expand(
+        [
+            ("resource_endpoint", "https://my-resource.services.ai.azure.com/"),
+            ("anthropic_base_url", "https://my-resource.services.ai.azure.com/anthropic/"),
+            ("messages_url", "https://my-resource.services.ai.azure.com/anthropic/v1/messages"),
+        ]
+    )
+    def test_completion_goes_to_the_foundry_anthropic_api(self, _name: str, endpoint: str):
+        mock_response = MagicMock()
+        mock_response.content = [MagicMock(text="yes")]
+        mock_response.usage.input_tokens = 1
+        mock_response.usage.output_tokens = 1
+
+        with (
+            patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry") as foundry,
+            patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as direct,
+        ):
+            foundry.return_value.messages.create.return_value = mock_response
+            AnthropicAdapter(foundry_endpoint=endpoint).complete(
+                CompletionRequest(
+                    model="my-claude-deployment",
+                    messages=[{"role": "user", "content": "hi"}],
+                    provider="anthropic",
+                ),
+                api_key="foundry-key",
+                analytics=AnalyticsContext(capture=False),
+            )
+
+        direct.assert_not_called()
+        assert foundry.call_args.kwargs["api_key"] == "foundry-key"
+        assert foundry.call_args.kwargs["base_url"] == "https://my-resource.services.ai.azure.com/anthropic/"
+        assert foundry.return_value.messages.create.call_args.kwargs["model"] == "my-claude-deployment"
+
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
+    def test_completion_refuses_a_non_azure_endpoint(self, foundry):
+        with pytest.raises(ProviderConfigurationError):
+            AnthropicAdapter(foundry_endpoint="https://attacker.example.com/").complete(
+                CompletionRequest(model="claude-haiku-4-5", messages=[], provider="anthropic"),
+                api_key="foundry-key",
+                analytics=AnalyticsContext(capture=False),
+            )
+        foundry.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("accepted", None, "ok", None),
+            (
+                "default_deployment_missing",
+                _make_status_error(
+                    anthropic.NotFoundError,
+                    404,
+                    {"type": "error", "error": {"type": "not_found_error", "message": "model: claude-haiku-4-5"}},
+                ),
+                "ok",
+                None,
+            ),
+            (
+                "azure_deployment_not_found",
+                _make_status_error(
+                    anthropic.NotFoundError,
+                    404,
+                    {"error": {"code": "DeploymentNotFound", "message": "The API deployment does not exist."}},
+                ),
+                "ok",
+                None,
+            ),
+            (
+                "invalid_model_parameter",
+                _make_status_error(anthropic.BadRequestError, 400, {"error": {"message": "Invalid model parameter"}}),
+                "ok",
+                None,
+            ),
+            (
+                "unknown_route",
+                _make_status_error(
+                    anthropic.NotFoundError, 404, {"error": {"code": "404", "message": "Resource not found"}}
+                ),
+                "invalid",
+                "azure_endpoint",
+            ),
+            ("rejected_key", _make_status_error(anthropic.AuthenticationError, 401), "invalid", "api_key"),
+            ("forbidden_key", _make_status_error(anthropic.PermissionDeniedError, 403), "invalid", "api_key"),
+            (
+                "unreachable",
+                anthropic.APIConnectionError(request=httpx.Request("POST", "https://example.com")),
+                "error",
+                "azure_endpoint",
+            ),
+        ]
+    )
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
+    def test_validate_key(self, _name, error, expected_state, expected_field, foundry):
+        foundry.return_value.messages.count_tokens.side_effect = error
+
+        state, message = AnthropicAdapter.validate_key(
+            "no-sk-ant-prefix", azure_endpoint="https://my-resource.services.ai.azure.com/"
+        )
+
+        assert state == expected_state
+        assert error_field_for_validation_message(message) == expected_field
+        assert foundry.call_args.kwargs["base_url"] == "https://my-resource.services.ai.azure.com/anthropic/"
+
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
+    def test_validate_key_never_sends_the_key_to_a_non_azure_endpoint(self, foundry):
+        state, message = AnthropicAdapter.validate_key("foundry-key", azure_endpoint="https://attacker.example.com/")
+
+        foundry.assert_not_called()
+        assert state == "invalid"
+        assert error_field_for_validation_message(message) == "azure_endpoint"
+
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
+    def test_list_models_does_not_call_the_anthropic_api(self, direct):
+        models = AnthropicAdapter.list_models(
+            "foundry-key", azure_endpoint="https://my-resource.services.ai.azure.com/"
+        )
+
+        direct.assert_not_called()
+        assert models == AnthropicConfig.SUPPORTED_MODELS

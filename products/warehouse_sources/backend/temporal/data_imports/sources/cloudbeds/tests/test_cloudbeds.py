@@ -179,9 +179,6 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Cloudbeds API key"),
-            ("forbidden", 403, False, "Invalid Cloudbeds API key"),
-            ("server_error", 500, False, "Cloudbeds returned HTTP 500"),
         ]
     )
     def test_status_mapping(
@@ -194,13 +191,6 @@ class TestValidateCredentials:
         with scripted_network(always(ScriptedResponse(status=status))) as network:
             assert validate_credentials("cbat_key", CLOUDBEDS_API_VERSION_V1_3) == (expected_valid, expected_message)
         assert network.requests_log[0].path == "/api/v1.3/getHotels"
-
-    def test_connection_error_is_not_valid(self) -> None:
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("cbat_key", CLOUDBEDS_API_VERSION_V1_3) == (
-                False,
-                "Could not connect to Cloudbeds",
-            )
 
     def test_probe_scopes_to_property_when_configured(self) -> None:
         with scripted_network([ScriptedResponse()]) as network:

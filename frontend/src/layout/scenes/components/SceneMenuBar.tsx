@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { Children, ComponentProps, MouseEvent, ReactNode, useContext, useEffect } from 'react'
+import { Children, ComponentProps, ReactNode, useContext, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconExternal, IconGear, IconSidePanel, IconSparkles } from '@posthog/icons'
@@ -288,7 +288,7 @@ function hasNoRenderableChildren(children: ReactNode): boolean {
 }
 
 const MENU_TRIGGER_CLASSES =
-    'flex items-center outline-hidden select-none px-2 h-7 rounded-sm text-xs font-medium hover:bg-fill-hover data-[popup-open]:bg-fill-selected disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
+    'flex items-center whitespace-nowrap outline-hidden select-none px-2 h-7 rounded-sm text-xs font-medium hover:bg-fill-hover data-[popup-open]:bg-fill-selected disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent'
 
 export function SceneMenuBarMenu({
     label,
@@ -349,7 +349,7 @@ export function SceneMenuBarItem({
     onClick,
     ...props
 }: SceneMenuBarItemProps): JSX.Element {
-    const handleClick = (e: MouseEvent<HTMLDivElement>): void => {
+    const handleClick: NonNullable<SceneMenuBarItemProps['onClick']> = (e) => {
         const dataAttr = (props as Record<string, unknown>)['data-attr']
         captureSceneMenuBar('scene menu bar item clicked', {
             item: typeof dataAttr === 'string' ? dataAttr : typeof children === 'string' ? children : undefined,

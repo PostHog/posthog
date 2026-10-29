@@ -8,20 +8,19 @@ prompt or scale can tell the question no longer describes it.
 
 import uuid
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
 
+from products.replay_vision.backend.built_in_scans import built_in_scan_for
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import gemini_text_models
 from products.replay_vision.backend.models.replay_scanner import (
     PromptValence,
     ReplayScanner,
@@ -72,33 +71,6 @@ When the input gives a question already written, return that question unchanged 
 Respond with JSON matching the schema.
 """
 
-
-# Questions and valences for the scanner templates the app offers, keyed by the template's exact prompt, so a
-# scanner made from one needs no model call. Most scanners are unedited copies of a template. Keep the prompts in
-# step with `frontend/replay_scanners/scannerTemplates.ts`: a prompt that no longer matches falls back to
-# the model.
-TEMPLATE_QUESTIONS: dict[str, tuple[str, PromptValence]] = {
-    "Answer yes if the user appears stuck on a page: scrolling without engaging, hovering over elements with no clear CTA, or abandoning the session shortly after arriving. Otherwise answer no.": (
-        "Did the user get stuck on a page?",
-        PromptValence.BAD,
-    ),
-    "Summarize what the user did in this session: which pages they visited, what they tried to accomplish, and any notable moments like errors, confusion, or successful completions. Be concrete and don't speculate.": (
-        "What did the user do in this session?",
-        PromptValence.NEUTRAL,
-    ),
-    "Classify what the user appeared to be trying to accomplish in this session, based on their primary actions. Pick from the configured categories.": (
-        "What was the user trying to accomplish in this session?",
-        PromptValence.NEUTRAL,
-    ),
-    "Score how frustrated the user appeared during this session. 0 means a smooth session with no visible friction. 10 means clear, sustained frustration: rage clicks, repeated failures, abandonment. Use the full range; most sessions land somewhere in the middle.": (
-        "How frustrated did the user appear during this session?",
-        PromptValence.BAD,
-    ),
-    "Classify what happened in this session. Did the user complete what they were trying to do, abandon partway through, hit an error that blocked them, or just browse without a clear task? Pick from the configured categories.": (
-        "How did this session end for the user?",
-        PromptValence.NEUTRAL,
-    ),
-}
 
 _DIRECTIONAL_TYPES = frozenset({ScannerType.MONITOR, ScannerType.SCORER})
 
@@ -165,16 +137,9 @@ def _generate(
         response_mime_type="application/json",
         response_json_schema=_LlmQuestion.model_json_schema(),
     )
-    # Client setup is inside the guard too: a missing key must fall back, not fail the save.
+    # Client setup is inside the guard too: a missing gateway config must fall back, not fail the save.
     try:
-        client = genai.Client(
-            api_key=settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-        )
-        response = client.models.generate_content(
+        response = gemini_text_models(timeout_ms=_MODEL_CALL_TIMEOUT_MS).generate_content(
             model=_QUESTION_MODEL,
             contents=f"Scanner type: {scanner_type}{scale_line}\n\nInstructions:\n{prompt}"
             + (f"\n\nQuestion already written:\n{question}" if question else ""),
@@ -182,7 +147,6 @@ def _generate(
             posthog_distinct_id=replay_vision_distinct_id(team_id),
             posthog_trace_id=str(uuid.uuid4()),
             posthog_properties={"ai_product": "replay_vision", "feature": "prompt_question", "team_id": team_id},
-            posthog_groups={"project": str(team_id)},
         )
         return _LlmQuestion.model_validate_json(response.text or "")
     except Exception:
@@ -206,13 +170,12 @@ def _take_model_call(team_id: int) -> bool:
     return calls <= MAX_MODEL_CALLS_PER_TEAM_PER_HOUR
 
 
-def template_question(scanner_config: object) -> PromptQuestion | None:
-    """The written question for a template's exact prompt, or None for any other prompt. Needs no model call."""
-    prompt = _prompt_of(scanner_config)
-    if prompt not in TEMPLATE_QUESTIONS:
+def built_in_question(scanner_type: str, scanner_config: object) -> PromptQuestion | None:
+    """The written question for a built-in inline scan, or None for any other config. Needs no model call."""
+    scan = built_in_scan_for(scanner_type, scanner_config)
+    if scan is None:
         return None
-    question, valence = TEMPLATE_QUESTIONS[prompt]
-    return PromptQuestion(question=question, source=_source_of(scanner_config), valence=valence)
+    return PromptQuestion(question=scan.question, source=_source_of(scanner_config), valence=scan.valence)
 
 
 def condense_prompt(
@@ -225,8 +188,6 @@ def condense_prompt(
     source = _source_of(scanner_config)
     if not prompt.strip():
         return PromptQuestion(question="", source=source)
-    if (template := template_question(scanner_config)) is not None:
-        return template
     answer = None
     # The prompt is the team's own text, but it still only goes to the model under the org's AI consent.
     if is_ai_data_processing_approved(team_id) and (not metered or _take_model_call(team_id)):
@@ -307,7 +268,7 @@ def backfill_prompt_questions(
     Writes through a queryset update, so the scanner's version, updated_at and activity log stay untouched.
     The update is conditional on the prompt still being the one condensed, so an edit that lands mid-run wins.
     Each distinct prompt is condensed once per run, team and scanner type, since many scanners share one word for word.
-    Inline scanners only take a template's question, the same rule `create_inline_scanner` follows.
+    Inline scanners only take a built-in scan's question, the same rule `create_inline_scanner` follows.
     """
     scanners = ReplayScanner.all_origins.order_by("created_at")
     if not include_inline:
@@ -337,8 +298,12 @@ def backfill_prompt_questions(
         )
         if question_is_current and (scanner.scanner_type not in _DIRECTIONAL_TYPES or scanner.prompt_valence):
             continue
-        inline_template = template_question(scanner.scanner_config) if scanner.origin == ScannerOrigin.INLINE else None
-        if scanner.origin == ScannerOrigin.INLINE and inline_template is None:
+        inline_question = (
+            built_in_question(scanner.scanner_type, scanner.scanner_config)
+            if scanner.origin == ScannerOrigin.INLINE
+            else None
+        )
+        if scanner.origin == ScannerOrigin.INLINE and inline_question is None:
             continue
         if dry_run:
             written += 1
@@ -347,7 +312,7 @@ def backfill_prompt_questions(
         kept_question = scanner.prompt_question if question_is_current else ""
         # Keyed by team too, since the answer can echo a team's own scale label.
         key = (scanner.team_id, source, scanner.scanner_type, kept_question)
-        question = inline_template or condensed.get(key)
+        question = inline_question or condensed.get(key)
         if question is None:
             question = condense_prompt(
                 team_id=scanner.team_id,

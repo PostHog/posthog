@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CoassembleSource(ResumableSource[CoassembleSourceConfig, CoassembleResumeConfig]):
+    codebase_detection = detect(env=("^COASSEMBLE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developers.coassemble.com"
 
@@ -49,7 +52,7 @@ class CoassembleSource(ResumableSource[CoassembleSourceConfig, CoassembleResumeC
             name=ExternalDataSourceType.COASSEMBLE,
             category=DataWarehouseSourceCategory.HR___RECRUITING,
             label="Coassemble",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["lms", "training", "courses"],
             caption="""Enter your Coassemble workspace ID and API key to pull your courses, collections, learners, learner progress, and client usage into the PostHog Data warehouse.
 

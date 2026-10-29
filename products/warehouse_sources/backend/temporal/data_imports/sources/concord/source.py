@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import NOT_DETECTABLE
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ConcordSource(ResumableSource[ConcordSourceConfig, ConcordResumeConfig]):
+    codebase_detection = NOT_DETECTABLE
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://help.concord.app/concord-api"
 
@@ -56,7 +59,7 @@ class ConcordSource(ResumableSource[ConcordSourceConfig, ConcordResumeConfig]):
             name=ExternalDataSourceType.CONCORD,
             category=DataWarehouseSourceCategory.SALES,
             label="Concord",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Concord API key to pull your contract lifecycle data into the PostHog Data warehouse.
 
 You can generate an API key in your Concord account settings (API key generation requires a paid plan). Concord sends it as an `X-API-KEY` header.

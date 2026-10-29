@@ -237,7 +237,13 @@ class TestListingRatesConfig(SimpleTestCase):
         assert throttle.rate == expected_rate
 
 
-class TestTierAwareListingThrottle(BaseTest):
+class TestTierAwareListingThrottle(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        rate_limit_patcher = patch("posthog.rate_limit.is_rate_limit_enabled", return_value=False)
+        rate_limit_patcher.start()
+        self.addCleanup(rate_limit_patcher.stop)
+
     @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", side_effect=Exception("db gone"))
     def test_tier_lookup_error_falls_back_to_default_rates(self, _mock_tier: object) -> None:
         throttle = ListingBurstRateThrottle()
@@ -320,7 +326,7 @@ def _fake_sharing_token_request(token: str, auth_cls: type = SharingAccessTokenA
     return type("FakeRequest", (), {"META": {}, "auth": None, "successful_authenticator": auth})()
 
 
-class TestSharingTokenReplayThrottle(BaseTest):
+class TestSharingTokenReplayThrottle(SimpleTestCase):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -413,9 +419,16 @@ class TestSharingTokenReplayThrottle(BaseTest):
         before = _counter_value("replay_sharing_token", "sharing_token")
 
         # Burn the bucket then attempt one more — only the rejected one bumps the counter.
-        for _ in range(2):
+        with (
+            patch(
+                "posthog.session_recordings.session_recording_api.team_is_allowed_to_bypass_throttle",
+                return_value=False,
+            ),
+            patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=False),
+        ):
+            for _ in range(2):
+                throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
             throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
-        throttle.allow_request(_fake_sharing_token_request("token-counted"), view=view)
 
         after = _counter_value("replay_sharing_token", "sharing_token")
         assert after - before == 1
@@ -427,7 +440,7 @@ class TestSessionRecordingViewSetThrottleSelection(BaseTest):
         viewset.action = action
         request = Request(APIRequestFactory().get("/"))
         request._authenticator = authenticator  # type: ignore[attr-defined]  # backs read-only @property
-        viewset.request = request  # ty: ignore[invalid-assignment]
+        viewset.request = request
         return viewset
 
     @parameterized.expand(

@@ -11,6 +11,25 @@ from products.ai_observability.backend.models.evaluation_configs import (
 )
 
 
+class TestBooleanOutputConfig:
+    @pytest.mark.parametrize("threshold", [None, 0, 0.35, 1])
+    def test_decision_threshold(self, threshold: float | None) -> None:
+        _, output = validate_evaluation_configs(
+            "llm_judge", "boolean", {"prompt": "Is the response correct?"}, {"decision_threshold": threshold}
+        )
+        expected: dict[str, bool | float] = {"allows_na": False, "true_is_failure": False}
+        if threshold is not None:
+            expected["decision_threshold"] = threshold
+        assert output == expected
+
+    @pytest.mark.parametrize("threshold", [-0.01, 1.01, float("nan"), float("inf"), True, "0.5"])
+    def test_invalid_decision_threshold(self, threshold: object) -> None:
+        with pytest.raises(ValueError):
+            validate_evaluation_configs(
+                "llm_judge", "boolean", {"prompt": "Is the response correct?"}, {"decision_threshold": threshold}
+            )
+
+
 class TestNumericOutputConfig:
     @pytest.mark.parametrize(
         "bounds,score,expected",

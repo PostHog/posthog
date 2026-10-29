@@ -1,10 +1,14 @@
 from dataclasses import field
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
-    from posthog.models.integration import Integration
+    from posthog.integrations import IntegrationRecord
 
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+
+from temporalio import activity
 
 from posthog.dataclasses import frozen
 
@@ -45,6 +49,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
+# Joining is one rate-limited call per channel, so a large workspace can't finish in one pass. The setup
+# wizard and a manual refresh discover schemas inside a web request, which the gateway ends at 120
+# seconds. The discovery activity times out at 10 minutes and runs again every few hours.
+_REQUEST_JOIN_BUDGET_SECONDS = 30.0
+_ACTIVITY_JOIN_BUDGET_SECONDS = 300.0
+
 
 @frozen
 class SlackAccess:
@@ -58,6 +68,76 @@ class SlackAccess:
 
 @SourceRegistry.register
 class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], WebhookSource[SlackSourceConfig], OAuthMixin):
+    codebase_detection = detect(
+        env=(
+            "^SLACK_(BOT|APP|SIGNING|CLIENT)_",
+            "^SLACK_WEBHOOK_URL$",
+            "^SLACK_TOKEN$",
+            "^SLACK_API_TOKEN$",
+            "^SLACK_STATE_SECRET$",
+            "^SLACK_SCOPES$",
+            "^SLACK_USER_SCOPES$",
+            "^SLACK_REDIRECT_URI$",
+            "^SLACK_REDIRECT_URI_PATH$",
+            "^SLACK_INSTALL_PATH$",
+            "^SLACK_VERIFICATION_TOKEN$",
+            "^SLACK_SERVICE_TOKEN$",
+            "^SLACK_CHANNEL_ID$",
+            "^HUBOT_SLACK_TOKEN$",
+            "^LOG_SLACK_WEBHOOK_URL$",
+        ),
+        npm=(
+            "@slack/web-api",
+            "@slack/bolt",
+            "@slack/webhook",
+            "@slack/socket-mode",
+            "@slack/oauth",
+            "@slack/rtm-api",
+            "@slack/types",
+            "@slack/events-api",
+            "@slack/interactive-messages",
+            "@slack/client",
+            "@slack/cli-hooks",
+            "@slack/deno-slack-sdk",
+            "hubot-slack",
+            "@vercel/slack-bolt",
+            "@chat-adapter/slack",
+        ),
+        pypi=("slack-sdk", "slack-bolt", "slackclient", "slackeventsapi", "slack-cli-hooks", "slack-discovery-sdk"),
+        cargo=("slack-morphism",),
+        composer=("laravel/slack-notification-channel", "jolicode/slack-php-api", "maknz/slack", "alek13/slack"),
+        go=("github.com/slack-go/slack", "github.com/nlopes/slack"),
+        hex=("slack",),
+        maven=(
+            "com.slack.api:slack-api-client",
+            "com.slack.api:bolt",
+            "com.slack.api:bolt-aws-lambda",
+            "com.slack.api:bolt-google-cloud-functions",
+            "com.slack.api:bolt-helidon",
+            "com.slack.api:bolt-http4k",
+            "com.slack.api:bolt-jakarta-jetty",
+            "com.slack.api:bolt-jakarta-servlet",
+            "com.slack.api:bolt-jakarta-socket-mode",
+            "com.slack.api:bolt-jetty",
+            "com.slack.api:bolt-ktor",
+            "com.slack.api:bolt-micronaut",
+            "com.slack.api:bolt-servlet",
+            "com.slack.api:bolt-socket-mode",
+            "com.slack.api:slack-api-client-kotlin-extension",
+            "com.slack.api:slack-api-model",
+            "com.slack.api:slack-api-model-kotlin-extension",
+            "com.slack.api:slack-app-backend",
+            "com.slack.api:slack-jakarta-socket-mode-client",
+            "com.github.seratch:jslack",
+            "com.github.seratch:jslack-api-client",
+            "com.github.seratch:jslack-api-model",
+            "com.github.seratch:jslack-app-backend",
+            "com.github.seratch:jslack-lightning",
+        ),
+        rubygems=("slack-ruby-client", "slack-notifier", "slack-ruby-bot-server"),
+    )
+    setup_requires_ui = True
+
     api_docs_url = "https://api.slack.com/web"
 
     @property
@@ -82,7 +162,7 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
         return WebhookSourceManager(inputs, inputs.logger)
 
     @staticmethod
-    def _get_authed_user_id(integration: "Integration") -> str | None:
+    def _get_authed_user_id(integration: "IntegrationRecord") -> str | None:
         return (integration.config or {}).get("authed_user", {}).get("id")
 
     def _resolve_access_token(self, config: SlackSourceConfig, team_id: int) -> SlackAccess:
@@ -198,6 +278,7 @@ Invite the bot to any channel whose messages you want to sync (`/invite @PostHog
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="join_public_channels",
+                        sync_setting=True,
                         label="Automatically join public channels",
                         caption="On by default: the bot joins every public channel so their new messages sync without inviting it to each one. Turn it off to pick channels manually. Private channels always need a manual invite. Uses the `channels:join` scope, which the manifest above already includes.",
                         default=True,
@@ -279,6 +360,7 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
             "account_inactive": "Your Slack account is inactive. Please reconnect the source.",
             "token_revoked": "Your Slack token has been revoked. Please reconnect the source.",
             "missing_scope": "Your Slack app is missing scopes PostHog needs. Add the bot scopes from the setup manifest, reinstall the app to your workspace, then try again.",
+            "not_allowed_token_type": "This Slack token type isn't supported. Please paste the Bot User OAuth Token (starts with xoxb-) from your Slack app's Install App page.",
             "not_in_channel": "The Slack bot is not a member of this channel. Please invite the bot to the channel and try again.",
             "channel_not_found": "This Slack channel was not found. It may have been deleted or the bot lacks permission to access it.",
             "Integration not found": "Your Slack integration was not found. Please reconnect the source.",
@@ -309,7 +391,16 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         # Joining is idempotent and only touches public channels the bot isn't in, so running it on
         # each discovery/refresh also picks up channels created since the last pass.
         if config.slack_access_token and config.join_public_channels and config.join_public_channels.enabled:
-            join_public_channels(access.access_token, access.cache_id, access.authed_user_id)
+            # The discovery activity runs as soon as a source is created, with the larger budget, so it
+            # joins what a request pass leaves.
+            join_public_channels(
+                access.access_token,
+                access.cache_id,
+                access.authed_user_id,
+                time_budget_seconds=_ACTIVITY_JOIN_BUDGET_SECONDS
+                if activity.in_activity()
+                else _REQUEST_JOIN_BUDGET_SECONDS,
+            )
         channels = get_channels(
             access.cache_id, access.access_token, access.authed_user_id, force_refresh=force_refresh
         )

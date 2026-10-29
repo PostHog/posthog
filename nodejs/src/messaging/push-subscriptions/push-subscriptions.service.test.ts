@@ -91,17 +91,23 @@ describe('PushSubscriptionsService', () => {
     })
 
     it.each([
-        ['a failed capture', new Error('capture returned 503'), 'capture_failed'],
-        ['a project over its billing limit', new CaptureBillingLimitError(), 'capture_billing_limited'],
-    ])('reports %s rather than telling the SDK the token was stored', async (_name, error, code) => {
+        ['a failed capture', new Error('capture returned 503'), 500, 'capture_failed', undefined],
+        [
+            'a project over its billing limit',
+            new CaptureBillingLimitError(),
+            429,
+            'capture_billing_limited',
+            { 'Retry-After': '3600' },
+        ],
+    ])('reports %s rather than telling the SDK the token was stored', async (_name, error, status, code, headers) => {
         // The SDK marks a registration delivered on a 2xx and stops re-sending it, so a capture that
         // did not happen has to surface as an error or the device is never registered.
         capture.capture.mockRejectedValue(error)
 
         const result = await service.handle(request(valid))
 
-        expect(result.status).toEqual(500)
-        expect(result.body).toMatchObject({ code })
+        expect(result).toMatchObject({ status, body: { code } })
+        expect(result.headers).toEqual(headers)
     })
 
     it('reports a capture that threw', async () => {

@@ -68,4 +68,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "device_type": "Device category used for the visit.",
         },
     },
+    "custom_feeds": {
+        "description": "Saved lead segments (custom feeds) of each account. A feed filters leads by criteria such as country, page or assignee.",
+        "docs_url": "https://docs.leadfeeder.com/api/",
+        "columns": {
+            "id": "Identifier of the custom feed. Built-in feeds use fixed ids such as 'all_leads' on the legacy API.",
+            "type": "JSON:API resource type: 'custom_feeds' on the legacy API, 'custom_feed' on the unified API.",
+            "account_id": "Identifier of the Leadfeeder account this custom feed belongs to.",
+            "name": "Name of the custom feed.",
+            "criteria": "Filter criteria of the feed (legacy API only).",
+            "advanced_filters": "Filter groups and conditions of the feed (unified API only).",
+            "notifications": "Notification subscriptions configured for the feed (unified API only).",
+            "deletable": "Whether the feed can be deleted (unified API only).",
+            "viewable": "Whether the feed can be viewed (unified API only).",
+            "created_at": "Timestamp the feed was created (unified API only).",
+            "updated_at": "Timestamp the feed was last updated (unified API only).",
+        },
+    },
 }

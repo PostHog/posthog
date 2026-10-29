@@ -7,6 +7,7 @@ import { DEFAULT_LOADER_RETRY, LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PubSub } from '~/common/utils/pubsub'
+import { validTeamIds } from '~/common/utils/team-manager'
 import { Team } from '~/types'
 
 import { EncryptedFields } from '../../utils/encryption-utils'
@@ -155,7 +156,7 @@ export class HogFlowManagerService {
         const response = await this.postgres.query<HogFlowTeamInfo>(
             PostgresUse.COMMON_READ,
             `SELECT id, team_id, version FROM posthog_hogflow WHERE status='active' AND team_id = ANY($1)`,
-            [teamIds],
+            [validTeamIds(teamIds)],
             'fetchAllTeamHogFlows'
         )
 
@@ -201,7 +202,18 @@ export class HogFlowManagerService {
                     }
                 }
             }
-            this.mergeEncryptedInputs(item)
+            try {
+                this.mergeEncryptedInputs(item)
+            } catch (error) {
+                // A throw here would fail the batched load for every flow in it. Only this flow is left
+                // out, because serving it without its secrets would skip a webhook trigger's auth check.
+                logger.warn('[HogFlowManager]', 'Could not merge encrypted inputs - flow is left out', {
+                    hogFlowId: item.id,
+                    error: error instanceof Error ? error.message : 'Unknown error',
+                })
+                captureException(error)
+                return acc
+            }
             acc[item.id] = item
             return acc
         }, {})

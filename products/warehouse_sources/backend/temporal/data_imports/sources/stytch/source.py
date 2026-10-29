@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -33,6 +34,24 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class StytchSource(ResumableSource[StytchSourceConfig, StytchResumeConfig]):
+    codebase_detection = detect(
+        env=("^STYTCH_", "^NEXT_PUBLIC_STYTCH_PUBLIC_TOKEN$"),
+        npm=("stytch", "@stytch/vanilla-js", "@stytch/react", "@stytch/nextjs", "@stytch/react-native"),
+        pypi=("stytch",),
+        go=(
+            "github.com/stytchauth/stytch-go",
+            "github.com/stytchauth/stytch-go-magic-links",
+            "github.com/stytchauth/stytch-management-go",
+        ),
+        maven=("com.stytch.java:sdk", "com.stytch.sdk:sdk"),
+        rubygems=("stytch",),
+        swiftpm=(
+            "github.com/stytchauth/stytch-ios",
+            "github.com/stytchauth/stytch-ios-dfp",
+            "github.com/stytchauth/stytch-ios-sdk",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -50,10 +69,10 @@ class StytchSource(ResumableSource[StytchSourceConfig, StytchResumeConfig]):
 
 You can find both under [API keys](https://stytch.com/dashboard/api-keys) in your Stytch dashboard. Live credentials (`project-live-...`) sync from `api.stytch.com`; test credentials (`project-test-...`) sync your test environment's data from `test.stytch.com`.
 
-Every Stytch project is either a consumer project or a B2B project, and the two have separate tables. The `users` and `sessions` tables are only available for consumer projects, and the `organizations` and `members` tables only for B2B projects.""",
+Every Stytch project is either a consumer project or a B2B project, and the two have separate tables. The `users` and `sessions` tables are only available for consumer projects. The `organizations`, `members`, `sso_connections`, `organization_connected_apps` and `member_connected_apps` tables are only available for B2B projects. The `rbac_policy` table works for both.""",
             iconPath="/static/services/stytch.png",
             docsUrl="https://posthog.com/docs/cdp/sources/stytch",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -144,14 +163,17 @@ Every Stytch project is either a consumer project or a B2B project, and the two 
         # B2C and B2B projects have disjoint API surfaces; probe each requested surface once so
         # the schema picker can flag the tables the connected project can't serve.
         probe_paths = {False: "/v1/users/search", True: "/v1/b2b/organizations/search"}
-        surfaces_needed = {
-            STYTCH_ENDPOINTS[endpoint].b2b_only for endpoint in endpoints if endpoint in STYTCH_ENDPOINTS
-        }
+        probed = [
+            endpoint
+            for endpoint in endpoints
+            if endpoint in STYTCH_ENDPOINTS and not STYTCH_ENDPOINTS[endpoint].any_product_line
+        ]
+        surfaces_needed = {STYTCH_ENDPOINTS[endpoint].b2b_only for endpoint in probed}
         access_by_surface = {
             b2b: check_endpoint_access(config.project_id, config.secret, probe_paths[b2b]) for b2b in surfaces_needed
         }
         return {
-            endpoint: access_by_surface[STYTCH_ENDPOINTS[endpoint].b2b_only] if endpoint in STYTCH_ENDPOINTS else None
+            endpoint: access_by_surface[STYTCH_ENDPOINTS[endpoint].b2b_only] if endpoint in probed else None
             for endpoint in endpoints
         }
 

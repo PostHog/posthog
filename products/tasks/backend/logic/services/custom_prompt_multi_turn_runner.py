@@ -74,6 +74,7 @@ class MultiTurnSession:
     # Set this below the caller's Temporal activity `start_to_close_timeout` so the
     # dropped-finalization salvage can fire before the activity is cancelled.
     max_poll_seconds: int | None = None
+    poll_deadline: float | None = None
     _workflow_handle: WorkflowHandle | None = field(default=None, repr=False)
 
     @classmethod
@@ -89,6 +90,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -102,6 +104,7 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
         files: Sequence[SessionFile] = (),
@@ -136,6 +139,7 @@ class MultiTurnSession:
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -147,6 +151,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
             files=files,
@@ -216,6 +221,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -223,10 +229,12 @@ class MultiTurnSession:
         before_task_dispatch: Callable[[UUID], dict[str, JsonValue] | None] | None = None,
         origin_key: str | None = None,
         max_poll_seconds: int | None = None,
+        poll_deadline: float | None = None,
         workflow_id_prefix: str | None = None,
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
         files: Sequence[SessionFile] = (),
@@ -246,10 +254,15 @@ class MultiTurnSession:
         regardless of grant scope (a scout's per-scout selection). None leaves them
         unfiltered; an empty list mounts nothing.
 
+        `mcp_tool_allowlist` stamps the PostHog MCP tools the run picked. The API refuses a
+        write that no held tool calls. None leaves the run on its token scopes alone.
+
         `files` go into the sandbox before the first turn, and the first prompt lists
         their paths. Use them for text too long for the agent to pass on itself, such as
         the task of a sub-agent.
         """
+        if poll_deadline is not None and time.monotonic() >= poll_deadline:
+            raise TimeoutError("The case time budget expired before the initial turn")
         task, task_run = await create_task_and_trigger(
             prompt,
             context,
@@ -257,6 +270,7 @@ class MultiTurnSession:
             step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -264,6 +278,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
             before_task_dispatch=before_task_dispatch,
             origin_key=origin_key,
             output_schema=output_schema,
@@ -283,6 +298,7 @@ class MultiTurnSession:
             verbose=verbose,
             output_fn=output_fn,
             max_poll_seconds=max_poll_seconds,
+            poll_deadline=poll_deadline,
             _workflow_handle=workflow_handle,
         )
         if on_task_run_created is not None:
@@ -305,6 +321,7 @@ class MultiTurnSession:
                 output_fn=output_fn,
                 workflow_handle=workflow_handle,
                 max_poll_seconds=max_poll_seconds,
+                poll_deadline=poll_deadline,
             )
             session.log_lines_seen = turn.total_lines
             session.printed_lines = turn.printed_lines
@@ -331,13 +348,27 @@ class MultiTurnSession:
         *,
         label: str = "",
         validation_context: dict[str, object] | None = None,
+        json_retry_prompt: str | None = None,
     ) -> _ModelT:
-        """Send a follow-up message and wait for the agent's next structured response."""
+        """Send a structured follow-up, optionally asking once for corrected JSON on parse or validation failure."""
         last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(
-            last_message, model, label=label or "followup", validation_context=validation_context
-        )
-        return parsed
+        try:
+            return self._parse_and_validate(
+                last_message, model, label=label or "followup", validation_context=validation_context
+            )
+        except ValueError as error:
+            if json_retry_prompt is None:
+                raise
+            logger.warning(
+                "multi_turn: followup did not validate against %s for run=%s label=%s, asking for JSON once (%s)",
+                model.__name__,
+                self.task_run.id,
+                label,
+                type(error).__name__,
+            )
+        retry_label = f"{label or 'followup'} json retry"
+        retry_message = await self.send_followup_raw(json_retry_prompt, label=retry_label)
+        return self._parse_and_validate(retry_message, model, label=retry_label, validation_context=validation_context)
 
     async def send_followup_raw(
         self,
@@ -372,6 +403,8 @@ class MultiTurnSession:
     async def _send_and_poll(self, message: str, *, label: str, attempt: int) -> str | None:
         """Signal the followup and poll for the next turn. Returns None on empty end_turn."""
         assert self._workflow_handle is not None
+        if self.poll_deadline is not None and time.monotonic() >= self.poll_deadline:
+            raise TimeoutError("The case time budget expired before the next turn")
         await self._workflow_handle.signal(ProcessTaskWorkflow.send_followup_message, message)
         logger.info(
             "multi_turn: sent followup run=%s label=%s attempt=%d",
@@ -388,6 +421,7 @@ class MultiTurnSession:
                 output_fn=self.output_fn,
                 workflow_handle=self._workflow_handle,
                 max_poll_seconds=self.max_poll_seconds,
+                poll_deadline=self.poll_deadline,
             )
             self.log_lines_seen = turn.total_lines
             self.printed_lines = turn.printed_lines

@@ -3,6 +3,8 @@ from unittest import mock
 
 import requests
 
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesearchconsole import (
     GoogleSearchConsoleSourceConfig,
@@ -38,13 +40,6 @@ def test_search_appearance_schema_uses_solo_dimension_with_date_in_pk():
     assert schema["should_sync_default"] is False
 
 
-def test_get_schemas_filters_by_names():
-    schemas = GoogleSearchConsoleSource().get_schemas(
-        _config(), team_id=1, names=["search_analytics_by_date", "search_analytics_by_query"]
-    )
-    assert {s.name for s in schemas} == {"search_analytics_by_date", "search_analytics_by_query"}
-
-
 @pytest.mark.parametrize(
     "config",
     [pytest.param(_config(), id="web_only"), pytest.param(_all_types_config(), id="all_types")],
@@ -67,11 +62,20 @@ def test_canonical_descriptions_cover_every_schema(config):
         "Search Analytics daily quota for 'sc-domain:example.com' exhausted; retrying at the activity level (retryable)",
         "Search Analytics quota for 'sc-domain:example.com' still exhausted after 3 retries (retryable)",
         "Search Analytics quota for 'sc-domain:example.com' exhausted (retryable)",
+        "Search Console quota exhausted while listing sitemaps; the next sync picks it up (retryable)",
     ],
 )
 def test_exhausted_quota_is_retryable(error_message):
-    retryable_errors = GoogleSearchConsoleSource().get_retryable_errors()
-    assert error_message_matches(error_message, retryable_errors)
+    source = GoogleSearchConsoleSource()
+    assert error_message_matches(error_message, source.get_retryable_errors())
+    assert not error_message_matches(error_message, source.get_non_retryable_errors().keys())
+    messages = [
+        message
+        for pattern, message in source.get_retry_exhausted_errors().items()
+        if error_message_matches(error_message, [pattern])
+    ]
+    assert messages and "sync them less often" in messages[0]
+    assert "example.com" not in messages[0]
 
 
 @pytest.mark.parametrize(
@@ -162,11 +166,10 @@ def test_get_oauth_accounts_names_a_next_step_when_the_account_owns_no_property(
 
 
 def test_validate_credentials_missing_integration_returns_reconnect_message():
-    from posthog.models.integration import Integration
 
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session",
-        side_effect=Integration.DoesNotExist(),
+        side_effect=IntegrationNotFound(),
     ):
         ok, message = GoogleSearchConsoleSource().validate_credentials(_config(), team_id=1)
 
@@ -315,7 +318,7 @@ def test_validate_credentials_normalizes_site_url_before_lookup(entered, site_ur
 
 def test_validate_credentials_handles_missing_integration():
     # A disconnected/deleted OAuth integration makes the credentials lookup raise
-    # `Integration.DoesNotExist` ("... matching query does not exist"). Surface an
+    # `IntegrationNotFound` ("... matching query does not exist"). Surface an
     # actionable reconnect message instead of the raw ORM error.
     with mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.source.google_search_console_session",

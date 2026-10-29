@@ -106,6 +106,18 @@ def _accounts_script() -> Any:
             {"scheduled_transactions": [{"id": "record-1", "frequency": "monthly"}]},
             {"id": "record-1", "frequency": "monthly"},
         ),
+        (
+            "money_movements",
+            "money_movements",
+            {"money_movements": [{"id": "record-1", "amount": 5000, "to_category_id": "category-1"}]},
+            {"id": "record-1", "amount": 5000, "to_category_id": "category-1"},
+        ),
+        (
+            "money_movement_groups",
+            "money_movement_groups",
+            {"money_movement_groups": [{"id": "record-1", "group_created_at": "2024-01-02T03:04:05Z"}]},
+            {"id": "record-1", "group_created_at": "2024-01-02T03:04:05Z"},
+        ),
     ],
 )
 def test_full_refresh_across_plans(
@@ -148,6 +160,65 @@ def test_plans_list_and_empty_account(driver: SourceDriver) -> None:
     assert len(plans.requests) + len(accounts.requests) == 2
     assert plans.saved_states == []
     assert accounts.saved_states == []
+
+
+def _plan_export(months: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": {"plan": {"id": "unused", "months": months}, "server_knowledge": 42}})
+
+
+@pytest.mark.parametrize(
+    "resume_state,expected_rows",
+    [
+        (
+            None,
+            [("plan-1", "2023-12-01", "category-1"), ("plan-1", "2024-01-01", "category-1")],
+        ),
+        (
+            YnabResumeConfig(completed=["plans/plan-1"]),
+            [],
+        ),
+    ],
+)
+def test_month_categories_take_one_request_per_plan(
+    resume_state: YnabResumeConfig | None,
+    expected_rows: list[tuple[str, str, str]],
+    driver: SourceDriver,
+) -> None:
+    category = {"id": "category-1", "budgeted": 1000, "activity": -500, "balance": 500}
+    # Enough months that a request per month would spend YNAB's hourly limit of 200 on its own.
+    history = [
+        {"month": f"{year}-{month:02d}-01", "categories": []} for year in range(2005, 2023) for month in range(1, 13)
+    ]
+    result = driver.run(
+        "month_categories",
+        route(
+            {
+                "/v1/plans": [ScriptedResponse(json={"data": {"plans": [{"id": "plan-1"}, {"id": "plan-2"}]}})],
+                "/v1/plans/plan-1": [
+                    _plan_export(
+                        [
+                            {"month": "2023-12-01", "income": 0, "categories": [category]},
+                            {"month": "2024-01-01", "income": 0, "categories": [category]},
+                        ]
+                    )
+                ],
+                "/v1/plans/plan-2": [_plan_export(history)],
+            }
+        ),
+        resume_state=resume_state,
+    )
+
+    rows = [row for batch in result.items for row in batch]
+    assert [(row["plan_id"], row["month"], row["id"]) for row in rows] == expected_rows
+    assert all(row["balance"] == 500 and "categories" not in row for row in rows)
+    assert result.response is not None and result.response.primary_keys is not None
+    assert len({tuple(row[key] for key in result.response.primary_keys) for row in rows}) == len(rows)
+    expected_paths = (
+        ["/v1/plans", "/v1/plans/plan-2"] if resume_state else ["/v1/plans", "/v1/plans/plan-1", "/v1/plans/plan-2"]
+    )
+    assert result.paths == expected_paths
+    assert all(dict(request.query) == {} for request in result.requests)
+    assert result.saved_states[-1].completed == ["plans/plan-1", "plans/plan-2"]
 
 
 @pytest.mark.parametrize("groups", [[], [{"id": "group-1", "categories": []}]])
@@ -209,9 +280,11 @@ def test_sync_errors_keep_auth_terminal_and_outages_retryable(status: int, drive
     result = driver.run("plans", always(ScriptedResponse(status=status, json={"error": {"id": str(status)}})))
     exception = RESTClientRetryableError if status in (429, 500) else HTTPError
     assert isinstance(result.raised, exception)
-    mappings = YnabSource().get_non_retryable_errors()
-    matched = [message for pattern, message in mappings.items() if pattern in str(result.raised)]
-    assert bool(matched) is (status in (401, 403))
+    source = YnabSource()
+    terminal = [pattern for pattern in source.get_non_retryable_errors() if pattern in str(result.raised)]
+    assert bool(terminal) is (status in (401, 403))
+    exhausted = [pattern for pattern in source.get_retry_exhausted_errors() if pattern in str(result.raised)]
+    assert bool(exhausted) is (status == 429)
     assert result.saved_states == []
 
 

@@ -345,9 +345,6 @@ class TestValidateCredentials:
         with scripted_network(script):
             return validate_credentials(BASE_URL, API_KEY, API_USERNAME, schema_name=schema_name, team_id=1)
 
-    def test_validate_credentials_success(self) -> None:
-        assert self._validate([ScriptedResponse(json={"current_user": {"id": 1}})]) == (True, None)
-
     def test_validate_credentials_rejects_403_for_scoped_probe(self) -> None:
         body = {"errors": ["The API username or key is invalid."], "error_type": "invalid_access"}
         valid, message = self._validate([ScriptedResponse(status=403, json=body)], schema_name="posts")

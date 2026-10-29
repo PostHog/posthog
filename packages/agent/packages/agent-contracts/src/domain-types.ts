@@ -369,6 +369,8 @@ const taskRunStateFields = {
   auto_publish: optionalField(z.boolean()),
   benjamin_version: optionalField(z.string()),
   codex_max_subagents: optionalField(z.number().int().positive()),
+  codex_shared_prompt_cache: optionalField(z.boolean()),
+  disable_repo_hooks: optionalField(z.boolean()),
   initial_permission_mode: optionalField(executionModeSchema),
   initial_prompt_override: optionalField(z.string()),
   pending_followup_messages: optionalField(
@@ -387,6 +389,7 @@ const taskRunStateFields = {
     z.enum(["none", "message", "canvas_file"]),
   ),
   slack_chart_delivery: optionalField(z.boolean()),
+  slack_chart_links: optionalField(z.boolean()),
   slack_notified_pr_url: optionalField(z.string()),
   slack_thread_url: optionalField(z.string()),
   snapshot_kind: optionalField(z.string()),
@@ -784,6 +787,10 @@ export interface SignalReport {
   is_suggested_reviewer?: boolean;
   /** Distinct source products contributing signals to this report. */
   source_products?: string[];
+  /** Whether the report proposes an improvement to a scout. */
+  is_self_improvement_report?: boolean;
+  /** Selected code repository, when the report has one. */
+  repo_slug?: string | null;
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
   work_state?: "unclaimed" | "working" | "in_review" | "done";
@@ -955,6 +962,7 @@ export interface DismissalArtefact extends SignalReportArtefactBase {
 }
 
 export interface DismissalContent {
+  state?: "resolved" | "suppressed" | "potential" | null;
   reason: ReportStateReason;
   /** Optional free-form detail provided alongside the reason. */
   note: string;

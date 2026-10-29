@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -31,6 +32,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class RubygemsSource(SimpleSource[RubygemsSourceConfig]):
+    codebase_detection = detect(env=("^RUBYGEMS_", "^GEM_HOST_API_KEY$"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://guides.rubygems.org/rubygems-org-api/"
 
@@ -44,7 +47,7 @@ class RubygemsSource(SimpleSource[RubygemsSourceConfig]):
             name=ExternalDataSourceType.RUBYGEMS,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="RubyGems.org",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Pull gem metadata and version/download history from [RubyGems.org](https://rubygems.org) into the PostHog Data warehouse.
 
 RubyGems.org's read APIs are public, so no credentials are required. There is no list endpoint, so enter the gem names you want to track, one per line (or comma-separated). For example:
@@ -63,6 +66,7 @@ Each sync fetches the current metadata and full version history for every config
                 [
                     SourceFieldInputConfig(
                         name="gems",
+                        sync_setting=True,
                         label="Gems",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

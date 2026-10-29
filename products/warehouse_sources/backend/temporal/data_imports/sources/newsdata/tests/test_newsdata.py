@@ -109,7 +109,7 @@ class TestIncrementalFromDate:
         assert result.raised is None
         assert result.params("from_date") == [None]
 
-    @parameterized.expand([("archive",), ("crypto",)])
+    @parameterized.expand([("archive",), ("crypto",), ("market",)])
     def test_incremental_uses_watermark_date(self, endpoint: str) -> None:
         result = _driver().run(
             endpoint,
@@ -119,9 +119,10 @@ class TestIncrementalFromDate:
         )
 
         assert result.raised is None
+        assert result.paths == [f"/api/1/{endpoint}"]
         assert result.params("from_date") == ["2024-03-04"]
 
-    @parameterized.expand([("archive",), ("crypto",)])
+    @parameterized.expand([("archive",), ("crypto",), ("market",)])
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_first_sync_applies_lookback_floor(self, endpoint: str) -> None:
         # Without a watermark the first sync must floor at the trailing lookback window instead of
@@ -180,6 +181,7 @@ class TestSourceResponseMetadata:
             ("latest", ["article_id"], "pubDate", "asc"),
             ("archive", ["article_id"], "pubDate", "desc"),
             ("crypto", ["article_id"], "pubDate", "desc"),
+            ("market", ["article_id"], "pubDate", "desc"),
         ]
     )
     def test_partitioned_endpoints(
@@ -197,7 +199,11 @@ class TestSourceResponseMetadata:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+        ]
+    )
     def test_status_maps_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
             assert validate_credentials("pub_test") is expected

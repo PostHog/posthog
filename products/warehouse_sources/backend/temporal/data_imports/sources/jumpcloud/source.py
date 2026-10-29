@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -46,6 +47,8 @@ def _schema_description(endpoint: str) -> str | None:
 
 @SourceRegistry.register
 class JumpcloudSource(ResumableSource[JumpcloudSourceConfig, JumpcloudResumeConfig]):
+    codebase_detection = detect(env=("^JUMPCLOUD_",), go=("github.com/TheJumpCloud/jcapi-go",), rubygems=("jumpcloud",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -65,7 +68,7 @@ class JumpcloudSource(ResumableSource[JumpcloudSourceConfig, JumpcloudResumeConf
             name=ExternalDataSourceType.JUMPCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="JumpCloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your JumpCloud admin API key to sync your directory and activity data into the PostHog Data warehouse.
 
 Find your API key in the JumpCloud Admin Portal: click your account initials in the top-right corner and select **My API Key**.

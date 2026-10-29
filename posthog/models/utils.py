@@ -143,6 +143,26 @@ def namedtuplefetchall(cursor):
     return [nt_result(*row) for row in cursor.fetchall()]
 
 
+def strip_null_bytes(value: Any) -> Any:
+    """Recursively remove NUL (\\x00) from strings, because Postgres text/jsonb columns cannot store it.
+
+    Anything written to a Postgres text or JSON column that originates outside Postgres (ClickHouse
+    query results, LLM output, user-supplied prompts) must pass through this first. Otherwise Django
+    serializes the NUL to a unicode escape that Postgres rejects, and the whole write fails with a DataError.
+    """
+    if isinstance(value, str):
+        return value.replace("\x00", "")
+    if isinstance(value, list):
+        return [strip_null_bytes(v) for v in value]
+    if isinstance(value, tuple):
+        return tuple(strip_null_bytes(v) for v in value)
+    if isinstance(value, dict):
+        # Strip keys too: a Map(String, …) column can produce data-derived keys carrying NUL,
+        # and Postgres rejects it in a jsonb key just as it does in a value.
+        return {strip_null_bytes(k): strip_null_bytes(v) for k, v in value.items()}
+    return value
+
+
 def generate_random_token(nbytes: int = 32) -> str:
     """Generate a securely random token.
 
@@ -224,6 +244,16 @@ def hash_key_value(
     # https://github.com/jazzband/django-rest-knox/issues/188
     value = hashlib.sha256(value.encode()).hexdigest()
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
+
+
+# Mirrors CredentialNodeValue in PostHog/ai-gateway; a change here without its twin breaks the join silently.
+AI_CREDENTIAL_HEX_LENGTH = 32
+
+
+def ai_credential_value(secure_value: str) -> str:
+    """The value the AI gateway stamps as $ai_credential on a key's generations: sha256 over the
+    stored sha256$<hex> hash (the gateway's credential fingerprint), first 32 hex characters."""
+    return hashlib.sha256(secure_value.encode()).hexdigest()[:AI_CREDENTIAL_HEX_LENGTH]
 
 
 def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> str:
@@ -575,4 +605,10 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "model": obj.model,
                 "provider_key_id": str(obj.provider_key_id) if obj.provider_key_id else None,
             }
+        if isinstance(obj, models.Model):
+            # `changes_between` puts the related instance of a relation field into the change.
+            # Without this fallback each model with no branch above makes the write raise, and the
+            # deferred writer drops the row. The id identifies the instance and copies none of its
+            # fields, which can hold credentials.
+            return {"id": obj.pk}
         return json.JSONEncoder.default(self, obj)

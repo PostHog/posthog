@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -29,6 +30,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 
 @SourceRegistry.register
 class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig], CursorSource[ConvexDataSyncCursor]):
+    codebase_detection = detect(
+        env=("^CONVEX_", "^NEXT_PUBLIC_CONVEX_URL$", "^VITE_CONVEX_URL$"),
+        npm=("convex",),
+        pypi=("convex",),
+        cargo=("convex", "convex_sync_types"),
+        maven=("dev.convex:android-convexmobile", "dev.convex:android-convex-auth0"),
+        swiftpm=("github.com/get-convex/convex-swift", "github.com/get-convex/convex-swift-auth0"),
+    )
+
     api_docs_url = "https://docs.convex.dev/"
 
     @property

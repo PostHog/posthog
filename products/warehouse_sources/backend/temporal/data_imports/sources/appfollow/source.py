@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConfig]):
+    codebase_detection = detect(env=("^APPFOLLOW_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = (APPFOLLOW_V2, APPFOLLOW_V3)
     default_version = APPFOLLOW_V3
@@ -49,7 +52,7 @@ class AppfollowSource(ResumableSource[AppfollowSourceConfig, AppfollowResumeConf
             name=ExternalDataSourceType.APPFOLLOW,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="AppFollow",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your AppFollow API token to pull your app reviews and ratings into the PostHog Data warehouse.
 
 An Account Owner or Admin can generate an API token on the [API management page](https://watch.appfollow.io/settings/api) in your AppFollow account. The token authenticates every request via the `X-AppFollow-API-Token` header.

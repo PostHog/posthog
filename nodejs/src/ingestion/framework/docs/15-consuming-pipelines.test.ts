@@ -33,7 +33,7 @@
  * Most consumers do not want result-with-context objects; they want the plain
  * output values. `ChunkPipelineUnwrapper` wraps a pipeline and, on `next()`,
  * returns a flat `TOutput[]` of just the OK values - non-OK results (DLQ, DROP,
- * REDIRECT) are filtered out (they are assumed already handled by a
+ * REDIRECT, TIMEOUT) are filtered out (they are assumed already handled by a
  * `handleResults()` stage upstream). It returns `null` when the underlying
  * pipeline drains.
  *

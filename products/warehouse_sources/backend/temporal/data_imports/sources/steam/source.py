@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SteamSource(SimpleSource[SteamSourceConfig]):
+    codebase_detection = detect(env=("^STEAM_",), npm=("steamworks.js",), cargo=("steamworks", "steamworks-sys"))
+
     api_docs_url = "https://partner.steamgames.com/doc/webapi"
 
     lists_tables_without_credentials = True
@@ -52,7 +55,7 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             keywords=["games", "gaming", "playtime"],
             label="Steam",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Sync the games and playtime of a list of Steam players.\n\n"
                 "Create a key on the [Steam Web API key page](https://steamcommunity.com/dev/apikey). "
@@ -75,6 +78,7 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="steam_ids",
+                        sync_setting=True,
                         label="Steam IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

@@ -1,8 +1,13 @@
+import { PropertyFilterType } from '~/types'
+
+import { FacetFilterTarget } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import { AttributeColumnConfig } from 'products/logs/frontend/types'
 
 import {
+    attributeLookupExpression,
     columnLabel,
     columnsToCustomColumns,
+    customColumnFilterTarget,
     LogsColumnConfig,
     migrateAttributeColumns,
     normalizeColumns,
@@ -86,6 +91,98 @@ describe('logs column config', () => {
         it('escapes quotes and backslashes so keys cannot break out of the expression string', () => {
             const [migrated] = migrateAttributeColumns({ "we'ird\\key": { order: 0 } })
             expect(migrated.expression).toContain("we\\'ird\\\\key")
+        })
+    })
+
+    describe('customColumnFilterTarget', () => {
+        const key = 'k8s.pod'
+        const escapedKey = "we'ird\\key"
+        it.each<
+            [
+                string,
+                string,
+                string,
+                Record<string, unknown> | undefined,
+                Record<string, unknown> | undefined,
+                FacetFilterTarget,
+            ]
+        >([
+            [
+                'fallback, resource only',
+                key,
+                attributeLookupExpression(key),
+                {},
+                { [key]: 'r' },
+                { key, type: PropertyFilterType.LogResourceAttribute },
+            ],
+            [
+                'fallback, empty value in attributes',
+                key,
+                attributeLookupExpression(key),
+                { [key]: '' },
+                { [key]: 'r' },
+                { key, type: PropertyFilterType.LogAttribute },
+            ],
+            [
+                'fallback, inherited key in neither map',
+                'constructor',
+                attributeLookupExpression('constructor'),
+                undefined,
+                {},
+                { key: 'constructor', type: PropertyFilterType.LogAttribute },
+            ],
+            [
+                'attributes shorthand',
+                key,
+                `attributes.${key}`,
+                {},
+                { [key]: 'r' },
+                { key, type: PropertyFilterType.LogAttribute },
+            ],
+            [
+                'resource_attributes shorthand with trailing space',
+                key,
+                `resource_attributes.${key} `,
+                { [key]: 'a' },
+                { [key]: 'r' },
+                { key, type: PropertyFilterType.LogResourceAttribute },
+            ],
+            [
+                'renamed resource_attributes shorthand',
+                'Service',
+                'resource_attributes.service.name',
+                {},
+                { 'service.name': 'api' },
+                { key: 'service.name', type: PropertyFilterType.LogResourceAttribute },
+            ],
+            [
+                'renamed fallback with an escaped key',
+                'Odd',
+                attributeLookupExpression(escapedKey),
+                {},
+                { [escapedKey]: 'r' },
+                { key: escapedKey, type: PropertyFilterType.LogResourceAttribute },
+            ],
+            [
+                'renamed service_name column',
+                'Service',
+                'service_name',
+                {},
+                {},
+                { key: 'service_name', type: PropertyFilterType.Log },
+            ],
+            [
+                'other HogQL',
+                key,
+                `upper(resource_attributes['${key}'])`,
+                {},
+                { [key]: 'r' },
+                { key, type: PropertyFilterType.LogAttribute },
+            ],
+        ])('%s', (_, name, expression, attributes, resourceAttributes, expected) => {
+            expect(
+                customColumnFilterTarget({ id: 'c', type: 'custom', name, expression }, attributes, resourceAttributes)
+            ).toEqual(expected)
         })
     })
 

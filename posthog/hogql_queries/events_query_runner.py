@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from functools import cached_property
 from itertools import batched
@@ -17,7 +18,9 @@ from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
     EventsQueryResponse,
+    FilterLogicalOperator,
     HogQLQueryModifiers,
+    PersonsOnEventsMode,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
@@ -39,6 +42,7 @@ from posthog.hogql.property import (
     steps_to_expr,
 )
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.restricted_properties import PERSON_PROPERTY_CONTAINERS
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.api.element import ElementSerializer
@@ -48,11 +52,11 @@ from posthog.dataclasses import frozen
 from posthog.date_util import start_of_day
 from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.hogql_queries.utils.person_display_name import person_display_name_property_exprs
 from posthog.models import Person, PropertyDefinition
 from posthog.models.element import chain_to_elements
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TTL_DAYS
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
 from posthog.models.person.util import get_person_by_pk_or_uuid, get_persons_mapped_by_distinct_id
 from posthog.personhog_client.caller_tag import personhog_caller_tag
@@ -122,10 +126,16 @@ FLAG_EVALUATIONS_LIST_TABLE = EventsListTable(
     joined_fields=EVENTS_LIST_JOINED_FIELDS,
     # flag_evaluations drops a monthly part only after its newest row passes the TTL. Rows older than the TTL can
     # therefore remain for up to a month. This bound ends the list at the first day that the Usage tab charts show.
-    # The TTL has already expired the rows of that day when today starts, so the list can show only part of that day.
-    # The day is empty after a TTL merge drops every part that holds it.
-    retention_days=FLAG_EVALUATIONS_TTL_DAYS,
+    # The TTL is longer than the retention, so the table holds that day in full.
+    retention_days=FLAG_EVALUATIONS_RETENTION_DAYS,
     cache_key_variant="_flag_evaluations",
+)
+
+STORED_PERSON_PROPERTIES_MODES = frozenset(
+    {
+        PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
+        PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+    }
 )
 
 
@@ -215,6 +225,9 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             limit_context=self.limit_context, limit=self.query.limit, offset=self.query.offset
         )
         self._cursor_eligible = False
+
+    def _child_runners(self) -> Iterable[QueryRunner]:
+        return [self.source_runner] if "source_runner" in self.__dict__ else []
 
     @cached_property
     def source_runner(self) -> InsightActorsQueryRunner:
@@ -373,6 +386,14 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                 # ``properties.<name>`` on the events table.
                 if len(chain) >= 2 and chain[0] == "properties" and chain[1] in restricted_event_props:
                     raise ResolutionError(f"Access to property '{chain[1]}' is restricted")
+                # ``properties.$set.<name>`` carries the person property on an identify event.
+                if (
+                    len(chain) >= 3
+                    and chain[0] == "properties"
+                    and chain[1] in PERSON_PROPERTY_CONTAINERS
+                    and chain[2] in restricted_person_props
+                ):
+                    raise ResolutionError(f"Access to property '{chain[2]}' is restricted")
                 # ``person.properties.<name>`` (or ``poe.properties.<name>``) on the joined person.
                 if (
                     len(chain) >= 3
@@ -440,7 +461,17 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
         return super().get_cache_key_variant() + self._list_table.cache_key_variant
 
     def _property_where_expr(self, prop: QueryPropertyFilter, table: EventsListTable) -> ast.Expr:
-        flag_keys = _exact_flag_keys(prop) if table is FLAG_EVALUATIONS_LIST_TABLE else None
+        if table is not FLAG_EVALUATIONS_LIST_TABLE:
+            return property_to_expr(prop, self.team)
+        if isinstance(prop, PropertyGroupFilter | PropertyGroupFilterValue):
+            # Builds the group the way property_to_expr does, so an exact flag filter inside a group also reads flag_key.
+            exprs = [self._property_where_expr(value, table) for value in prop.values]
+            if not exprs:
+                return ast.Constant(value=1)
+            if len(exprs) == 1:
+                return exprs[0]
+            return ast.And(exprs=exprs) if prop.type == FilterLogicalOperator.AND_ else ast.Or(exprs=exprs)
+        flag_keys = _exact_flag_keys(prop)
         if flag_keys is None:
             return property_to_expr(prop, self.team)
         # HogQL reads properties.$feature_flag from the properties JSON, which reads the properties of every call of
@@ -451,18 +482,26 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             right=ast.Tuple(exprs=[ast.Constant(value=key) for key in flag_keys]),
         )
 
+    def _adds_persons_join(self, table: EventsListTable) -> bool:
+        if table is not FLAG_EVALUATIONS_LIST_TABLE:
+            return False
+        # Only a mode set on the query itself skips the join. Many teams default to a mode that reads stored
+        # properties. The activity list sends no mode. It must keep showing each person's current properties.
+        modifiers = self.query.modifiers
+        return modifiers is None or modifiers.personsOnEventsMode not in STORED_PERSON_PROPERTIES_MODES
+
     def _query_modifiers(self, table: EventsListTable) -> HogQLQueryModifiers:
-        # flag_evaluations rows carry no person properties, so a person filter joins persons.
+        # add_events_list_fields_to_flag_evaluations makes `person` a persons join. A person filter therefore joins persons.
         # The pushdown limits that join to the persons that the page's flag calls reach.
         # An explicit personIdPushdown value on the team or the query still wins.
-        if table is FLAG_EVALUATIONS_LIST_TABLE and self.modifiers.personIdPushdown is None:
+        if self._adds_persons_join(table) and self.modifiers.personIdPushdown is None:
             return self.modifiers.model_copy(update={"personIdPushdown": True})
         return self.modifiers
 
     def _query_context(self, table: EventsListTable) -> HogQLContext:
         context = self.build_hogql_context()
         assert context.database is not None
-        if table is FLAG_EVALUATIONS_LIST_TABLE:
+        if self._adds_persons_join(table):
             add_events_list_fields_to_flag_evaluations(context.database)
         return context
 

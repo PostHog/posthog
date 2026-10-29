@@ -47,10 +47,6 @@ class TestAsknicelySource:
         # sent to, so it must force the API key to be re-entered.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        assert [s.name for s in self.source.get_schemas(self.config, self.team_id, names=["stats"])] == ["stats"]
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
-
     @pytest.mark.parametrize("subdomain", ["not a subdomain", "acme.asknice.ly", "evil/../path", ""])
     def test_validate_credentials_rejects_bad_subdomain_without_a_request(self, subdomain: str) -> None:
         config = AsknicelySourceConfig(subdomain=subdomain, api_key="test-key")

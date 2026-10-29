@@ -24,7 +24,7 @@ from posthog.event_usage import groups
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -38,7 +38,42 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-_SNOOZE_SOURCE_STATUSES = frozenset({SignalReport.Status.READY, SignalReport.Status.RESOLVED})
+
+def _enqueue_first_report_notification(team_id: int) -> None:
+    if (
+        SignalFirstReportNotification.objects.for_team(team_id)
+        .filter(queued_at__isnull=True, cancelled_at__isnull=True, send_started_at__isnull=True)
+        .exists()
+    ):
+        from products.signals.backend.first_report_notification_tasks import (
+            dispatch_first_report_notification,  # noqa: PLC0415 - keep the task graph off Django startup
+        )
+
+        dispatch_first_report_notification.delay(team_id)
+
+
+def _schedule_first_report_notification(team_id: int) -> None:
+    def enqueue() -> None:
+        _enqueue_first_report_notification(team_id)
+
+    transaction.on_commit(enqueue, robust=True)
+
+
+@receiver(post_save, sender=SignalReport)
+def enqueue_first_report_notification(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    if instance.status == SignalReport.Status.READY and (created or update_fields is None or "status" in update_fields):
+        _schedule_first_report_notification(instance.team_id)
+
+
+_SNOOZE_SOURCE_STATUSES = frozenset(
+    {SignalReport.Status.READY, SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}
+)
 
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
@@ -105,6 +140,30 @@ def schedule_handover_for_report_change(sender: type, instance: SignalReport, **
 
     team_id, report_id = instance.team_id, str(instance.id)
     transaction.on_commit(lambda: schedule_report_replacements(team_id, report_id), robust=True)
+
+
+@receiver(post_save, sender=SignalReport)
+def push_report_to_reviewers_when_first_visible(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Send the "new report" mobile push once, on the save that stamps `first_visible_at`.
+
+    A pipeline report gets the stamp from `transition_to`, which always names it in `update_fields`.
+    A report born visible (scout, custom agent, plan layer) carries it from creation.
+    """
+    if instance.first_visible_at is None:
+        return
+    if not created and (update_fields is None or "first_visible_at" not in update_fields):
+        return
+    # Function-local to keep the push module's imports (Slack notifications, the Celery sender) off
+    # the django.setup() path.
+    from products.signals.backend.inbox_push_notifications import schedule_report_visible_push  # noqa: PLC0415
+
+    schedule_report_visible_push(team_id=instance.team_id, report_id=str(instance.id))
 
 
 def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
@@ -417,40 +476,42 @@ def close_pr_when_report_dismissed(
 
 
 @receiver(post_save, sender=SignalReport)
-def arm_pending_checks_when_report_resolved(
+def arm_pending_checks_when_report_monitoring(
     sender: type[SignalReport],
     instance: SignalReport,
     created: bool,
     update_fields: set[str] | None = None,
     **kwargs: Any,
 ) -> None:
-    """Start the soak clock on the report's pending checks the moment it resolves.
-
-    A check written during research predates any fix, so it carries a soak duration rather than a
-    date. The resolve is what it waits for, and hooking the model rather than each caller makes
-    every resolve path the same clock: a merged pull request's webhook, a manual resolve in the
-    inbox, and an MCP state write all finish in a ``save``. Plenty of fixes never have a pull
-    request to date a window from, which is why the report's own transition is the event.
-    """
+    """Use the shared status transition so every implementation path starts the same soak clock."""
     prior_status = getattr(instance, "_prior_status", None)
     if not _status_changed_on_this_save(
         instance, created=created, update_fields=update_fields, prior_status=prior_status
     ):
         return
-    if instance.status != SignalReport.Status.RESOLVED:
-        if prior_status == SignalReport.Status.RESOLVED:
+    effective_status = instance.effective_status
+    if effective_status not in {SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED}:
+        if prior_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             from products.signals.backend.report_check_execution import park_report_checks_on_reopen
 
             park_report_checks_on_reopen(team_id=instance.team_id, report_id=str(instance.id), now=timezone.now())
         return
     team_id = instance.team_id
     report_id = str(instance.id)
-    resolved_at = timezone.now()
-    # After commit, so a rolled-back resolve never arms a check, and best-effort: a report that
-    # resolved is the outcome that matters, and a failure here leaves the checks pending rather
-    # than losing them.
+    monitoring_started_at = (
+        instance.monitoring_started_at if effective_status == SignalReport.Status.MONITORING else None
+    )
+    if effective_status == SignalReport.Status.MONITORING and monitoring_started_at is None:
+        return
+    # After commit so a rollback cannot start measurement; the callback also verifies the captured period.
     transaction.on_commit(
-        partial(_arm_pending_checks_safely, team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+        partial(
+            _arm_pending_checks_safely,
+            team_id=team_id,
+            report_id=report_id,
+            resolved_at=monitoring_started_at or timezone.now(),
+            expected_monitoring_started_at=monitoring_started_at,
+        )
     )
 
 
@@ -493,7 +554,7 @@ def roll_up_plan_parents_when_report_closes(
     The roll-up walks the whole ancestor chain itself and marks the reports it moved, so this
     receiver stops on its own writes instead of starting a second walk per level.
     """
-    if instance.status not in _PLAN_ROLLUP_CLOSED_STATUSES | _PLAN_ROLLUP_RETRY_STATUSES:
+    if instance.effective_status not in _PLAN_ROLLUP_CLOSED_STATUSES | _PLAN_ROLLUP_RETRY_STATUSES:
         return
     if getattr(instance, "_plan_rollup", False):
         return
@@ -524,13 +585,20 @@ def _roll_up_plan_parents_safely(*, team_id: int, report_id: str, include_report
         logger.exception("signals.plan_rollup.failed", report_id=report_id, team_id=team_id)
 
 
-def _arm_pending_checks_safely(*, team_id: int, report_id: str, resolved_at: datetime) -> None:
+def _arm_pending_checks_safely(
+    *, team_id: int, report_id: str, resolved_at: datetime, expected_monitoring_started_at: datetime | None = None
+) -> None:
     # Function-local: the authoring module reaches the execution module and from there the alerts
     # facade, which the startup-import-budget test keeps off django.setup().
     from products.signals.backend.report_check_authoring import arm_pending_checks  # noqa: PLC0415
 
     try:
-        arm_pending_checks(team_id=team_id, report_id=report_id, resolved_at=resolved_at)
+        arm_pending_checks(
+            team_id=team_id,
+            report_id=report_id,
+            resolved_at=resolved_at,
+            expected_monitoring_started_at=expected_monitoring_started_at,
+        )
     except Exception:
         logger.exception("signals.report_check.arm_on_resolve_failed", report_id=report_id, team_id=team_id)
 
@@ -783,6 +851,8 @@ def sync_report_latest_actionability_on_save(
     tools. Not gated on `created`, because `update_content` edits a judgment row in place.
     """
     _sync_report_latest_actionability(instance)
+    if instance.type == SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT:
+        _schedule_first_report_notification(instance.team_id)
 
 
 def _deleted_directly(origin: Any) -> bool:
@@ -853,6 +923,17 @@ def _status_change_properties(
     }
 
 
+def _is_first_visible_report(team_id: int, report_id: str) -> bool:
+    # The id breaks a tie between reports that became visible in the same instant.
+    first = (
+        SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False)
+        .order_by("first_visible_at", "id")
+        .values_list("id", flat=True)
+        .first()
+    )
+    return first is not None and str(first) == report_id
+
+
 @receiver(post_save, sender=SignalReport)
 def capture_status_change_analytics(
     sender: type[SignalReport],
@@ -885,6 +966,12 @@ def capture_status_change_analytics(
 
     # Snapshot now — the instance may be mutated again before the commit callback runs.
     properties = _status_change_properties(instance, prior_status, pending_reason=pending_reason)
+    # PR reconciliation supplies a known outcome without creating caller-provided dismissal feedback.
+    if getattr(instance, "_status_from_pr_state", False):
+        if instance.status == SignalReport.Status.RESOLVED:
+            properties["resolution_reason"] = "pr_merged"
+        elif instance.status == SignalReport.Status.SUPPRESSED:
+            properties["dismissal_cause"] = "pr_closed_without_merge"
     report_id = str(instance.id)
     new_status = instance.status
     team = instance.team
@@ -920,6 +1007,7 @@ def capture_status_change_analytics(
                 properties={
                     **properties,
                     "previous_status": previous_status,
+                    "is_first_report": _is_first_visible_report(instance.team_id, report_id),
                     **_actor_properties(actor, actor_user),
                     **_classification_snapshot(
                         report_id,

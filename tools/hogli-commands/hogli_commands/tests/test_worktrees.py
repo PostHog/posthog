@@ -12,6 +12,7 @@ from hogli_commands.worktrees import (
     _belongs_to_repo,
     _collect_deps_items,
     _compute_git_state,
+    _discover_root_worktrees,
     _du_sizes,
     _execute,
     _include_orphans,
@@ -20,6 +21,7 @@ from hogli_commands.worktrees import (
     _reclaimed_bytes,
     _registered_worktrees,
     _resolve_orphan_policy,
+    _worktree_roots,
 )
 
 
@@ -119,6 +121,36 @@ class TestBelongsToRepo:
         wt = tmp_path / "home" / "wt"
         wt.mkdir(parents=True)  # no .git pointer at all
         assert not _belongs_to_repo(wt.resolve(), (tmp_path / "main").resolve(), (tmp_path / "main" / ".git").resolve())
+
+
+class TestWorktreeRoots:
+    @pytest.mark.parametrize(
+        "override_base,branch,registered",
+        [
+            (True, "haacked/new-feature", False),
+            (False, "haacked/new-feature", False),
+            (False, "alice/feature/disk", True),
+        ],
+        ids=["posthog_worktree_base", "default_home_base", "registered_three_segment_branch"],
+    )
+    def test_phw_branch_worktree_is_discovered(
+        self, tmp_path, monkeypatch, override_base: bool, branch: str, registered: bool
+    ) -> None:
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "home")
+        if override_base:
+            base = tmp_path / "custom"
+            monkeypatch.setenv("POSTHOG_WORKTREE_BASE", str(base))
+        else:
+            base = tmp_path / "home" / ".worktrees" / "posthog"
+            monkeypatch.delenv("POSTHOG_WORKTREE_BASE", raising=False)
+        wt = base / branch
+        wt.mkdir(parents=True)
+        (wt / ".git").write_text("gitdir: /nowhere\n")
+        registry = {wt.resolve(): {"locked": False, "branch": branch}} if registered else {}
+
+        roots = dict(_worktree_roots(tmp_path / "repo"))
+
+        assert [p.resolve() for p in _discover_root_worktrees(roots["phw"], registry)] == [wt.resolve()]
 
 
 class TestCollectDepsItems:

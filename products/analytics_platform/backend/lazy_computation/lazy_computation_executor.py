@@ -3,7 +3,7 @@ import json
 import time
 import uuid
 import hashlib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -22,12 +22,24 @@ from prometheus_client import Counter
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
-from posthog.hogql.constants import (
-    MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY,
-    HogQLQuerySettings,
-    get_default_hogql_global_settings,
-)
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, get_default_hogql_global_settings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import Table
+from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
+from posthog.hogql.database.schema.experiment_metric_events_preaggregated import (
+    ExperimentMetricEventsPreaggregatedTable,
+)
+from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
+from posthog.hogql.database.schema.preaggregation_results import PreaggregationResultsTable
+from posthog.hogql.database.schema.web_goals_preaggregated import WebGoalsPreaggregatedTable
+from posthog.hogql.database.schema.web_overview_preaggregated import WebOverviewPreaggregatedTable
+from posthog.hogql.database.schema.web_sessions_preaggregated import WebSessionsPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_frustration_preaggregated import WebStatsFrustrationPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
+from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
+from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import replace_placeholders
@@ -37,6 +49,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -175,7 +188,14 @@ LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
 )
 
 
-def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_after_write: bool = True) -> dict:
+def _get_insert_settings(
+    team_id: int,
+    table: "LazyComputationTable",
+    *,
+    spill_to_disk: bool = False,
+    read_after_write: bool = True,
+    overrides: Mapping[str, int | str] | None = None,
+) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
     Starts from the same HogQLGlobalSettings defaults that execute_hogql_query
@@ -192,6 +212,9 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_afte
     minutes later (background builders) gets no consistency from it — only the
     failure mode where a downed or stale-registered replica turns every build
     into TOO_FEW_LIVE_REPLICAS until the cluster is repaired.
+
+    `load_balancing` comes from the HogQL table that reads `table`, so the INSERT and the
+    later SELECT choose replicas the same way. A table that sets none uses the profile default.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
@@ -207,7 +230,7 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_afte
             # Uses the legacy name of `distributed_foreground_insert` (renamed in ClickHouse 23.x)
             # for version compatibility.
             "insert_distributed_sync": 1,
-            **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
+            **_read_table_load_balancing(table),
         }
     )
     if spill_to_disk:
@@ -218,6 +241,8 @@ def _get_insert_settings(team_id: int, *, spill_to_disk: bool = False, read_afte
         # build hash tables past the cluster memory limit and fail with
         # MEMORY_LIMIT_EXCEEDED.
         settings["max_bytes_before_external_group_by"] = MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+    if overrides:
+        settings.update(overrides)
     return settings
 
 
@@ -471,6 +496,10 @@ def split_ranges_by_ttl(
     return result
 
 
+# ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES. The pool refused the INSERT before it ran, so
+# nothing was written and a later attempt can pick the build up where it left off.
+TOO_MANY_SIMULTANEOUS_QUERIES_CODE = 202
+
 # ClickHouse error codes that should NOT be retried.
 # These are errors where retrying will never help - the query itself is broken,
 # or the user needs to change something about their request.
@@ -487,7 +516,7 @@ NON_RETRYABLE_CLICKHOUSE_ERROR_CODES = {
     159,  # TIMEOUT_EXCEEDED
     # Too many simultaneous queries means the cluster is overloaded.
     # Rather than adding to the load with retries, surface the error.
-    202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+    TOO_MANY_SIMULTANEOUS_QUERIES_CODE,
     # The rows/bytes-to-read cap is deterministic for a given window: the data
     # won't shrink between attempts, so an immediate retry re-scans the same
     # terabytes only to fail the same way. Fail fast so the caller can fall
@@ -547,6 +576,16 @@ def is_memory_limit_error(error: Exception) -> bool:
     return False
 
 
+def is_capacity_rejected_error(error: Exception) -> bool:
+    """True if the error (or any wrapped cause) is a ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES."""
+    current: BaseException | None = error
+    while current is not None:
+        if isinstance(current, ServerException) and current.code == TOO_MANY_SIMULTANEOUS_QUERIES_CODE:
+            return True
+        current = current.__cause__
+    return False
+
+
 class LazyComputationTable(StrEnum):
     """Allowed target tables for lazy-computed results."""
 
@@ -567,6 +606,33 @@ class LazyComputationTable(StrEnum):
     WEB_STATS_DIMENSIONAL_PREAGGREGATED = "web_stats_dimensional_preaggregated"
     WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED = "web_bounces_dimensional_preaggregated"
     WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED = "web_sessions_dimensional_preaggregated"
+
+
+# The HogQL table that reads each target table. The two dimensional web tables are read
+# without HogQL, so they have no entry.
+_READ_TABLES: dict[LazyComputationTable, Table] = {
+    LazyComputationTable.PREAGGREGATION_RESULTS: PreaggregationResultsTable(),
+    LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED: ExperimentExposuresPreaggregatedTable(),
+    LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED: ExperimentMetricEventsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED: MarketingTouchpointsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED: MarketingConversionsPreaggregatedTable(),
+    LazyComputationTable.MARKETING_COSTS_PREAGGREGATED: MarketingCostsPreaggregatedTable(),
+    LazyComputationTable.WEB_OVERVIEW_PREAGGREGATED: WebOverviewPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_PREAGGREGATED: WebStatsPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_PATHS_PREAGGREGATED: WebStatsPathsPreaggregatedTable(),
+    LazyComputationTable.WEB_VITALS_PATHS_PREAGGREGATED: WebVitalsPathsPreaggregatedTable(),
+    LazyComputationTable.WEB_STATS_FRUSTRATION_PREAGGREGATED: WebStatsFrustrationPreaggregatedTable(),
+    LazyComputationTable.WEB_GOALS_PREAGGREGATED: WebGoalsPreaggregatedTable(),
+    LazyComputationTable.WEB_SESSIONS_DIMENSIONAL_PREAGGREGATED: WebSessionsPreaggregatedTable(),
+}
+
+
+def _read_table_load_balancing(table: LazyComputationTable) -> dict[str, str]:
+    read_table = _READ_TABLES.get(table)
+    if read_table is None or read_table.top_level_settings is None:
+        return {}
+    load_balancing = read_table.top_level_settings.load_balancing
+    return {"load_balancing": load_balancing} if load_balancing is not None else {}
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -597,6 +663,9 @@ class LazyComputationQuery:
     timezone: str = "UTC"
     breakdown_fields: list[str] = field(default_factory=list)
     cache_key_context: dict[str, str] | None = None
+    # The modifiers of the query that made the job, so an inline build prints against the events table the
+    # identity names rather than the one the building request's own switches would pick.
+    modifiers: HogQLQueryModifiers | None = None
 
 
 @dataclass(frozen=True)
@@ -609,6 +678,9 @@ class LazyComputationResult:
     # True if any insert failed with ClickHouse MEMORY_LIMIT_EXCEEDED. Lets callers react
     # to an OOM (e.g. cap a high-cardinality team's future inserts) without parsing errors.
     memory_exceeded: bool = False
+    # True if any insert was refused with ClickHouse TOO_MANY_SIMULTANEOUS_QUERIES. Nothing was
+    # written, so a caller can retry later instead of reading the uncached range directly.
+    capacity_rejected: bool = False
     # True when the returned job_ids include recently-expired jobs served under the
     # executor's serve-stale grace instead of recomputing inline. The data is complete
     # but up to (TTL + grace) old; the caller decides whether to surface that.
@@ -630,6 +702,19 @@ def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
     """Oldest `computed_at` among served jobs — the stalest window bounds how old the data can be."""
     stamps = [j.computed_at for j in jobs if j.computed_at is not None]
     return min(stamps) if stamps else None
+
+
+def events_table_cache_key_context(
+    team: Team, modifiers: HogQLQueryModifiers | None, cache_key_context: dict[str, str] | None
+) -> dict[str, str] | None:
+    """The job identity context with the events table the build reads, when it is not the legacy one.
+
+    The hashed AST names the `events` table whichever ClickHouse table it prints to, so without this a build from
+    events_json would be served to readers of the legacy table and the other way round.
+    """
+    if not use_new_events_schema(team.pk, modifiers):
+        return cache_key_context
+    return {**(cache_key_context or {}), "events_table": "events_json"}
 
 
 def compute_query_hash(query_info: LazyComputationQuery) -> str:
@@ -913,6 +998,7 @@ def build_lazy_computation_insert_sql(
     time_range_start: datetime,
     time_range_end: datetime,
     expires_at: datetime,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> tuple[str, dict]:
     """
     Build the INSERT ... SELECT SQL for populating lazy-computed results.
@@ -969,7 +1055,13 @@ def build_lazy_computation_insert_sql(
         query.where = date_range_filter
 
     # Print the SELECT query to ClickHouse SQL
-    context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True, limit_top_select=False)
+    context = HogQLContext(
+        team_id=team.id,
+        team=team,
+        enable_select_queries=True,
+        limit_top_select=False,
+        modifiers=modifiers if modifiers is not None else HogQLQueryModifiers(),
+    )
     select_sql, _ = prepare_and_print_ast(
         query,
         context=context,
@@ -1018,6 +1110,7 @@ def run_lazy_computation_insert(
         time_range_start=job.time_range_start,
         time_range_end=job.time_range_end,
         expires_at=ch_expires_at,
+        modifiers=query_info.modifiers,
     )
 
     set_ch_query_started(job.id)
@@ -1031,7 +1124,7 @@ def run_lazy_computation_insert(
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(team.id),
+                settings=_get_insert_settings(team.id, query_info.table),
             )
         )
 
@@ -1127,6 +1220,7 @@ class LazyComputationExecutor:
         errors: list[str] = []
         failures = 0
         memory_exceeded = False
+        capacity_rejected = False
         start_time = time.monotonic()
         interval = self.poll_interval_seconds
         subscribed_ids: set[uuid.UUID] = set()
@@ -1181,7 +1275,11 @@ class LazyComputationExecutor:
                 if time.monotonic() - start_time >= self.wait_timeout_seconds:
                     errors.append("Timeout waiting for computation jobs")
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("timeout", result)
                     return result
@@ -1239,7 +1337,11 @@ class LazyComputationExecutor:
                 # report the miss so the caller serves live and warms in background.
                 if not self.run_inserts and (build_ranges or pending_jobs):
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("check_miss", result)
                     return result
@@ -1257,7 +1359,11 @@ class LazyComputationExecutor:
                         if time.monotonic() - start_time >= self.wait_timeout_seconds:
                             errors.append("Timeout waiting for computation jobs")
                             result = LazyComputationResult(
-                                ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                ready=False,
+                                job_ids=[],
+                                errors=errors,
+                                memory_exceeded=memory_exceeded,
+                                capacity_rejected=capacity_rejected,
                             )
                             _log_execution("timeout", result)
                             return result
@@ -1349,6 +1455,7 @@ class LazyComputationExecutor:
                         except Exception as e:
                             insert_elapsed = time.monotonic() - insert_start
                             memory_exceeded = memory_exceeded or is_memory_limit_error(e)
+                            capacity_rejected = capacity_rejected or is_capacity_rejected_error(e)
                             new_job.status = PreaggregationJob.Status.FAILED
                             new_job.error = str(e)
                             new_job.save()
@@ -1374,7 +1481,11 @@ class LazyComputationExecutor:
                             if is_non_retryable_error(e):
                                 errors.append(str(e))
                                 result = LazyComputationResult(
-                                    ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                    ready=False,
+                                    job_ids=[],
+                                    errors=errors,
+                                    memory_exceeded=memory_exceeded,
+                                    capacity_rejected=capacity_rejected,
                                 )
                                 _log_execution("non_retryable_error", result)
                                 return result
@@ -1382,7 +1493,11 @@ class LazyComputationExecutor:
                             if failures > self.max_retries:
                                 errors.append(f"Max retries ({self.max_retries}) exceeded: {e}")
                                 result = LazyComputationResult(
-                                    ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                                    ready=False,
+                                    job_ids=[],
+                                    errors=errors,
+                                    memory_exceeded=memory_exceeded,
+                                    capacity_rejected=capacity_rejected,
                                 )
                                 _log_execution("max_retries_exceeded", result)
                                 return result
@@ -1391,7 +1506,11 @@ class LazyComputationExecutor:
                 if build_ranges and failures > self.max_retries:
                     errors.append("Max retries exceeded for computation")
                     result = LazyComputationResult(
-                        ready=False, job_ids=[], errors=errors, memory_exceeded=memory_exceeded
+                        ready=False,
+                        job_ids=[],
+                        errors=errors,
+                        memory_exceeded=memory_exceeded,
+                        capacity_rejected=capacity_rejected,
                     )
                     _log_execution("max_retries_exceeded", result)
                     return result
@@ -1617,6 +1736,7 @@ def ensure_precomputed(
     cache_key_context: dict[str, str] | None = None,
     read_after_write: bool = True,
     database: "Database | None" = None,
+    insert_settings: Mapping[str, int | str] | None = None,
 ) -> LazyComputationResult:
     """
     Ensure lazy-computed data exists for the given query and time range.
@@ -1701,6 +1821,9 @@ def ensure_precomputed(
                       and CPU per job. A caller that ensures many windows for one team should
                       build it once, userless with warehouse access control bypassed and with
                       the same `modifiers`, and pass it here.
+        insert_settings: ClickHouse settings applied last to every INSERT, over the defaults
+                      and `spill_to_disk`. For a precompute kind whose INSERT needs more
+                      memory or time than the defaults allow.
 
     Returns:
         ComputationResult with job_ids that can be used to query the data
@@ -1755,6 +1878,11 @@ def ensure_precomputed(
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
 
+    # The INSERT's printer asks the same switches for its table, so naming the table here keeps the job identity
+    # and the rows under it in step, whichever switch (a modifier, the person's cookie, the project or the
+    # instance) picked it.
+    cache_key_context = events_table_cache_key_context(team, modifiers, cache_key_context)
+
     query_info = LazyComputationQuery(
         query=parsed_for_hash,
         table=table,
@@ -1789,7 +1917,13 @@ def ensure_precomputed(
                 sync_execute(
                     insert_sql,
                     values,
-                    settings=_get_insert_settings(t.id, spill_to_disk=spill_to_disk, read_after_write=read_after_write),
+                    settings=_get_insert_settings(
+                        t.id,
+                        table,
+                        spill_to_disk=spill_to_disk,
+                        read_after_write=read_after_write,
+                        overrides=insert_settings,
+                    ),
                 )
             )
         # Splits the job's insert_duration_ms: printing builds the team's HogQL database, which can cost
