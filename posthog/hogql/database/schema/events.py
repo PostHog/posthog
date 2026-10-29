@@ -7,6 +7,7 @@ from posthog.hogql.database.lazy_join_tags import (
 from posthog.hogql.database.models import (
     DatabaseField,
     DateTimeDatabaseField,
+    EventsRetentionTable,
     FieldOrTable,
     FieldTraverser,
     IntegerDatabaseField,
@@ -14,7 +15,6 @@ from posthog.hogql.database.models import (
     StringArrayDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
-    Table,
     UUIDDatabaseField,
     VirtualTable,
 )
@@ -88,8 +88,9 @@ class EventsGroupSubTable(VirtualTable):
         return "events"
 
 
-class EventsTable(Table):
+class EventsTable(EventsRetentionTable):
     description: str = "Every analytics event captured for the project. The central fact table for product analytics."
+    events_retention_field: str = "timestamp"
     fields: dict[str, FieldOrTable] = {
         "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this event row."),
         "event": StringDatabaseField(

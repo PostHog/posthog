@@ -188,6 +188,7 @@ _PRECOMPUTE_PRODUCTS: dict[str, dict[str, Any]] = {
         "eligible_live_query_types": (
             "web_overview_query",
             "web_overview_preaggregated_query",
+            "web_overview_dimensional_query",
             "web_overview_no_join_query",
             "web_overview_session_id_set_query",
             "stats_table_main_query",
@@ -202,6 +203,9 @@ _PRECOMPUTE_PRODUCTS: dict[str, dict[str, Any]] = {
             "stats_table_preaggregated_query",
             "stats_table_preaggregated_path_breakdown_query",
             "stats_table_preaggregated_entry_bounce_query",
+            "stats_table_dimensional_query",
+            "stats_table_dimensional_path_breakdown_query",
+            "stats_table_dimensional_entry_bounce_query",
             "web_goals_query",
             "web_vitals_path_breakdown_query",
         ),
