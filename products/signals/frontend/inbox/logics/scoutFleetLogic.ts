@@ -1309,6 +1309,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         selectedScoutTags: [
             [] as string[],
+            { persist: true },
             {
                 setScoutTagFilter: (_, { tags }) => tags,
                 hydrateRosterFilters: (_, { tags }) => tags,
@@ -1323,6 +1324,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutEnabledFilter: [
             'all' as ScoutEnabledFilter,
+            { persist: true },
             {
                 setScoutEnabledFilter: (_, { filter }) => filter,
                 hydrateRosterFilters: (_, { filter }) => filter,
@@ -1330,6 +1332,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         selectedScoutOwner: [
             null as string | null,
+            { persist: true },
             {
                 setScoutOwnerFilter: (_, { owner }) => owner,
                 hydrateRosterFilters: (_, { owner }) => owner,
@@ -1337,6 +1340,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutRosterSort: [
             'name' as ScoutRosterSort,
+            { persist: true },
             {
                 setScoutRosterSort: (_, { sort }) => sort,
             },

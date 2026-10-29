@@ -157,6 +157,7 @@ describe('scoutFleetLogic', () => {
     let logic: ReturnType<typeof scoutFleetLogic.build>
 
     beforeEach(async () => {
+        localStorage.clear()
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
@@ -179,6 +180,7 @@ describe('scoutFleetLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        localStorage.clear()
     })
 
     it.each([false, true])('keeps the first-report scout out of the normal UI unless staff=%s', async (isStaff) => {
@@ -868,6 +870,31 @@ describe('scoutFleetLogic', () => {
         // The filter persists and is written back so the restored view stays shareable.
         expect(logic.values.scoutEnabledFilter).toEqual('enabled')
         expect(router.values.searchParams.scoutEnabled).toEqual('enabled')
+    })
+
+    it('remembers scout roster filters and sort between visits across unmount and remount', async () => {
+        logic.actions.setScoutEnabledFilter('enabled')
+        logic.actions.setScoutTagFilter(['revenue'])
+        logic.actions.setScoutOwnerFilter(OWNER.uuid)
+        logic.actions.setScoutRosterSort('updated')
+
+        expect(logic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(logic.values.selectedScoutTags).toEqual(['revenue'])
+        expect(logic.values.selectedScoutOwner).toEqual(OWNER.uuid)
+        expect(logic.values.scoutRosterSort).toEqual('updated')
+
+        logic.unmount()
+
+        const newLogic = scoutFleetLogic()
+        newLogic.mount()
+
+        expect(newLogic.values.scoutEnabledFilter).toEqual('enabled')
+        expect(newLogic.values.selectedScoutTags).toEqual(['revenue'])
+        expect(newLogic.values.selectedScoutOwner).toEqual(OWNER.uuid)
+        expect(newLogic.values.scoutRosterSort).toEqual('updated')
+        expect(newLogic.values.scoutSearch).toEqual('')
+
+        newLogic.unmount()
     })
 
     it('drops a typed search that a URL hydration has already replaced', async () => {
