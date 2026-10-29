@@ -1,26 +1,40 @@
-from dataclasses import dataclass
-from typing import Literal, Optional
+from dataclasses import dataclass, field
+from typing import Any, Literal, Optional
 
-PaginationStyle = Literal["cursor", "offset"]
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    DependentEndpointConfig,
+)
+
+PaginationStyle = Literal["cursor", "offset", "none"]
+
+# Pipedrive caps list pages at 500 items (default 100).
+PAGE_SIZE = 500
 
 
 @dataclass
 class PipedriveEndpointConfig:
     name: str
     path: str
-    # v2 endpoints use cursor pagination; v1 endpoints use start/limit offset pagination.
+    # v2 endpoints and the v1 changelog use cursor pagination; other v1 collections use
+    # start/limit offset pagination. "none" is for lookups documented as always returning every row.
     pagination: PaginationStyle
-    primary_key: str = "id"
+    primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # Stable creation-time field used for datetime partitioning. Never an update_time-style
     # field, which would rewrite partitions on every sync. `None` disables partitioning for
     # endpoints (users, *_fields) whose rows have no stable creation timestamp.
     partition_key: Optional[str] = "add_time"
+    # Set for endpoints read once per parent row, e.g. once per deal.
+    fanout: Optional[DependentEndpointConfig] = None
+    # Read by the shared fan-out helper. Every Pipedrive endpoint is full refresh.
+    page_size: int = PAGE_SIZE
+    incremental_fields: list[Any] = field(default_factory=list)
+    default_incremental_field: Optional[str] = None
 
 
 # Endpoints whose path and pagination are identical across every supported source version.
-# Their v1 collection endpoints have no v2 replacement (notes, leads, users, *_fields) or were
-# already on v2 (deals, persons, organizations, products, pipelines, stages), so they don't
-# change between our `v1` and `v2` labels.
+# Their v1 collection endpoints have no v2 replacement (notes, leads, users, *_fields, lookups,
+# the deal changelog) or were already on v2 (deals, persons, organizations, products, pipelines,
+# stages, deal products), so they don't change between our `v1` and `v2` labels.
 _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     "deals": PipedriveEndpointConfig(name="deals", path="/api/v2/deals", pagination="cursor"),
     "persons": PipedriveEndpointConfig(name="persons", path="/api/v2/persons", pagination="cursor"),
@@ -39,6 +53,42 @@ _SHARED_ENDPOINTS: dict[str, PipedriveEndpointConfig] = {
     ),
     "organization_fields": PipedriveEndpointConfig(
         name="organization_fields", path="/api/v1/organizationFields", pagination="offset", partition_key=None
+    ),
+    "lead_labels": PipedriveEndpointConfig(
+        name="lead_labels", path="/api/v1/leadLabels", pagination="none", partition_key=None
+    ),
+    "activity_types": PipedriveEndpointConfig(
+        name="activity_types", path="/api/v1/activityTypes", pagination="none", partition_key=None
+    ),
+    "deal_products": PipedriveEndpointConfig(
+        name="deal_products",
+        path="/api/v2/deals/{id}/products",
+        pagination="cursor",
+        primary_keys=["deal_id", "id"],
+        fanout=DependentEndpointConfig(
+            parent_name="deals",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=[],
+            # A deal deleted between the deals listing and this fetch has no line items left.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Changelog rows carry no id or deal reference, so the deal id comes from the parent row.
+    "deal_changelog": PipedriveEndpointConfig(
+        name="deal_changelog",
+        path="/api/v1/deals/{id}/changelog",
+        pagination="cursor",
+        primary_keys=["deal_id", "field_key", "time"],
+        partition_key="time",
+        fanout=DependentEndpointConfig(
+            parent_name="deals",
+            resolve_param="id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "deal_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
     ),
 }
 

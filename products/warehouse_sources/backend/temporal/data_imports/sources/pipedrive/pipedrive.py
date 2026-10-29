@@ -24,24 +24,27 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
     OffsetPaginator,
+    SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.pipedrive.settings import (
+    PAGE_SIZE,
     PipedriveEndpointConfig,
     endpoints_for_version,
 )
 
 LOGGER = structlog.get_logger(__name__)
-
-# Pipedrive caps list pages at 500 items (default 100).
-PAGE_SIZE = 500
 
 # Webhook management lives on v1; there is no v2 equivalent.
 WEBHOOKS_PATH = "/api/v1/webhooks"
@@ -113,6 +116,9 @@ def _build_paginator(config: PipedriveEndpointConfig) -> BasePaginator:
     if config.pagination == "cursor":
         # v2 endpoints: opaque cursor in the response body; ``limit`` rides in the endpoint params.
         return JSONResponseCursorPaginator(cursor_path="additional_data.next_cursor", cursor_param="cursor")
+    if config.pagination == "none":
+        # Documented as unpaginated: a full page must not send a second request at `start=500`.
+        return SinglePagePaginator()
     # v1 endpoints: start/limit offset. No top-level total; termination is a short/empty page.
     return OffsetPaginator(
         limit=PAGE_SIZE,
@@ -360,37 +366,19 @@ def pipedrive_source(
     db_incremental_field_last_value: Optional[Any] = None,
     api_version: str = "v2",
 ) -> SourceResponse:
-    config = endpoints_for_version(api_version)[endpoint]
+    endpoints = endpoints_for_version(api_version)
+    config = endpoints[endpoint]
 
-    params: dict[str, Any] = {}
-    if config.pagination == "cursor":
-        # The cursor paginator only injects ``cursor``; ``limit`` must be a static param.
-        params["limit"] = PAGE_SIZE
-
-    rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": base_url(company_domain),
-            # Only the non-secret Accept header here; the token travels via framework auth so it's
-            # redacted from logged URLs, headers, sampled bodies, and raised error messages.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "api_key", "api_key": api_token, "name": "x-api-token", "location": "header"},
-            "paginator": _build_paginator(config),
-            # base_url host (`{subdomain}.pipedrive.com`) is implicitly allowed; `[]` pins every
-            # request — including resume URLs — to it, matching the source's SSRF posture.
-            "allowed_hosts": [],
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": params,
-                    # Mirrors the old `data.get("data") or []`: a 200 body without `data` yields an
-                    # empty page rather than raising (not required).
-                    "data_selector": "data",
-                },
-            }
-        ],
+    client_config: ClientConfig = {
+        "base_url": base_url(company_domain),
+        # Only the non-secret Accept header here; the token travels via framework auth so it's
+        # redacted from logged URLs, headers, sampled bodies, and raised error messages.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "api_key", "api_key": api_token, "name": "x-api-token", "location": "header"},
+        "paginator": _build_paginator(config),
+        # base_url host (`{subdomain}.pipedrive.com`) is implicitly allowed; `[]` pins every
+        # request — including resume URLs — to it, matching the source's SSRF posture.
+        "allowed_hosts": [],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -407,14 +395,54 @@ def pipedrive_source(
         if state:
             resumable_source_manager.save_state(PipedriveResumeConfig(paginator_state=state))
 
-    resource = rest_api_resource(
-        rest_config,
-        team_id,
-        job_id,
-        db_incremental_field_last_value,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    resource: Any
+    column_hints = None
+    if config.fanout is not None:
+        parent_config = endpoints[config.fanout.parent_name]
+        resource = build_dependent_resource(
+            endpoint_configs=endpoints,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            parent_endpoint_extra={"paginator": _build_paginator(parent_config), "data_selector": "data"},
+            child_endpoint_extra={"paginator": _build_paginator(config), "data_selector": "data"},
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+    else:
+        params: dict[str, Any] = {}
+        if config.pagination == "cursor":
+            # The cursor paginator only injects ``cursor``; ``limit`` must be a static param.
+            params["limit"] = PAGE_SIZE
+
+        rest_config: RESTAPIConfig = {
+            "client": client_config,
+            "resources": [
+                {
+                    "name": endpoint,
+                    "endpoint": {
+                        "path": config.path,
+                        "params": params,
+                        # Mirrors the old `data.get("data") or []`: a 200 body without `data` yields an
+                        # empty page rather than raising (not required).
+                        "data_selector": "data",
+                    },
+                }
+            ],
+        }
+        resource = rest_api_resource(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        column_hints = resource.column_hints
 
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
 
@@ -428,11 +456,11 @@ def pipedrive_source(
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if config.partition_key else None,
         partition_format="week" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
+        column_hints=column_hints,
     )

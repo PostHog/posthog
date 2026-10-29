@@ -20,21 +20,33 @@ Reference: <https://developers.pipedrive.com/docs/api/v1>
 
 ## Endpoints synced
 
-| Schema              | Path                         | Pagination | Primary key | Partition key |
-| ------------------- | ---------------------------- | ---------- | ----------- | ------------- |
-| deals               | `/api/v2/deals`              | cursor     | id          | add_time      |
-| persons             | `/api/v2/persons`            | cursor     | id          | add_time      |
-| organizations       | `/api/v2/organizations`      | cursor     | id          | add_time      |
-| products            | `/api/v2/products`           | cursor     | id          | add_time      |
-| pipelines           | `/api/v2/pipelines`          | cursor     | id          | add_time      |
-| stages              | `/api/v2/stages`             | cursor     | id          | add_time      |
-| activities          | `/api/v2/activities`         | cursor     | id          | add_time      |
-| notes               | `/api/v1/notes`              | offset     | id          | add_time      |
-| leads               | `/api/v1/leads`              | offset     | id          | add_time      |
-| users               | `/api/v1/users`              | offset     | id          | —             |
-| deal_fields         | `/api/v1/dealFields`         | offset     | id          | —             |
-| person_fields       | `/api/v1/personFields`       | offset     | id          | —             |
-| organization_fields | `/api/v1/organizationFields` | offset     | id          | —             |
+| Schema              | Path                           | Pagination | Primary key              | Partition key |
+| ------------------- | ------------------------------ | ---------- | ------------------------ | ------------- |
+| deals               | `/api/v2/deals`                | cursor     | id                       | add_time      |
+| persons             | `/api/v2/persons`              | cursor     | id                       | add_time      |
+| organizations       | `/api/v2/organizations`        | cursor     | id                       | add_time      |
+| products            | `/api/v2/products`             | cursor     | id                       | add_time      |
+| pipelines           | `/api/v2/pipelines`            | cursor     | id                       | add_time      |
+| stages              | `/api/v2/stages`               | cursor     | id                       | add_time      |
+| activities          | `/api/v2/activities`           | cursor     | id                       | add_time      |
+| notes               | `/api/v1/notes`                | offset     | id                       | add_time      |
+| leads               | `/api/v1/leads`                | offset     | id                       | add_time      |
+| users               | `/api/v1/users`                | offset     | id                       | —             |
+| deal_fields         | `/api/v1/dealFields`           | offset     | id                       | —             |
+| person_fields       | `/api/v1/personFields`         | offset     | id                       | —             |
+| organization_fields | `/api/v1/organizationFields`   | offset     | id                       | —             |
+| lead_labels         | `/api/v1/leadLabels`           | none       | id                       | —             |
+| activity_types      | `/api/v1/activityTypes`        | none       | id                       | —             |
+| deal_products       | `/api/v2/deals/{id}/products`  | cursor     | deal_id, id              | add_time      |
+| deal_changelog      | `/api/v1/deals/{id}/changelog` | cursor     | deal_id, field_key, time | time          |
+
+`lead_labels` and `activity_types` are documented as unpaginated and always return every row, so they are read in one request.
+
+`deal_products` and `deal_changelog` fan out over `/api/v2/deals`, one request chain per deal.
+Changelog rows carry neither an id nor the deal id, so `deal_id` is copied from the parent deal.
+`/api/v2/deals/products?deal_ids=...` reads line items for up to 100 deals per request and would cut the request count for `deal_products`.
+It needs a custom batching iterator, so the table uses the per-deal endpoint for now.
+`/deals/{id}/flow` is not synced: it mixes activities, notes, files and field changes in one timeline, and the changelog and existing tables already cover those.
 
 ## Source versions
 

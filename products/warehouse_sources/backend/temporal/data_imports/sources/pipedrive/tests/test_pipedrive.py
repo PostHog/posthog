@@ -59,7 +59,11 @@ def _make_manager(resume_state: PipedriveResumeConfig | None = None) -> mock.Mag
 
 
 def _wire(
-    session: mock.MagicMock, responses: list[Response], *, prepared_url: Optional[str] = None
+    session: mock.MagicMock,
+    responses: list[Response],
+    *,
+    prepared_url: Optional[str] = None,
+    urls: Optional[list[str]] = None,
 ) -> list[dict[str, Any]]:
     """Wire a mock session; return a list capturing each request's params AT SEND TIME.
 
@@ -72,6 +76,8 @@ def _wire(
 
     def _prepare(request: Any) -> mock.MagicMock:
         param_snapshots.append(dict(request.params or {}))
+        if urls is not None:
+            urls.append(request.url)
         prepared = mock.MagicMock()
         prepared.url = prepared_url or "https://acme.pipedrive.com/api/v2/deals"
         return prepared
@@ -315,14 +321,103 @@ class TestPagination:
             _rows(_source("deals", _make_manager()))
 
 
+class TestLookupEndpoints:
+    @pytest.mark.parametrize("endpoint", ["lead_labels", "activity_types"])
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_reads_every_row_in_one_request(self, MockSession: mock.MagicMock, endpoint: str) -> None:
+        session = MockSession.return_value
+        full_page = [{"id": i} for i in range(PAGE_SIZE + 100)]
+        params = _wire(session, [_response(full_page)])
+
+        rows = _rows(_source(endpoint, _make_manager()))
+
+        assert len(rows) == PAGE_SIZE + 100
+        assert session.send.call_count == 1
+        assert params == [{}]
+
+
+class TestDealFanOut:
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deal_products_walks_each_deal_and_skips_a_deleted_one(self, MockSession: mock.MagicMock) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        params = _wire(
+            session,
+            [
+                _response([{"id": 1}, {"id": 2}], {"next_cursor": None}),
+                _response([{"id": 10, "deal_id": 1}], {"next_cursor": "c2"}),
+                _response([{"id": 11, "deal_id": 1}], {"next_cursor": None}),
+                _response(None, drop_data=True, status=404),
+            ],
+            urls=urls,
+        )
+
+        rows = _rows(_source("deal_products", _make_manager()))
+
+        assert rows == [{"id": 10, "deal_id": 1}, {"id": 11, "deal_id": 1}]
+        base = "https://acme.pipedrive.com"
+        assert urls == [
+            f"{base}/api/v2/deals",
+            f"{base}/api/v2/deals/1/products",
+            f"{base}/api/v2/deals/1/products",
+            f"{base}/api/v2/deals/2/products",
+        ]
+        assert params[0] == {"limit": PAGE_SIZE}
+        assert params[2] == {"limit": PAGE_SIZE, "cursor": "c2"}
+
+    @pytest.mark.parametrize(
+        "changelog_page, expected_rows",
+        [
+            (
+                [{"field_key": "stage_id", "old_value": "1", "new_value": "2", "time": "2024-05-01 10:00:00"}],
+                [
+                    {
+                        "field_key": "stage_id",
+                        "old_value": "1",
+                        "new_value": "2",
+                        "time": "2024-05-01 10:00:00",
+                        "deal_id": 7,
+                    }
+                ],
+            ),
+            ([], []),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_deal_changelog_rows_carry_the_deal_id(
+        self,
+        MockSession: mock.MagicMock,
+        changelog_page: list[dict[str, Any]],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        session = MockSession.return_value
+        urls: list[str] = []
+        _wire(
+            session,
+            [
+                _response([{"id": 7, "title": "Big deal"}], {"next_cursor": None}),
+                _response(changelog_page, {"next_cursor": None}),
+            ],
+            urls=urls,
+        )
+
+        rows = _rows(_source("deal_changelog", _make_manager()))
+
+        assert rows == expected_rows
+        assert urls[1] == "https://acme.pipedrive.com/api/v1/deals/7/changelog"
+
+
 class TestPipedriveSourcePartitioning:
     @pytest.mark.parametrize(
-        "endpoint, expected_partition_keys, expected_mode",
+        "endpoint, expected_primary_keys, expected_partition_keys, expected_mode",
         [
-            ("deals", ["add_time"], "datetime"),
-            ("activities", ["add_time"], "datetime"),
-            ("users", None, None),
-            ("deal_fields", None, None),
+            ("deals", ["id"], ["add_time"], "datetime"),
+            ("activities", ["id"], ["add_time"], "datetime"),
+            ("users", ["id"], None, None),
+            ("deal_fields", ["id"], None, None),
+            ("lead_labels", ["id"], None, None),
+            ("deal_products", ["deal_id", "id"], ["add_time"], "datetime"),
+            ("deal_changelog", ["deal_id", "field_key", "time"], ["time"], "datetime"),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
@@ -330,12 +425,13 @@ class TestPipedriveSourcePartitioning:
         self,
         MockSession: mock.MagicMock,
         endpoint: str,
+        expected_primary_keys: list[str],
         expected_partition_keys: list[str] | None,
         expected_mode: str | None,
     ) -> None:
         response = _source(endpoint, _make_manager())
         assert response.name == endpoint
-        assert response.primary_keys == ["id"]
+        assert response.primary_keys == expected_primary_keys
         assert response.partition_keys == expected_partition_keys
         assert response.partition_mode == expected_mode
         assert response.partition_format == ("week" if expected_mode else None)
