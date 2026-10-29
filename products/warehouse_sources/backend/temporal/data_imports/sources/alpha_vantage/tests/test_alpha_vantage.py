@@ -806,6 +806,7 @@ class TestAlphaVantage:
             ("etf_profile", ["symbol"], None),
             ("real_gdp", ["date"], None),
             ("treasury_yield", ["maturity", "date"], "date"),
+            ("federal_funds_rate", ["date"], None),
         ]
     )
     def test_alpha_vantage_source_maps_primary_keys_and_partitioning(

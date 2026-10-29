@@ -280,7 +280,6 @@ ALPHA_VANTAGE_ENDPOINTS: dict[str, AlphaVantageEndpointConfig] = {
         function="FEDERAL_FUNDS_RATE",
         kind="economic",
         primary_keys=["date"],
-        partition_key="date",
         extra_params={"interval": "daily"},
         description="Daily effective federal funds rate of the United States. Not tied to the configured symbols. Full refresh.",
         should_sync_default=False,
