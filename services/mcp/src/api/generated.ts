@@ -47736,7 +47736,7 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
       key: ExperimentHealthCheckKeyEnum;
-      /** What the check looks at, for example 'Feature flag variants'. */
+      /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
       /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
        *
@@ -48028,7 +48028,7 @@ export namespace Schemas {
     export interface ExperimentExposureHealthCheck {
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
-      /** What the check looks at, as the health panel lists it. */
+      /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
       reason: string | null;
@@ -48898,7 +48898,7 @@ export namespace Schemas {
       exposure_events: ExperimentHealthInputsExposureEvents | null;
       /** Whether the project has received each event that the metrics and the exposure criteria name, by event name. A name that ingestion keeps no record of is absent. */
       events_received: ExperimentHealthInputsEventsReceived;
-      /** The compile of each metric's query without running it, as the reader, which the metric queries check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
+      /** The compile of each metric's query without running it, as the reader, which the 'Invalid metric definitions' check reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on every request. Null when the compile itself failed. */
       metric_compiles: ExperimentHealthInputsMetricCompiles | null;
       /** The latest finished calculation of the metrics, which the metric results check reads. Null before launch, on an archived experiment, or when the read failed. */
       latest_calculation: ExperimentHealthInputsLatestCalculation | null;
@@ -121475,6 +121475,66 @@ export namespace Schemas {
       matches: TraceSearchMatch[];
     }
 
+    export type TraceSummaryStatusEnum = typeof TraceSummaryStatusEnum[keyof typeof TraceSummaryStatusEnum];
+
+
+    export const TraceSummaryStatusEnum = {
+      Pending: 'pending',
+      Ready: 'ready',
+      Failed: 'failed',
+    } as const;
+
+    export interface TraceSummaryItem {
+      text: string;
+      /** The step the item refers to, or null when it names none. */
+      nodeId: string | null;
+    }
+
+    export interface TraceSummaryContent {
+      title: string;
+      bullets: TraceSummaryItem[];
+      /** Details worth a second look, or empty. */
+      notes: TraceSummaryItem[];
+      /** The main steps of the trace as a small text diagram. */
+      flow: string;
+      /** The model that wrote the summary. */
+      model: string;
+      generatedAt: string;
+    }
+
+    export type TraceSummaryFailureReasonEnum = typeof TraceSummaryFailureReasonEnum[keyof typeof TraceSummaryFailureReasonEnum];
+
+
+    export const TraceSummaryFailureReasonEnum = {
+      TraceNotFound: 'trace_not_found',
+      TooLarge: 'too_large',
+      Timeout: 'timeout',
+      ProviderError: 'provider_error',
+      NotApproved: 'not_approved',
+      AccessChanged: 'access_changed',
+      Error: 'error',
+    } as const;
+
+    export interface TraceSummaryFailure {
+      reason: TraceSummaryFailureReasonEnum;
+      /** Why the summary failed, ready to show to the user. */
+      message: string;
+    }
+
+    export interface TraceSummary {
+      /** `pending` while the summary is written, then `ready` or `failed`. */
+      status: TraceSummaryStatusEnum;
+      /** The summary when `status` is `ready`, else null. */
+      content: TraceSummaryContent | null;
+      /** Why it failed when `status` is `failed`, else null. */
+      failure: TraceSummaryFailure | null;
+    }
+
+    export interface TraceSummaryRequest {
+      /** Replace a ready summary with a new one. A pending summary is never replaced. */
+      regenerate?: boolean;
+    }
+
     /**
      * One prior completed training run plus its full iteration trail.
      */
@@ -129975,6 +130035,13 @@ export namespace Schemas {
      * @maxLength 200
      */
     q: string;
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesSummaryCreateParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

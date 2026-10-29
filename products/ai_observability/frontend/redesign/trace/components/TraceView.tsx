@@ -1,6 +1,7 @@
 import type { TraceNodeApi, TraceTimelineRowApi } from '../../../generated/api.schemas'
 import { ConversationState, EvalRollupOutcome, LabeledLink, TraceMode } from '../types'
 import { NodeDetailProps } from './NodeDetail'
+import { SummaryModeView, SummaryModeViewProps } from './SummaryModeView'
 import { Thread } from './Thread'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
 import { TraceModeTabs } from './TraceModeTabs'
@@ -31,6 +32,7 @@ export interface TraceViewReadyProps {
     highlightQuery?: string | null
     /** Changes on each step to a match, which scrolls the selected step and its first highlight into view. */
     matchStepCount?: number
+    summaryMode: SummaryModeViewProps
 }
 
 export type TraceViewProps =
@@ -69,6 +71,8 @@ export function TraceView(props: TraceViewProps): JSX.Element {
                     highlightQuery={props.highlightQuery}
                     matchingNodeIds={props.matchingNodeIds}
                 />
+            ) : props.mode === 'summary' ? (
+                <SummaryModeView {...props.summaryMode} />
             ) : (
                 <TraceTimeline
                     rows={props.timeline.rows}

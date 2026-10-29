@@ -73,7 +73,7 @@ export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> 
 )
 
 // pinned: `opened_from` property values of `experiment health checks opened`.
-export type ExperimentHealthChecksOpenedFrom = 'meta_bar' | 'panel'
+export type ExperimentHealthChecksOpenedFrom = 'meta_bar'
 
 // pinned: `health_ui` property values. Insights compare the server's findings with the separate warnings on them.
 // 'panel' means the page shows the server's findings: in the health panel when one is an issue, otherwise in the

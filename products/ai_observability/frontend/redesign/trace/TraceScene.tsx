@@ -4,7 +4,7 @@ import { aiObservabilityTraceLogic } from '../../aiObservabilityTraceLogic'
 import { SaveToDatasetButton } from '../../datasets/SaveToDatasetButton'
 import { traceViewAdapterLogic, traceViewAdapterLogicValues } from './adapter/traceViewAdapterLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from './components/TraceView'
-import { MatchDirection, NodeDetailTab, TraceMode } from './types'
+import { MatchDirection, NodeDetailTab, SummaryItemKind, TraceMode } from './types'
 
 type ReadyValues = Pick<
     traceViewAdapterLogicValues,
@@ -26,6 +26,10 @@ type ReadyValues = Pick<
     | 'matchingNodeIds'
     | 'highlightQuery'
     | 'matchStepCount'
+    | 'summaryState'
+    | 'summaryRequesting'
+    | 'summaryRequestError'
+    | 'summaryConsentGiven'
 >
 
 interface ReadyActions {
@@ -38,6 +42,10 @@ interface ReadyActions {
     showFailingEvals: () => void
     setQuery: (query: string) => void
     stepMatch: (direction: MatchDirection) => void
+    summarize: () => void
+    regenerateSummary: () => void
+    loadSummary: () => void
+    summaryStepClicked: (nodeId: string, kind: SummaryItemKind) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -74,6 +82,16 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         matchingNodeIds: values.matchingNodeIds,
         highlightQuery: values.highlightQuery,
         matchStepCount: values.matchStepCount,
+        summaryMode: {
+            state: values.summaryState,
+            requesting: values.summaryRequesting,
+            requestError: values.summaryRequestError,
+            consentGiven: values.summaryConsentGiven,
+            onRequest: actions.summarize,
+            onRegenerate: actions.regenerateSummary,
+            onReload: actions.loadSummary,
+            onSelectStep: actions.summaryStepClicked,
+        },
     }
 }
 
@@ -103,6 +121,10 @@ export function TraceScene(): JSX.Element {
         matchingNodeIds,
         highlightQuery,
         matchStepCount,
+        summaryState,
+        summaryRequesting,
+        summaryRequestError,
+        summaryConsentGiven,
     } = useValues(logic)
     const actions = useActions(logic)
 
@@ -128,6 +150,10 @@ export function TraceScene(): JSX.Element {
                       matchingNodeIds,
                       highlightQuery,
                       matchStepCount,
+                      summaryState,
+                      summaryRequesting,
+                      summaryRequestError,
+                      summaryConsentGiven,
                   },
                   actions
               )
