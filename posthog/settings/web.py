@@ -325,7 +325,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.social_details",
     "social_core.pipeline.social_auth.social_uid",
     "social_core.pipeline.social_auth.auth_allowed",
-    "ee.api.authentication.social_auth_allowed",
+    "posthog.api.sso.social_auth_allowed",
     "social_core.pipeline.social_auth.social_user",
     # Must stay ahead of association/provisioning so a mismatched authenticated identity is rejected first
     "posthog.api.authentication.social_identity_matches_session",
