@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from typing import Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from dateutil.parser import isoparse
 from dateutil.relativedelta import relativedelta
@@ -21,8 +21,11 @@ class SqlWindowClass(StrEnum):
     UNCLASSIFIED = "unclassified"
 
 
+# Cache policy. Every number that decides how long an API key SQL result stays fresh lives in this block.
 API_SQL_WINDOW_CACHE_AGE_FLAG = "api-sql-window-cache-age"
 
+# The 5 minute ages of LIVE, NO_TIME_FILTER and UNCLASSIFIED only order the classes from strictest to loosest.
+# Those three classes keep the runner's default staleness policy (see DEFAULT_POLICY_CLASSES).
 SQL_WINDOW_MAX_AGE: dict[SqlWindowClass, timedelta] = {
     SqlWindowClass.FIXED_PAST: timedelta(hours=24),
     SqlWindowClass.LIVE: timedelta(minutes=5),
@@ -31,36 +34,54 @@ SQL_WINDOW_MAX_AGE: dict[SqlWindowClass, timedelta] = {
     SqlWindowClass.NO_TIME_FILTER: timedelta(minutes=5),
     SqlWindowClass.UNCLASSIFIED: timedelta(minutes=5),
 }
+DEFAULT_POLICY_CLASSES = frozenset({SqlWindowClass.LIVE, SqlWindowClass.NO_TIME_FILTER, SqlWindowClass.UNCLASSIFIED})
 
+# A window counts as past only when it ended this long before the result was cached, so late events still land in it.
+SQL_WINDOW_SETTLE_BUFFER = timedelta(hours=1)
+
+# Up to now, a window of at most LIVE_WINDOW_MAX_LENGTH is LIVE, and one of at most SHORT_WINDOW_MAX_LENGTH is SHORT.
 LIVE_WINDOW_MAX_LENGTH = timedelta(hours=1)
 SHORT_WINDOW_MAX_LENGTH = timedelta(days=1)
+
+# Only rows of these tables never change after they are written, so only they can have a fixed past.
+APPEND_ONLY_TABLES = frozenset({"events"})
 
 TIME_COLUMN_NAMES = frozenset({"timestamp", "time", "date", "day", "hour", "event_time", "event_date"})
 TIME_COLUMN_SUFFIXES = ("timestamp", "_time", "_date", "_at")
 
+
 _DATE_PREFIX_LENGTH = len("2026-01-01")
 _NOW_FUNCTIONS = frozenset({"now", "now64", "current_timestamp", "today", "yesterday"})
-_PASSTHROUGH_FUNCTIONS = frozenset(
-    {
-        "toDateTime",
-        "toDateTime64",
-        "toTimeZone",
-        "assumeNotNull",
-        "parseDateTimeBestEffort",
-        "parseDateTime64BestEffort",
-    }
-)
+# ClickHouse evaluates today() and yesterday() in the server time zone, whatever the project time zone is.
+_SERVER_TIMEZONE = ZoneInfo("UTC")
+# toStartOfWeek is left out because its first weekday follows the project setting.
 _TRUNCATE_FUNCTIONS = {
     "toDate": "day",
     "toStartOfDay": "day",
     "toStartOfHour": "hour",
     "toStartOfMinute": "minute",
     "toMonday": "week",
-    "toStartOfWeek": "week",
     "toStartOfMonth": "month",
     "toStartOfQuarter": "quarter",
     "toStartOfYear": "year",
 }
+_DATE_VALUED_FUNCTIONS = frozenset(
+    {"today", "yesterday", "toDate", "toMonday", "toStartOfMonth", "toStartOfQuarter", "toStartOfYear"}
+)
+_DATETIME_VALUED_FUNCTIONS = frozenset(
+    {
+        "now",
+        "now64",
+        "current_timestamp",
+        "toDateTime",
+        "toDateTime64",
+        "toStartOfDay",
+        "toStartOfHour",
+        "toStartOfMinute",
+        "parseDateTimeBestEffort",
+        "parseDateTime64BestEffort",
+    }
+)
 _UNIT_DELTAS = {
     "second": relativedelta(seconds=1),
     "minute": relativedelta(minutes=1),
@@ -93,10 +114,56 @@ _FLIPPED_OPS = {
     ast.CompareOperationOp.LtEq: ast.CompareOperationOp.GtEq,
     ast.CompareOperationOp.Eq: ast.CompareOperationOp.Eq,
 }
+_FILTERS_TIMESTAMP_KEY = "timestamp"
 
 
 @frozen
 class SqlTimeWindow:
+    start: Optional[datetime]
+    end: Optional[datetime]
+    end_inclusive: bool = False
+
+
+@frozen
+class SqlWindowClassification:
+    window_class: SqlWindowClass
+    # Set only for FIXED_PAST: the latest end of the windows the SQL reads.
+    window_end: Optional[datetime]
+    # The class to use instead of FIXED_PAST when the result was cached before its window settled.
+    fallback_class: SqlWindowClass
+
+    @classmethod
+    def of(cls, window_class: SqlWindowClass) -> "SqlWindowClassification":
+        return cls(window_class=window_class, window_end=None, fallback_class=window_class)
+
+    def class_at(self, last_refresh: datetime) -> SqlWindowClass:
+        # The cache key stays the same when a relative or open range moves, so a result cached before
+        # its window ended would otherwise stay fresh for 24 hours with the wrong range in it.
+        if (
+            self.window_class == SqlWindowClass.FIXED_PAST
+            and self.window_end is not None
+            and self.window_end > last_refresh - SQL_WINDOW_SETTLE_BUFFER
+        ):
+            return self.fallback_class
+        return self.window_class
+
+
+@frozen
+class _ColumnRef:
+    chain: tuple[str, ...]
+    unit: Optional[str]
+
+
+@frozen
+class _Source:
+    names: frozenset[str]
+    table: Optional[str]
+
+
+@frozen
+class _Bound:
+    source: int
+    column: str
     start: Optional[datetime]
     end: Optional[datetime]
 
@@ -126,6 +193,19 @@ def _int_constant(expr: ast.Expr) -> Optional[int]:
     return None
 
 
+def _str_constant(expr: ast.Expr) -> Optional[str]:
+    return expr.value if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
+
+
+def _zone(name: Optional[str]) -> Optional[ZoneInfo]:
+    if name is None:
+        return None
+    try:
+        return ZoneInfo(name)
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
 def _truncate(value: datetime, unit: str, timezone: ZoneInfo) -> datetime:
     local = value.astimezone(timezone)
     if unit == "minute":
@@ -150,6 +230,30 @@ def _is_filters_placeholder(expr: ast.Expr) -> bool:
     if isinstance(expr.expr, ast.Field):
         return expr.expr.chain == ["filters"]
     return isinstance(expr.expr, ast.Call) and expr.expr.name == "filters"
+
+
+def _is_time_column_name(name: str) -> bool:
+    lowered = name.lower()
+    return lowered in TIME_COLUMN_NAMES or lowered.endswith(TIME_COLUMN_SUFFIXES)
+
+
+def _strip_instant_wrappers(expr: ast.Expr, *, allow_time_zone: bool) -> ast.Expr:
+    """Unwraps calls that change how a column prints but not which instant it holds."""
+    while True:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        elif isinstance(expr, ast.Call) and expr.name in ("toDateTime", "assumeNotNull") and len(expr.args) == 1:
+            expr = expr.args[0]
+        elif (
+            allow_time_zone
+            and isinstance(expr, ast.Call)
+            and expr.name == "toTimeZone"
+            and len(expr.args) == 2
+            and _zone(_str_constant(expr.args[1])) is not None
+        ):
+            expr = expr.args[0]
+        else:
+            return expr
 
 
 class _SelectCollector(TraversingVisitor):
@@ -182,35 +286,31 @@ class _TemporalFinder(TraversingVisitor):
         self.found = True
 
 
-class _FieldFinder(TraversingVisitor):
-    def __init__(self) -> None:
-        super().__init__()
-        self.fields: list[ast.Field] = []
-
-    def visit_field(self, node: ast.Field) -> None:
-        self.fields.append(node)
-
-
 def _looks_temporal(expr: ast.Expr) -> bool:
     finder = _TemporalFinder()
     finder.visit(expr)
     return finder.found
 
 
-def _time_column(expr: ast.Expr) -> Optional[str]:
-    if _looks_temporal(expr):
-        return None
-    finder = _FieldFinder()
-    finder.visit(expr)
-    if len(finder.fields) != 1:
-        return None
-    chain = [str(part).lower() for part in finder.fields[0].chain]
-    if "properties" in chain:
-        return None
-    name = chain[-1]
-    if name in TIME_COLUMN_NAMES or name.endswith(TIME_COLUMN_SUFFIXES):
-        return ".".join(chain)
-    return None
+def _sources(select: ast.SelectQuery, cte_names: set[str]) -> list[_Source]:
+    sources: list[_Source] = []
+    join = select.select_from
+    while join is not None:
+        table = join.table
+        if (
+            isinstance(table, ast.Field)
+            and join.table_args is None
+            and not (len(table.chain) == 1 and table.chain[0] in cte_names)
+        ):
+            name = ".".join(str(part) for part in table.chain)
+            names = {join.alias} if join.alias else {name, str(table.chain[-1])}
+            sources.append(_Source(names=frozenset(names), table=name.lower()))
+        else:
+            chain = table.chain if isinstance(table, ast.Field) else []
+            names = {join.alias} if join.alias else {str(part) for part in chain}
+            sources.append(_Source(names=frozenset(names), table=None))
+        join = join.next_join
+    return sources
 
 
 class SqlWindowClassifier:
@@ -218,30 +318,57 @@ class SqlWindowClassifier:
         self._now = now.astimezone(timezone)
         self._timezone = timezone
         self._filters_window = filters_window
-        self._start_of_today = _truncate(self._now, "day", timezone)
+        server_today = now.astimezone(_SERVER_TIMEZONE).date()
+        self._server_today = datetime(server_today.year, server_today.month, server_today.day, tzinfo=timezone)
 
-    def _constant_datetime(self, value: object) -> Optional[datetime]:
+    def _constant_datetime(self, value: object, timezone: Optional[ZoneInfo] = None) -> Optional[datetime]:
+        timezone = timezone or self._timezone
         if isinstance(value, datetime):
-            return value if value.tzinfo else value.replace(tzinfo=self._timezone)
+            return value if value.tzinfo else value.replace(tzinfo=timezone)
         if isinstance(value, date):
-            return datetime(value.year, value.month, value.day, tzinfo=self._timezone)
+            return datetime(value.year, value.month, value.day, tzinfo=timezone)
         if isinstance(value, str) and _looks_like_date(value):
             try:
                 parsed = isoparse(value)
             except ValueError:
                 return None
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=self._timezone)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone)
         return None
 
-    def _evaluate_delta(self, expr: ast.Expr) -> Optional[relativedelta]:
-        days = _int_constant(expr)
-        if days is not None:
-            return _unit_delta("day", days)
+    def _value_kind(self, expr: ast.Expr) -> Optional[str]:
+        # ClickHouse adds a bare integer to a Date in days and to a DateTime in seconds.
+        if isinstance(expr, ast.Alias):
+            return self._value_kind(expr.expr)
+        if isinstance(expr, ast.Constant):
+            if isinstance(expr.value, datetime):
+                return "datetime"
+            return "date" if isinstance(expr.value, date) else None
+        if isinstance(expr, ast.Placeholder):
+            return "datetime"
+        if isinstance(expr, ast.ArithmeticOperation):
+            return self._value_kind(expr.left)
+        if not isinstance(expr, ast.Call):
+            return None
+        if expr.name in _DATE_VALUED_FUNCTIONS:
+            return "date"
+        if expr.name in _DATETIME_VALUED_FUNCTIONS:
+            return "datetime"
+        if expr.name in _SHIFT_FUNCTIONS or expr.name in ("toTimeZone", "assumeNotNull"):
+            return self._value_kind(expr.args[0]) if expr.args else None
+        return None
+
+    def _evaluate_delta(self, expr: ast.Expr, base: ast.Expr) -> Optional[relativedelta]:
+        amount = _int_constant(expr)
+        if amount is not None:
+            kind = self._value_kind(base)
+            if kind is None:
+                return None
+            return _unit_delta("day" if kind == "date" else "second", amount)
         if isinstance(expr, ast.Call) and expr.name.startswith("toInterval") and len(expr.args) == 1:
             unit = expr.name.removeprefix("toInterval").lower()
-            amount = _int_constant(expr.args[0])
-            if unit in _UNIT_DELTAS and amount is not None:
-                return _unit_delta(unit, amount)
+            interval_amount = _int_constant(expr.args[0])
+            if unit in _UNIT_DELTAS and interval_amount is not None:
+                return _unit_delta(unit, interval_amount)
         return None
 
     def _evaluate_date_shift(self, sign: int, args: list[ast.Expr]) -> Optional[datetime]:
@@ -254,9 +381,24 @@ class SqlWindowClassifier:
             return None
         if len(args) == 2:
             inner = self._evaluate_datetime(args[0])
-            delta = self._evaluate_delta(args[1])
+            delta = self._evaluate_delta(args[1], args[0])
             return inner + delta * sign if inner is not None and delta is not None else None
         return None
+
+    def _evaluate_to_datetime(self, args: list[ast.Expr], *, precision_args: int) -> Optional[datetime]:
+        # toDateTime(x[, tz]) and toDateTime64(x, precision[, tz]): a time zone changes how a literal is read.
+        if len(args) not in (1 + precision_args, 2 + precision_args):
+            return None
+        if precision_args and _int_constant(args[1]) is None:
+            return None
+        timezone = None
+        if len(args) == 2 + precision_args:
+            timezone = _zone(_str_constant(args[-1]))
+            if timezone is None:
+                return None
+        if isinstance(args[0], ast.Constant):
+            return self._constant_datetime(args[0].value, timezone)
+        return self._evaluate_datetime(args[0])
 
     def _evaluate_datetime(self, expr: ast.Expr) -> Optional[datetime]:
         if isinstance(expr, ast.Alias):
@@ -278,71 +420,192 @@ class SqlWindowClassifier:
             sign = 1 if expr.op == ast.ArithmeticOperationOp.Add else -1
             left = self._evaluate_datetime(expr.left)
             if left is not None:
-                delta = self._evaluate_delta(expr.right)
+                delta = self._evaluate_delta(expr.right, expr.left)
                 return left + delta * sign if delta is not None else None
             if sign == 1:
                 right = self._evaluate_datetime(expr.right)
-                delta = self._evaluate_delta(expr.left)
+                delta = self._evaluate_delta(expr.left, expr.right)
                 return right + delta if right is not None and delta is not None else None
             return None
         if not isinstance(expr, ast.Call):
             return None
         name = expr.name
+        args = expr.args
         if name in ("now", "now64", "current_timestamp"):
             return self._now
-        if name == "today":
-            return self._start_of_today
-        if name == "yesterday":
-            return self._start_of_today - timedelta(days=1)
-        if not expr.args:
-            return None
-        if name in _PASSTHROUGH_FUNCTIONS:
-            return self._evaluate_datetime(expr.args[0])
-        if name in _TRUNCATE_FUNCTIONS:
-            inner = self._evaluate_datetime(expr.args[0])
+        if name in ("today", "yesterday") and not args:
+            return self._server_today - timedelta(days=1 if name == "yesterday" else 0)
+        if name == "toDateTime":
+            return self._evaluate_to_datetime(args, precision_args=0)
+        if name == "toDateTime64":
+            return self._evaluate_to_datetime(args, precision_args=1)
+        if name in ("parseDateTimeBestEffort", "parseDateTime64BestEffort", "assumeNotNull") and len(args) == 1:
+            return self._evaluate_datetime(args[0])
+        if name == "toTimeZone" and len(args) == 2 and _zone(_str_constant(args[1])) is not None:
+            return self._evaluate_datetime(args[0])
+        if name in _TRUNCATE_FUNCTIONS and len(args) == 1:
+            inner = self._evaluate_datetime(args[0])
             return _truncate(inner, _TRUNCATE_FUNCTIONS[name], self._timezone) if inner is not None else None
-        if name in _SHIFT_FUNCTIONS and len(expr.args) == 2:
+        if name in _SHIFT_FUNCTIONS and len(args) == 2:
             sign, unit = _SHIFT_FUNCTIONS[name]
-            inner = self._evaluate_datetime(expr.args[0])
-            amount = _int_constant(expr.args[1])
+            inner = self._evaluate_datetime(args[0])
+            amount = _int_constant(args[1])
             return inner + _unit_delta(unit, sign * amount) if inner is not None and amount is not None else None
         if name in _DATE_SHIFT_FUNCTIONS:
-            return self._evaluate_date_shift(_DATE_SHIFT_FUNCTIONS[name], expr.args)
+            return self._evaluate_date_shift(_DATE_SHIFT_FUNCTIONS[name], args)
         return None
 
-    def _window_from_compare(
-        self, column_side: ast.Expr, op: ast.CompareOperationOp, value_side: ast.Expr
-    ) -> Optional[tuple[str, SqlTimeWindow]]:
-        column = _time_column(column_side)
-        if column is None:
+    def _column_ref(
+        self,
+        expr: ast.Expr,
+        aliases: dict[str, ast.Expr],
+        *,
+        seen: frozenset[str] = frozenset(),
+        under_truncation: bool = False,
+    ) -> Optional[_ColumnRef]:
+        # A shift or any other function moves the bound away from the column, so only the column itself
+        # and a truncation of it count. A time zone conversion inside a truncation changes its day boundary.
+        expr = _strip_instant_wrappers(expr, allow_time_zone=not under_truncation)
+        if isinstance(expr, ast.Field):
+            chain = tuple(str(part) for part in expr.chain)
+            if len(chain) == 1 and chain[0] in aliases and chain[0] not in seen:
+                return self._column_ref(
+                    aliases[chain[0]], aliases, seen=seen | {chain[0]}, under_truncation=under_truncation
+                )
+            return _ColumnRef(chain=chain, unit=None)
+        if (
+            isinstance(expr, ast.Call)
+            and expr.name in _TRUNCATE_FUNCTIONS
+            and len(expr.args) == 1
+            and not under_truncation
+        ):
+            inner = self._column_ref(expr.args[0], aliases, seen=seen, under_truncation=True)
+            if inner is not None and inner.unit is None:
+                return _ColumnRef(chain=inner.chain, unit=_TRUNCATE_FUNCTIONS[expr.name])
+        return None
+
+    def _lower_bound(self, value: datetime, *, inclusive: bool, unit: Optional[str]) -> datetime:
+        if unit is None:
+            return value
+        floor = _truncate(value, unit, self._timezone)
+        if inclusive and floor == value:
+            return value
+        return floor + _UNIT_DELTAS[unit]
+
+    def _upper_bound(self, value: datetime, *, inclusive: bool, unit: Optional[str]) -> datetime:
+        if unit is None:
+            return value
+        floor = _truncate(value, unit, self._timezone)
+        if inclusive:
+            return floor + _UNIT_DELTAS[unit]
+        return value if floor == value else floor + _UNIT_DELTAS[unit]
+
+    def _attribute(self, chain: tuple[str, ...], sources: list[_Source]) -> Optional[int]:
+        if len(chain) == 1:
+            return 0 if len(sources) == 1 else None
+        qualifier = ".".join(chain[:-1])
+        for index, source in enumerate(sources):
+            if qualifier in source.names:
+                return index
+        return None
+
+    def _bound_from_compare(
+        self,
+        column_side: ast.Expr,
+        op: ast.CompareOperationOp,
+        value_side: ast.Expr,
+        aliases: dict[str, ast.Expr],
+        sources: list[_Source],
+    ) -> Optional[_Bound]:
+        ref = self._column_ref(column_side, aliases)
+        if ref is None or not _is_time_column_name(ref.chain[-1]):
             return None
         value = self._evaluate_datetime(value_side)
         if value is None:
             return None
+        source = self._attribute(ref.chain, sources)
+        if source is None:
+            raise _Unclassifiable()
+        column = ".".join(ref.chain)
         if op in _LOWER_BOUND_OPS:
-            return column, SqlTimeWindow(start=value, end=None)
+            start = self._lower_bound(value, inclusive=op == ast.CompareOperationOp.GtEq, unit=ref.unit)
+            return _Bound(source=source, column=column, start=start, end=None)
         if op in _UPPER_BOUND_OPS:
-            return column, SqlTimeWindow(start=None, end=value)
-        unit = _TRUNCATE_FUNCTIONS.get(column_side.name) if isinstance(column_side, ast.Call) else None
-        return column, SqlTimeWindow(start=value, end=value + _unit_delta(unit, 1) if unit else value)
+            end = self._upper_bound(value, inclusive=op == ast.CompareOperationOp.LtEq, unit=ref.unit)
+            return _Bound(source=source, column=column, start=None, end=end)
+        return _Bound(
+            source=source,
+            column=column,
+            start=self._lower_bound(value, inclusive=True, unit=ref.unit),
+            end=self._upper_bound(value, inclusive=True, unit=ref.unit),
+        )
 
-    def _window_from_conjunct(self, conjunct: ast.Expr) -> Optional[tuple[str, SqlTimeWindow]]:
-        if _is_filters_placeholder(conjunct):
-            if self._filters_window is None:
+    def _bound_from_between(
+        self, between: ast.BetweenExpr, aliases: dict[str, ast.Expr], sources: list[_Source]
+    ) -> Optional[_Bound]:
+        ref = self._column_ref(between.expr, aliases)
+        if ref is None or not _is_time_column_name(ref.chain[-1]):
+            return None
+        low = self._evaluate_datetime(between.low)
+        high = self._evaluate_datetime(between.high)
+        if low is None or high is None:
+            return None
+        source = self._attribute(ref.chain, sources)
+        if source is None:
+            raise _Unclassifiable()
+        return _Bound(
+            source=source,
+            column=".".join(ref.chain),
+            start=self._lower_bound(low, inclusive=True, unit=ref.unit),
+            end=self._upper_bound(high, inclusive=True, unit=ref.unit),
+        )
+
+    def _bound_from_filters(
+        self, placeholder: ast.Placeholder, aliases: dict[str, ast.Expr], sources: list[_Source]
+    ) -> Optional[_Bound]:
+        window = self._filters_window
+        if window is None:
+            return None
+        if isinstance(placeholder.expr, ast.Field):
+            if len(sources) != 1:
                 return None
-            return "{filters}", self._filters_window
+            return _Bound(source=0, column="{filters}", start=window.start, end=window.end)
+        call = placeholder.expr
+        assert isinstance(call, ast.Call)
+        timestamp = next(
+            (arg.expr for arg in call.args if isinstance(arg, ast.Alias) and arg.alias == _FILTERS_TIMESTAMP_KEY),
+            None,
+        )
+        if timestamp is None or (isinstance(timestamp, ast.Constant) and timestamp.value is None):
+            return None
+        ref = self._column_ref(timestamp, aliases)
+        source = self._attribute(ref.chain, sources) if ref is not None else None
+        if ref is None or source is None:
+            return None
+        return _Bound(
+            source=source,
+            column=".".join(ref.chain),
+            start=self._lower_bound(window.start, inclusive=True, unit=ref.unit) if window.start else None,
+            end=self._upper_bound(window.end, inclusive=window.end_inclusive, unit=ref.unit) if window.end else None,
+        )
+
+    def _bound_from_conjunct(
+        self, conjunct: ast.Expr, aliases: dict[str, ast.Expr], sources: list[_Source]
+    ) -> Optional[_Bound]:
+        if isinstance(conjunct, ast.Placeholder) and _is_filters_placeholder(conjunct):
+            return self._bound_from_filters(conjunct, aliases, sources)
         if isinstance(conjunct, ast.CompareOperation) and conjunct.op in _FLIPPED_OPS:
-            bound = self._window_from_compare(conjunct.left, conjunct.op, conjunct.right)
+            bound = self._bound_from_compare(conjunct.left, conjunct.op, conjunct.right, aliases, sources)
             if bound is None:
-                bound = self._window_from_compare(conjunct.right, _FLIPPED_OPS[conjunct.op], conjunct.left)
+                bound = self._bound_from_compare(
+                    conjunct.right, _FLIPPED_OPS[conjunct.op], conjunct.left, aliases, sources
+                )
             if bound is not None:
                 return bound
         if isinstance(conjunct, ast.BetweenExpr) and not conjunct.negated:
-            column = _time_column(conjunct.expr)
-            low = self._evaluate_datetime(conjunct.low)
-            high = self._evaluate_datetime(conjunct.high)
-            if column is not None and low is not None and high is not None:
-                return column, SqlTimeWindow(start=low, end=high)
+            bound = self._bound_from_between(conjunct, aliases, sources)
+            if bound is not None:
+                return bound
         if _looks_temporal(conjunct):
             raise _Unclassifiable()
         return None
@@ -354,68 +617,80 @@ class SqlWindowClassifier:
             return [conjunct for inner in expr.exprs for conjunct in self._conjuncts(inner)]
         return [expr]
 
-    def _reads_base_table(self, select: ast.SelectQuery, cte_names: set[str]) -> bool:
-        join = select.select_from
-        while join is not None:
-            if isinstance(join.table, ast.Field) and not (
-                len(join.table.chain) == 1 and join.table.chain[0] in cte_names
-            ):
-                return True
-            join = join.next_join
-        return False
-
-    def _class_for_window(self, window: SqlTimeWindow) -> SqlWindowClass:
-        if window.end is not None and window.end <= self._start_of_today:
-            return SqlWindowClass.FIXED_PAST
-        if window.start is None:
+    def _class_by_length(self, start: Optional[datetime]) -> SqlWindowClass:
+        if start is None:
             return SqlWindowClass.NO_TIME_FILTER
-        length = self._now - window.start
+        length = self._now - start
         if length <= LIVE_WINDOW_MAX_LENGTH:
             return SqlWindowClass.LIVE
         if length <= SHORT_WINDOW_MAX_LENGTH:
             return SqlWindowClass.UP_TO_NOW_SHORT
         return SqlWindowClass.UP_TO_NOW_LONG
 
-    def _classify_select(self, select: ast.SelectQuery, cte_names: set[str]) -> Optional[SqlWindowClass]:
-        starts: dict[str, list[datetime]] = {}
-        ends: dict[str, list[datetime]] = {}
-        for conjunct in self._conjuncts(select.where) + self._conjuncts(select.prewhere):
-            bound = self._window_from_conjunct(conjunct)
-            if bound is None:
-                continue
-            column, window = bound
-            starts.setdefault(column, [])
-            ends.setdefault(column, [])
-            if window.start is not None:
-                starts[column].append(window.start)
-            if window.end is not None:
-                ends[column].append(window.end)
-        if not starts:
-            return SqlWindowClass.NO_TIME_FILTER if self._reads_base_table(select, cte_names) else None
-        return min(
-            (
-                self._class_for_window(
-                    SqlTimeWindow(
-                        start=max(starts[column]) if starts[column] else None,
-                        end=min(ends[column]) if ends[column] else None,
-                    )
-                )
-                for column in starts
-            ),
-            key=lambda window_class: SQL_WINDOW_MAX_AGE[window_class],
+    def _window_classification(self, start: Optional[datetime], end: Optional[datetime]) -> SqlWindowClassification:
+        by_length = self._class_by_length(start)
+        if end is not None and end <= self._now - SQL_WINDOW_SETTLE_BUFFER:
+            return SqlWindowClassification(
+                window_class=SqlWindowClass.FIXED_PAST, window_end=end, fallback_class=by_length
+            )
+        return SqlWindowClassification.of(by_length)
+
+    def _merge(self, classifications: list[SqlWindowClassification]) -> SqlWindowClassification:
+        # The strictest class wins. FIXED_PAST survives only when every window is past, and then it
+        # settles at the latest window end and falls back to the strictest fallback.
+        chosen = min(classifications, key=lambda item: SQL_WINDOW_MAX_AGE[item.window_class])
+        if chosen.window_class != SqlWindowClass.FIXED_PAST:
+            return SqlWindowClassification.of(chosen.window_class)
+        ends = [item.window_end for item in classifications if item.window_end is not None]
+        return SqlWindowClassification(
+            window_class=SqlWindowClass.FIXED_PAST,
+            window_end=max(ends),
+            fallback_class=min((item.fallback_class for item in classifications), key=SQL_WINDOW_MAX_AGE.__getitem__),
         )
 
-    def classify(self, query: ast.SelectQuery | ast.SelectSetQuery) -> SqlWindowClass:
+    def _classify_select(self, select: ast.SelectQuery, cte_names: set[str]) -> Optional[SqlWindowClassification]:
+        sources = _sources(select, cte_names)
+        aliases = {item.alias: item.expr for item in select.select if isinstance(item, ast.Alias)}
+        starts: dict[tuple[int, str], list[datetime]] = {}
+        ends: dict[tuple[int, str], list[datetime]] = {}
+        for conjunct in self._conjuncts(select.where) + self._conjuncts(select.prewhere):
+            bound = self._bound_from_conjunct(conjunct, aliases, sources)
+            if bound is None:
+                continue
+            key = (bound.source, bound.column)
+            starts.setdefault(key, [])
+            ends.setdefault(key, [])
+            if bound.start is not None:
+                starts[key].append(bound.start)
+            if bound.end is not None:
+                ends[key].append(bound.end)
+
+        classifications: list[SqlWindowClassification] = []
+        for index, source in enumerate(sources):
+            columns = [key for key in starts if key[0] == index]
+            if source.table is not None and (source.table not in APPEND_ONLY_TABLES or not columns):
+                classifications.append(SqlWindowClassification.of(SqlWindowClass.NO_TIME_FILTER))
+                continue
+            classifications.extend(
+                self._window_classification(
+                    start=max(starts[key]) if starts[key] else None,
+                    end=min(ends[key]) if ends[key] else None,
+                )
+                for key in columns
+            )
+        return self._merge(classifications) if classifications else None
+
+    def classify(self, query: ast.SelectQuery | ast.SelectSetQuery) -> SqlWindowClassification:
         collector = _SelectCollector()
         collector.visit(query)
         try:
-            classes = [
-                window_class
+            classifications = [
+                classification
                 for select in collector.selects
-                if (window_class := self._classify_select(select, collector.cte_names)) is not None
+                if (classification := self._classify_select(select, collector.cte_names)) is not None
             ]
         except _Unclassifiable:
-            return SqlWindowClass.UNCLASSIFIED
-        if not classes:
-            return SqlWindowClass.NO_TIME_FILTER
-        return min(classes, key=lambda window_class: SQL_WINDOW_MAX_AGE[window_class])
+            return SqlWindowClassification.of(SqlWindowClass.UNCLASSIFIED)
+        if not classifications:
+            return SqlWindowClassification.of(SqlWindowClass.NO_TIME_FILTER)
+        return self._merge(classifications)
