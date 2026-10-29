@@ -12,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, type RecordingsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
@@ -553,7 +553,7 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
             expect(draftSpy).not.toHaveBeenCalled()
 
-            markScannerGoalDraftIntent('tell me what to watch')
+            markScannerGoalDraftIntent({ goal: 'tell me what to watch' })
             router.actions.push(urls.replayVisionScannerGoal('new'))
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
             expect(logic.values.goalDraftInput).toEqual('tell me what to watch')
@@ -563,10 +563,35 @@ describe('replayScannerLogic', () => {
             expect(draftSpy).toHaveBeenCalledTimes(1)
         })
 
+        // The replay filters popover arms the person's own filters. Losing them on the way, or on a retry
+        // from the goal page after a failed draft, would save a scanner watching recordings they never chose.
+        it('a draft intent from the replay filters drafts against its query and spend, and a retry keeps the query', async () => {
+            const query: RecordingsQuery = { kind: NodeKind.RecordingsQuery, filter_test_accounts: true }
+            markScannerGoalDraftIntent({
+                goal: 'find rage clicks',
+                query,
+                spend: { monthlyCreditBudget: 900 },
+                source: 'replay_filters',
+            })
+            router.actions.push(urls.replayVisionScannerGoal('new'))
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.draftScannerFromGoal({ goal: 'find rage clicks', spend: { monthlyCreditBudget: 900 } })
+            ).toFinishAllListeners()
+
+            const bodies = await Promise.all(
+                (draftSpy.mock.calls as unknown as [{ request: Request }][]).map(([{ request }]) => request.json())
+            )
+            expect(bodies).toEqual([
+                expect.objectContaining({ query, monthly_credit_budget: 900 }),
+                expect.objectContaining({ query }),
+            ])
+        })
+
         it('a draft intent older than a minute is dropped', async () => {
             const now = Date.now()
             const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
-            markScannerGoalDraftIntent('tell me what to watch')
+            markScannerGoalDraftIntent({ goal: 'tell me what to watch' })
             nowSpy.mockReturnValue(now + 61_000)
             router.actions.push(urls.replayVisionScannerGoal('new'))
             await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
@@ -1921,6 +1946,8 @@ describe('replayScannerLogic', () => {
                 expect(captureSpy).toHaveBeenCalledWith('replay_vision_scanner_creation_started', {
                     creation_method: 'ai',
                     template_key: reportedKey,
+                    source: null,
+                    query_pinned: false,
                     spend_mode: spendMode,
                     goal_length: 'find users who get stuck'.length,
                 })

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconPlus, IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
@@ -38,9 +38,16 @@ export function ScannerGoalFlow(): JSX.Element {
         goalDraftLoading,
         goalExperiment: experiment,
         linkedExperimentContext,
+        goalDraftQuery,
     } = useValues(logic)
-    const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput, setGoalSpendMode, setGoalExperiment } =
-        useActions(logic)
+    const {
+        draftScannerFromGoal,
+        setGoalDraftInput,
+        setGoalBudgetInput,
+        setGoalSpendMode,
+        setGoalExperiment,
+        setGoalDraftQuery,
+    } = useActions(logic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { freeCreditsLeft } = useValues(visionQuotaLogic)
     // The spend choice is captured with the goal, so a quota that loads while consent is open cannot change it.
@@ -135,6 +142,18 @@ export function ScannerGoalFlow(): JSX.Element {
                                 <div className="text-xs text-muted">
                                     This scanner keeps watching users exposed to{' '}
                                     {linkedExperimentContext.experiment.name}. You don't have to mention the experiment.
+                                </div>
+                            ) : null}
+                            {goalDraftQuery ? (
+                                <div className="text-xs text-muted">
+                                    This scanner only watches the session recordings that match the replay filters you
+                                    picked.{' '}
+                                    <Link
+                                        onClick={() => setGoalDraftQuery(null)}
+                                        data-attr="vision-goal-flow-clear-query"
+                                    >
+                                        Let the agent pick the recordings instead
+                                    </Link>
                                 </div>
                             ) : null}
                         </div>

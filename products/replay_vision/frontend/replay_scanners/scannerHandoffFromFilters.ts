@@ -4,14 +4,21 @@ import { stripSessionIds } from 'scenes/session-recordings/playlist/playlistUtil
 import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 
+import type { RecordingsQuery } from '~/queries/schema/schema-general'
 import type { RecordingUniversalFilters } from '~/types'
 
-import { experimentScannerParams } from './experimentTargeting'
+import { type ExperimentScannerParams, experimentScannerParams } from './experimentTargeting'
 
 /** The wizard hand-off for "create a scanner from these replay filters". */
 export interface ScannerHandoffFromFilters {
     /** Params for the new-scanner wizard URL: the encoded query, plus experiment targeting when the filters carry it. */
     searchParams: Record<string, string>
+    /** The query the scanner keeps, without session IDs or experiment exposure. */
+    query: RecordingsQuery
+    /** Experiment exposure from the filters, which a scanner keeps as targeting rather than inside `query`. */
+    experiment: ExperimentScannerParams | null
+    /** Pinned recordings in the filters. A scanner drops them, so the person is told. */
+    pinnedSessionCount: number
     /**
      * Whether the resulting scanner would watch a subset of sessions rather than all of them.
      *
@@ -44,16 +51,16 @@ export function scannerHandoffFromFilters(filters: RecordingUniversalFilters): S
         stripSessionIds(filters)
     )
 
+    const experiment = exposure ? { experimentId: exposure.experiment_id, variantKey: exposure.variant ?? null } : null
+
     return {
         searchParams: {
             filters: JSON.stringify(query),
-            ...(exposure
-                ? experimentScannerParams({
-                      experimentId: exposure.experiment_id,
-                      variantKey: exposure.variant ?? null,
-                  })
-                : {}),
+            ...(experiment ? experimentScannerParams(experiment) : {}),
         },
+        query,
+        experiment,
+        pinnedSessionCount: filters.session_ids?.length ?? 0,
         narrowsSessions:
             filtersFromUniversalFilterGroups(filters).length > 0 ||
             // Every filter set carries a duration floor, so only one the user moved off the default
