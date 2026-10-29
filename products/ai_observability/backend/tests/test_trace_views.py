@@ -19,7 +19,7 @@ from posthog.models.user import User
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
-from products.ai_observability.backend.facade import api
+from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.models.review_queues import ReviewQueue
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
@@ -378,9 +378,11 @@ class TestTraceSearchView(ClickhouseTestMixin, APIBaseTest):
 
         assert self.client.get(self._url("trace-1"), {"q": "go up"}).json() == {"total": 0, "matches": []}
 
-    def test_a_timeout_is_a_504(self) -> None:
-        with patch.object(api, "load_trace_search", side_effect=ClickHouseQueryTimeOut()):
+    def test_the_search_time_limit_reaches_clickhouse_and_a_timeout_is_a_504(self) -> None:
+        with patch.object(trace_queries, "query_ai_events", side_effect=ClickHouseQueryTimeOut()) as query:
             assert self.client.get(self._url("trace-1"), {"q": "invoice"}).status_code == 504
+
+        assert query.call_args.kwargs["settings"].max_execution_time == 10
 
 
 class TestTraceViewSetResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
