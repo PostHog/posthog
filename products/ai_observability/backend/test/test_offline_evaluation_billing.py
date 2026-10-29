@@ -2,7 +2,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from itertools import batched
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import time_machine
 from unittest.mock import patch
@@ -123,7 +123,7 @@ class TestOfflineEvaluationBilling(TestCase):
         self.record(self.team, 7)
         usage = get_offline_evaluation_usage(self.period.start, self.period.end)
 
-        organizations = []
+        organizations: list[tuple[UUID, list[int]]] = []
         with (
             patch.dict(connection.settings_dict, DISABLE_SERVER_SIDE_CURSORS=False),
             patch("ee.billing.quota_limiting.QUOTA_ORGANIZATION_BATCH_SIZE", batch_size),
