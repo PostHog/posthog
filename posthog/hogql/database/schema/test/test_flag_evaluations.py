@@ -48,6 +48,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.events_query_runner import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
+from posthog.models.property import TableColumn
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_group_type_mapping, create_person
 
@@ -1039,7 +1040,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         self, _name: str, use_new_events_schema: bool, expected_count: int
     ):
         row_uuid = uuid.uuid4()
-        properties = {"$feature_flag": "probe-flag", "message": 'say "hi"'}
+        properties: dict[str, str | int | None] = {"$feature_flag": "probe-flag", "message": 'say "hi"'}
         self._insert_row(row_uuid, properties)
         query = f"SELECT count() FROM events WHERE {FLAG_CALL_CONJUNCTS} AND properties.message = 'say \"hi\"'"
 
@@ -1072,7 +1073,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     )
     @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_property_read_from_a_materialized_column_on_events_keeps_reading_events_in_mode_1(
-        self, _name: str, materialized_property: tuple[str, str] | None, condition: str, swaps: bool
+        self, _name: str, materialized_property: tuple[TableColumn, str] | None, condition: str, swaps: bool
     ):
         if materialized_property is not None:
             table_column, property_name = materialized_property

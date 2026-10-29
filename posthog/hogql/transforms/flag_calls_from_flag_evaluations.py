@@ -884,17 +884,26 @@ def _property_reads(node: ast.AST, context: HogQLContext) -> list[_PropertyRead]
     return collector.reads
 
 
-def _property_sources(reads: list[_PropertyRead], context: HogQLContext) -> list[tuple[str, str, str | None]]:
-    """Each read with the column the printer reads it from, or None for the JSON blob."""
+@frozen
+class _PropertySource:
+    column: str
+    name: str
+    # The column the printer reads the property from, or None for the JSON blob.
+    materialized_column: str | None
+
+
+def _property_sources(reads: list[_PropertyRead], context: HogQLContext) -> list[_PropertySource]:
     # Deferred: clickhouse_property_resolution imports the printer package, which imports this module.
     from posthog.hogql.transforms.clickhouse_property_resolution import (  # noqa: PLC0415
         resolve_materialized_property_source,
     )
 
-    sources: list[tuple[str, str, str | None]] = []
+    sources: list[_PropertySource] = []
     for column, name, field_type in reads:
         source = resolve_materialized_property_source(field_type, name, context)
-        sources.append((column, name, source.column if source is not None else None))
+        sources.append(
+            _PropertySource(column=column, name=name, materialized_column=source.column if source is not None else None)
+        )
     return sources
 
 
