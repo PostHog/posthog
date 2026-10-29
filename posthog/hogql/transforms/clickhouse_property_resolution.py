@@ -1204,8 +1204,13 @@ class ClickHousePropertyResolver(CloningVisitor):
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
         self._in_grouped_clause = False
+        # Identity set of the WHERE/PREWHERE comparisons (and call-form comparisons) that sit under only `and`/`or`
+        # nodes. The only place `_property_group_key_guard` may land: there a NULL and a false comparison filter alike.
+        self._key_guard_nodes: set[int] = set()
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        self._collect_key_guard_nodes(node.where)
+        self._collect_key_guard_nodes(node.prewhere)
         scope: set[int] = set()
         join: ast.JoinExpr | None = node.select_from
         while join is not None:
@@ -1228,6 +1233,17 @@ class ClickHousePropertyResolver(CloningVisitor):
         finally:
             self._in_grouped_clause = was_in_grouped_clause
             self._tables_in_scope.pop()
+
+    def _collect_key_guard_nodes(self, clause: ast.Expr | None) -> None:
+        stack = [clause]
+        while stack:
+            expr = stack.pop()
+            if isinstance(expr, ast.And | ast.Or):
+                stack.extend(expr.exprs)
+            elif isinstance(expr, ast.Call) and expr.name in ("and", "or"):
+                stack.extend(expr.args)
+            elif isinstance(expr, ast.CompareOperation | ast.Call):
+                self._key_guard_nodes.add(id(expr))
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
         """True if the property's source table is in the current SELECT's FROM/JOIN chain (by object identity)."""
@@ -1426,9 +1442,12 @@ class ClickHousePropertyResolver(CloningVisitor):
             and node.order_by is None
             and node.filter_expr is None
         ):
-            return self.visit_compare_operation(
-                ast.CompareOperation(left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name])
+            comparison = ast.CompareOperation(
+                left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name]
             )
+            if id(node) in self._key_guard_nodes:
+                self._key_guard_nodes.add(id(comparison))
+            return self.visit_compare_operation(comparison)
 
         return super().visit_call(node)
 
@@ -2316,20 +2335,33 @@ class ClickHousePropertyResolver(CloningVisitor):
         """`has(map, key)` to AND ahead of a range or positive pattern comparison over a property-group property.
 
         Those comparisons read `if(has(map, key), map[key], NULL)` inside the comparison, where no skip index can see
-        it; a top-level `has()` conjunct lets the keys bloom filter skip granules without the key. Results don't change:
-        an absent key reads NULL through the NULL-preserving wrappers unwrapped below, and the printer turns a NULL range
-        or constant-pattern comparison into false. A NULL or non-constant pattern can match a NULL value, so it bails.
+        it; a top-level `has()` conjunct lets the keys bloom filter skip granules without the key. An absent key reads
+        NULL through the NULL-preserving wrappers unwrapped below, so the comparison is NULL or false. Only a WHERE or
+        PREWHERE comparison under `and`/`or` alone qualifies: there NULL and false filter alike, whereas under `not` or
+        `if`, in a SELECT list, or in ORDER BY the guard's false could differ from NULL (the printer leaves a comparison
+        against an events timestamp without `ifNull`), and a GROUP BY query rejects a bare `has(map, key)` outside its
+        grouped read. A NULL or non-constant pattern can match a NULL value, so it bails.
         """
+        if id(node) not in self._key_guard_nodes:
+            return None
         if node.op in _PATTERN_OPS:
             if not isinstance(node.right, ast.Constant) or node.right.value is None:
                 return None
-        elif node.op not in _RANGE_OP_TO_CH_NAME:
+            operands = (node.left,)
+        elif node.op in _RANGE_OP_TO_CH_NAME:
+            operands = (node.left, node.right)
+        else:
             return None
-        operand = node.left.expr if isinstance(node.left, ast.Alias) else node.left
-        while isinstance(operand, ast.Call) and operand.name in _NULL_PRESERVING_WRAPPERS and len(operand.args) == 1:
-            operand = operand.args[0]
-        prop = self._property_group_property(operand)
-        return prop.group_has() if prop is not None else None
+        for operand in operands:
+            operand = operand.expr if isinstance(operand, ast.Alias) else operand
+            while (
+                isinstance(operand, ast.Call) and operand.name in _NULL_PRESERVING_WRAPPERS and len(operand.args) == 1
+            ):
+                operand = operand.args[0]
+            prop = self._property_group_property(operand)
+            if prop is not None:
+                return prop.group_has()
+        return None
 
     # --- individually-materialized-column optimizers ---
 
