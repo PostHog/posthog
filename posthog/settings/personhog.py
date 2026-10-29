@@ -19,6 +19,9 @@ PERSONHOG_MAX_SEND_MESSAGE_LENGTH = get_from_env("PERSONHOG_MAX_SEND_MESSAGE_LEN
 PERSONHOG_MAX_RECV_MESSAGE_LENGTH = get_from_env("PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024, type_cast=int)
 PERSONHOG_CLIENT_IDLE_TIMEOUT_MS = get_from_env("PERSONHOG_CLIENT_IDLE_TIMEOUT_MS", 0, type_cast=int)
 
+# Person writes go through the personhog leader rather than straight to Postgres.
+PERSONHOG_LEADER_OWNS_PERSON_WRITES = get_from_env("PERSONHOG_LEADER_OWNS_PERSON_WRITES", False, type_cast=str_to_bool)
+
 # Retry settings for transient gRPC errors
 PERSONHOG_MAX_RETRIES = get_from_env("PERSONHOG_MAX_RETRIES", 2, type_cast=int)
 PERSONHOG_INITIAL_BACKOFF_MS = get_from_env("PERSONHOG_INITIAL_BACKOFF_MS", 50, type_cast=int)

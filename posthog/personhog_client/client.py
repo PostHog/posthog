@@ -95,6 +95,8 @@ from posthog.personhog_client.proto import (
     PersonsResponse,
     RaisePersonVersionFloorsRequest,
     RaisePersonVersionFloorsResponse,
+    RaisePersonVersionRequest,
+    RaisePersonVersionResponse,
     RestorePersonsRequest,
     RestorePersonsResponse,
     SetPersonDistinctIdVersionFloorRequest,
@@ -358,6 +360,16 @@ class PersonHogClient:
         self, request: RaisePersonVersionFloorsRequest, timeout: float | None = None
     ) -> RaisePersonVersionFloorsResponse:
         return self._stub.RaisePersonVersionFloors(request, timeout=timeout or self._timeout)
+
+    def raise_person_version(
+        self, request: RaisePersonVersionRequest, timeout: float | None = None
+    ) -> RaisePersonVersionResponse:
+        # The router routes leader calls by these headers, never by the request body.
+        return self._stub.RaisePersonVersion(
+            request,
+            timeout=timeout or self._timeout,
+            metadata=[("x-team-id", str(request.team_id)), ("x-person-id", str(request.person_id))],
+        )
 
     def restore_persons(self, request: RestorePersonsRequest, timeout: float | None = None) -> RestorePersonsResponse:
         return self._stub.RestorePersons(request, timeout=timeout or self._timeout)

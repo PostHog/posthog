@@ -1201,6 +1201,22 @@ class FakePersonHogClient:
             response.results.add(person_uuid=floor.person_uuid, outcome=outcome, version=version)
         return response
 
+    def raise_person_version(
+        self, request: person_pb2.RaisePersonVersionRequest, timeout: float | None = None
+    ) -> person_pb2.RaisePersonVersionResponse:
+        self.calls.append(_Call("raise_person_version", request))
+        person = self._live(self._persons_by_id.get((request.team_id, request.person_id)))
+        if person is None:
+            import grpc
+
+            error = grpc.RpcError()
+            error.code = lambda: grpc.StatusCode.NOT_FOUND
+            raise error
+        raised = person.version < request.min_version
+        if raised:
+            person.version = request.min_version
+        return person_pb2.RaisePersonVersionResponse(person=person, raised=raised)
+
     def restore_persons(
         self, request: person_pb2.RestorePersonsRequest, timeout: float | None = None
     ) -> person_pb2.RestorePersonsResponse:

@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 import grpc
@@ -501,6 +501,36 @@ class TestPersonDivergence(ClickhouseTestMixin, BaseTest):
             assert (self._pg_version(person), self._pg_mapping_versions(person)) == (3, {"hidden-did": 0})
             assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
             assert self._ch_mapping("hidden-did") == (str(person.uuid), 1, 100)
+
+    @override_settings(PERSONHOG_LEADER_OWNS_PERSON_WRITES=True)
+    def test_raises_through_the_leader_and_leaves_the_person_publish_to_the_relay(self) -> None:
+        person = self._pg_person(version=3, distinct_ids={"hidden-did": 0})
+        self._ch_person_row(person.uuid, 103, deleted=True)
+        self._ch_mapping_row("hidden-did", person.uuid, 100, deleted=True)
+
+        _, actions = self._repair(person.uuid)
+
+        fake = get_active_fake()
+        fake.assert_not_called("raise_person_version_floors")
+        assert [c.request for c in fake.calls if c.method == "raise_person_version"] == [
+            person_pb2.RaisePersonVersionRequest(team_id=self.team.pk, person_id=person.pk, min_version=104)
+        ]
+        assert [a.outcome for a in actions] == ["repaired", "repaired"]
+        assert self._ch_person(person.uuid) == (1, 103, CH_PROPERTIES)
+        assert self._ch_mapping("hidden-did") == (str(person.uuid), 0, 101)
+
+    @override_settings(PERSONHOG_LEADER_OWNS_PERSON_WRITES=True)
+    def test_skips_a_person_the_leader_holds_as_deleted(self) -> None:
+        person = self._pg_person(version=3, distinct_ids={"hidden-did": 0})
+        self._ch_person_row(person.uuid, 103, deleted=True)
+        self._ch_mapping_row("hidden-did", person.uuid, 100, deleted=True)
+        fake = get_active_fake()
+
+        with patch.object(fake, "raise_person_version", side_effect=rpc_error(grpc.StatusCode.NOT_FOUND)):
+            _, actions = self._repair(person.uuid)
+
+        assert [a.outcome for a in actions] == ["skipped_tombstoned", "skipped_tombstoned"]
+        fake.assert_not_called("write_distinct_ids")
 
     @parameterized.expand([("dry_run", False, []), ("apply", True, [1.0])])
     def test_throttles_on_each_divergent_row_written(self, _name: str, apply: bool, sleeps: list[float]) -> None:

@@ -10,6 +10,8 @@ from functools import partial
 from typing import TypeVar
 from uuid import UUID
 
+from django.conf import settings
+
 import grpc
 
 from posthog.dataclasses import frozen
@@ -36,6 +38,7 @@ from posthog.personhog_client.proto import (
     DistinctIdWriteResult,
     PersonVersionFloor,
     RaisePersonVersionFloorsRequest,
+    RaisePersonVersionRequest,
     SetPersonDistinctIdVersionFloorRequest,
     WriteDistinctIdsRequest,
     WriteDistinctIdsResponse,
@@ -87,6 +90,23 @@ def _raise_person_version_floor(team_id: int, person_uuid: str, min_version: int
             )
         ),
     )
+
+
+def _raise_person_version_on_leader(team_id: int, person_id: int, min_version: int) -> bool:
+    """Raise the person through its leader. Returns False when the leader holds the person as deleted."""
+
+    def call() -> bool:
+        try:
+            require_personhog_client().raise_person_version(
+                RaisePersonVersionRequest(team_id=team_id, person_id=person_id, min_version=min_version)
+            )
+        except grpc.RpcError as exc:
+            if callable(getattr(exc, "code", None)) and exc.code() == grpc.StatusCode.NOT_FOUND:
+                return False
+            raise
+        return True
+
+    return personhog_call("person_divergence_raise_person_version", call)
 
 
 def _write_distinct_ids(request: WriteDistinctIdsRequest) -> WriteDistinctIdsResponse:
@@ -308,9 +328,19 @@ def _execute_plan(
         ]
 
     pg_version = int(person.version or 0)
+    raised_on_leader = False
     if plan.kind is not None and plan.target_version is not None and plan.target_version > pg_version:
         before_write()
-        _raise_person_version_floor(plan.team_id, plan.person_uuid, plan.target_version)
+        if not settings.PERSONHOG_LEADER_OWNS_PERSON_WRITES:
+            _raise_person_version_floor(plan.team_id, plan.person_uuid, plan.target_version)
+        elif _raise_person_version_on_leader(plan.team_id, int(person.id), plan.target_version):
+            raised_on_leader = True
+        else:
+            return [
+                _person_action(plan, "skipped_tombstoned"),
+                *mapping_actions,
+                *(_mapping_action(plan, m, "skipped_tombstoned") for m in divergent_mappings),
+            ]
 
     # The raise runs on the primary, so its reply is the owner check: the replica list that produced this
     # mapping can lag a merge that moved it to another person.
@@ -337,7 +367,7 @@ def _execute_plan(
     # Re-read after the raise so the published properties are the ones Postgres holds at the
     # published version, including any ingestion update that landed after the first read.
     reread: Person | None = None
-    if plan.kind is not None:
+    if plan.kind is not None and not raised_on_leader:
         reread = _reread_person(plan.team_id, plan.person_uuid, plan.target_version)
 
     if (plan.kind is not None or owned) and lookups._tombstoned_uuids(plan.team_id, [plan.person_uuid]):
@@ -350,6 +380,9 @@ def _execute_plan(
 
     if plan.kind is None:
         person_outcome = "skipped_not_divergent"
+    elif raised_on_leader:
+        # The changelog relay publishes the leader's document, so the person is not published from here.
+        person_outcome = "repaired"
     elif reread is None:
         person_outcome = "skipped_not_live"
     elif plan.target_version is None or int(reread.version or 0) < plan.target_version:
