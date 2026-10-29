@@ -1045,7 +1045,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     # Scope is resolved dynamically in dangerously_get_required_scopes so an AI subscription also
     # requires query:read (enabling it starts the AI HogQL pipeline). A static required_scopes here
     # would short-circuit that check.
-    @action(methods=["POST"], detail=True, url_path="take-ownership")
+    @action(methods=["POST"], detail=True)
     def take_ownership(self, request: Request, **kwargs: object) -> Response:
         subscription = self._get_subscription()
         if subscription.deleted:

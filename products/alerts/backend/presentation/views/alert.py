@@ -52,7 +52,6 @@ from posthog.helpers.trigram_search import (
     drop_similar_when_exact_exists,
 )
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.integration import Integration
 from posthog.models.tag import tagify
@@ -79,7 +78,6 @@ from posthog.tasks.alerts.utils import (
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
-from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.detector import simulate_detector_on_insight
 from products.alerts.backend.evaluation.validation import (
@@ -94,6 +92,7 @@ from products.alerts.backend.facade.api import (
     LLMDetectorError,
     LLMDetectorUnavailableError,
     admit_llm_alert_write,
+    assign_alert_owner,
     is_llm_detector_config,
     llm_detector_access_error,
 )
@@ -1828,7 +1827,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "access, so this is how an alert continues after its owner left."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="take-ownership", required_scopes=["alert:write"])
+    @action(detail=True, methods=["POST"], required_scopes=["alert:write"])
     def take_ownership(self, request, *args, **kwargs):
         alert = self.get_object()
         user = cast(User, request.user)
@@ -1836,43 +1835,18 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             assert_creator_can_run(user, alert.team, alert.insight)
         except (CreatorLeftOrganizationError, UserAccessControlError):
             raise ValidationError("Can't take ownership: you don't have access to this insight.") from None
-        previous_owner = alert.created_by
         # One transaction, so a refused enable leaves the owner as it was. The enable below reloads
         # the row, so the owner is saved first.
         with transaction.atomic():
-            alert.created_by = user
-            alert.save(update_fields=["created_by"])
+            assign_alert_owner(
+                team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
+            )
+            # The enable below saves this instance, so it must carry the new owner.
+            alert.refresh_from_db(fields=["created_by"])
             # The enable runs the usual update path, so the insight query is validated as the new owner.
             serializer = self.get_serializer(alert, data={"enabled": True}, partial=True)
             serializer.is_valid(raise_exception=True)
             serializer.save()
-            # `created_by` is excluded from the save diff, so the takeover gets its own activity.
-            log_activity(
-                organization_id=alert.team.organization_id,
-                team_id=alert.team_id,
-                user=user,
-                was_impersonated=get_was_impersonated(),
-                item_id=alert.id,
-                scope="AlertConfiguration",
-                activity="took_ownership",
-                detail=Detail(
-                    name=alert.name or f"Alert for {alert.insight.name}",
-                    changes=[
-                        Change(
-                            type="AlertConfiguration",
-                            action="changed",
-                            field="created_by",
-                            before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
-                            after={"id": user.id, "email": user.email},
-                        )
-                    ],
-                    context=AlertConfigurationContext(
-                        insight_id=alert.insight_id,
-                        insight_short_id=alert.insight.short_id,
-                        insight_name=alert.insight.name,
-                    ),
-                ),
-            )
         return Response(self.get_serializer(serializer.instance).data)
 
     @extend_schema(

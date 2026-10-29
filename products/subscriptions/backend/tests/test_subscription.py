@@ -1121,7 +1121,7 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_take_ownership_enables_the_subscription_as_the_requester(self):
         subscription = self._disabled_subscription_of_a_former_member()
 
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take-ownership/")
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         subscription.refresh_from_db()
@@ -1132,6 +1132,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         takeover = ActivityLog.objects.get(
             scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
         )
+        assert takeover.detail is not None
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
 

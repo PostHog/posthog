@@ -27,7 +27,7 @@ class TestAlertTakeOwnership(APIBaseTest):
     def test_take_ownership_enables_the_alert_as_the_requester(self) -> None:
         alert = self._disabled_alert_of_a_former_member()
 
-        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{alert.id}/take-ownership/")
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/")
 
         assert response.status_code == status.HTTP_200_OK, response.content
         alert.refresh_from_db()
@@ -35,5 +35,6 @@ class TestAlertTakeOwnership(APIBaseTest):
         assert alert.enabled is True
         # created_by is excluded from the save diff, so the takeover logs its own activity.
         takeover = ActivityLog.objects.get(scope="AlertConfiguration", item_id=str(alert.id), activity="took_ownership")
+        assert takeover.detail is not None
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
