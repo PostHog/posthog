@@ -1,0 +1,11 @@
+{
+    "productionAppIds": {
+        "ios": "com.posthog.code.mobile",
+        "android": "com.posthog.mobile"
+    },
+    "variants": {
+        "development": { "name": "PostHog Dev", "idSuffix": ".dev", "scheme": "posthog-dev" },
+        "preview": { "name": "PostHog Preview", "idSuffix": ".preview", "scheme": "posthog-preview" },
+        "production": { "name": "PostHog", "idSuffix": "", "scheme": "posthog" }
+    }
+}
