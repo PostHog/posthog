@@ -163,6 +163,14 @@ class TestEnrichmentPending:
         # currency has no annotation
         assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is True
 
+    def test_pending_when_a_column_only_carries_a_sensitivity_flag(self) -> None:
+        team = _team()
+        table = _table(team, columns={"email": {}})
+        WarehouseColumnAnnotation.objects.for_team(team.id).create(
+            team=team, table=table, column_name="email", description="", sensitivity="email"
+        )
+        assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is True
+
     def test_not_pending_when_all_columns_annotated_and_table_described(self) -> None:
         # The steady state: nothing new to do — must NOT spawn a workflow every sync.
         team = _team()

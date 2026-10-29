@@ -48,6 +48,9 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
             description="customer email",
             description_source=WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED,
         )
+        WarehouseColumnAnnotation.objects.for_team(self.team.pk).create(
+            team=self.team, table=self.table, column_name="receipt_email", description="", sensitivity="email"
+        )
 
         response = self.client.get(self._url(f"?table_id={self.table.id}"))
         assert response.status_code == 200, response.json()

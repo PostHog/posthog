@@ -12,8 +12,8 @@ joins without guessing. Two sources feed the descriptions:
    graph, and the team's business context (core memory), to draft the rest.
 
 Descriptions land in `WarehouseColumnAnnotation`. Anything a user has edited (`is_user_edited`) is
-never touched, and the whole activity is idempotent — a column that already has an annotation is
-left alone, so it enriches once on first sync and fills in only newly-added columns later.
+never touched, and the whole activity is idempotent — a column that already has a described annotation
+is left alone, so it enriches once on first sync and fills in only newly-added columns later.
 """
 
 import json
@@ -360,7 +360,9 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
 
     existing = {
         annotation.column_name: annotation
-        for annotation in WarehouseColumnAnnotation.objects.for_team(team_id).filter(table_id=table.id)
+        for annotation in WarehouseColumnAnnotation.objects.for_team(team_id).filter(
+            WarehouseColumnAnnotation.DESCRIBED, table_id=table.id
+        )
     }
 
     # Columns + types come from `table.columns`, populated for every source type after sync — so this
@@ -390,7 +392,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     canonical_table_description = canonical.get("description")
     docs_url = canonical.get("docs_url")
 
-    # Idempotency: columns that already carry an annotation (canonical, AI, or user-edited) are left
+    # Idempotency: columns that already carry a description (canonical, AI, or user-edited) are left
     # untouched so we preserve edits and don't redo work. Only columns without one are enriched —
     # which also lets a later re-sync fill in columns added after the first enrichment pass.
     new_columns = [column for column in columns if column["name"] not in existing]

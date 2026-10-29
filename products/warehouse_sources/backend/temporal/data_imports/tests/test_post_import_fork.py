@@ -762,3 +762,59 @@ def test_the_cleanup_activity_deletes_an_upload_replaced_before_the_sync(
         s3.rm.assert_called_once_with(
             f"ph-warehouse/file_uploads/team_{team.pk}/11111111-2222-4333-8444-555555555555/orders.csv"
         )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "flag_on,classification_fails,expected",
+    [
+        pytest.param(True, False, {"email": "email"}, id="flag_on"),
+        pytest.param(False, False, {}, id="flag_off"),
+        pytest.param(True, True, {}, id="classification_fails"),
+    ],
+)
+def test_resolve_context_stores_column_sensitivity_behind_the_flag(
+    team, flag_on, classification_fails, expected, _no_close_old_connections
+):
+    from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.temporal.data_imports import post_import_job
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        DUCKLAKE_COPY_STEP,
+        PostImportWorkflowInputs,
+        resolve_post_import_context_activity,
+    )
+
+    source, schema, job = _create_job(
+        team,
+        status=ExternalDataJob.Status.COMPLETED,
+        schema_snapshot={"last_synced_at": "2026-07-01T00:00:00+00:00"},
+        schema_last_synced_at=None,
+    )
+    schema.table = DataWarehouseTable.objects.create(
+        name="stripe_customer",
+        format="DeltaS3Wrapper",
+        team=team,
+        url_pattern="https://bucket.s3/data/*",
+        columns={"id": {"clickhouse": "String"}, "email": {"clickhouse": "Nullable(String)"}},
+    )
+    schema.save()
+
+    with (
+        mock.patch.object(post_import_job, "is_schema_flag_enabled", return_value=flag_on),
+        mock.patch.object(
+            post_import_job,
+            "classify_table_columns",
+            side_effect=RuntimeError("boom") if classification_fails else post_import_job.classify_table_columns,
+        ),
+    ):
+        ctx = resolve_post_import_context_activity(
+            PostImportWorkflowInputs(
+                team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+            )
+        )
+
+    assert ctx.steps is not None and DUCKLAKE_COPY_STEP in ctx.steps
+    stored = WarehouseColumnAnnotation.objects.for_team(team.pk).filter(table_id=schema.table_id)
+    assert {a.column_name: a.sensitivity for a in stored} == expected

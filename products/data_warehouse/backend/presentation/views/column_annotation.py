@@ -56,6 +56,9 @@ class WarehouseColumnAnnotationViewSet(BaseColumnAnnotationViewSet):
     parent_field_name = "table"
     parent_query_param = "table_id"
 
+    def safely_get_queryset(self, queryset: Any) -> Any:
+        return super().safely_get_queryset(queryset).filter(WarehouseColumnAnnotation.DESCRIBED)
+
     @extend_schema(
         parameters=[
             OpenApiParameter(

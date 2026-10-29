@@ -144,7 +144,7 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
     columns = set((table.columns or {}).keys()) - table.hidden_columns()
     annotated = set(
         WarehouseColumnAnnotation.objects.for_team(team_id)
-        .filter(table_id=table.id)
+        .filter(WarehouseColumnAnnotation.DESCRIBED, table_id=table.id)
         .values_list("column_name", flat=True)
     )
     new_columns = columns - annotated

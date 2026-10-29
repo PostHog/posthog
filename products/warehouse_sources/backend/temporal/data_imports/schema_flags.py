@@ -19,6 +19,10 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 
+# Stores each synced column's sensitivity flag after a completed load.
+COLUMN_SENSITIVITY_FLAG = "warehouse-column-sensitivity"
+
+
 def is_schema_flag_enabled(schema: ExternalDataSchema, flag: str) -> bool:
     """Evaluate a rollout flag for this schema.
 
