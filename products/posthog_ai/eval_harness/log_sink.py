@@ -20,7 +20,7 @@ def _slugify(name: str) -> str:
 
 def _case_log_slug(case_name: str, trial_id: str | None) -> str:
     trial_suffix = f".trial-{_slugify(trial_id)}" if trial_id else ""
-    case_name_limit = 255 - len(trial_suffix) - len(".artifacts.json")
+    case_name_limit = 255 - len(trial_suffix) - len(".toolchain.json")
     return _slugify(case_name)[:case_name_limit] + trial_suffix
 
 
@@ -30,6 +30,7 @@ class CaseLogPaths:
     raw_log: Path
     artifacts: Path
     summary: Path
+    tool_chain: Path
 
 
 def build_case_dir(experiment_name: str, experiment_id: str) -> Path:
@@ -120,6 +121,7 @@ def write_case_logs(
     *,
     trial_id: str | None = None,
     trace_id: str | None = None,
+    tool_chain: list[dict[str, Any]] | None = None,
 ) -> CaseLogPaths:
     slug = _case_log_slug(case_name, trial_id)
     paths = CaseLogPaths(
@@ -127,9 +129,11 @@ def write_case_logs(
         raw_log=case_dir / f"{slug}.jsonl",
         artifacts=case_dir / f"{slug}.artifacts.json",
         summary=case_dir / f"{slug}.summary.txt",
+        tool_chain=case_dir / f"{slug}.toolchain.json",
     )
 
     paths.raw_log.write_text(raw_log or "")
+    paths.tool_chain.write_text(json.dumps(tool_chain or [], indent=2, default=str))
     paths.artifacts.write_text(json.dumps(artifacts, indent=2, default=str))
     summary = _format_summary(case_name, prompt, duration, last_message, token_usage)
     if trial_id:

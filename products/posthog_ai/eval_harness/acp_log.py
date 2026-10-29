@@ -39,10 +39,27 @@ class SpanDescriptor:
     timestamp: str = ""
 
 
-@dataclass
+@dataclass(frozen=False)
+class ToolTiming:
+    """When one tool call started and finished, and where it sits in the run's call order."""
+
+    sequence: int
+    """Zero-based order of the ``tool_call`` line across the whole log. Parallel calls in one
+    assistant message get distinct values, unlike the message position."""
+
+    started_at: str = ""
+    """Timestamp of the ``tool_call`` line."""
+
+    ended_at: str = ""
+    """Timestamp of the terminal ``tool_call_update`` line. Empty when the call never finished."""
+
+
+@dataclass(frozen=False)
 class ParsedLog:
     generations: list[GenerationDescriptor] = field(default_factory=list)
     spans: list[SpanDescriptor] = field(default_factory=list)
+    tool_timings: dict[str, ToolTiming] = field(default_factory=dict)
+    """Timing per tool call id."""
     first_timestamp: str = ""
     last_timestamp: str = ""
     model: str = ""
@@ -306,6 +323,8 @@ class AcpLogParser:
         )
         tool_call_id = update.get("toolCallId", str(uuid.uuid4()))
         raw_input = update.get("rawInput", {})
+        if tool_call_id not in self._result.tool_timings:
+            self._result.tool_timings[tool_call_id] = ToolTiming(sequence=len(self._result.tool_timings), started_at=ts)
 
         self._current_output.append(
             {
@@ -347,6 +366,9 @@ class AcpLogParser:
         if status in ("failed", "error"):
             tool_result["is_error"] = True
         self._pending_tool_results.append(tool_result)
+        timing = self._result.tool_timings.get(tool_call_id)
+        if timing is not None and ts:
+            timing.ended_at = ts
         if ts:
             self._last_tool_result_ts = ts
 
