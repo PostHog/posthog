@@ -2999,7 +2999,7 @@ export interface PassRateOverviewEntryApi {
 }
 
 export interface PassRateOverviewApi {
-    /** Enabled pass rate evaluations, lowest rate first. */
+    /** Pass rate evaluations with results in the period, paused ones included, lowest rate first. */
     entries: PassRateOverviewEntryApi[]
     /** Median of the per-evaluation pass rates without low evidence. */
     median: number | null
@@ -3022,7 +3022,7 @@ export interface EvaluationsOverviewApi {
     /** Start of each bucket, in the project's timezone. Every series is aligned with it. The first bucket can start before `start`. */
     buckets: string[]
     evaluations: EvaluationResultApi[]
-    /** Totals over the enabled evaluations. */
+    /** Totals over every evaluation's results in the period, paused ones included. */
     totals: OverviewTotalsApi
     passRateOverview: PassRateOverviewApi
 }
