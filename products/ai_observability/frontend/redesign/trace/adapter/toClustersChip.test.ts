@@ -13,7 +13,12 @@ describe('toClustersChip', () => {
 
     it('leads with the first cluster and links each cluster to its page', () => {
         const chip = toClustersChip([
-            makeTraceCluster({ runId: '1_trace_20260902_030000_job a', clusterId: 3, title: 'Billing questions' }),
+            makeTraceCluster({
+                runId: '1_trace_20260902_030000_job a',
+                runAt: '2026-09-02T03:40:00Z',
+                clusterId: 3,
+                title: 'Billing questions',
+            }),
             makeTraceCluster({
                 runId: '1_trace_20260901_030000',
                 clusterId: -1,
@@ -26,6 +31,7 @@ describe('toClustersChip', () => {
 
         expect(chip?.first).toMatchObject({
             label: 'Billing questions',
+            runAt: '2026-09-02T03:40:00Z',
             href: urls.aiObservabilityCluster('1_trace_20260902_030000_job a', 3),
         })
         expect(chip?.others.map(({ label, href }) => ({ label, href }))).toEqual([

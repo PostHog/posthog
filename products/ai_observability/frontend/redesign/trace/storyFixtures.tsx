@@ -414,6 +414,7 @@ export const FIXTURE_CLUSTER: ClusterChipItem = {
     description: 'Users ask why an invoice changed after adding seats.',
     jobName: 'Support conversations',
     isOutlier: false,
+    runAt: '2026-09-02T03:40:00Z',
     href: '/ai-observability/clusters/1_trace_20260902_030000/3',
 }
 
@@ -422,6 +423,7 @@ export const FIXTURE_OUTLIER_CLUSTER: ClusterChipItem = {
     description: null,
     jobName: 'Agent runs',
     isOutlier: true,
+    runAt: '2026-09-01T03:40:00Z',
     href: '/ai-observability/clusters/1_trace_20260901_030000/-1',
 }
 
@@ -434,6 +436,7 @@ export const FIXTURE_CLUSTERS_CHIP: TraceClustersChipProps = {
             description: 'Users ask for money back on an annual plan.',
             jobName: null,
             isOutlier: false,
+            runAt: '2026-09-02T04:40:00Z',
             href: '/ai-observability/clusters/1_trace_20260902_040000/5',
         },
     ],

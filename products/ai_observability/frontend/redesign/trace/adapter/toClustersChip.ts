@@ -9,6 +9,7 @@ function toItem(cluster: TraceClusterApi): ClusterChipItem {
         description: cluster.description,
         jobName: cluster.jobName,
         isOutlier: cluster.isOutlier,
+        runAt: cluster.runAt,
         href: urls.aiObservabilityCluster(cluster.runId, cluster.clusterId),
     }
 }

@@ -1,10 +1,13 @@
 import { LemonButton, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+
 export interface ClusterChipItem {
     label: string
     description: string | null
     jobName: string | null
     isOutlier: boolean
+    runAt: string
     href: string
 }
 
@@ -20,6 +23,7 @@ function ClusterTooltip({ item }: { item: ClusterChipItem }): JSX.Element {
             {item.description ? <span>{item.description}</span> : null}
             {item.isOutlier ? <span>This trace didn't fit any cluster in this run.</span> : null}
             {item.jobName ? <span className="opacity-75">From {item.jobName}</span> : null}
+            <span className="opacity-75">Run {dayjs(item.runAt).fromNow()}</span>
         </div>
     )
 }
