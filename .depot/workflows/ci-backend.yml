@@ -1150,8 +1150,8 @@ jobs:
                       /tmp/temporal-sdk-python-*
                       /tmp/temporal-test-server-sdk-python-*
                       !/tmp/*.downloading
-                  key: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
-                  restore-keys: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-
+                  key: temporal-test-servers-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
+                  restore-keys: temporal-test-servers-v2-${{ runner.os }}-${{ runner.arch }}-
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage temporal" | sudo tee -a /etc/hosts
             - name: Set up needed files
@@ -1369,8 +1369,14 @@ jobs:
                   set -e
                   exit $overall
 
-            - name: Save Temporal test servers
+            - name: Check Temporal server cache
+              id: temporal-server-cache-status
               if: env.IS_MASTER == 'true' && steps.temporal-server-cache.outcome == 'success' && steps.temporal-server-cache.outputs.cache-hit != 'true'
+              continue-on-error: true
+              run: python -m posthog.test.temporal_test_servers --cache-status "$GITHUB_OUTPUT"
+
+            - name: Save Temporal test servers
+              if: env.IS_MASTER == 'true' && steps.temporal-server-cache-status.outputs.complete == 'true'
               continue-on-error: true
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
@@ -3237,8 +3243,8 @@ jobs:
                       /tmp/temporal-sdk-python-*
                       /tmp/temporal-test-server-sdk-python-*
                       !/tmp/*.downloading
-                  key: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
-                  restore-keys: temporal-test-servers-v1-${{ runner.os }}-${{ runner.arch }}-
+                  key: temporal-test-servers-v2-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('uv.lock') }}
+                  restore-keys: temporal-test-servers-v2-${{ runner.os }}-${{ runner.arch }}-
             - name: Set up Node.js for canvas builder
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -3950,8 +3956,14 @@ jobs:
               shell: bash
               run: exit 1
 
-            - name: Save Temporal test servers
+            - name: Check Temporal server cache
+              id: temporal-server-cache-status
               if: env.IS_MASTER == 'true' && steps.temporal-server-cache.outcome == 'success' && steps.temporal-server-cache.outputs.cache-hit != 'true'
+              continue-on-error: true
+              run: python -m posthog.test.temporal_test_servers --cache-status "$GITHUB_OUTPUT"
+
+            - name: Save Temporal test servers
+              if: env.IS_MASTER == 'true' && steps.temporal-server-cache-status.outputs.complete == 'true'
               continue-on-error: true
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:

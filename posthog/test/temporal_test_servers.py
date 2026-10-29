@@ -11,6 +11,9 @@ import subprocess
 from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from functools import wraps
+from importlib.metadata import version
+from pathlib import Path
+from tempfile import gettempdir
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
@@ -97,8 +100,20 @@ def install(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def write_cache_status(output_path: Path) -> None:
+    sdk_version = version("temporalio")
+    cache_dir = Path(gettempdir())
+    complete = all(
+        (cache_dir / f"{binary}-sdk-python-{sdk_version}").is_file() for binary in ("temporal", "temporal-test-server")
+    )
+    with output_path.open("a") as output:
+        output.write(f"complete={str(complete).lower()}\n")
+
+
 if __name__ == "__main__":
     match sys.argv[1:]:
+        case ["--cache-status", output]:
+            write_cache_status(Path(output))
         case ["--start", "test"]:
             asyncio.run(_start_server("test"))
         case ["--start", "dev"]:
@@ -106,4 +121,4 @@ if __name__ == "__main__":
         case []:
             asyncio.run(prepare())
         case _:
-            raise SystemExit("usage: python -m posthog.test.temporal_test_servers")
+            raise SystemExit("usage: python -m posthog.test.temporal_test_servers [--cache-status OUTPUT]")
