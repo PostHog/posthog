@@ -26,6 +26,7 @@ import { relationshipsLogic } from './relationshipsLogic'
 import { CertificationsTab } from './tabs/CertificationsTab'
 import { MetricsTab } from './tabs/MetricsTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
+import { UsageTab } from './tabs/UsageTab'
 
 export const scene: SceneExport = {
     component: DataCatalogScene,
@@ -51,6 +52,7 @@ export function DataCatalogScene(): JSX.Element {
     const { proposedCount: certificationsPending } = useValues(certificationsLogic)
     const contextItems = useMemo(() => buildDataCatalogAgentContext(activeTab), [activeTab])
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const usageEnabled = useFeatureFlag('DATA_CATALOG_USAGE')
 
     useSceneAgentPanel({
         sceneKey: 'data-catalog',
@@ -58,7 +60,7 @@ export function DataCatalogScene(): JSX.Element {
         headlines: DATA_CATALOG_AGENT_HEADLINES,
     })
 
-    const tabs: LemonTab<DataCatalogTab>[] = [
+    const tabs: (LemonTab<DataCatalogTab> | null)[] = [
         {
             key: 'metrics',
             label: <TabLabel label="Metrics" count={metricsPending} />,
@@ -77,6 +79,14 @@ export function DataCatalogScene(): JSX.Element {
             content: <CertificationsTab />,
             link: urls.dataCatalog('certifications'),
         },
+        usageEnabled
+            ? {
+                  key: 'usage',
+                  label: 'Usage',
+                  content: <UsageTab />,
+                  link: urls.dataCatalog('usage'),
+              }
+            : null,
     ]
 
     return (
