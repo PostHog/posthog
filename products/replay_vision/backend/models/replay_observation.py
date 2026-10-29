@@ -103,7 +103,7 @@ class ReplayObservation(UUIDModel):
         default=dict,
         help_text="Result data persisted on success (model output, signals count); see `temporal.types.ScannerResult`.",
     )
-    # Ranks live in `ReplayObservationRank`; the column stays until a later migration drops it.
+    # Ranks live in `ReplayObservationRank`.
     watch_rank = deprecate_field(
         models.JSONField(
             null=True,
