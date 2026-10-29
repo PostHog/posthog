@@ -114,8 +114,8 @@ tools:
             discover available files. Supports progressive disclosure — only load files when needed rather than fetching
             all content upfront. Content is returned in pages of at most content_length characters (8000 by default).
             The response always includes content_total_length (the full file length in characters). If
-            content_next_offset is not null, call skill-file-get again with the same version and content_offset set
-            to content_next_offset, and append the returned content. Repeat until content_next_offset is null.
+            content_next_offset is not null, call skill-file-get again with the same version and content_offset set to
+            content_next_offset, and append the returned content. Repeat until content_next_offset is null.
         param_overrides:
             file_path:
                 description: >
@@ -125,9 +125,9 @@ tools:
                     - path
             content_length:
                 description: >
-                    Maximum number of characters of the file content to return, starting at content_offset. Defaults
-                    to 8000 so a large file arrives in pages that fit the response, each with a valid
-                    content_next_offset to continue from.
+                    Maximum number of characters of the file content to return, starting at content_offset. Defaults to
+                    8000 so a large file arrives in pages that fit the response, each with a valid content_next_offset
+                    to continue from.
                 default: 8000
     skill-file-rename:
         operation: llm_skills_name_files_rename_create
