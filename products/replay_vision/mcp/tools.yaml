@@ -628,8 +628,10 @@ tools:
             addressed to the person, the chosen `model`, and the `free_only` and `credit_limit` to save. `sampling_mode`
             and `sampling_rate` are solved to fit the budget, and come back null only when the cost estimate failed. A
             draft that watches an experiment comes back as an `experiment` scanner; pass `experiment_id` to draft one on
-            a launched experiment the person picked. Review the draft with the person, then pass it to
-            `vision-scanners-create`. The call is an inline LLM request and can take a while.
+            a launched experiment the person picked. Pass `query` when the person already chose which recordings to
+            watch: the draft starts from that filter and can only narrow it, and returns what it added in
+            `query_additions`. Review the draft with the person, then pass it to `vision-scanners-create`. The call is
+            an inline LLM request and can take a while.
         requires_ai_consent: true
     vision-scanners-duplicate:
         operation: vision_scanners_duplicate_create

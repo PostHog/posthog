@@ -1031,6 +1031,9 @@ const visionScannersDraft = (): ToolBase<
         if (params.experiment_id !== undefined) {
             body['experiment_id'] = params.experiment_id
         }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
         const result = await context.api.request<Schemas.DraftScannerResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/draft/`,

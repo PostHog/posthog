@@ -96,6 +96,43 @@ class _EstimateQueryPlan:
     sampled: bool
 
 
+# Enough rows that a page whose sessions a negative person filter drops after the fetch still leaves
+# one to find, without paying for a full recordings page.
+_MATCH_CHECK_PAGE = 20
+
+
+def has_recent_matching_recording(
+    *,
+    team: Team,
+    query: RecordingsQuery,
+    user: User | None,
+    sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
+    budget: EstimateBudget = PREVIEW_ESTIMATE_BUDGET,
+) -> bool:
+    """Whether at least one recording the sweep would observe in the estimate's window matches `query`.
+
+    The estimate is no answer to this: it drops negative filters, because they never sample and an
+    over-count is the safe direction for a forecast. This asks the recordings list itself, so negative
+    event and person filters apply exactly as they do on the replay page, and the sweep's eligibility
+    rules apply as they do in the estimate. `user` is the principal for the exposure access check.
+    """
+    scan_window_days = budget.window_days(unsampled=query.operand == FilterLogicalOperator.OR_)
+    windowed = query.model_copy(deep=True)
+    windowed.date_from = (dt.datetime.now(dt.UTC) - dt.timedelta(days=scan_window_days)).isoformat()
+    windowed.date_to = None
+    windowed.limit = _MATCH_CHECK_PAGE
+    windowed.offset = None
+    windowed.after = None
+    extra_having = eligibility_predicates()
+    if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+        extra_having.append(surfacing)
+    tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
+    result = SessionRecordingListFromQuery(
+        team=team, query=windowed, user=user, extra_having_predicates=extra_having
+    ).run()
+    return bool(result.results)
+
+
 def estimate_scanner_session_volume(
     *,
     team: Team,
