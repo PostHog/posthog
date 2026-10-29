@@ -7,15 +7,12 @@ them posts to the URL in the App's webhook settings, signed with the App's one s
 import re
 import time
 from collections.abc import Mapping, Sequence
-from datetime import timedelta
 from typing import Any
 
+from django.conf import settings
 from django.http import HttpRequest
 from django.utils import timezone
 
-from posthog.cache_utils import cache_for
-from posthog.credentials_service.callers import CredentialsCaller
-from posthog.credentials_service.settings_fallback import get_or_settings
 from posthog.ingress.contracts import ProviderSpec, WebhookDelivery
 from posthog.ingress.providers import InvalidPayload, WebhookProvider, require_known_app
 from posthog.ingress.verify.schemes import HmacSha256, SignatureScheme
@@ -30,11 +27,10 @@ _MAX_TIMESTAMP_SKEW_SECONDS = 60
 SPECS = (ProviderSpec(provider="linear", app="posthog", event_types=LINEAR_EVENT_TYPES),)
 
 
-# Every delivery is verified, so the secret is read under a cache and not once per request. A
-# rotation reaches each process within five minutes.
-@cache_for(timedelta(minutes=5))
+# An inbound signing secret stays off the credentials service, because every deployment that holds
+# a caller key can read any entry there. It is a plain env var on the pods that check it.
 def _posthog_app_secret() -> str | None:
-    return get_or_settings("LINEAR_APP_WEBHOOK_SECRET", CredentialsCaller.INTEGRATIONS) or None
+    return getattr(settings, "LINEAR_APP_WEBHOOK_SECRET", "") or None
 
 
 def _timestamp_is_fresh(payload: Mapping[str, Any]) -> bool:
@@ -55,6 +51,9 @@ class LinearProvider(WebhookProvider):
     # A self-hosted deployment may never set up the Linear App, so a missing secret must not
     # answer a server error to every anonymous probe of the public URL.
     unconfigured_status = 403
+    # The body must not tell an unauthenticated caller that the endpoint is unconfigured, which is
+    # an operator fact about an instance anyone can probe.
+    explains_rejections = False
 
     def __init__(self, app: str) -> None:
         require_known_app(self.provider, app, SPECS)

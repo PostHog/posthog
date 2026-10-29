@@ -19,6 +19,8 @@ A signature that is not 64 lowercase hex characters is refused before the HMAC r
 The replay window is read from `webhookTimestamp` in the body, a UNIX timestamp in milliseconds.
 A body sent more than 60 seconds before or after it arrives answers 400, which is the window Linear recommends.
 The check runs in `deliveries`, after verification, because the scheme only reads headers before the body.
+Linear's own SDK verifier (`packages/sdk/src/webhooks/client.ts` in `linear/linear`) applies the same 60-second window to the signed `webhookTimestamp`.
+So a redelivery carries a new timestamp, or no receiver built on that SDK could accept one.
 
 ## Delivery id and event type
 
@@ -31,8 +33,8 @@ It is the Linear workspace id, which is also the `integration_id` of a `linear` 
 
 One app, `posthog`, the Linear OAuth App that the `linear` integration connects through.
 Its secret is the signing secret from the App's webhook settings in Linear, read as `LINEAR_APP_WEBHOOK_SECRET`.
-The secret is read from the credentials service first, and from the Django setting while the service does not hold it.
-Each read is cached for five minutes, so a rotated secret reaches each process within five minutes.
+It is a plain env var on the Django pods, wired from `posthog-django-shared-secrets` the way `VERCEL_CLIENT_INTEGRATION_SECRET` is.
+It stays off the credentials service, because every deployment that holds a caller key can read any entry there, and an inbound signing secret must not be that widely readable.
 
 The App's webhook settings subscribe to the `Issue` resource type.
 Linear creates the webhook for a workspace when the workspace authorizes the App, so a workspace that authorized it before the webhook settings existed gets deliveries only after it connects again.
@@ -46,6 +48,7 @@ Success answers 200, not the default 202, because Linear counts any other status
 Linear retries a failed delivery after 1 minute, 1 hour and 6 hours, and it can disable a webhook that keeps failing.
 `retry_status` is 500, so a consumer that raised or that the request budget skipped asks for that retry.
 A missing secret answers 403 rather than 500, because a self-hosted deployment may never set up the Linear App.
+Rejections carry an empty body, so a caller cannot tell a missing secret from a bad signature.
 
 ## Consumers
 

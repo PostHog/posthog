@@ -21,7 +21,6 @@ def _body(timestamp_ms: int | None) -> bytes:
     return json.dumps(payload).encode()
 
 
-@override_settings(LINEAR_APP_WEBHOOK_SECRET=SECRET)
 class TestLinearProvider(SimpleTestCase):
     def setUp(self) -> None:
         reset_consumer_registry()
@@ -31,16 +30,22 @@ class TestLinearProvider(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("fresh", 0, SECRET, 200),
-            ("clock_skew_inside_the_window", -30, SECRET, 200),
-            ("replayed_after_the_window", -120, SECRET, 400),
-            ("sent_from_the_future", 120, SECRET, 400),
-            ("no_timestamp", None, SECRET, 400),
-            ("wrong_secret", 0, "another-secret", 403),
+            ("fresh", 0, SECRET, SECRET, 200),
+            ("clock_skew_inside_the_window", -30, SECRET, SECRET, 200),
+            ("replayed_after_the_window", -120, SECRET, SECRET, 400),
+            ("sent_from_the_future", 120, SECRET, SECRET, 400),
+            ("no_timestamp", None, SECRET, SECRET, 400),
+            ("wrong_secret", 0, "another-secret", SECRET, 403),
+            ("secret_unset", 0, SECRET, "", 403),
         ]
     )
     def test_answers_only_a_fresh_correctly_signed_body_with_the_200_linear_requires(
-        self, _name: str, offset_seconds: int | None, signing_secret: str, expected_status: int
+        self,
+        _name: str,
+        offset_seconds: int | None,
+        signing_secret: str,
+        configured_secret: str,
+        expected_status: int,
     ) -> None:
         timestamp_ms = None if offset_seconds is None else int((time.time() + offset_seconds) * 1000)
         body = _body(timestamp_ms)
@@ -55,6 +60,9 @@ class TestLinearProvider(SimpleTestCase):
             },
         )
 
-        response = build_webhook_view(build_linear_provider("posthog"))(request)
+        with override_settings(LINEAR_APP_WEBHOOK_SECRET=configured_secret):
+            response = build_webhook_view(build_linear_provider("posthog"))(request)
 
         self.assertEqual(response.status_code, expected_status)
+        if expected_status == 403:
+            self.assertEqual(response.content, b"")
