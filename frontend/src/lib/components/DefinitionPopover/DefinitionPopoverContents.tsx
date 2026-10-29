@@ -11,6 +11,10 @@ import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPo
 import { DefinitionPopoverState, definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import {
+    propertyFilterTypeToPropertyDefinitionType,
+    taxonomicFilterTypeToPropertyFilterType,
+} from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     DataWarehousePopoverField,
@@ -615,7 +619,11 @@ function DefinitionEdit(): JSX.Element {
     }
 
     const showHiddenOption = 'hidden' in localDefinition
-    const allowVerification = !isCoreFilter(definition.name || '') && 'verified' in localDefinition
+    const allowVerification =
+        !isCoreFilter(
+            definition.name || '',
+            propertyFilterTypeToPropertyDefinitionType(taxonomicFilterTypeToPropertyFilterType(type))
+        ) && 'verified' in localDefinition
 
     return (
         <>

@@ -1,9 +1,14 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
 
-import { CoreFilterDefinition, PropertyDefinition, PropertyType } from '~/types'
+import { CoreFilterDefinition, PropertyDefinition, PropertyDefinitionType, PropertyType } from '~/types'
 
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinitionsGroup } from './taxonomy'
+import {
+    CORE_FILTER_DEFINITIONS_BY_GROUP,
+    CoreFilterDefinitionsGroup,
+    isCorePropertyKey,
+    PROPERTY_KEYS,
+} from './taxonomy'
 
 /** Return whether a given filter key is part of PostHog's core (marked by the PostHog logo). */
 
@@ -14,7 +19,10 @@ const hasCoreFilterDefinitionsForGroup = (
         ? CORE_FILTER_DEFINITIONS_BY_GROUP[type as CoreFilterDefinitionsGroup]
         : null
 
-export function isCoreFilter(key: string): boolean {
+export function isCoreFilter(key: string, propertyType?: PropertyDefinitionType): boolean {
+    if (PROPERTY_KEYS.includes(key) && !isCorePropertyKey(key, propertyType)) {
+        return false
+    }
     return Object.values(CORE_FILTER_DEFINITIONS_BY_GROUP).some((mapping) => Object.keys(mapping).includes(key))
 }
 

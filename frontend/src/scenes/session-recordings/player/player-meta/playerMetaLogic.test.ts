@@ -42,6 +42,7 @@ describe('playerMetaLogic', () => {
         it.each([
             ['core session property the recording lacks', '$entry_pathname', {}, PropertyFilterType.Session],
             ['unknown key the recording lacks', 'plan', {}, PropertyFilterType.Person],
+            ['event-only core key the recording lacks', 'title', {}, PropertyFilterType.Person],
             ['unknown key the recording has', 'custom', { custom: 1 }, PropertyFilterType.Event],
         ])('types a %s', (_, property, recordingProperties, expected) => {
             expect(getPropertyDisplayInfo(property, recordingProperties).propertyFilterType).toBe(expected)
