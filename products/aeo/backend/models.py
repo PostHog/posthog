@@ -196,6 +196,18 @@ class AEOCitationCheck(TeamScopedRootMixin, CreatedMetaFields, UUIDTModel):
     target_urls = models.JSONField(default=list, blank=True, help_text="Cited URLs on a target domain.")
     top_cited_domains = models.JSONField(default=list, blank=True, help_text="Distinct hosts across the cited URLs.")
 
+    brand_sentiment = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        help_text="Sentiment of the sentences that name the brand: positive, neutral or negative. Null until scored, and when the answer never names the brand.",
+    )
+    brand_sentiment_score = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Classifier confidence (0-1) in `brand_sentiment`, averaged over the brand sentences.",
+    )
+
     cost_usd = models.FloatField(null=True, blank=True, help_text="Engine-reported cost, where the engine reports one.")
     gateway_trace_id = models.CharField(
         max_length=64,

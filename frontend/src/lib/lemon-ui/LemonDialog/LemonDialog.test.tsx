@@ -2,6 +2,7 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -11,6 +12,12 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { initKeaTests } from '~/test/init'
 
 import { LemonDialog, LemonFormDialog } from './LemonDialog'
+import { lemonDialogLogic } from './lemonDialogLogic'
+
+function DialogName(): JSX.Element {
+    const { form } = useValues(lemonDialogLogic)
+    return <span>{form.name}</span>
+}
 
 describe('LemonFormDialog', () => {
     let captureException: jest.SpyInstance
@@ -101,12 +108,14 @@ describe('LemonFormDialog', () => {
         act(() => {
             LemonDialog.openForm({
                 title: 'Test dialog',
-                initialValues: {},
+                initialValues: { name: 'a name' },
+                content: <DialogName />,
                 onSubmit: jest.fn(),
                 onAfterClose,
             })
         })
 
+        expect(await screen.findByText('a name')).toBeInTheDocument()
         await userEvent.click(screen.getByText(button))
 
         await waitFor(() => expect(onAfterClose).toHaveBeenCalledTimes(1))

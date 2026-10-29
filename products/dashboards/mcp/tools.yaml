@@ -19,10 +19,12 @@ tools:
         enrich_url: '{id}'
         title: Create dashboard
         description: >
-            Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create
-            from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context
-            — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation,
-            see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.
+            Create a new dashboard. Provide a name and optional description, tags, and pinned status. All viewers see
+            the description at the top of the dashboard. Write one or two short sentences for them, about 30 words. Skip
+            it when the name already says it. Do not write agent notes. Can also create from a template or duplicate an
+            existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to
+            fetch the actual data for each insight. To add widget tiles after creation, see
+            dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.
 
             Load the building-a-dashboard skill before you create or change a dashboard. It covers when to update an
             existing dashboard instead, which insights to reuse, and how to lay out the tiles.
@@ -93,6 +95,7 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.resolved_compare_date_range
                 - tiles.*.insight.filter_override_context
                 - created_by.uuid
                 - created_by.distinct_id
@@ -251,6 +254,7 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.resolved_compare_date_range
                 - tiles.*.insight.filter_override_context
                 - created_by.uuid
                 - created_by.distinct_id
@@ -443,7 +447,9 @@ tools:
         title: Update dashboard
         description: >
             Resize, reposition, or update dashboard tiles. It can also update the dashboard name, description, pinned
-            status, tags, and filters. After you create or add insight tiles, call dashboard-get to get their tile IDs,
+            status, tags, and filters. All viewers see the description at the top of the dashboard. If you change it,
+            rewrite it in one or two short sentences, or clear it when the name already says it. Do not append revision
+            history or agent notes. After you create or add insight tiles, call dashboard-get to get their tile IDs,
             then pass `tiles` with each tile's `id` and a `layouts` object holding x, y, w, and h per breakpoint. This
             works for every tile type, including insight tiles. The desktop grid (`layouts.sm`) is 12 columns wide. Set
             each tile's width and height for its content and importance. Width can be any whole number from 1 to 12,
@@ -514,6 +520,7 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+                - tiles.*.insight.resolved_compare_date_range
                 - tiles.*.insight.filter_override_context
                 - created_by.uuid
                 - created_by.distinct_id

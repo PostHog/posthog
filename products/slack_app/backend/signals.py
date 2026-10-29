@@ -4,8 +4,10 @@ from django.db import transaction
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from posthog.models.integration import Integration
+from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
+
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 
 
 @receiver(post_save, sender=UserIntegration)
@@ -21,8 +23,8 @@ def invalidate_repo_list_on_user_github_change(sender: Any, instance: UserIntegr
     _invalidate_user_repo_list_cache(instance.user_id)
 
 
-@receiver(post_save, sender=Integration)
-def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: bool, **kwargs) -> None:
+@receiver(post_save, sender="posthog.Integration")
+def onboard_slack_inbox_on_install(sender: Any, instance: WorkspaceIntegration, created: bool, **kwargs) -> None:
     """Fresh Slack install -> capture ``slack app installed`` and enqueue the #posthog-inbox onboarding
     Temporal workflow on commit (the enqueue runs inline; the workflow itself runs on a Temporal
     worker). Onboarding is gated on ``channels:manage``. Re-auth uses update_or_create
@@ -43,7 +45,7 @@ def onboard_slack_inbox_on_install(sender: Any, instance: Integration, created: 
     transaction.on_commit(lambda: _start_inbox_onboarding_workflow(integration_id))
 
 
-def _capture_install(integration: Integration, *, has_inbox_scopes: bool) -> None:
+def _capture_install(integration: WorkspaceIntegration, *, has_inbox_scopes: bool) -> None:
     from products.slack_app.backend.analytics import capture_slack_event  # noqa: PLC0415
     from products.slack_app.backend.onboarding import installer_slack_user_id  # noqa: PLC0415
 
@@ -51,12 +53,12 @@ def _capture_install(integration: Integration, *, has_inbox_scopes: bool) -> Non
         integration,
         "slack app installed",
         slack_user_id=installer_slack_user_id(integration),
-        posthog_user=integration.created_by,
+        posthog_user=User.objects.filter(id=integration.created_by_id).first(),
         has_inbox_scopes=has_inbox_scopes,
         # Only a workspace's first project connection is a new workspace adopting the app.
-        workspace_already_linked=Integration.objects.filter(kind="slack", integration_id=integration.integration_id)
-        .exclude(id=integration.id)
-        .exists(),
+        workspace_already_linked=any(
+            row.id != integration.id for row in workspace_integrations(integration.integration_id)
+        ),
     )
 
 

@@ -27,6 +27,9 @@ class TestPersonaGetSchemas:
             ("events", False, True),
             ("inquiry_templates", False, False),
             ("inquiry_template_versions", False, False),
+            ("reports", False, False),
+            ("workflow_runs", False, False),
+            ("inquiry_sessions", False, False),
         ]
     )
     def test_endpoint_sync_capabilities(self, endpoint: str, incremental: bool, append: bool) -> None:

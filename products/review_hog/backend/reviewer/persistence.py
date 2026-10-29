@@ -37,6 +37,8 @@ from django.utils import timezone
 
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
+
 from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact
 from products.review_hog.backend.reviewer.artefact_content import (
     ArtefactContentValidationError,
@@ -54,8 +56,10 @@ from products.review_hog.backend.reviewer.artefact_content import (
 from products.review_hog.backend.reviewer.constants import (
     HUMAN_TRIGGER_SOURCES,
     REVIEW_ARMS_BY_TIER,
+    SINGLE_AGENT_FLASH_ARM,
     ReviewArm,
     ReviewTier,
+    SingleAgentArms,
     is_below_human_tier,
     is_single_agent_pass,
     resolve_review_arm,
@@ -387,6 +391,13 @@ def load_perspective_selection(*, team_id: int, report_id: str, head_sha: str) -
     return latest.selection if latest is not None else None
 
 
+def _review_config(review_arm: ReviewArm, *, fallback_for: ReviewArm | None = None) -> str:
+    config: dict[str, object] = asdict(review_arm)
+    if fallback_for is not None:
+        config["fallback_for"] = asdict(fallback_for)
+    return json.dumps(config, sort_keys=True)
+
+
 def persist_perspective_results(
     *,
     team_id: int,
@@ -394,8 +405,12 @@ def persist_perspective_results(
     head_sha: str,
     results: dict[tuple[int, int], IssuesReview],
     review_arm: ReviewArm,
+    fallback_for: ReviewArm | None = None,
 ) -> None:
-    """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration."""
+    """Append one `perspective_result` artefact per (pass, chunk), stamped with its reviewer configuration.
+
+    `fallback_for` names the arm a failed session ran on before it ran again on `review_arm`.
+    """
     if not results:
         return
     with transaction.atomic():
@@ -409,7 +424,7 @@ def persist_perspective_results(
                     chunk_id=chunk_id,
                     review=review,
                     review_model=review_arm.model,
-                    review_config=json.dumps(asdict(review_arm), sort_keys=True),
+                    review_config=_review_config(review_arm, fallback_for=fallback_for),
                 ),
                 attribution=ArtefactAttribution.system(),
             )
@@ -427,7 +442,7 @@ def load_perspective_results(
     each turn from combining the other's findings.
     """
     out: dict[tuple[int, int], IssuesReview] = {}
-    review_config = json.dumps(asdict(review_arm), sort_keys=True)
+    review_config = _review_config(review_arm)
     single_agent = review_design == REVIEW_DESIGN_SINGLE_AGENT
     for content in _load_working_state(
         team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
@@ -437,6 +452,39 @@ def load_perspective_results(
             continue
         out[(content.pass_number, content.chunk_id)] = content.review
     return out
+
+
+@frozen
+class SingleAgentResults:
+    reviews: dict[tuple[int, int], IssuesReview]
+    # The keys whose result came from the control arm after the session's own arm failed.
+    fallbacks: frozenset[tuple[int, int]]
+
+
+def load_single_agent_results(
+    *, team_id: int, report_id: str, head_sha: str, arms: SingleAgentArms
+) -> SingleAgentResults:
+    """The single-agent results at this head, each from its session's arm (latest wins per key).
+
+    A session on another arm that fails reruns on the control arm, so its fallback result counts when the
+    session's own arm has none. A control result without that fallback stamp came from a turn on the
+    control set, and a turn on another set does not read it.
+    """
+    own: dict[tuple[int, int], IssuesReview] = {}
+    fallback: dict[tuple[int, int], IssuesReview] = {}
+    for content in _load_working_state(
+        team_id, report_id, ReviewReportArtefact.ArtefactType.PERSPECTIVE_RESULT, head_sha
+    ):
+        assert isinstance(content, PerspectiveResultArtefact)
+        if not is_single_agent_pass(content.pass_number):
+            continue
+        key = (content.pass_number, content.chunk_id)
+        session_arm = arms.for_pass(content.pass_number)
+        if content.review_config == _review_config(session_arm):
+            own[key] = content.review
+        elif content.review_config == _review_config(SINGLE_AGENT_FLASH_ARM, fallback_for=session_arm):
+            fallback[key] = content.review
+    return SingleAgentResults(reviews={**fallback, **own}, fallbacks=frozenset(fallback.keys() - own.keys()))
 
 
 def reviewed_pipeline_chunk_ids(*, team_id: int, report_id: str, head_sha: str) -> set[int]:

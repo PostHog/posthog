@@ -26,10 +26,11 @@ from products.aeo.backend.runner import run_citation_checks
 logger = structlog.get_logger(__name__)
 
 
-# A full run is up to 50 prompts x 3 engines of sequential web-search calls
-# (typically 10-60s each); four hours gives slow days headroom without letting
-# a hung run hold a worker slot indefinitely.
-RUN_SOFT_TIME_LIMIT_SECONDS = 4 * 60 * 60
+# A full run covers the whole prompt set: each prompt makes one web-search call per
+# engine (about a minute each), AEO_RUN_CONCURRENCY prompts at a time. Ten hours
+# leaves headroom for a slow day and still ends a hung run well before the next
+# daily dispatch.
+RUN_SOFT_TIME_LIMIT_SECONDS = 10 * 60 * 60
 RUN_TIME_LIMIT_SECONDS = RUN_SOFT_TIME_LIMIT_SECONDS + 300
 
 

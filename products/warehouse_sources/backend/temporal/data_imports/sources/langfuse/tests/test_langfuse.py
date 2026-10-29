@@ -204,17 +204,32 @@ class TestGetRows:
         assert rows[0]["totalCost"] == 0.0
         assert rows[0]["latency"] == 2.0
 
-    def test_fields_outside_float_fields_keep_their_type(self):
-        # scores.value is numeric only for NUMERIC scores, so it must not be widened.
+    @pytest.mark.parametrize(
+        "raw_value, expected_value, expected_string_value",
+        [
+            (1, 1.0, None),
+            (0.25, 0.25, None),
+            (True, 1.0, "True"),
+            (False, 0.0, "False"),
+            ("needs_review", None, "needs_review"),
+            ("", None, ""),
+            (None, None, None),
+        ],
+    )
+    def test_score_value_is_split_into_numeric_and_text_columns(
+        self, raw_value: Any, expected_value: float | None, expected_string_value: str | None
+    ):
+        # A NUMERIC row on the same page keeps every page's `value` column numeric.
         result = _driver().run(
             "scores",
-            [_cursor_page([{"id": "s1", "value": 1}, {"id": "s2", "value": "misc"}], cursor=None)],
+            [_cursor_page([{"id": "s0", "value": 3}, {"id": "s1", "value": raw_value}], cursor=None)],
         )
         rows = result.rows
         assert result.raised is None
-        assert rows[0]["value"] == 1
-        assert not isinstance(rows[0]["value"], float)
-        assert rows[1]["value"] == "misc"
+        assert rows[0]["value"] == 3.0 and isinstance(rows[0]["value"], float)
+        assert rows[1]["value"] == expected_value
+        assert type(rows[1]["value"]) is type(expected_value)
+        assert rows[1].get("stringValue") == expected_string_value
 
     def test_resume_from_saved_cursor(self):
         result = _driver().run(

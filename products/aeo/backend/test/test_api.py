@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -41,6 +42,8 @@ class TestAEOPromptAPI(APIBaseTest):
         cited: bool = False,
         check_failed: bool = False,
         answer_text: str | None = None,
+        cited_urls: list[str] | None = None,
+        search_queries: list[str] | None = None,
     ) -> str:
         with team_scope(self.team.pk):
             prompt = AEOPrompt.objects.get(id=prompt_id)
@@ -57,6 +60,8 @@ class TestAEOPromptAPI(APIBaseTest):
                 cited=cited,
                 check_failed=check_failed,
                 answer_text=answer_text,
+                cited_urls=cited_urls or [],
+                search_queries=search_queries or [],
             )
             AEOCitationCheck.objects.filter(id=check.id).update(
                 created_at=timezone.now() - dt.timedelta(minutes=minutes_ago)
@@ -425,26 +430,146 @@ class TestAEOPromptAPI(APIBaseTest):
         prompt_id = self._import_one_prompt()
         day = 24 * 60
         self._record_check(prompt_id, "exa-answer", minutes_ago=10, cited=True)
-        self._record_check(prompt_id, "exa-answer", minutes_ago=20)
+        self._record_check(prompt_id, "exa-answer", minutes_ago=20, answer_text="Example Analytics is one option.")
         self._record_check(prompt_id, "exa-answer", minutes_ago=day, check_failed=True)
         self._record_check(prompt_id, "claude-web-search", minutes_ago=2 * day, cited=True)
         self._record_check(prompt_id, "claude-web-search", minutes_ago=40 * day)
 
-        response = self.client.get(f"{self.url}{prompt_id}/stats/")
+        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
+            response = self.client.get(f"{self.url}{prompt_id}/stats/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         stats = response.json()
         assert stats["total_checks"] == 5
         assert (stats["daily_from"], stats["daily_to"]) == ("2026-09-21", "2026-10-20")
         engines = {
-            row["engine"]: (row["checks"], row["cited"], row["failed"], row["citation_rate"])
+            row["engine"]: (
+                row["checks"],
+                row["cited"],
+                row["mentioned"],
+                row["failed"],
+                row["citation_rate"],
+                row["mention_rate"],
+            )
             for row in stats["engines"]
         }
-        assert engines == {"claude-web-search": (2, 1, 0, 0.5), "exa-answer": (3, 1, 1, 0.5)}
-        assert [(row["date"], row["engine"], row["checks"], row["cited"], row["failed"]) for row in stats["daily"]] == [
-            ("2026-10-18", "claude-web-search", 1, 1, 0),
-            ("2026-10-19", "exa-answer", 1, 0, 1),
-            ("2026-10-20", "exa-answer", 2, 1, 0),
+        assert engines == {"claude-web-search": (2, 1, 1, 0, 0.5, 0.5), "exa-answer": (3, 1, 2, 1, 0.5, 1.0)}
+        assert [
+            (row["date"], row["engine"], row["checks"], row["cited"], row["mentioned"], row["failed"])
+            for row in stats["daily"]
+        ] == [
+            ("2026-10-18", "claude-web-search", 1, 1, 1, 0),
+            ("2026-10-19", "exa-answer", 1, 0, 0, 1),
+            ("2026-10-20", "exa-answer", 2, 1, 2, 0),
+        ]
+        assert stats["brand_names"] == ["example"]
+        assert (stats["consensus"], stats["top_words"]) == ([], [])
+        assert [(row["engine"], row["unscored"]) for row in stats["sentiment"]] == [
+            ("claude-web-search", 1),
+            ("exa-answer", 2),
+        ]
+
+    @parameterized.expand(
+        [
+            ("brand_named_in_the_answer", {"answer_text": "Try Example Analytics for funnels."}, 1),
+            ("brand_case_ignored", {"answer_text": "EXAMPLE ships session replay."}, 1),
+            ("brand_inside_another_word", {"answer_text": "Counterexample: nothing fits."}, 0),
+            ("cited_without_the_name_in_the_text", {"cited": True, "answer_text": "See [1]."}, 1),
+            ("failed_check", {"check_failed": True}, 0),
+        ]
+    )
+    def test_stats_count_a_mention_when_the_answer_names_the_brand(
+        self, _name: str, check: dict, expected_mentioned: int
+    ) -> None:
+        prompt_id = self._import_one_prompt()
+        self._record_check(prompt_id, "exa-answer", minutes_ago=10, **check)
+
+        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
+            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+
+        assert [row["mentioned"] for row in stats["engines"]] == [expected_mentioned]
+        assert [row["mentioned"] for row in stats["daily"]] == [expected_mentioned]
+
+    def test_stats_count_brand_sentiment_per_engine_and_checks_expose_it(self) -> None:
+        prompt_id = self._import_one_prompt()
+        scored = self._record_check(prompt_id, "exa-answer", minutes_ago=10, answer_text="Example is great.")
+        self._record_check(prompt_id, "exa-answer", minutes_ago=20, answer_text="Example is slow.")
+        self._record_check(prompt_id, "exa-answer", minutes_ago=30, answer_text="Example exists.")
+        self._record_check(prompt_id, "claude-web-search", minutes_ago=40, answer_text="Nothing about the brand.")
+        with team_scope(self.team.pk):
+            for text, label, score in (("great", "positive", 0.9), ("slow", "negative", 0.7)):
+                AEOCitationCheck.objects.filter(answer_text__contains=text).update(
+                    brand_sentiment=label, brand_sentiment_score=score
+                )
+
+        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
+            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+        checks = self.client.get(f"{self.url}{prompt_id}/checks/?engine=exa-answer").json()["results"]
+
+        assert [
+            (row["engine"], row["positive"], row["neutral"], row["negative"], row["unscored"])
+            for row in stats["sentiment"]
+        ] == [("claude-web-search", 0, 0, 0, 0), ("exa-answer", 1, 0, 1, 1)]
+        assert {check["id"]: (check["brand_sentiment"], check["brand_sentiment_score"]) for check in checks} == {
+            scored: ("positive", 0.9),
+            **{check["id"]: (check["brand_sentiment"], check["brand_sentiment_score"]) for check in checks[1:]},
+        }
+        assert [check["brand_sentiment"] for check in checks] == ["positive", "negative", None]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_stats_rank_engine_consensus_and_search_words_over_the_window(self) -> None:
+        prompt_id = self._import_one_prompt()
+        day = 24 * 60
+        ours = "https://docs.example.com/product-analytics"
+        rival = "https://rival.example.org/best-tools"
+        self._record_check(
+            prompt_id,
+            "claude-web-search",
+            minutes_ago=10,
+            cited=True,
+            cited_urls=[rival, ours, "https://rival.example.org/pricing", rival],
+            search_queries=["Best product analytics tools", "product analytics for startups"],
+        )
+        self._record_check(
+            prompt_id,
+            "claude-web-search",
+            minutes_ago=day,
+            cited_urls=[rival],
+            search_queries=["best product analytics tools"],
+        )
+        self._record_check(
+            prompt_id,
+            "openai-web-search",
+            minutes_ago=2 * day,
+            cited=True,
+            cited_urls=["https://community.example.net/thread", ours],
+            search_queries=["open source analytics"],
+        )
+        self._record_check(prompt_id, "exa-answer", minutes_ago=3 * day, cited_urls=[])
+        self._record_check(prompt_id, "openai-web-search", minutes_ago=4 * day, check_failed=True)
+        self._record_check(prompt_id, "openai-web-search", minutes_ago=40 * day, cited_urls=[rival, rival, rival])
+
+        with override_settings(AEO_TARGET_DOMAINS=["example.com"]):
+            stats = self.client.get(f"{self.url}{prompt_id}/stats/").json()
+
+        assert [(row["engine"], row["domain"], row["checks_citing"], row["checks"]) for row in stats["consensus"]] == [
+            ("claude-web-search", "docs.example.com", 1, 2),
+            ("claude-web-search", "rival.example.org", 2, 2),
+            ("claude-web-search", "community.example.net", 0, 2),
+            ("exa-answer", "docs.example.com", 0, 1),
+            ("exa-answer", "rival.example.org", 0, 1),
+            ("exa-answer", "community.example.net", 0, 1),
+            ("openai-web-search", "docs.example.com", 1, 1),
+            ("openai-web-search", "rival.example.org", 0, 1),
+            ("openai-web-search", "community.example.net", 1, 1),
+        ]
+        assert [(row["word"], row["count"]) for row in stats["top_words"]] == [
+            ("analytics", 4),
+            ("product", 3),
+            ("tools", 2),
+            ("open", 1),
+            ("source", 1),
+            ("startups", 1),
         ]
 
     @parameterized.expand([("above_range", 140), ("not_a_number", "NaN"), ("infinite", "Infinity")])

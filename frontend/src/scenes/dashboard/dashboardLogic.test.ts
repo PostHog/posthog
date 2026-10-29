@@ -9,6 +9,7 @@ import posthog from 'posthog-js'
 import type { Layout } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
+import * as dashboardGeneratedApi from '@posthog/products-dashboards/frontend/generated/api'
 import * as dashboardWidgetUtils from '@posthog/products-dashboards/frontend/utils'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
 
@@ -23,7 +24,12 @@ import { pluralize } from 'lib/utils/strings'
 import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
 import { parseDashboardId } from 'scenes/dashboard/Dashboard'
 import { dashboardInsightColorsModalLogic } from 'scenes/dashboard/dashboardInsightColorsModalLogic'
-import { DashboardLoadAction, dashboardLogic, RefreshDashboardItemsAction } from 'scenes/dashboard/dashboardLogic'
+import {
+    DashboardLoadAction,
+    dashboardLogic,
+    RefreshDashboardItemsAction,
+    type TilePlacement,
+} from 'scenes/dashboard/dashboardLogic'
 import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 import * as widgetFetchUtils from 'scenes/dashboard/widgetFetchUtils'
@@ -1604,10 +1610,7 @@ describe('dashboardLogic', () => {
         it('previews tile spacing immediately and persists only the final choice', async () => {
             await expectLogic(logic).toFinishAllListeners()
             ;(api.update as jest.Mock).mockClear()
-            const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardTileDensityConfigured'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             jest.useFakeTimers()
 
             try {
@@ -1627,7 +1630,7 @@ describe('dashboardLogic', () => {
                     layout_compaction: DashboardGridCompaction.Vertical,
                     grid_spacing: 'relaxed',
                 })
-                expect(reportTileDensityConfigured).toHaveBeenCalledWith('relaxed')
+                expect(capture).toHaveBeenCalledWith('dashboard tile density configured', { tile_density: 'relaxed' })
             } finally {
                 jest.useRealTimers()
             }
@@ -1635,10 +1638,7 @@ describe('dashboardLogic', () => {
 
         it('reports the tile density when reset to standard', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            const reportTileDensityConfigured = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardTileDensityConfigured'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             jest.useFakeTimers()
 
             try {
@@ -1647,72 +1647,34 @@ describe('dashboardLogic', () => {
                 await jest.advanceTimersByTimeAsync(750)
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(reportTileDensityConfigured).toHaveBeenCalledWith('standard')
+                expect(capture).toHaveBeenCalledWith('dashboard tile density configured', { tile_density: 'standard' })
             } finally {
                 jest.useRealTimers()
             }
         })
 
-        it('previews layout compaction immediately and persists only the final choice', async () => {
+        it('ignores movement mode changes while a mode save is in flight', async () => {
             await expectLogic(logic).toFinishAllListeners()
-            ;(api.update as jest.Mock).mockClear()
-            jest.useFakeTimers()
+            let resolveSave: (dashboard: DashboardType) => void = () => {}
+            ;(api.update as jest.Mock)
+                .mockClear()
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveSave = resolve)))
 
-            try {
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Vertical)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Vertical)
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Horizontal)
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
 
-                expect(logic.values.dashboard?.customization?.layout_compaction).toBe(
-                    DashboardGridCompaction.Horizontal
-                )
-                expect(api.update).not.toHaveBeenCalled()
+            expect(logic.values.dashboard?.customization?.layout_compaction).toBe(DashboardGridCompaction.Horizontal)
+            expect(api.update).toHaveBeenCalledTimes(1)
 
-                await jest.advanceTimersByTimeAsync(750)
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(api.update).toHaveBeenCalledTimes(1)
-                expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: DashboardGridCompaction.Horizontal,
-                    grid_spacing: 'standard',
-                })
-            } finally {
-                jest.useRealTimers()
-            }
-        })
-
-        it('persists the latest movement mode after a save is already in flight', async () => {
+            resolveSave(logic.values.dashboard!)
             await expectLogic(logic).toFinishAllListeners()
-            let resolveFirstSave: (dashboard: DashboardType) => void = () => {
-                throw new Error('First save resolver is unavailable')
-            }
-            const firstSave = new Promise<DashboardType>((resolve) => {
-                resolveFirstSave = resolve
+            logic.actions.changeDashboardGridCompaction(DashboardGridCompaction.Stable)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenLastCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                layout_compaction: DashboardGridCompaction.Stable,
+                grid_spacing: 'standard',
             })
-            ;(api.update as jest.Mock).mockImplementationOnce(() => firstSave)
-            jest.useFakeTimers()
-
-            try {
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Horizontal)
-                await jest.advanceTimersByTimeAsync(750)
-
-                logic.actions.setDashboardGridCompaction(DashboardGridCompaction.Stable)
-                logic.actions.saveDashboardGridCompaction(DashboardGridCompaction.Stable)
-                await jest.advanceTimersByTimeAsync(750)
-
-                resolveFirstSave(logic.values.dashboard!)
-                await jest.advanceTimersByTimeAsync(750)
-                await expectLogic(logic).toFinishAllListeners()
-
-                expect(api.update).toHaveBeenLastCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                    layout_compaction: DashboardGridCompaction.Stable,
-                    grid_spacing: 'standard',
-                })
-            } finally {
-                jest.useRealTimers()
-            }
         })
 
         it('saving without changes does not call api', async () => {
@@ -2632,7 +2594,7 @@ describe('dashboardLogic', () => {
                 ...insight,
                 dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                 result: breakdownValues.map((breakdown_value) => ({
-                    action: { order: 0 },
+                    order: 0,
                     breakdown_value: [breakdown_value],
                 })),
                 query: {
@@ -2673,9 +2635,9 @@ describe('dashboardLogic', () => {
                         ...tileInsight,
                         dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                         result: [
-                            { action: { order: 0 }, breakdown_value: ['Chrome'] },
-                            { action: { order: 0 }, breakdown_value: ['Firefox'] },
-                            { action: { order: 0 }, breakdown_value: ['Safari'] },
+                            { order: 0, breakdown_value: ['Chrome'] },
+                            { order: 0, breakdown_value: ['Firefox'] },
+                            { order: 0, breakdown_value: ['Safari'] },
                         ],
                         query: {
                             kind: NodeKind.InsightVizNode,
@@ -2706,7 +2668,7 @@ describe('dashboardLogic', () => {
                 dashboardsModel.actions.updateDashboardInsight({
                     ...tileInsight,
                     dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
-                    result: [{ action: { order: 0 }, breakdown_value: ['Chrome'] }],
+                    result: [{ order: 0, breakdown_value: ['Chrome'] }],
                     query: {
                         kind: NodeKind.InsightVizNode,
                         source: { kind: NodeKind.TrendsQuery, series: [] },
@@ -2755,7 +2717,7 @@ describe('dashboardLogic', () => {
                 ...insight,
                 dashboard_tiles: [{ id: 1, dashboard_id: 5 }],
                 result: breakdownValues
-                    ? breakdownValues.map((breakdown_value) => ({ action: { order: 0 }, breakdown_value }))
+                    ? breakdownValues.map((breakdown_value) => ({ order: 0, breakdown_value }))
                     : null,
                 query: {
                     kind: NodeKind.InsightVizNode,
@@ -2992,12 +2954,8 @@ describe('dashboardLogic', () => {
             })
 
             it('reports filter changes separately from layout edit mode entry', async () => {
-                const reportFiltersChanged = jest.spyOn(eventUsageLogic.actions, 'reportDashboardFiltersChanged')
-                const reportLayoutEditEntered = jest.spyOn(
-                    eventUsageLogic.actions,
-                    'reportDashboardLayoutEditModeEntered'
-                )
-                const reportModeToggled = jest.spyOn(eventUsageLogic.actions, 'reportDashboardModeToggled')
+                const capture = jest.spyOn(posthog, 'capture').mockClear()
+                const capturedEvents = (): string[] => capture.mock.calls.map(([event]) => event)
 
                 await expectLogic(logic).toFinishAllListeners()
 
@@ -3008,22 +2966,19 @@ describe('dashboardLogic', () => {
                     )
                 }).toFinishAllListeners()
 
-                expect(reportLayoutEditEntered).not.toHaveBeenCalled()
-                expect(reportModeToggled).not.toHaveBeenCalled()
+                expect(capturedEvents()).not.toContain('dashboard layout edit mode entered')
+                expect(capturedEvents()).not.toContain('dashboard mode toggled')
 
                 await expectLogic(logic, () => {
                     logic.actions.setDates('-7d', null)
                 }).toFinishAllListeners()
 
-                expect(reportFiltersChanged).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: 5 }),
-                    'date',
-                    expect.objectContaining({ date_from: '-7d', date_to: null })
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard filters changed',
+                    expect.objectContaining({ dashboard_id: 5, change_type: 'date', date_from: '-7d', date_to: null })
                 )
 
-                reportFiltersChanged.mockClear()
-                reportLayoutEditEntered.mockClear()
-                reportModeToggled.mockClear()
+                capture.mockClear()
 
                 await expectLogic(logic, () => {
                     logic.actions.setDashboardEditing(
@@ -3032,17 +2987,18 @@ describe('dashboardLogic', () => {
                     )
                 }).toFinishAllListeners()
 
-                expect(reportLayoutEditEntered).toHaveBeenCalledWith(
-                    expect.objectContaining({ id: 5 }),
-                    DashboardEventSource.SceneCommonButtons,
-                    1
+                expect(capture).toHaveBeenCalledWith(
+                    'dashboard layout edit mode entered',
+                    expect.objectContaining({
+                        dashboard_id: 5,
+                        source: DashboardEventSource.SceneCommonButtons,
+                        layout_zoom: 1,
+                    })
                 )
-                expect(reportModeToggled).not.toHaveBeenCalled()
-                expect(reportFiltersChanged).not.toHaveBeenCalled()
+                expect(capturedEvents()).not.toContain('dashboard mode toggled')
+                expect(capturedEvents()).not.toContain('dashboard filters changed')
 
-                reportFiltersChanged.mockRestore()
-                reportLayoutEditEntered.mockRestore()
-                reportModeToggled.mockRestore()
+                capture.mockRestore()
             })
 
             it('filter edits preserve layout editing', async () => {
@@ -3135,35 +3091,38 @@ describe('dashboardLogic', () => {
                 }
             })
 
-            it('restores filters when browser history changes the URL', async () => {
-                await expectLogic(logic).toFinishAllListeners()
+            it.each(['/dashboard/5', urls.analyticsProductHome()])(
+                'restores filters when browser history changes the URL on %s',
+                async (pathname) => {
+                    await expectLogic(logic).toFinishAllListeners()
 
-                await expectLogic(logic, () => {
-                    logic.actions.setDates('-30d', null)
-                }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.setDates('-30d', null)
+                    }).toFinishAllListeners()
 
-                const searchParams = {
-                    [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
+                    const searchParams = {
+                        [dashboardUtils.SEARCH_PARAM_FILTERS_KEY]: JSON.stringify({ date_from: '-7d', date_to: null }),
+                    }
+                    await expectLogic(logic, () => {
+                        router.actions.locationChanged({
+                            method: 'POP',
+                            pathname,
+                            search: '',
+                            searchParams,
+                            hash: '',
+                            hashParams: {},
+                            url: pathname,
+                        })
+                    }).toFinishAllListeners()
+
+                    expect(logic.values.currentDashboardSettings.filters).toEqual(
+                        expect.objectContaining({ date_from: '-7d', date_to: null })
+                    )
+                    expect(logic.values.filtersOverrideForLoad).toEqual(
+                        expect.objectContaining({ date_from: '-7d', date_to: null })
+                    )
                 }
-                await expectLogic(logic, () => {
-                    router.actions.locationChanged({
-                        method: 'POP',
-                        pathname: '/dashboard/5',
-                        search: '',
-                        searchParams,
-                        hash: '',
-                        hashParams: {},
-                        url: '/dashboard/5',
-                    })
-                }).toFinishAllListeners()
-
-                expect(logic.values.currentDashboardSettings.filters).toEqual(
-                    expect.objectContaining({ date_from: '-7d', date_to: null })
-                )
-                expect(logic.values.filtersOverrideForLoad).toEqual(
-                    expect.objectContaining({ date_from: '-7d', date_to: null })
-                )
-            })
+            )
         })
 
         describe('external filter overrides', () => {
@@ -3424,6 +3383,31 @@ describe('dashboardLogic', () => {
                 ])
 
                 expect(dialogOpenSpy).not.toHaveBeenCalled()
+            })
+
+            it('does not count grid-added fields on the same tile cells as unsaved layout changes', async () => {
+                await expectLogic(logic).toFinishAllListeners()
+                const currentLayouts = logic.values.layouts
+                logic.actions.tilePlacementsSaved(
+                    Object.fromEntries(
+                        (currentLayouts.sm ?? []).map(({ i, x, y, w, h }): [number, TilePlacement] => [
+                            Number(i),
+                            { layouts: { sm: { x, y, w, h } } as TilePlacement['layouts'], group_key: null },
+                        ])
+                    )
+                )
+                logic.actions.stageLayouts({
+                    ...currentLayouts,
+                    sm: currentLayouts.sm?.map((layout) => ({
+                        ...layout,
+                        minW: 2,
+                        minH: 2,
+                        moved: false,
+                        static: false,
+                    })),
+                })
+
+                expect(logic.values.hasUnsavedLayoutChanges).toBe(false)
             })
 
             it('prompts before changing the movement mode when the layout is unsaved', async () => {
@@ -5936,10 +5920,7 @@ describe('dashboardLogic', () => {
 
         it('offers to delete a removed insight and explains its other dashboard usage', async () => {
             const { fireEvent, render } = await import('@testing-library/react')
-            const reportDeleteClicked = jest.spyOn(
-                eventUsageLogic.actions,
-                'reportDashboardInsightDeleteAfterRemovalClicked'
-            )
+            const capture = jest.spyOn(posthog, 'capture').mockClear()
             const insightTile = logic.values.insightTiles[0]
             const insight = insightTile.insight!
 
@@ -5959,7 +5940,9 @@ describe('dashboardLogic', () => {
             const toastContent = lemonToastInfoSpy.mock.calls.at(-1)?.[0]
             const { getByText } = render(toastContent)
             fireEvent.click(getByText('Delete insight everywhere'))
-            expect(reportDeleteClicked).toHaveBeenCalledWith(1)
+            expect(capture).toHaveBeenCalledWith('dashboard insight delete after removal clicked', {
+                other_dashboard_count: 1,
+            })
             expect(lemonToastDismissSpy).not.toHaveBeenCalled()
 
             const dialogProps = lemonDialogOpenSpy.mock.calls.at(-1)?.[0]
@@ -5977,7 +5960,7 @@ describe('dashboardLogic', () => {
                 getDialogText('This deletes the insight and removes it from every dashboard. You can undo this action.')
             ).not.toBeNull()
 
-            reportDeleteClicked.mockRestore()
+            capture.mockRestore()
         })
     })
 
@@ -6569,6 +6552,58 @@ describe('dashboardLogic', () => {
                 fromDashboardId: 5,
                 tileId: WIDGET_TILE.id,
             })
+        })
+
+        it('copies a group once and records the completed action', async () => {
+            const copyGroup = jest
+                .spyOn(dashboardGeneratedApi, 'dashboardsCopyGroupCreate')
+                .mockResolvedValueOnce(
+                    {} as Awaited<ReturnType<typeof dashboardGeneratedApi.dashboardsCopyGroupCreate>>
+                )
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            const [firstTile, secondTile] = logic.values.tiles
+            logic.actions.setTileProperty(firstTile.id, { group_key: 'plans' })
+            logic.actions.setTileProperty(secondTile.id, { group_key: 'plans' })
+
+            await expectLogic(logic, () => {
+                logic.actions.copyGroupToDashboard('plans', 8, 'Target dashboard')
+            })
+                .toDispatchActions(['copyGroupToDashboardFinished'])
+                .toFinishAllListeners()
+                .toMatchValues({ copyGroupToDashboardLoading: false })
+
+            expect(copyGroup).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 8, {
+                fromDashboardId: 5,
+                groupKey: 'plans',
+            })
+            expect(posthog.capture).toHaveBeenCalledWith('dashboard tile group copied to other dashboard', {
+                from_dashboard_id: 5,
+                to_dashboard_id: 8,
+                tile_count: 2,
+            })
+        })
+
+        it('resets loading and shows an error toast when the copy fails', async () => {
+            jest.spyOn(dashboardGeneratedApi, 'dashboardsCopyGroupCreate').mockRejectedValueOnce(
+                new Error('network down')
+            )
+            const errorToast = jest.spyOn(lemonToast, 'error')
+
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.copyGroupToDashboard('plans', 8, 'Target dashboard')
+            })
+                .toDispatchActions(['copyGroupToDashboardFinished'])
+                .toFinishAllListeners()
+                .toMatchValues({ copyGroupToDashboardLoading: false })
+
+            expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('Could not copy group to dashboard'))
         })
     })
 })

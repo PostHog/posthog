@@ -19,6 +19,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { fullNameOrEmail } from 'lib/utils/strings'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { personalIntegrationsLogic } from 'scenes/settings/user/personalIntegrationsLogic'
 import type { PersonalGitHubIntegration } from 'scenes/settings/user/personalIntegrationsLogic'
@@ -39,7 +40,6 @@ import {
     signalsReportPrReviewCommentReactionsCreate,
     signalsReportPrReviewCommentsCreate,
     signalsReportPrReviewCommentUpdate,
-    signalsReportsClaim,
     signalsReportsFeedbackCreate,
     signalsReportsFeedbackStateRetrieve,
     signalsReportsSignalsRetrieve,
@@ -81,9 +81,9 @@ import {
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
-import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
+import { EnrichedReviewer, ReviewerRemoval, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
-import { isReportClaimable, reportClaimant, reportClaimRequest } from '../utils/reportClaim'
+import { isReportClaimable, reportClaimant, requestReportClaim } from '../utils/reportClaim'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
@@ -92,6 +92,11 @@ const TERMINAL_RUN_STATUSES: TaskRunStatus[] = [TaskRunStatus.COMPLETED, TaskRun
 
 /** Why the report's one implementation slot is still claimed. Mirrors the server's `_ImplementationSlotClaim`. */
 export type ImplementationSlotClaim = 'in_flight' | 'shipped_pr'
+
+const SLOT_CLAIM_DISABLED_REASON: Record<ImplementationSlotClaim, string> = {
+    in_flight: 'A pull request run is already in progress for this report. Open it in the task log to follow it.',
+    shipped_pr: 'This report already has a pull request. Open it in the task log to continue it.',
+}
 
 export type PrChecksError = {
     message: string
@@ -324,6 +329,7 @@ export interface inboxReportDetailLogicValues {
     feedbackSubmitting: boolean
     hasImplementationPr: boolean
     hasPersonalGithub: boolean
+    implementationDisabledReason: string | null
     implementationSlotClaim: ImplementationSlotClaim | null
     inlineThreadCount: number
     inlineThreadsByFile: Record<string, ReviewThread[]>
@@ -674,11 +680,13 @@ export interface inboxReportDetailLogicActions {
     updateReviewers: (
         content: Record<string, string>[],
         optimistic: EnrichedReviewer[],
-        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
+        action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>,
+        removal?: ReviewerRemoval
     ) => {
         action: 'add' | 'remove'
         content: Record<string, string>[]
         optimistic: EnrichedReviewer[]
+        removal: ReviewerRemoval | undefined
     }
 }
 
@@ -739,6 +747,11 @@ export interface inboxReportDetailLogicMeta {
         isClaimedByMe: (reportClaimant: _UserApi | null, user: null | import('~/types').UserType) => boolean
         isReportClaimable: (report: SignalReport | null) => boolean
         implementationSlotClaim: (reportTasks: ReportTaskEntry[] | null) => ImplementationSlotClaim | null
+        implementationDisabledReason: (
+            implementationSlotClaim: ImplementationSlotClaim | null,
+            reportClaimant: _UserApi | null,
+            isClaimedByMe: boolean
+        ) => string | null
         primaryTask: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         reportTaskToOpen: (reportTasks: ReportTaskEntry[] | null) => ReportTaskEntry | null
         selectedTask: (
@@ -810,11 +823,14 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         updateReviewers: (
             content: Record<string, string>[],
             optimistic: EnrichedReviewer[],
-            action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>
+            action: Extract<ReviewerEditActionEnumApi, 'add' | 'remove'>,
+            // Why the person removed these reviewers, if they said. Research reads it on later reports.
+            removal?: ReviewerRemoval
         ) => ({
             content,
             optimistic,
             action,
+            removal,
         }),
         setOptimisticReviewers: (reviewers: EnrichedReviewer[] | null) => ({ reviewers }),
         // Debounced server-side org-member search for the add-reviewer picker.
@@ -1495,6 +1511,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (reportTasks: ReportTaskEntry[] | null): ImplementationSlotClaim | null =>
                 implementationSlotClaim(reportTasks),
         ],
+        implementationDisabledReason: [
+            (s) => [s.implementationSlotClaim, s.reportClaimant, s.isClaimedByMe],
+            (
+                slotClaim: ImplementationSlotClaim | null,
+                claimant: _UserApi | null,
+                isClaimedByMe: boolean
+            ): string | null =>
+                slotClaim
+                    ? SLOT_CLAIM_DISABLED_REASON[slotClaim]
+                    : claimant && !isClaimedByMe
+                      ? `${fullNameOrEmail(claimant)} is working on this report.`
+                      : null,
+        ],
         // The default task whose run log is shown: prefer one still in motion, tie-break by most-recent
         // link. Mirrors desktop `AgentRunDetail`'s `pickPrimaryTask`.
         primaryTask: [
@@ -1548,6 +1577,13 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
     }),
 
     listeners(({ actions, asyncActions, values, props, selectors, cache }) => ({
+        // A claim from the report's list row writes a work-log entry, and a ready report without a running task
+        // does not poll its artefacts. The pane's own claim reloads them itself, so skip it while that claim saves.
+        [inboxBulkActionsLogic.actionTypes.reportClaimChanged]: ({ reportId }: { reportId: string }) => {
+            if (reportId === props.reportId && !values.claimSaving) {
+                actions.loadReportArtefacts()
+            }
+        },
         changeReportState: async ({ state }) => {
             if (values.reportStateSaving) {
                 return
@@ -1613,26 +1649,23 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                 surface: 'detail_pane',
             })
             const scene = inboxSceneLogic.findMounted()
-            let updated: SignalReportApi
-            try {
-                updated = await signalsReportsClaim(
-                    String(teamId),
-                    props.reportId,
-                    reportClaimRequest(currentReport, claimed)
-                )
-            } catch (error) {
+            const outcome = await requestReportClaim(
+                String(teamId),
+                { id: props.reportId, assignee: currentReport.assignee },
+                claimed
+            )
+            if (!outcome.ok) {
                 if (inboxReportDetailLogic.isMounted(props)) {
                     actions.setClaimSaving(false)
-                    if (error instanceof ApiError && error.status === 409) {
-                        lemonToast.error('Someone else is already working on this report.')
+                    lemonToast.error(outcome.message)
+                    if (outcome.conflict) {
                         // Reload so the page shows who holds the claim now.
                         scene?.actions.loadSelectedReport({ id: props.reportId })
-                    } else {
-                        lemonToast.error("Couldn't update who's working on this report. Try again.")
                     }
                 }
                 return
             }
+            const updated = outcome.updated
             if (!inboxReportDetailLogic.isMounted(props)) {
                 return
             }
@@ -1645,6 +1678,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             if (scene?.values.selectedReportId === props.reportId) {
                 scene.actions.seedSelectedReport(report)
             }
+            inboxBulkActionsLogic.findMounted()?.actions.reportClaimChanged(props.reportId, updated.assignee)
             actions.loadReportArtefacts()
             actions.setClaimSaving(false)
         },
@@ -1754,12 +1788,15 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             await breakpoint(300)
             actions.loadAvailableReviewers({ query: query.trim() || undefined })
         },
-        updateReviewers: async ({ content, optimistic, action }) => {
+        updateReviewers: async ({ content, optimistic, action, removal }) => {
             if (cache.reviewerWriteInFlight) {
                 return
             }
             cache.reviewerWriteInFlight = true
-            let saved = false
+            // The context menu picker unmounts this logic when the menu closes, which can happen while
+            // the request is in flight. Kea throws on `values` read through an unmounted logic, so take
+            // the saved reviewers from the response and touch local state only while still mounted.
+            let savedReviewerUuids: string[] | null = null
             try {
                 const artefact = await signalsReportsReviewersUpdate(
                     String(ApiConfig.getCurrentProjectId()),
@@ -1771,27 +1808,35 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                         })),
                         targets: content,
                         action,
+                        ...(removal?.reason ? { removal_reason: removal.reason } : {}),
+                        ...(removal?.note?.trim() ? { removal_note: removal.note.trim() } : {}),
                     }
                 )
-                saved = true
-                actions.loadReportArtefactsSuccess([
-                    ...(values.reportArtefacts ?? []).filter((existing) => existing.id !== artefact.id),
-                    artefact as SignalReportArtefact,
-                ])
-                await asyncActions.loadReportArtefacts()
+                savedReviewerUuids = ((artefact.content ?? []) as unknown as EnrichedReviewer[])
+                    .map((reviewer) => reviewer.user?.uuid ?? reviewer.user_uuid)
+                    .filter((uuid): uuid is string => !!uuid)
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.loadReportArtefactsSuccess([
+                        ...(values.reportArtefacts ?? []).filter((existing) => existing.id !== artefact.id),
+                        artefact as SignalReportArtefact,
+                    ])
+                    await asyncActions.loadReportArtefacts()
+                }
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
+                // After a successful save, an error from an unmounted logic is not a failed edit.
+                if (!savedReviewerUuids || inboxReportDetailLogic.isMounted(props)) {
+                    lemonToast.error(error?.detail || error?.message || 'Failed to update reviewers')
+                }
             } finally {
                 cache.reviewerWriteInFlight = false
-                actions.setOptimisticReviewers(null)
+                if (inboxReportDetailLogic.isMounted(props)) {
+                    actions.setOptimisticReviewers(null)
+                }
             }
             // Broadcast last: the list can drop the row that hosts this logic (the context menu picker),
             // which unmounts it, and kea throws on an action dispatched through an unmounted logic.
-            if (saved) {
-                const reviewerUuids = (values.displayReviewers ?? [])
-                    .map((reviewer) => reviewer.user?.uuid ?? reviewer.user_uuid)
-                    .filter((uuid): uuid is string => !!uuid)
-                inboxBulkActionsLogic.findMounted()?.actions.reportReviewersChanged(props.reportId, reviewerUuids)
+            if (savedReviewerUuids) {
+                inboxBulkActionsLogic.findMounted()?.actions.reportReviewersChanged(props.reportId, savedReviewerUuids)
             }
         },
         // Post an inline review comment as the user. The comment is inserted optimistically (marked
@@ -2095,6 +2140,7 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             const interval = setInterval(() => {
                 if (
                     values.report?.status !== SignalReportStatus.RESOLVED &&
+                    values.report?.status !== SignalReportStatus.CLOSED &&
                     values.report?.status !== SignalReportStatus.SUPPRESSED &&
                     values.report?.status !== SignalReportStatus.DELETED &&
                     !values.reportChecksLoading &&

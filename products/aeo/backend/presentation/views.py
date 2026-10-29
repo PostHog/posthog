@@ -16,6 +16,8 @@ from posthog.exceptions import Conflict
 from posthog.permissions import posthog_feature_flag_enabled
 
 from products.aeo.backend.facade.api import (
+    MAX_CONSENSUS_DOMAINS,
+    MAX_STATS_WORDS,
     archive_prompt,
     get_brand,
     get_prompt,
@@ -44,10 +46,13 @@ from products.aeo.backend.facade.contracts import (
     PromptCheck,
     PromptDailyEngineStats,
     PromptEngineCheck,
+    PromptEngineDomainShare,
+    PromptEngineSentiment,
     PromptEngineStats,
     PromptImport,
     PromptImportResult,
     PromptNotFoundError,
+    PromptSearchWord,
     PromptStats,
     PromptTextConflictError,
     PromptTopic,
@@ -182,6 +187,12 @@ class AEOPromptCheckSerializer(DataclassSerializer):
             "prompt_version": {
                 "help_text": "Version of the prompt that ran. Null for checks recorded before prompts had versions."
             },
+            "brand_sentiment": {
+                "help_text": "Sentiment of the sentences that name the brand: 'positive', 'neutral' or 'negative'. Null until scored, and when the answer never names the brand."
+            },
+            "brand_sentiment_score": {
+                "help_text": "Classifier confidence (0-1) in 'brand_sentiment'. Null when 'brand_sentiment' is null."
+            },
         }
 
 
@@ -198,11 +209,22 @@ class AEOPromptChecksQuerySerializer(serializers.Serializer):
     )
 
 
+MENTIONED_HELP = (
+    "Checks whose answer names the brand (the registrable name of a target domain, case ignored). "
+    "A cited check always counts as mentioned."
+)
+
+
 class AEOPromptEngineStatsSerializer(DataclassSerializer):
     citation_rate = serializers.FloatField(
         read_only=True,
         allow_null=True,
         help_text="Share (0-1) of answered checks that cited a target domain. Failed checks are left out. Null when no check was answered.",
+    )
+    mention_rate = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Share (0-1) of answered checks whose answer names the brand. Failed checks are left out. Null when no check was answered.",
     )
 
     class Meta:
@@ -212,6 +234,7 @@ class AEOPromptEngineStatsSerializer(DataclassSerializer):
             "engine": {"help_text": ENGINE_HELP},
             "checks": {"help_text": "Checks of the prompt on this engine, failed ones included."},
             "cited": {"help_text": "Checks whose answer cited a target domain."},
+            "mentioned": {"help_text": MENTIONED_HELP},
             "failed": {"help_text": "Checks where the engine did not answer."},
             "first_checked_at": {"help_text": "When the engine first ran the prompt."},
             "last_checked_at": {"help_text": "When the engine last ran the prompt."},
@@ -227,7 +250,47 @@ class AEOPromptDailyEngineStatsSerializer(DataclassSerializer):
             "engine": {"help_text": ENGINE_HELP},
             "checks": {"help_text": "Checks on this engine that day, failed ones included."},
             "cited": {"help_text": "Checks that day whose answer cited a target domain."},
+            "mentioned": {"help_text": "Checks that day whose answer names the brand. " + MENTIONED_HELP},
             "failed": {"help_text": "Checks that day where the engine did not answer."},
+        }
+
+
+class AEOPromptEngineDomainShareSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptEngineDomainShare
+        ref_name = "AEOPromptEngineDomainShare"
+        extra_kwargs = {
+            "engine": {"help_text": ENGINE_HELP},
+            "domain": {"help_text": "One of the most cited domains across all engines in the window."},
+            "checks_citing": {
+                "help_text": f"This engine's answered checks in the last {STATS_DAYS} days that cited the domain."
+            },
+            "checks": {"help_text": f"This engine's answered checks in the last {STATS_DAYS} days."},
+        }
+
+
+class AEOPromptEngineSentimentSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptEngineSentiment
+        ref_name = "AEOPromptEngineSentiment"
+        extra_kwargs = {
+            "engine": {"help_text": ENGINE_HELP},
+            "positive": {"help_text": f"Answers in the last {STATS_DAYS} days whose brand sentences read positive."},
+            "neutral": {"help_text": f"Answers in the last {STATS_DAYS} days whose brand sentences read neutral."},
+            "negative": {"help_text": f"Answers in the last {STATS_DAYS} days whose brand sentences read negative."},
+            "unscored": {
+                "help_text": f"Answers in the last {STATS_DAYS} days that name the brand but have no sentiment yet."
+            },
+        }
+
+
+class AEOPromptSearchWordSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = PromptSearchWord
+        ref_name = "AEOPromptSearchWord"
+        extra_kwargs = {
+            "word": {"help_text": "A word from the web searches, lower-cased, common English words left out."},
+            "count": {"help_text": "How many searches used the word, weighted by how often each search ran."},
         }
 
 
@@ -239,12 +302,27 @@ class AEOPromptStatsSerializer(DataclassSerializer):
         many=True,
         help_text=f"Counts per day and engine from 'daily_from' to 'daily_to' ({STATS_DAYS} days). Days and engines without a check are left out.",
     )
+    consensus = AEOPromptEngineDomainShareSerializer(
+        many=True,
+        help_text=f"One row per engine and per domain for the {MAX_CONSENSUS_DOMAINS} most cited domains of the last {STATS_DAYS} days: how many of the engine's answers cited the domain. Shows which sources the engines agree on.",
+    )
+    sentiment = AEOPromptEngineSentimentSerializer(
+        many=True,
+        help_text=f"Brand sentiment of the answers in the last {STATS_DAYS} days, one row per engine. Only the sentences that name the brand are scored.",
+    )
+    top_words = AEOPromptSearchWordSerializer(
+        many=True,
+        help_text=f"Most used words across the web searches the engines ran in the last {STATS_DAYS} days, at most {MAX_STATS_WORDS}. Only engines that report their searches contribute.",
+    )
 
     class Meta:
         dataclass = PromptStats
         ref_name = "AEOPromptStats"
         extra_kwargs = {
             "total_checks": {"help_text": "Checks of the prompt across all engines, failed ones included."},
+            "brand_names": {
+                "help_text": "Lower-cased brand names, derived from the project's target domains. An answer that contains one of them as a word counts as a mention."
+            },
             "daily_from": {"help_text": "First day of the daily series, in the project's timezone."},
             "daily_to": {"help_text": "Last day of the daily series (today), in the project's timezone."},
         }
@@ -581,7 +659,7 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     @validated_request(
         operation_id="aeo_prompts_stats",
         summary="Get an AEO prompt's citation stats",
-        description=f"Gets citation totals per answer engine for one prompt, plus per-day counts for the last {STATS_DAYS} days in the project's timezone.",
+        description=f"Gets citation and brand-mention totals per answer engine for one prompt, plus, for the last {STATS_DAYS} days in the project's timezone, per-day counts, which engines cite which domains, brand sentiment per engine, and the words of the web searches the engines ran.",
         responses={200: OpenApiResponse(response=AEOPromptStatsSerializer)},
         tags=["web_analytics"],
     )

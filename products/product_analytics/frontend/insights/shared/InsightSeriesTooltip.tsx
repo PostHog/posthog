@@ -38,7 +38,6 @@ type InsightSeriesMetaBase = {
     compare_label?: SeriesDatum['compare_label']
     days?: string[]
     order?: number
-    filter?: SeriesDatum['filter']
 }
 
 type InsightSeriesTooltipEntry<Meta extends InsightSeriesMetaBase> = TooltipContext<Meta>['seriesData'][number]
@@ -263,7 +262,6 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
                 breakdown_value: meta.breakdown_value ?? undefined,
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
-                filter: meta.filter,
             })
         })
         return m

@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     update_sync_type_config_keys,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
     DEFAULT_LAG_WARNING_THRESHOLD_MB,
@@ -143,8 +144,8 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             resource_keys=sorted(resource_fields.keys()),
         )
 
-        job_inputs = dict(source_model.job_inputs or {})
-        job_inputs.update(
+        SourceInputsStore.update_runtime(
+            source_model,
             {
                 "cdc_enabled": True,
                 "cdc_auto_drop_slot": payload.get("cdc_auto_drop_slot", True),
@@ -154,11 +155,9 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 "cdc_lag_critical_threshold_mb": payload.get(
                     "cdc_lag_critical_threshold_mb", DEFAULT_LAG_CRITICAL_THRESHOLD_MB
                 ),
-            }
+                **resource_fields,
+            },
         )
-        job_inputs.update(resource_fields)
-        source_model.job_inputs = job_inputs
-        source_model.save(update_fields=["job_inputs", "updated_at"])
         return None
 
     @extend_schema(
@@ -227,16 +226,13 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             )
 
         tables = request.data.get("tables") or []
-        slot_name = request.data.get("cdc_slot_name") or None
-        publication_name = request.data.get("cdc_publication_name") or None
 
         try:
             prereq_errors = source_impl.check_cdc_prerequisites(
                 config,
                 management_mode=management_mode,
                 tables=tables,
-                slot_name=slot_name,
-                publication_name=publication_name,
+                setup=request.data,
                 team_id=self.team_id,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
@@ -298,15 +294,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "cdc_management_mode must be 'posthog' or 'self_managed'."},
             )
 
-        schema_hint = (instance.job_inputs or {}).get("schema") or "public"
+        schema_hint = SourceInputsStore.load_settings(instance).get("schema") or "public"
         try:
             prereq_errors = adapter.validate_prerequisites(
                 instance,
                 management_mode=management_mode,
                 tables=[],
                 schema=schema_hint,
-                slot_name=request.data.get("cdc_slot_name") or None,
-                publication_name=request.data.get("cdc_publication_name") or None,
+                setup=request.data,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
             # Probing the source's database to validate it is expected to fail when the host,
@@ -374,15 +369,14 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             )
 
         # Validate prerequisites server-side — never trust a client-only check.
-        schema_hint = (instance.job_inputs or {}).get("schema") or "public"
+        schema_hint = SourceInputsStore.load_settings(instance).get("schema") or "public"
         try:
             prereq_errors = adapter.validate_prerequisites(
                 instance,
                 management_mode=management_mode,
                 tables=[],
                 schema=schema_hint,
-                slot_name=request.data.get("cdc_slot_name") or None,
-                publication_name=request.data.get("cdc_publication_name") or None,
+                setup=request.data,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server
@@ -559,12 +553,10 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             # Clear ALL cdc_* keys from job_inputs — leaving stale engine identifiers
             # behind (e.g. `cdc_consistent_point`) would corrupt resume tracking if
             # CDC is later re-enabled.
-            job_inputs = dict(instance.job_inputs or {})
-            for key in list(job_inputs.keys()):
-                if key.startswith("cdc_"):
-                    job_inputs.pop(key, None)
-            instance.job_inputs = job_inputs
-            instance.save(update_fields=["job_inputs", "updated_at"])
+            SourceInputsStore.update_runtime(
+                instance,
+                remove=[key for key in SourceInputsStore.load_settings(instance) if key.startswith("cdc_")],
+            )
 
         for schema in history_schemas:
             report_history_toggled(
@@ -723,7 +715,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": f"Could not connect to source to resume CDC: {e}"},
             )
 
-        if live_status.get("slot_exists") is False or live_status.get("publication_exists") is False:
+        if not adapter.capture_resources_present(live_status):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "The replication slot or publication is missing. Use Repair CDC to recreate it."},
@@ -777,7 +769,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 data={"message": "CDC is not enabled on this source."},
             )
 
-        job_inputs = dict(instance.job_inputs or {})
+        job_inputs = SourceInputsStore.load_settings(instance)
         updates: dict[str, Any] = {}
 
         if "cdc_auto_drop_slot" in request.data:
@@ -810,9 +802,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         if not updates:
             return Response(status=status.HTTP_200_OK, data={"success": True, "unchanged": True})
 
-        job_inputs.update(updates)
-        instance.job_inputs = job_inputs
-        instance.save(update_fields=["job_inputs", "updated_at"])
+        SourceInputsStore.update_runtime(instance, updates)
 
         return Response(status=status.HTTP_200_OK, data={"success": True})
 
@@ -865,8 +855,6 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 {
                     "enabled": True,
                     "management_mode": cdc_config.management_mode,
-                    "slot_name": cdc_config.slot_name,
-                    "publication_name": cdc_config.publication_name,
                     "lag_warning_threshold_mb": cdc_config.lag_warning_threshold_mb,
                     "lag_critical_threshold_mb": cdc_config.lag_critical_threshold_mb,
                     "schedule_paused": schedule_paused,
