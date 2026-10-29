@@ -61410,6 +61410,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQueryResponse {
+      /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
+      disclaimer: string;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -100903,6 +100905,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative39 {
+      /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
+      disclaimer: string;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
