@@ -322,7 +322,8 @@ def validate_update_request(
     version_number: int | None = None,
 ) -> None:
     """Validate an update payload against the endpoint's resulting state."""
-    validate_data_freshness(data.data_freshness_seconds)
+    if not _is_current_data_freshness(data.data_freshness_seconds, endpoint, version_number):
+        validate_data_freshness(data.data_freshness_seconds)
 
     # Determine final states after this request (for validation)
     will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)
