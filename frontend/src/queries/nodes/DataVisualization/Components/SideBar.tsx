@@ -3,7 +3,10 @@ import { useMemo } from 'react'
 
 import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
+
+import { isBIPivotTable } from 'products/business_intelligence/frontend/biTableLayout'
 
 import { SideBarTab, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ConditionalFormattingTab } from './ConditionalFormatting/ConditionalFormattingTab'
@@ -40,18 +43,23 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
 }
 
 export const SideBar = ({ className = 'w-72 max-w-[50%] shrink-0' }: { className?: string }): JSX.Element => {
-    const { activeSideBarTab, effectiveVisualizationType } = useValues(dataVisualizationLogic)
+    const { activeSideBarTab, effectiveVisualizationType, query } = useValues(dataVisualizationLogic)
     const { setSideBarTab } = useActions(dataVisualizationLogic)
 
+    const isPivot = query.kind === NodeKind.BIVisualizationNode && isBIPivotTable(query.config)
     const tabs: LemonTab<string>[] = useMemo(
         () =>
             Object.entries(TABS_TO_CONTENT)
-                .filter(([_, tab]) => tab.shouldShow(effectiveVisualizationType))
+                .filter(
+                    ([key, tab]) =>
+                        tab.shouldShow(effectiveVisualizationType) ||
+                        (key === SideBarTab.ConditionalFormatting && isPivot)
+                )
                 .map(([key, tab]) => ({
                     label: tab.label,
                     key,
                 })),
-        [effectiveVisualizationType]
+        [effectiveVisualizationType, isPivot]
     )
 
     const activeTab = tabs.some((tab) => tab.key === activeSideBarTab) ? activeSideBarTab : SideBarTab.Series

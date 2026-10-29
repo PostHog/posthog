@@ -59,7 +59,7 @@ function recorderRecord(jobs: { ref: string; url: string }[]): Message {
                 currentUrl: url,
                 remainingHops: 10,
                 notBeforeMs: 0,
-                firstSeenAtMs: NOW_MS,
+                firstSeenAtMs: Date.now(),
                 fetchCount: 0,
                 republishCount: 0,
                 lastRepublishReason: null,
@@ -112,21 +112,33 @@ class MemoryCrawlHistory implements CrawlHistoryStore {
     }
 }
 
-/** `keyReadsHang` makes every key row read wait until its caller gives up on it. */
-function lane(rows: Record<string, Record<string, any> | undefined>, keyReadsHang = false, keyBudgetMs?: number) {
+/** `hang` makes every key row read wait until its caller gives up on it. `time_out` fails it as a timed-out SDK call. */
+function lane(
+    rows: Record<string, Record<string, any> | undefined>,
+    keyReads: 'answer' | 'hang' | 'time_out' = 'answer',
+    keyBudgetMs?: number
+) {
     const config = buildAiResearchV4ServerConfig({
         AI_RESEARCH_V4_IMAGE_FETCH_WEB_BOT_AUTH_PRIVATE_KEYS: generateKeyPairSync('ed25519')
             .privateKey.export({ type: 'pkcs8', format: 'pem' })
             .toString(),
     })
     const producer = { produce: jest.fn(() => Promise.resolve()) } as unknown as KafkaProducer
-    const publisher = buildFrontierPublisher(producer, 10)
+    const publisher = buildFrontierPublisher(
+        producer,
+        10,
+        config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS,
+        config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS
+    )
     const dynamo = {
         send: jest.fn((command: GetItemCommand, options?: any) => {
-            if (keyReadsHang) {
+            if (keyReads === 'hang') {
                 return new Promise<never>((_resolve, reject) =>
                     options?.abortSignal?.addEventListener('abort', () => reject(options.abortSignal.reason))
                 )
+            }
+            if (keyReads === 'time_out') {
+                return Promise.reject(Object.assign(new Error('Request aborted'), { name: 'AbortError' }))
             }
             const id = `${command.input.Key!.pk.S}/${command.input.Key!.sk.S}`
             return Promise.resolve({ Item: rows[id] })
@@ -268,7 +280,7 @@ describe('v4 image fetch lane', () => {
     })
 
     it('sends a job whose key was not read within the batch key budget to the first delay tier, with no request', async () => {
-        const harness = lane(row(7), true, 50)
+        const harness = lane(row(7), 'hang', 50)
         runners.push(harness.runner)
 
         await harness.consumer.handleBatch([recorderRecord([{ ref: vector.url.ref, url: vector.url.url }])], NOW_MS)
@@ -280,6 +292,17 @@ describe('v4 image fetch lane', () => {
         // The abandoned read was stopped, not left to run for its own budget.
         const [, readOptions] = harness.dynamo.send.mock.calls[0] as unknown as [unknown, { abortSignal: AbortSignal }]
         expect(readOptions.abortSignal.aborted).toBe(true)
+    })
+
+    it('sends a job whose key read timed out to the first delay tier, without failing the batch', async () => {
+        const harness = lane(row(7), 'time_out')
+        runners.push(harness.runner)
+
+        await harness.consumer.handleBatch([recorderRecord([{ ref: vector.url.ref, url: vector.url.url }])], NOW_MS)
+
+        expect(fetchStreamedMock).not.toHaveBeenCalled()
+        const produced = (harness.producer.produce as jest.Mock).mock.calls.map(([record]) => record.topic)
+        expect(produced).toEqual([KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1M])
     })
 
     describe('with a reference seen again later in its month', () => {

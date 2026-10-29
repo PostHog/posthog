@@ -43,6 +43,7 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 "properties": [
                     {"type": "event", "key": "$pathname", "operator": "is_cleaned_path_exact", "value": [pathname]}
                 ],
+                # The toolbar's webVitalsToolbarLogic.ts finds each metric by its row's `order`, so keep this order
                 "series": [
                     {
                         "kind": "EventsNode",
