@@ -7,7 +7,7 @@ from django.conf import settings
 
 import structlog
 import posthoganalytics
-from google.genai.types import GenerateContentConfig
+from google.genai.types import GenerateContentConfig, HttpOptions
 from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel
 from rest_framework import exceptions
@@ -75,6 +75,8 @@ def generate_structured_output(
             distinct_id=distinct_id,
         )
         if gateway_client:
+            if not billable:
+                config.http_options = HttpOptions(headers={"X-PostHog-Billable": "false"})
             response = gateway_client.models.generate_content(model=model, contents=user_prompt, config=config)
         else:
             response = create_gemini_client().models.generate_content(

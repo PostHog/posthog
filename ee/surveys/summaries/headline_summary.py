@@ -2,6 +2,7 @@ from collections import Counter
 from datetime import datetime
 
 import structlog
+from openai import OpenAI
 
 from posthog.schema import SurveyQuestionType
 
@@ -10,7 +11,7 @@ from posthog.hogql.parser import parse_select
 
 from posthog.api.utils import ServerTimingsGathered
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.llm.gateway_client import build_openai_client
+from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config
 from posthog.models import Team, User
 
 from products.surveys.backend.models import Survey
@@ -175,13 +176,7 @@ def generate_survey_headline(
     with timer("llm"):
         logger.info("[survey_headline_summary] starting LLM call", survey_id=str(survey.id))
         try:
-            client = build_openai_client(
-                product="django",
-                ai_product="surveys",
-                distinct_id=user.distinct_id,
-                properties={"ai_feature": "survey_headline", "survey_id": str(survey.id), "team_id": str(team.id)},
-            )
-            completion = client.chat.completions.create(
+            completion = _headline_client(survey, team, user).chat.completions.create(
                 model="gpt-4.1-mini",
                 temperature=0.3,
                 messages=[
@@ -211,3 +206,15 @@ def generate_survey_headline(
         "has_more": has_more,
         "timings_header": timer.to_header_string(),
     }
+
+
+def _headline_client(survey: Survey, team: Team, user: User) -> OpenAI:
+    if resolve_ai_gateway_config() is None:
+        return OpenAI()
+    client = build_openai_client(
+        product="django",
+        ai_product="surveys",
+        distinct_id=user.distinct_id,
+        properties={"ai_feature": "survey_headline", "survey_id": str(survey.id), "team_id": str(team.id)},
+    )
+    return client.with_options(default_headers={"X-PostHog-Billable": "false", "X-PostHog-Privacy-Mode": "true"})
