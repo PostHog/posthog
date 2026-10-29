@@ -1,6 +1,10 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { signalsReportsBulkClaimBodyIdsMax } from 'products/signals/frontend/generated/api.zod'
 
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
@@ -99,5 +103,24 @@ describe('inboxBulkActionsLogic', () => {
         await expectLogic(logic, () => logic.actions.selectRange('c')).toMatchValues({
             selectedReportIds: ['c'],
         })
+    })
+
+    // The endpoint rejects a request over its id limit, so a larger selection must be split, or nothing is claimed.
+    it('claims a selection over the endpoint limit in batches and counts every claim', async () => {
+        const batchSizes: number[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/bulk_claim/': async ({ request }) => {
+                    const { ids } = (await request.json()) as { ids: string[] }
+                    batchSizes.push(ids.length)
+                    return [200, { results: [], claimed_count: ids.length, conflict_count: 0, not_found_count: 0 }]
+                },
+            },
+        })
+        const reportIds = Array.from({ length: signalsReportsBulkClaimBodyIdsMax + 1 }, (_, index) => `r-${index}`)
+
+        await expectLogic(logic, () => logic.actions.bulkClaim(reportIds)).toDispatchActions(['bulkClaimSuccess'])
+
+        expect(batchSizes).toEqual([signalsReportsBulkClaimBodyIdsMax, 1])
     })
 })

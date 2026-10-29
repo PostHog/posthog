@@ -30,11 +30,7 @@ from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkfl
 from posthog.usage_ingestion.client import UsageRecord, areport_usage
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.facade.api import (
-    a_unpause_external_data_schedule,
-    create_warehouse_templates_for_source,
-    update_external_job_status,
-)
+from products.data_warehouse.backend.facade.api import create_warehouse_templates_for_source, update_external_job_status
 from products.managed_warehouse.backend.facade.temporal import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsWorkflow,
@@ -42,6 +38,7 @@ from products.managed_warehouse.backend.facade.temporal import (
     DuckLakeRegisterDataImportsWorkflow,
     build_register_data_imports_workflow_id,
 )
+from products.warehouse_sources.backend.ad_hoc_sync import resume_schedule_after_ad_hoc_run
 from products.warehouse_sources.backend.billing import billed_usage_for_job
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -60,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
     get_import_handoffs_per_run_metric,
@@ -757,29 +755,15 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
     # non-COMPLETED outcome (FAILED, BILLING_LIMIT_REACHED, …) the flag stays
     # set and the schedule stays paused — a human looks at it before resuming.
     if inputs.status == ExternalDataJob.Status.COMPLETED:
-        await _maybe_unpause_schedule_after_admin_run(inputs.schema_id, logger)
-
-
-async def _maybe_unpause_schedule_after_admin_run(schema_id: str, logger) -> None:
-    try:
-        schema = await database_sync_to_async_pool(ExternalDataSchema.objects.get)(id=schema_id)
-    except ExternalDataSchema.DoesNotExist:
-        return
-
-    sync_type_config = schema.sync_type_config or {}
-    if not sync_type_config.get("admin_unpause_schedule_after_run"):
-        return
-
-    try:
-        await a_unpause_external_data_schedule(schema_id)
-    except Exception:
-        logger.exception(f"Failed to auto-unpause schedule for schema {schema_id} after admin run")
-        return
-
-    sync_type_config.pop("admin_unpause_schedule_after_run", None)
-    schema.sync_type_config = sync_type_config
-    await database_sync_to_async_pool(schema.save)(update_fields=["sync_type_config"])
-    logger.info(f"Auto-unpaused schedule for schema {schema_id} after successful admin-triggered run")
+        try:
+            if await database_sync_to_async_pool(resume_schedule_after_ad_hoc_run)(
+                inputs.schema_id, inputs.team_id, job_id
+            ):
+                logger.info(
+                    f"Auto-unpaused schedule for schema {inputs.schema_id} after successful admin-triggered run"
+                )
+        except Exception:
+            logger.exception(f"Failed to auto-unpause schedule for schema {inputs.schema_id} after admin run")
 
 
 @dataclasses.dataclass
@@ -972,6 +956,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         source_type = None
+        # The finally block reads it, so it must exist when job creation itself fails.
+        failed_runs_in_a_row = 0
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1086,7 +1072,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = False
                 source_templates_needed = True
                 import_handoffs_are_free = False
-                failed_runs_in_a_row = 0
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -1513,7 +1498,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 consumer_manages_job_status and update_inputs.status == ExternalDataJob.Status.COMPLETED
             )
 
-            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+            finished_status = update_inputs.status.lower()
+            get_data_import_finished_metric(
+                source_type=source_type,
+                status=finished_status,
+                streak=failure_streak_label(finished_status, failed_runs_in_a_row),
+            ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed
             # before producing batches, or a zero-batch run); the loader releases it otherwise.

@@ -11,7 +11,7 @@ import requests
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
@@ -111,20 +111,20 @@ def test_credentials_refreshes_stale_db_connection_before_query(monkeypatch):
     integration.refresh_token = "refresh-token"
 
     def fake_get(*args, **kwargs):
-        calls.append("Integration.objects.get")
+        calls.append("IntegrationManager.get")
         return integration
 
-    monkeypatch.setattr(ga.Integration.objects, "get", fake_get)
+    monkeypatch.setattr(ga.IntegrationManager.google_analytics.oauth, "get", fake_get)
 
     creds = _credentials(integration_id=1, team_id=1)
 
-    assert calls == ["close_old_connections", "Integration.objects.get"]
+    assert calls == ["close_old_connections", "IntegrationManager.get"]
     assert creds.refresh_token == "refresh-token"
 
 
 _INTEGRATION_GET_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics."
-    "Integration.objects.get"
+    "IntegrationManager.google_analytics.oauth.get"
 )
 _CLOSE_CONNECTIONS_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.google_analytics."
@@ -151,10 +151,10 @@ class TestGetIntegrationDbResilience:
         assert get.call_count == 4
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=Integration.DoesNotExist())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
 
         with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH), mock.patch(_SLEEP_PATH):
-            with pytest.raises(Integration.DoesNotExist):
+            with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.

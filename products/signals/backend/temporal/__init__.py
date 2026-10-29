@@ -54,7 +54,10 @@ from products.signals.backend.temporal.agentic.scout_trial_evaluation import (
     load_scout_trial_evaluation_activity,
     poll_scout_trial_judge_activity,
 )
-from products.signals.backend.temporal.agentic.select_repository import select_repository_activity
+from products.signals.backend.temporal.agentic.select_repository import (
+    github_optional_pilot_activity,
+    select_repository_activity,
+)
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingWorkflow,
     emit_backfill_signal_activity,
@@ -234,6 +237,7 @@ ACTIVITIES = [
     report_safety_judge_activity,
     safety_filter_activity,
     select_repository_activity,
+    github_optional_pilot_activity,
     soft_delete_report_signals_activity,
     verify_match_specificity_activity,
     wait_for_signal_in_clickhouse_activity,
