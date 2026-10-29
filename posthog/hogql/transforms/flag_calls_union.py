@@ -37,7 +37,6 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     is_nondeterministic_function,
 )
 from posthog.hogql.errors import QueryError, ResolutionError
-from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.restricted_properties import key_read_overlaps_restriction, restricted_property_keys_for_table_type
 from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JOIN_TYPES, SelectAliasInliner
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
@@ -52,7 +51,6 @@ from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
     flag_key_predicate,
     point_scan_at,
 )
-from posthog.hogql.transforms.property_types import STRING_INPUT_CONVERSIONS
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.dataclasses import frozen
@@ -134,25 +132,6 @@ def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
     for chain in collector.chains:
         if columns.chain(chain) is None:
             return f"it reads {'.'.join(str(part) for part in chain)}, which that table doesn't have"
-    return _typed_property_parsed_as_string(collector.string_parsed, context)
-
-
-def _typed_property_parsed_as_string(reads: list[tuple[str, str]], context: HogQLContext) -> str | None:
-    # Each branch converts a typed property before the union returns it, so a call that parses the raw string, such
-    # as toFloatOrZero, would get the converted value.
-    if not reads or context.team_id is None:
-        return None
-    metadata = load_property_metadata(
-        context,
-        event_property_names={name for kind, name in reads if kind == "event"},
-        person_property_names={name for kind, name in reads if kind == "person"},
-        group_property_names={},
-    )
-    for kind, name in reads:
-        types = metadata.event_properties if kind == "event" else metadata.person_properties
-        property_type = types.get(name, {}).get("type")
-        if property_type not in (None, "String"):
-            return f"it parses the {property_type} {kind} property {name} as a string"
     return None
 
 
@@ -517,24 +496,11 @@ class _UnionChainCollector(SyntaxVisitor):
         super().__init__()
         self.chains: list[list[str | int]] = []
         self.unreadable_joins: list[str] = []
-        # The event and person properties that a string-parsing call such as toFloatOrZero reads from the scan.
-        self.string_parsed: list[tuple[str, str]] = []
-        self._in_string_input = False
-
-    def visit_call(self, node: ast.Call) -> None:
-        # The property type swapper keeps a property raw only as the direct argument of such a call.
-        outer = self._in_string_input
-        self._in_string_input = node.name in STRING_INPUT_CONVERSIONS
-        super().visit_call(node)
-        self._in_string_input = outer
 
     def visit_field(self, node: ast.Field) -> None:
         read = _union_chain(node.type)
         if read is not None:
-            chain = read[1]
-            self.chains.append(chain)
-            if self._in_string_input and chain[:-1] in (["properties"], ["poe", "properties"]):
-                self.string_parsed.append(("event" if chain[0] == "properties" else "person", str(chain[-1])))
+            self.chains.append(read[1])
             return
         field_type = node.type.field_type if isinstance(node.type, ast.PropertyType) else node.type
         if not isinstance(field_type, ast.FieldType):
