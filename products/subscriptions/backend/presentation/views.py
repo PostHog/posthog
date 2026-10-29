@@ -1042,7 +1042,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             "the owner's access, so this is how a subscription continues after its owner left."
         ),
     )
-    @action(methods=["POST"], detail=True, url_path="take-ownership", required_scopes=["subscription:write"])
+    # Scope is resolved dynamically in dangerously_get_required_scopes so an AI subscription also
+    # requires query:read (enabling it starts the AI HogQL pipeline). A static required_scopes here
+    # would short-circuit that check.
+    @action(methods=["POST"], detail=True, url_path="take-ownership")
     def take_ownership(self, request: Request, **kwargs: object) -> Response:
         subscription = self._get_subscription()
         if subscription.deleted:
