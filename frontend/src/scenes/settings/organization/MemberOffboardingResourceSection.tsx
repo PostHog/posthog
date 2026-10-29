@@ -48,7 +48,7 @@ export function MemberOffboardingResourceSection({
             <h3>{isSubscription ? 'Subscriptions and alerts' : 'Publicly shared resources'}</h3>
             <p>
                 {isSubscription
-                    ? 'These subscriptions and alerts were created by this member. You can keep or disable them when removing the member.'
+                    ? 'These subscriptions and alerts were created by this member. You can keep or disable them.'
                     : "These resources were shared by this member and are accessible to anyone with the link. You can disable public sharing. This won't delete them."}
             </p>
             {!isSelf && (
