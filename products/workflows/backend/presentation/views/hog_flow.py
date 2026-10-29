@@ -673,6 +673,19 @@ _REPLAY_VISION_STEP_SCOPES = (
 )
 
 
+def _fill_default_push_title(inputs: Any, input_schema: list[dict[str, Any]] | None) -> None:
+    # The title stopped being required so silent pushes can omit it, and the inputs serializer only fills defaults
+    # for required inputs. API callers that leave it out of a visible push still get the template's default title.
+    if not isinstance(inputs, dict) or "title" in inputs:
+        return
+    delivery = inputs.get("delivery")
+    if isinstance(delivery, dict) and delivery.get("value") == "silent":
+        return
+    default = next((schema.get("default") for schema in input_schema or [] if schema.get("key") == "title"), None)
+    if default is not None:
+        inputs["title"] = {"value": default}
+
+
 def _validate_push_action(inputs: Any) -> None:
     if not isinstance(inputs, dict):
         return
@@ -2165,6 +2178,8 @@ class HogFlowActionSerializer(serializers.Serializer):
             else:
                 input_schema = template.inputs_schema
                 inputs = data.get("config", {}).get("inputs", {})
+                if template_id == _FIXED_TEMPLATE_IDS["function_push"]:
+                    _fill_default_push_title(inputs, input_schema)
 
                 function_config_serializer = HogFlowConfigFunctionInputsSerializer(
                     data={

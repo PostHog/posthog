@@ -241,23 +241,26 @@ class TestHogFlowAPI(APIBaseTest):
             ("blank title", "notification", "   ", 400),
             ("android data only without a title", "android_data_only", "", 400),
             ("silent without a title", "silent", "", 201),
+            ("default delivery with the title left out", None, None, 201),
         ]
     )
     def test_only_a_silent_push_may_skip_the_title(
-        self, _name: str, delivery: str | None, title: str, expected_status: int
+        self, _name: str, delivery: str | None, title: str | None, expected_status: int
     ) -> None:
         template = _push_function_template()
         for schema in template["inputs_schema"]:
             if schema["key"] == "title":
                 schema["required"] = False
+                schema["default"] = "Notification from {event.event}"
         template["inputs_schema"].append({"key": "delivery", "type": "choice", "label": "Delivery", "required": False})
         sync_template_to_db(template)
         provider = Integration.objects.create(team=self.team, kind="firebase", config={})
         inputs: dict[str, Any] = {
             "distinctId": {"value": "{event.distinct_id}"},
             "channels": {"value": [provider.id]},
-            "title": {"value": title},
         }
+        if title is not None:
+            inputs["title"] = {"value": title}
         if delivery is not None:
             inputs["delivery"] = {"value": delivery}
         hog_flow, _ = self._create_hog_flow_with_action({"template_id": "template-native-push", "inputs": inputs})
@@ -268,6 +271,9 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert active.status_code == expected_status, active.json()
         assert draft.status_code == 201, draft.json()
+        if title is None:
+            saved_title = active.json()["actions"][1]["config"]["inputs"]["title"]["value"]
+            assert saved_title == "Notification from {event.event}"
 
     @patch("products.workflows.backend.presentation.views.hog_flow.publish_resource_edited")
     def test_emits_resource_edited_on_create_and_update(self, mock_emit):
