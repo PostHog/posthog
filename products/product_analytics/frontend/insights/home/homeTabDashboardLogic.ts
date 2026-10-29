@@ -47,7 +47,11 @@ export interface homeTabDashboardLogicActions {
 export interface homeTabDashboardLogicMeta {
     key: number
     __keaTypeGenInternalSelectorTypes: {
-        dashboardEmpty: (dashboard: DashboardType | null, tiles: DashboardTile[], dashboardFailedToLoad: any) => boolean
+        dashboardEmpty: (
+            dashboard: DashboardType | null,
+            tiles: DashboardTile[],
+            dashboardFailedToLoad: boolean
+        ) => boolean
         dashboardMissing: (error404: boolean, dashboard: DashboardType | null) => boolean
     }
 }
