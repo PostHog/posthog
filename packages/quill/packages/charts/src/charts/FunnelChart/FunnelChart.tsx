@@ -98,6 +98,10 @@ export interface FunnelChartProps<Meta = unknown> {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
+function formatPercentTick(value: number): string {
+    return `${Math.round(value)}%`
+}
+
 function formatPercent(value: number): string {
     return `${parseFloat(value.toFixed(2))}%`
 }
@@ -241,7 +245,7 @@ export function FunnelChart<Meta = unknown>({
             hideYAxis: hideValueAxis,
             maxCategoryLabelWidth,
             xTickFormatter: stepLabelFromBand,
-            yTickFormatter: (value) => `${Math.round(value)}%`,
+            yTickFormatter: formatPercentTick,
             barCornerRadius,
             legend,
             tooltip: {
@@ -272,6 +276,7 @@ export function FunnelChart<Meta = unknown>({
             tooltipConfig,
             barCornerRadius,
             bandPadding,
+            minBarSize,
             maxBandRange,
         ]
     )
