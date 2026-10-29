@@ -24,7 +24,8 @@ WRITER_IDLE_TIMEOUT_SECONDS = 120
 PUSH_TO_NEW_BRANCH = "Commit your docs change and push it to a new branch. Do not open a pull request."
 PUSH_TO_CHECKED_OUT_BRANCH = (
     "This branch already backs an open docs pull request. "
-    "Commit your docs change on top of it and push to the same branch. Do not open a pull request."
+    "Fetch it and rebase your commit onto it before you push to the same branch. "
+    "Never force-push. Do not open a pull request."
 )
 NO_STORE_CONNECTORS_RUN_STATE = {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
 

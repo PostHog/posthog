@@ -4,6 +4,7 @@ from uuid import UUID
 
 import structlog
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.models.instance_setting import get_instance_setting
@@ -63,15 +64,15 @@ def joined_source_comment(request: DocsRequest) -> str:
     return f"The knowledge writer added a source to this pull request{requester}:\n\n- {request.source_url}"
 
 
-def docs_github(team_id: int, docs_owner: str) -> GitHubIntegration | None:
+def docs_github(team_id: int, docs_owner: str, *, priority: Priority) -> GitHubIntegration | None:
     for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
         if str(integration.config.get("account", {}).get("name", "")).lower() == docs_owner.lower():
-            return GitHubIntegration(integration, source="knowledge_writer", priority=Priority.CRITICAL)
+            return GitHubIntegration(integration, source="knowledge_writer", priority=priority)
     return None
 
 
 def source_repository_github(team_id: int) -> GitHubIntegration | None:
-    return docs_github(team_id, SOURCE_REPOSITORY.split("/", 1)[0])
+    return docs_github(team_id, SOURCE_REPOSITORY.split("/", 1)[0], priority=Priority.NORMAL)
 
 
 def github_app_login() -> str | None:
@@ -98,18 +99,22 @@ def writer_pull_request(listed: dict, docs_repository: str, app_login: str | Non
 
 
 def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest] | None:
-    github = docs_github(writer.team_id, writer.docs_repository.split("/", 1)[0])
+    github = docs_github(writer.team_id, writer.docs_repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
         return None
     app_login = github_app_login()
     found: list[WriterPullRequest] = []
     for page in range(1, MAX_PULL_REQUEST_PAGES + 1):
-        response = github.api_request(
-            "GET",
-            f"/repos/{writer.docs_repository}/pulls",
-            endpoint="/repos/{owner}/{repo}/pulls",
-            params={"state": "open", "per_page": PULL_REQUESTS_PER_PAGE, "page": page},
-        )
+        try:
+            response = github.api_request(
+                "GET",
+                f"/repos/{writer.docs_repository}/pulls",
+                endpoint="/repos/{owner}/{repo}/pulls",
+                params={"state": "open", "per_page": PULL_REQUESTS_PER_PAGE, "page": page},
+            )
+        except GitHubEgressBudgetExhausted:
+            logger.warning("knowledge_writer_open_pull_requests_deferred")
+            return None
         if response.status_code != 200:
             logger.warning("knowledge_writer_open_pull_requests_failed", status_code=response.status_code)
             return None
@@ -191,7 +196,7 @@ def publish_claimed_pull_request(
 ) -> str | None:
     request = request_json.validate_python(tasks_facade.read_task_state_entry(task_id, team_id, REQUEST_STATE_KEY))
     docs_owner, docs_name = writer.docs_repository.split("/", 1)
-    github = docs_github(team_id, docs_owner)
+    github = docs_github(team_id, docs_owner, priority=Priority.CRITICAL)
     if github is None:
         logger.warning("knowledge_writer_no_docs_github_integration", team_id=team_id, task_run_id=str(task_run_id))
         record_pull_request_failure(task_id, team_id, "no_github_integration")
