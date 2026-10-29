@@ -1,6 +1,7 @@
 import type { Decorator } from '@storybook/react'
 
 import type {
+    TraceFeedbackScoreApi,
     TraceNodeApi,
     TraceNodeStatsApi,
     TraceSummaryContentApi,
@@ -12,8 +13,10 @@ import {
     EvalResult,
     EvalRollupOutcome,
     EvalsChipData,
+    FeedbackModeState,
     MessagePart,
     NodeProperties,
+    StepFeedback,
     ThreadMessage,
 } from './types'
 
@@ -403,6 +406,57 @@ export const FIXTURE_TRACE: SampleTraceFixture = {
     },
     thread: { status: 'ready', turns: [FIXTURE_TURN], activeTurnId: FIXTURE_TURN.id },
     timeline: { rows: FIXTURE_TIMELINE_ROWS, totalMs: 2310 },
+}
+
+const feedbackScore = (id: string, name: string | null, value: string, minute: number): TraceFeedbackScoreApi => ({
+    id,
+    name,
+    value,
+    nodeId: 'gen-answer',
+    timestamp: `2026-09-01T10:${minute}:00Z`,
+})
+
+export const FIXTURE_STEP_FEEDBACK: StepFeedback = {
+    scores: [
+        feedbackScore('score-helpful', 'helpfulness', '0', 16),
+        feedbackScore('score-resolved', 'resolved', 'false', 17),
+        feedbackScore('score-tone', 'tone', '4.5', 18),
+        feedbackScore('score-latency', 'latency_ok', 'true', 19),
+        feedbackScore('score-unnamed', null, '{"stars":3}', 20),
+    ],
+    textCount: 1,
+}
+
+const answerStep = { id: 'gen-answer', name: 'draft-answer' }
+
+export const FIXTURE_FEEDBACK_MODE: Extract<FeedbackModeState, { status: 'ready' }> = {
+    status: 'ready',
+    scores: [
+        { ...feedbackScore('score-helpful', 'helpfulness', '0', 16), step: answerStep, focused: true },
+        { ...feedbackScore('score-resolved', 'resolved', 'false', 17), step: answerStep, focused: true },
+        { ...feedbackScore('score-csat', 'csat', '4', 21), nodeId: 'trace-1', step: null, focused: false },
+        { ...feedbackScore('score-unnamed', null, '{"stars":3}', 22), nodeId: 'trace-1', step: null, focused: false },
+    ],
+    responses: [
+        {
+            kind: 'text',
+            id: 'text-long',
+            text: 'Too long, but correct.',
+            nodeId: 'trace-1',
+            timestamp: '2026-09-01T10:23:00Z',
+            step: null,
+            focused: false,
+        },
+        {
+            kind: 'text',
+            id: 'text-step',
+            text: 'The second paragraph repeats the first one. Shorter answers would help when I am on my phone.',
+            nodeId: 'gen-answer',
+            timestamp: '2026-09-01T10:24:00Z',
+            step: answerStep,
+            focused: true,
+        },
+    ],
 }
 
 export const FIXTURE_SUMMARY: TraceSummaryContentApi = {

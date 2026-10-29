@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertySyncActivityInputs,
 )
 from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    failure_streak_label,
     get_data_import_finished_metric,
     get_fast_returned_run_metric,
     get_import_handoffs_per_run_metric,
@@ -198,8 +199,6 @@ Any_Source_Errors: dict[str, str | None] = {
     UNSUPPORTED_SYNC_TYPE_ERROR: UNSUPPORTED_SYNC_TYPE_DISABLED_MESSAGE,
     DUPLICATE_PRIMARY_KEYS_ERROR: DUPLICATE_PRIMARY_KEY_DISABLED_MESSAGE,
     "Integration matching query does not exist": MISSING_INTEGRATION_MESSAGE,
-    # Raised by the integrations SDK (`IntegrationNotFound`) when the row is gone.
-    "No integration ": MISSING_INTEGRATION_MESSAGE,
     # `OAuthMixin.get_oauth_integration` catches `Integration.DoesNotExist` and re-raises these
     # two, so the ORM wording above never reaches here for the sources that go through it. Left
     # unclassified they were retried to exhaustion and then shown raw, echoing an internal
@@ -974,6 +973,8 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
         )
 
         source_type = None
+        # The finally block reads it, so it must exist when job creation itself fails.
+        failed_runs_in_a_row = 0
         consumer_manages_job_status = False
         skip_post_import_activities = False
         workflow_starts_post_import = False
@@ -1088,7 +1089,6 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 hit_billing_limit = False
                 source_templates_needed = True
                 import_handoffs_are_free = False
-                failed_runs_in_a_row = 0
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -1515,7 +1515,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 consumer_manages_job_status and update_inputs.status == ExternalDataJob.Status.COMPLETED
             )
 
-            get_data_import_finished_metric(source_type=source_type, status=update_inputs.status.lower()).add(1)
+            finished_status = update_inputs.status.lower()
+            get_data_import_finished_metric(
+                source_type=source_type,
+                status=finished_status,
+                streak=failure_streak_label(finished_status, failed_runs_in_a_row),
+            ).add(1)
 
             # This run still owns the v3 lock when no batch reached the loader (extraction failed
             # before producing batches, or a zero-batch run); the loader releases it otherwise.
