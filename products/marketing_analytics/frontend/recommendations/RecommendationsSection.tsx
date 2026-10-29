@@ -57,7 +57,8 @@ export function RecommendationsSection(): JSX.Element {
     const { response, responseLoading, responseError, queryId } = useValues(dataNodeLogic(dataNodeProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeProps))
 
-    const results = (response as MarketingAnalyticsRecommendationsQueryResponse | null)?.results ?? []
+    const recommendationsResponse = response as MarketingAnalyticsRecommendationsQueryResponse | null
+    const results = recommendationsResponse?.results ?? []
     const groups = groupRecommendations(results)
     const sections = sectionRecommendations(groups)
     const firstRule = sections[0]?.groups[0]?.rule
@@ -203,6 +204,7 @@ export function RecommendationsSection(): JSX.Element {
                 onSelect={setSelectedRule}
                 dataNodeProps={dataNodeProps}
                 dataGaps={dataGaps}
+                disclaimer={recommendationsResponse?.disclaimer}
             />
         </div>
     )

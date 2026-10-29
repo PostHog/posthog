@@ -133,6 +133,7 @@ export function RecommendationsModal({
     onSelect,
     dataNodeProps,
     dataGaps,
+    disclaimer,
 }: {
     isOpen: boolean
     onClose: () => void
@@ -143,6 +144,7 @@ export function RecommendationsModal({
     onSelect: (rule: string) => void
     dataNodeProps: DataNodeLogicProps
     dataGaps: RecommendationDataGap[]
+    disclaimer: string | undefined
 }): JSX.Element {
     const navRef = useRef<HTMLElement>(null)
     const detailRef = useRef<HTMLElement>(null)
@@ -170,10 +172,9 @@ export function RecommendationsModal({
                 </div>
             }
             footer={
-                <p className="mb-0 mr-auto text-xs text-secondary whitespace-normal">
-                    These are suggestions from rules applied to your synced data, and impact figures are estimates. You
-                    decide what to change, so check each one before you edit a campaign.
-                </p>
+                disclaimer ? (
+                    <p className="mb-0 mr-auto text-xs text-secondary whitespace-normal">{disclaimer}</p>
+                ) : undefined
             }
             description={
                 <span className="flex flex-wrap items-center gap-2">
