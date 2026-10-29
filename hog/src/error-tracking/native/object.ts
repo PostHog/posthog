@@ -1,3 +1,4 @@
+import { kMaxLength } from 'node:buffer'
 import { closeSync, fstatSync, openSync, readSync } from 'node:fs'
 import { constants as zc, inflateRawSync, zstdDecompressSync } from 'node:zlib'
 
@@ -780,13 +781,15 @@ class ElfObject implements NativeObject {
             }
             payload = data.subarray(this.is64 ? 24 : 12)
         }
+        // Inflating stops at the declared size, so a small crafted section can't fill memory. A
+        // stream longer than that is refused, where symbolic keeps the first `size` bytes.
+        const maxOutputLength = Math.min(Math.max(size, 1), kMaxLength)
         try {
             if (zstd) {
-                const out = new Uint8Array(zstdDecompressSync(payload))
-                return out.length > size ? null : out
+                return new Uint8Array(zstdDecompressSync(payload, { maxOutputLength }))
             }
-            // flate2's `decompress_vec` stops once the declared size is full and never reads the
-            // adler32 trailer, so validate the zlib header and inflate the raw deflate stream.
+            // flate2's `decompress_vec` never reads the adler32 trailer, so validate the zlib
+            // header and inflate the raw deflate stream.
             if (payload.length < 2) {
                 return null
             }
@@ -795,8 +798,9 @@ class ElfObject implements NativeObject {
             if ((cmf & 0x0f) !== 8 || cmf >> 4 > 7 || (cmf * 256 + flg) % 31 !== 0 || flg & 0x20) {
                 return null
             }
-            const out = new Uint8Array(inflateRawSync(payload.subarray(2), { finishFlush: zc.Z_SYNC_FLUSH }))
-            return out.length > size ? out.subarray(0, size) : out
+            return new Uint8Array(
+                inflateRawSync(payload.subarray(2), { finishFlush: zc.Z_SYNC_FLUSH, maxOutputLength })
+            )
         } catch {
             return null
         }
