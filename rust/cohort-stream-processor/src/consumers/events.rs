@@ -978,7 +978,7 @@ impl CohortStreamEventsConsumer {
                 self.wait_for_capture(&restore).await;
                 let mut resume = ResumePoints::default();
                 let topic = InputTopic::new(self.topic.as_str());
-                resume.rewind_to(&restore.plan().positions(&topic, &self.claimed.ownership()));
+                resume.rewind_to(&restore.plan().positions(&topic));
                 BootPhase::Rewinding {
                     resume,
                     restore: Box::new(restore),

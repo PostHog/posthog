@@ -17,7 +17,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { INSIGHT_GRAPH_SELECTOR, INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
@@ -35,6 +34,10 @@ import { AccessControlLevel, AccessControlResourceType, ExporterFormat, InsightL
 
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { endpointLogic } from 'products/endpoints/frontend/endpointLogic'
+import {
+    INSIGHT_GRAPH_SELECTOR,
+    INSIGHT_SCREENSHOT_KEY,
+} from 'products/product_analytics/frontend/insights/shared/insightImageCapture'
 
 import { insightModalsLogic } from '../insightModalsLogic'
 import { openSaveAsCohortDialog } from './insightSidePanelDialogs'

@@ -39,9 +39,14 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.BROKEN: "⚠️",
 }
 
+UNTRACKED_GROUPS_LABEL: Final = "Untracked groups"
+
 _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.LOGS: "Log",
     SourceKind.INSIGHT: "Insight",
+    SourceKind.BILLING: "Billing",
+    SourceKind.WAREHOUSE_SOURCE: "Warehouse sync",
+    SourceKind.WAREHOUSE_DESTINATION: "Warehouse destination",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.
@@ -193,7 +198,7 @@ def build_message(
             untracked = f"At least {untracked}"
         details.append(
             MessageDetail(
-                label="Untracked groups",
+                label=UNTRACKED_GROUPS_LABEL,
                 value=f"{untracked} not tracked because this alert is at its group limit",
             )
         )

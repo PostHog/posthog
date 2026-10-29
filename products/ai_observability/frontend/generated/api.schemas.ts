@@ -734,6 +734,11 @@ export interface OfflineResultCellApi {
 }
 
 export interface OfflineItemReadApi {
+    /**
+     * Model used for the item, falling back to the experiment's model.
+     * @nullable
+     */
+    model_version?: string | null
     /** Stable item UUID. */
     id: string
     /** Owning experiment UUID. */
@@ -1209,6 +1214,12 @@ export interface ItemSubmissionApi {
     /** Caller-generated UUID for one input/output execution. Reuse for exact retries. */
     id: string
     /**
+     * Model used for this item. Omitted or null values inherit the experiment's model.
+     * @maxLength 255
+     * @nullable
+     */
+    model_version?: string | null
+    /**
      * Stable case identifier for matching inputs across experiments.
      * @maxLength 255
      * @nullable
@@ -1326,6 +1337,11 @@ export interface UploadReceiptApi {
 }
 
 export interface OfflineHistoryPointApi {
+    /**
+     * Breakdown value for this summary; null when unspecified or no breakdown is selected.
+     * @nullable
+     */
+    breakdown_value?: string | null
     /** Experiment execution and cohort context. */
     experiment: OfflineExperimentReadApi
     /** Complete summary for one experiment and scorer version. */
@@ -1389,6 +1405,13 @@ export interface TraceTimelineRowApi {
     hasError: boolean
 }
 
+export interface TraceGitApi {
+    /** The git branch checked out when the trace ran. */
+    branch: string
+    /** The repository as owner/name, or null when the branch's event has none. */
+    repo: string | null
+}
+
 export interface TraceApi {
     id: string
     name: string | null
@@ -1404,6 +1427,29 @@ export interface TraceApi {
     threadNodeIds: string[]
     defaultNodeId: string
     nodeIdsByAlias: TraceApiNodeIdsByAlias
+    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+    git: TraceGitApi | null
+}
+
+export interface TraceClusterApi {
+    /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
+    runId: string
+    /** When the run finished. */
+    runAt: string
+    /** The clustering job the run belongs to, null for a run without a job. */
+    jobId: string | null
+    jobName: string | null
+    /** The cluster's id within its run. -1 is the run's outliers. */
+    clusterId: number
+    title: string | null
+    description: string | null
+    /** The trace fit no cluster in this run. */
+    isOutlier: boolean
+}
+
+export interface TraceClustersApi {
+    /** The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. Manual runs are left out. Clusters come before outliers, then newest first. */
+    clusters: TraceClusterApi[]
 }
 
 export type TraceEvaluationResultOutcomeEnumApi =
@@ -1425,13 +1471,76 @@ export interface TraceEvaluationResultApi {
     outcome: TraceEvaluationResultOutcomeEnumApi
     /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
     label: string
+    /** The numeric result of a numeric evaluation, null for every other type. */
+    score: number | null
     reasoning: string | null
     timestamp: string
     isBackfill: boolean
 }
 
+export type TraceNodeEvaluationRollupOutcomeEnumApi =
+    (typeof TraceNodeEvaluationRollupOutcomeEnumApi)[keyof typeof TraceNodeEvaluationRollupOutcomeEnumApi]
+
+export const TraceNodeEvaluationRollupOutcomeEnumApi = {
+    Pass: 'pass',
+    Fail: 'fail',
+    Unrated: 'unrated',
+} as const
+
+export interface TraceNodeEvaluationRollupApi {
+    /** The tree node the results grade. */
+    nodeId: string
+    /** Fail if any evaluation fails on the node, else pass if any passes, else unrated. */
+    outcome: TraceNodeEvaluationRollupOutcomeEnumApi
+}
+
+/**
+ * Counts the latest run of each evaluation on each node, by when the run started, so re-runs and backfills
+ * count once. Inconclusive results count as unrated. Computed over the results returned, at most 250.
+ */
+export interface TraceEvaluationSummaryApi {
+    passed: number
+    failed: number
+    unrated: number
+    /** One entry per node with results, sorted by node id. */
+    nodes: TraceNodeEvaluationRollupApi[]
+}
+
 export interface TraceEvaluationResultsApi {
     results: TraceEvaluationResultApi[]
+    summary: TraceEvaluationSummaryApi
+}
+
+export interface TraceFeedbackScoreApi {
+    id: string
+    name: string | null
+    /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
+    value: string
+    /** The tree node the score targets: the step's event uuid, or the trace id for a trace-level score. */
+    nodeId: string
+    timestamp: string
+}
+
+export interface TraceFeedbackTextApi {
+    kind: 'text'
+    id: string
+    text: string
+    /** The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback. */
+    nodeId: string
+    timestamp: string
+}
+
+export interface TraceFeedbackSummaryApi {
+    /** Scores plus responses. */
+    total: number
+}
+
+export interface TraceFeedbackApi {
+    /** Oldest first. */
+    scores: TraceFeedbackScoreApi[]
+    /** What users said, oldest first. */
+    responses: TraceFeedbackTextApi[]
+    summary: TraceFeedbackSummaryApi
 }
 
 export interface TraceNodeMetadataApi {
@@ -1469,6 +1578,79 @@ export interface TraceNodeDetailApi {
     error: string | null
     metadata: TraceNodeMetadataApi
     event: TraceNodeEventApi | null
+}
+
+export interface TraceSearchMatchApi {
+    /** A step whose stored data contains the query. The root's id is the trace id. */
+    nodeId: string
+    /** How many times the query occurs in the step's stored inputs, outputs, state, tools, name, model, provider and error, ignoring case. Keys of the stored JSON count too. */
+    count: number
+}
+
+export interface TraceSearchResultsApi {
+    /** Occurrences of the query across every matching step. */
+    total: number
+    /** Matching steps in tree order, the root first. Steps without a match are left out. */
+    matches: TraceSearchMatchApi[]
+}
+
+export type TraceSummaryStatusEnumApi = (typeof TraceSummaryStatusEnumApi)[keyof typeof TraceSummaryStatusEnumApi]
+
+export const TraceSummaryStatusEnumApi = {
+    Pending: 'pending',
+    Ready: 'ready',
+    Failed: 'failed',
+} as const
+
+export interface TraceSummaryItemApi {
+    text: string
+    /** The step the item refers to, or null when it names none. */
+    nodeId: string | null
+}
+
+export interface TraceSummaryContentApi {
+    title: string
+    bullets: TraceSummaryItemApi[]
+    /** Details worth a second look, or empty. */
+    notes: TraceSummaryItemApi[]
+    /** The main steps of the trace as a small text diagram. */
+    flow: string
+    /** The model that wrote the summary. */
+    model: string
+    generatedAt: string
+}
+
+export type TraceSummaryFailureReasonEnumApi =
+    (typeof TraceSummaryFailureReasonEnumApi)[keyof typeof TraceSummaryFailureReasonEnumApi]
+
+export const TraceSummaryFailureReasonEnumApi = {
+    TraceNotFound: 'trace_not_found',
+    TooLarge: 'too_large',
+    Timeout: 'timeout',
+    ProviderError: 'provider_error',
+    NotApproved: 'not_approved',
+    AccessChanged: 'access_changed',
+    Error: 'error',
+} as const
+
+export interface TraceSummaryFailureApi {
+    reason: TraceSummaryFailureReasonEnumApi
+    /** Why the summary failed, ready to show to the user. */
+    message: string
+}
+
+export interface TraceSummaryApi {
+    /** `pending` while the summary is written, then `ready` or `failed`. */
+    status: TraceSummaryStatusEnumApi
+    /** The summary when `status` is `ready`, else null. */
+    content: TraceSummaryContentApi | null
+    /** Why it failed when `status` is `failed`, else null. */
+    failure: TraceSummaryFailureApi | null
+}
+
+export interface TraceSummaryRequestApi {
+    /** Replace a ready summary with a new one. A pending summary is never replaced. */
+    regenerate?: boolean
 }
 
 export type DatasetJSONValueApi = { [key: string]: unknown } | unknown[] | string | number | boolean
@@ -5317,6 +5499,17 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
      */
     application_version?: string
     /**
+     * Split history by this property. Model uses each item's model, falling back to the experiment's model.
+     *
+     * * `model_version` - Model
+     * * `prompt_version` - Prompt version
+     * * `application_version` - Application version
+     * * `suite_key` - Suite
+     * * `run_source` - Run source
+     * @minLength 1
+     */
+    breakdown?: AiObservabilityOfflineScorersHistoryListBreakdown
+    /**
      * Filter experiments by the author's user ID.
      * @minimum 1
      */
@@ -5419,6 +5612,17 @@ export type AiObservabilityOfflineScorersHistoryListParams = {
     tags?: string
 }
 
+export type AiObservabilityOfflineScorersHistoryListBreakdown =
+    (typeof AiObservabilityOfflineScorersHistoryListBreakdown)[keyof typeof AiObservabilityOfflineScorersHistoryListBreakdown]
+
+export const AiObservabilityOfflineScorersHistoryListBreakdown = {
+    ModelVersion: 'model_version',
+    PromptVersion: 'prompt_version',
+    ApplicationVersion: 'application_version',
+    SuiteKey: 'suite_key',
+    RunSource: 'run_source',
+} as const
+
 export type AiObservabilityOfflineScorersHistoryListTagMatch =
     (typeof AiObservabilityOfflineScorersHistoryListTagMatch)[keyof typeof AiObservabilityOfflineScorersHistoryListTagMatch]
 
@@ -5434,7 +5638,41 @@ export type AiObservabilityTracesRetrieveParams = {
     timestamp_hint?: string
 }
 
+export type AiObservabilityTracesClustersRetrieveParams = {
+    /**
+     * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
+     */
+    created_at: string
+}
+
+export type AiObservabilityTracesFeedbackRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
 export type AiObservabilityTracesNodesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesSearchRetrieveParams = {
+    /**
+     * The text to find in the trace's steps, ignoring case.
+     * @minLength 1
+     * @maxLength 200
+     */
+    q: string
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesSummaryCreateParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */

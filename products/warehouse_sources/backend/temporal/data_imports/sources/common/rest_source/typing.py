@@ -221,9 +221,6 @@ class ClientConfig(TypedDict, total=False):
     # `DATA_WAREHOUSE_SOURCE_*` settings apply. Raise both for a vendor with a longer rate limit window.
     retry_budget_seconds: float
     retry_after_max_seconds: float
-    # When True, a server-provided delay above `retry_after_max_seconds` becomes a wait of that
-    # limit, and the request does not fail at once. Left unset, such a request fails without a wait.
-    cap_retry_after: bool
     # SSRF host-pinning. When set (even to an empty list), every outgoing request URL —
     # including paginator next-page links and seeded resume URLs — must resolve to one of
     # these hosts; the base_url host is always implicitly allowed. Off-host URLs are rejected
@@ -232,6 +229,10 @@ class ClientConfig(TypedDict, total=False):
     # When False, redirects are not followed and any 3xx is rejected — closes the redirect-based
     # off-host escape that host-pinning alone would miss. Defaults to True (follow redirects).
     allow_redirects: bool
+    # Regex the host of a vendor's presigned storage must fully match. With redirects disabled, a
+    # 302/303 to an HTTPS host matching it is fetched with a bare GET that carries no credentials,
+    # and its body (gunzipped when needed, capped in size) is read as the page.
+    presigned_redirect_host_pattern: Optional[str]
     # Per-request (connect, read) timeout in seconds. Left unset, the tracked session applies
     # `default_request_timeout()`. A source pointed at a customer-controlled host should set a
     # tighter value. A single float applies to both connect and read; a tuple sets them separately.
@@ -365,6 +366,11 @@ class EndpointResourceBase(ResourceBase, total=False):
     # ``build_dependent_resource`` only after the warehouse table resolves, so it names the parent
     # the run actually read rather than the one its config asked for.
     parent_source: Optional[FanoutParentSource]
+    # Set on a resumable fan-out child to save where the parent listing stands, so a resume starts
+    # there instead of paging the parent from the start. Only for sources that store the fan-out
+    # state they receive unchanged: the state gains a `parent` key and keeps two pages of `completed`.
+    # Ignored when the source passes `on_parent_error`.
+    resume_parent_pagination: Optional[bool]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

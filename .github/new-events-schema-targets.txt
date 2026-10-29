@@ -29,6 +29,8 @@ products/ai_observability/backend/tests/test_facade_api.py
 products/ai_observability/backend/tests/test_trace_views.py
 products/cohorts
 products/customer_analytics/backend/hogql_queries
+products/customer_analytics/backend/test/test_key_metrics.py
+products/customer_analytics/backend/test/test_membership_backfill.py
 products/error_tracking/backend/hogql_queries
 products/error_tracking/backend/tests/test_issue_summaries.py
 products/experiments
@@ -47,6 +49,7 @@ products/product_analytics/backend/hogql_queries
 products/product_analytics/backend/tests/test_insight_data_checks.py
 products/replay_vision/backend/tests/test_session_identity.py
 products/signals/backend/test/test_anomaly_search.py
+products/signals/backend/test/test_report_check_final_metrics.py
 products/signals/backend/test/test_anomaly_scoring_tick.py
 products/signals/backend/test/test_first_report_evals.py
 products/web_analytics/backend/hogql_queries
