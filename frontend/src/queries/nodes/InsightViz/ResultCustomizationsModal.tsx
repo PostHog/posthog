@@ -89,10 +89,10 @@ function TrendsInfo({ dataset, resultCustomizationBy }: TrendsInfoProps): JSX.El
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { breakdownFilter, querySource } = useValues(insightVizDataLogic)
     const { insightProps } = useValues(insightLogic)
-    const { actionsById } = useValues(trendsDataLogic(insightProps))
+    const { actionNames } = useValues(trendsDataLogic(insightProps))
 
     // A formula row has no series node, so fall back to the row label.
-    const seriesNode = getResultSeries(querySource, dataset, actionsById).node
+    const seriesNode = getResultSeries(querySource, dataset, actionNames).node
     const seriesName = seriesNode ? (
         <EntityFilterInfo filter={seriesNode} allowWrap={true} showSingleName={true} />
     ) : (

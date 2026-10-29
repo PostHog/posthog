@@ -1,4 +1,4 @@
-import { ActionsById, ResultSeries, getResultSeries } from 'scenes/insights/utils/resultSeries'
+import { ActionNames, ResultSeries, getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import type { Noun } from '~/models/groupsModel'
 import type { InsightQueryNode } from '~/queries/schema/schema-general'
@@ -19,9 +19,9 @@ export type TrendsSeriesMeta = {
 export const buildTrendsSeriesMeta = (
     r: IndexedTrendResult,
     querySource: InsightQueryNode | null | undefined,
-    actionsById?: ActionsById
+    actionNames?: ActionNames
 ): TrendsSeriesMeta => {
-    const series = getResultSeries(querySource, r, actionsById)
+    const series = getResultSeries(querySource, r, actionNames)
     return {
         series,
         // Formula results have no series node; their raw label (custom name or "Formula (…)") is the

@@ -69,7 +69,7 @@ export function useTrendsPartOfWholeChart({
         formula,
         pieChartVizOptions,
         hasDataWarehouseSeries,
-        actionsById,
+        actionNames,
         querySource,
         breakdownFilter,
         labelGroupType,
@@ -79,8 +79,8 @@ export function useTrendsPartOfWholeChart({
     } = useValues(trendsDataLogic(insightProps))
 
     const buildMeta = useCallback(
-        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionsById),
-        [querySource, actionsById]
+        (r: IndexedTrendResult): TrendsSeriesMeta => buildTrendsSeriesMeta(r, querySource, actionNames),
+        [querySource, actionNames]
     )
 
     const seriesIdentification = useMemo(
@@ -104,7 +104,7 @@ export function useTrendsPartOfWholeChart({
         (r: IndexedTrendResult): string =>
             getTrendsSeriesDisplayLabel(r, {
                 querySource,
-                actionsById,
+                actionNames,
                 breakdownFilter,
                 cohorts: allCohorts.results,
                 formatPropertyValueForDisplay,
@@ -113,7 +113,7 @@ export function useTrendsPartOfWholeChart({
             }),
         [
             querySource,
-            actionsById,
+            actionNames,
             breakdownFilter,
             allCohorts.results,
             formatPropertyValueForDisplay,
@@ -126,14 +126,14 @@ export function useTrendsPartOfWholeChart({
         () =>
             buildTrendsPieSeries(indexedResults ?? [], {
                 querySource,
-                actionsById,
+                actionNames,
                 getColor: getTrendsColor,
                 // Hidden series are listed (dimmed) and excluded via config.legend.hiddenKeys instead
                 // of being dropped here, so the legend can restore them.
                 getHidden: undefined,
                 getLabel,
             }),
-        [indexedResults, querySource, actionsById, getTrendsColor, getLabel]
+        [indexedResults, querySource, actionNames, getTrendsColor, getLabel]
     )
 
     const visibleResults = useMemo(

@@ -1,19 +1,19 @@
 import { InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FilterLogicalOperator } from '~/types'
 
-import { ActionsById, ResultSeries, ResultSeriesRow, getResultSeries } from './resultSeries'
+import { ActionNames, ResultSeries, ResultSeriesRow, getResultSeries } from './resultSeries'
 
 describe('getResultSeries()', () => {
     const pageviews = { kind: NodeKind.EventsNode as const, event: '$pageview', name: '$pageview' }
     const signups = { kind: NodeKind.ActionsNode as const, id: 7, name: 'Signed up' }
 
-    const signedUpById: ActionsById = { 7: { name: 'Signed up' } }
+    const signedUpNames: ActionNames = { '7': 'Signed up' }
 
     it.each<{
         case: string
         query: InsightQueryNode
         row: ResultSeriesRow
-        actionsById?: ActionsById
+        actionNames?: ActionNames
         expected: ResultSeries
     }>([
         {
@@ -67,14 +67,14 @@ describe('getResultSeries()', () => {
             },
         },
         {
-            case: 'an action series saved without a name to the name actionsById holds',
+            case: 'an action series saved without a name to its name in action_names',
             query: { kind: NodeKind.TrendsQuery, series: [{ kind: NodeKind.ActionsNode, id: 7 }] },
             row: { order: 0 },
-            actionsById: signedUpById,
+            actionNames: signedUpNames,
             expected: { order: 0, node: { kind: NodeKind.ActionsNode, id: 7, name: 'Signed up' }, math: {} },
         },
         {
-            case: 'a group series with an action saved without a name to its members, by the name actionsById holds',
+            case: 'a group series with an action saved without a name to its members, by their names in action_names',
             query: {
                 kind: NodeKind.TrendsQuery,
                 series: [
@@ -86,7 +86,7 @@ describe('getResultSeries()', () => {
                 ],
             },
             row: { order: 0 },
-            actionsById: signedUpById,
+            actionNames: signedUpNames,
             expected: {
                 order: 0,
                 node: {
@@ -122,7 +122,7 @@ describe('getResultSeries()', () => {
                 math: {},
             },
         },
-    ])('resolves $case', ({ query, row, actionsById, expected }) => {
-        expect(getResultSeries(query, row, actionsById)).toEqual(expected)
+    ])('resolves $case', ({ query, row, actionNames, expected }) => {
+        expect(getResultSeries(query, row, actionNames)).toEqual(expected)
     })
 })

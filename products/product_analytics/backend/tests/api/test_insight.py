@@ -69,6 +69,7 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query, insight_query
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -649,7 +650,16 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # never execute the body of. A 200 alone doesn't prove this: insight_result's
         # broad except Exception swallows calculation crashes into a query_status error
         # and still renders 200, so assert the embedded result actually computed.
-        insight_id, _ = self.dashboard_api.create_insight({"name": "insight"})
+        action = Action.objects.create(team=self.team, name="Viewed a page", steps_json=[{"event": "$pageview"}])
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "name": "insight",
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"kind": "ActionsNode", "id": action.id}]},
+                },
+            }
+        )
         sharing_config = SharingConfiguration.objects.create(team=self.team, insight_id=insight_id, enabled=True)
 
         # .json suffix returns exported_data directly, skipping exporter.html rendering
@@ -662,6 +672,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         query_status = exported["insight"]["query_status"] or {}
         self.assertFalse(query_status.get("error"), query_status)
         self.assertIsNotNone(exported["insight"]["result"])
+        # A shared view cannot read actions, so an action series saved without a name takes its name from here.
+        self.assertEqual(exported["insight"]["action_names"], {str(action.id): "Viewed a page"})
 
     def test_shared_force_refresh_ignores_client_filter_overrides(self) -> None:
         # Regression: the /shared/<token> page load runs without an authenticator, so the serializer
