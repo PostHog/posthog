@@ -29,18 +29,17 @@ tools:
             says whether refreshes stopped. A deprecate suggestion can be about a plain view too, with no refresh cost.
             Pass delete_view=true on a deprecate suggestion to delete the view instead of marking it deprecated; this
             cannot be undone, and a 409 means another view, a sync, a destination or a workflow now reads from it.
-            Unmaterialize suggestions turn a rarely
-            read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each
-            read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was
-            made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions
-            turn on materialization for the view on the proposed schedule, which adds a recurring compute cost; pass
-            refresh_interval_seconds to use another schedule. They also apply the payload's refresh_mode: incremental
-            refreshes read only new rows by incremental_key and update rows by unique_key, full refreshes rebuild the
-            whole table. The payload is a starting point. To change it, pass any of refresh_interval_seconds,
-            refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted field keeps the suggested value.
-            Check keys the person chose with view-check-incremental first. A 400 names the field the server refused and
-            why. A 409 means the view changed since the suggestion was made and its suggested keys no longer apply.
-            Requires human typed confirmation.
+            Unmaterialize suggestions turn a rarely read materialized view back into a plain view: its refreshes stop,
+            its stored table is deleted, and each read computes the view, taking about `read_seconds`. A 409 means the
+            view changed since the suggestion was made, for example another view now reads from it or it now refreshes
+            incrementally. Materialize suggestions turn on materialization for the view on the proposed schedule, which
+            adds a recurring compute cost; pass refresh_interval_seconds to use another schedule. They also apply the
+            payload's refresh_mode: incremental refreshes read only new rows by incremental_key and update rows by
+            unique_key, full refreshes rebuild the whole table. The payload is a starting point. To change it, pass any
+            of refresh_interval_seconds, refresh_mode, incremental_key, unique_key and lookback_seconds; an omitted
+            field keeps the suggested value. Check keys the person chose with view-check-incremental first. A 400 names
+            the field the server refused and why. A 409 means the view changed since the suggestion was made and its
+            suggested keys no longer apply. Requires human typed confirmation.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
