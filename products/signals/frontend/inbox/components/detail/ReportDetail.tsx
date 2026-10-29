@@ -11,7 +11,7 @@ import {
     IconSidebarOpen,
     IconTrends,
 } from '@posthog/icons'
-import { LemonButton, LemonTabs, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTabs, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -234,6 +234,7 @@ export function InboxDetailFrame({
         trailingCharts,
         detailTab,
         reportTaskToOpen,
+        implementationDisabledReason,
         reportChecks,
         reportChecksError,
         prioritySaving,
@@ -275,7 +276,14 @@ export function InboxDetailFrame({
 
     const reportActions = useReportDetailActions(report)
     const showCreatePr = canCreateImplementationPr(report)
-    const implementButton = showCreatePr || reportTaskToOpen ? <ImplementButton report={report} /> : null
+    const implementButton =
+        showCreatePr || reportTaskToOpen ? (
+            <ImplementButton
+                report={report}
+                reportTaskToOpen={reportTaskToOpen}
+                implementationDisabledReason={implementationDisabledReason}
+            />
+        ) : null
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
@@ -359,6 +367,14 @@ export function InboxDetailFrame({
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
+            {report.research_context?.mode === 'data_only' && (
+                <LemonBanner type="info">
+                    This report uses only your PostHog data. Without code access, agents can find problems but can't
+                    trace them to the underlying code, so findings may be less specific.{' '}
+                    <Link to={urls.settings('environment-integrations', 'integration-github')}>GitHub access</Link>{' '}
+                    helps agents investigate root causes and pinpoint what to change.
+                </LemonBanner>
+            )}
             <div className="flex flex-col gap-2">
                 {titleHeading}
                 {claimPill}

@@ -244,6 +244,25 @@ describe('InstructionsFormatter', () => {
         })
     })
 
+    describe('replay vision guidance', () => {
+        const visionTools = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
+        it.each([
+            { name: 'all three scan tools', extra: visionTools, expected: true },
+            { name: 'inline scan only', extra: ['vision-scanners-inline-scan'], expected: false },
+            { name: 'no vision tools', extra: [], expected: false },
+        ])('names Replay Vision only when the roster carries $name', ({ extra, expected }) => {
+            const tools = [...realisticTools, ...extra.map((name) => ({ name, category: 'Replay vision' }))]
+            const formatter = new InstructionsFormatter()
+            for (const rendered of [
+                formatter.buildToolsInstructions({ ...fullCtx, tools }),
+                formatter.buildExecCommandReference({ ...fullCtx, tools }),
+            ]) {
+                expect(rendered.includes('use Replay Vision instead of SQL over the replay tables')).toBe(expected)
+                expect(rendered.includes('{replay_vision}')).toBe(false)
+            }
+        })
+    })
+
     describe('buildExecCommandReference', () => {
         it.each([
             { name: 'both lookup tools', tools: ['project-get', 'execute-sql'], project: true, groups: true },

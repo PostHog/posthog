@@ -61,7 +61,7 @@ class TestCheckEndpointAccess:
             ),
             (
                 "invalid_b2b_endpoint",
-                "The organizations and members tables only exist for Stytch B2B projects, and this is a consumer project. Sync the users and sessions tables instead.",
+                "The organizations, members, sso_connections, organization_connected_apps and member_connected_apps tables only exist for Stytch B2B projects, and this is a consumer project. Sync the users and sessions tables instead.",
             ),
             ("some_other_denial", "Not available for this Stytch project (some_other_denial)"),
         ],
@@ -159,6 +159,198 @@ class TestGetRowsMembers:
         assert len(member_calls) == 1
         assert member_calls[0].json()["organization_ids"] == sorted_ids[100:]
         assert member_calls[0].json()["cursor"] == "member-cursor-3"
+
+
+class TestGetRowsRbacPolicy:
+    POLICY = {
+        "policy": {
+            "roles": [{"role_id": "stytch_admin", "description": "Admin", "permissions": []}],
+            "resources": [{"resource_id": "documents", "description": "Docs", "actions": ["read"]}],
+            "scopes": [{"scope": "read:documents", "description": "Read docs", "permissions": []}],
+        }
+    }
+
+    @pytest.mark.parametrize(
+        "script, expected_paths",
+        [
+            ([POLICY], ["/v1/b2b/rbac/policy"]),
+            (
+                [{"error_type": "invalid_b2b_endpoint"}, POLICY],
+                ["/v1/b2b/rbac/policy", "/v1/rbac/policy"],
+            ),
+        ],
+        ids=["b2b_project", "consumer_project_falls_back"],
+    )
+    def test_reads_the_policy_of_either_product_line(self, script, expected_paths):
+        responses = [_response(payload, 400 if "error_type" in payload else 200) for payload in script]
+        result = _driver().run("rbac_policy", responses)
+
+        assert result.raised is None
+        assert [request.path for request in result.requests] == expected_paths
+        assert [(row["entry_type"], row["entry_id"]) for row in result.rows] == [
+            ("role", "stytch_admin"),
+            ("resource", "documents"),
+            ("scope", "read:documents"),
+        ]
+
+    def test_other_errors_do_not_fall_back(self):
+        result = _driver().run("rbac_policy", [_response({"error_type": "unauthorized_credentials"}, 401)])
+
+        assert isinstance(result.raised, StytchAPIError)
+        assert len(result.requests) == 1
+
+
+def _org_search(org_ids: list[str]) -> ScriptedResponse:
+    return _response(_search_page("organizations", [{"organization_id": org_id} for org_id in org_ids], None))
+
+
+class TestGetRowsOrganizationFanOut:
+    def test_sso_connections_drop_idp_secrets_and_tag_the_protocol(self):
+        connections = {
+            "saml_connections": [
+                {
+                    "connection_id": "saml-1",
+                    "organization_id": "org-1",
+                    "encryption_private_keys": [{"private_key_id": "key-1", "private_key": "fake-pem"}],
+                }
+            ],
+            "oidc_connections": [{"connection_id": "oidc-1", "organization_id": "org-1", "client_secret": "fake"}],
+            "external_connections": [{"connection_id": "ext-1", "organization_id": "org-1"}],
+        }
+        result = _driver().run(
+            "sso_connections",
+            route(
+                {
+                    "/v1/b2b/organizations/search": [_org_search(["org-1"])],
+                    "/v1/b2b/sso/org-1": [_response(connections)],
+                }
+            ),
+        )
+
+        assert [(row["connection_id"], row["connection_type"]) for row in result.rows] == [
+            ("saml-1", "saml"),
+            ("oidc-1", "oidc"),
+            ("ext-1", "external"),
+        ]
+        assert "client_secret" not in result.rows[1]
+        assert result.rows[0]["encryption_private_keys"] == [{"private_key_id": "key-1"}]
+
+    @pytest.mark.parametrize(
+        "resume_bookmark, expected_org_paths",
+        [
+            (None, ["org-a", "org-b", "org-c"]),
+            ("org-b", ["org-b", "org-c"]),
+            # The bookmarked organization was deleted between attempts: resume at the next one.
+            ("org-bb", ["org-c"]),
+        ],
+    )
+    def test_walks_organizations_from_the_bookmark_and_skips_deleted_ones(self, resume_bookmark, expected_org_paths):
+        apps = {"connected_apps": [{"connected_app_id": "app-1"}]}
+        result = _driver().run(
+            "organization_connected_apps",
+            route(
+                {
+                    "/v1/b2b/organizations/search": [_org_search(["org-c", "org-a", "org-b"])],
+                    "/v1/b2b/organizations/org-a/connected_apps": [_response(apps)],
+                    # Deleted after the organization search ran.
+                    "/v1/b2b/organizations/org-b/connected_apps": [
+                        _response({"error_type": "organization_not_found"}, 404)
+                    ],
+                    "/v1/b2b/organizations/org-c/connected_apps": [_response(apps)],
+                }
+            ),
+            resume_state=StytchResumeConfig(org_bookmark=resume_bookmark) if resume_bookmark else None,
+        )
+
+        assert result.raised is None
+        fetched = [
+            request.path.split("/")[4] for request in result.requests if request.path.endswith("/connected_apps")
+        ]
+        assert fetched == expected_org_paths
+        assert [(row["organization_id"], row["connected_app_id"]) for row in result.rows] == [
+            (org_id, "app-1") for org_id in expected_org_paths if org_id != "org-b"
+        ]
+
+    def test_stages_the_next_organization_before_yielding(self):
+        apps = {"connected_apps": [{"connected_app_id": "app-1"}]}
+        result = _driver().run(
+            "organization_connected_apps",
+            route(
+                {
+                    "/v1/b2b/organizations/search": [_org_search(["org-a", "org-b"])],
+                    "/v1/b2b/organizations/org-a/connected_apps": [_response(apps)],
+                    "/v1/b2b/organizations/org-b/connected_apps": [_response(apps)],
+                }
+            ),
+        )
+
+        assert [state.org_bookmark for state in result.saved_states] == ["org-b"]
+
+
+class TestGetRowsMemberConnectedApps:
+    def test_fetches_each_member_across_member_search_pages(self):
+        result = _driver().run(
+            "member_connected_apps",
+            route(
+                {
+                    "/v1/b2b/organizations/search": [_org_search(["org-1"])],
+                    "/v1/b2b/organizations/members/search": [
+                        _response(
+                            _search_page("members", [{"member_id": "m-1", "organization_id": "org-1"}], "page-2")
+                        ),
+                        _response(_search_page("members", [{"member_id": "m-2", "organization_id": "org-1"}], None)),
+                    ],
+                    "/v1/b2b/organizations/org-1/members/m-1/connected_apps": [
+                        _response({"connected_apps": [{"connected_app_id": "app-1", "scopes_granted": "openid"}]})
+                    ],
+                    "/v1/b2b/organizations/org-1/members/m-2/connected_apps": [_response({"connected_apps": []})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"connected_app_id": "app-1", "scopes_granted": "openid", "organization_id": "org-1", "member_id": "m-1"}
+        ]
+        member_searches = [request.json() for request in result.requests if request.path.endswith("/members/search")]
+        assert [body.get("cursor") for body in member_searches] == [None, "page-2"]
+        assert [(state.org_bookmark, state.cursor) for state in result.saved_states] == [("org-1", "page-2")]
+
+    @pytest.mark.parametrize(
+        "member_bookmark, expected_members",
+        [
+            (None, ["m-1", "m-2", "m-3"]),
+            ("m-2", ["m-2", "m-3"]),
+            # The bookmarked member was deleted between attempts: re-read the whole page.
+            ("m-gone", ["m-1", "m-2", "m-3"]),
+        ],
+    )
+    def test_resumes_at_the_bookmarked_member(self, member_bookmark, expected_members):
+        members = [{"member_id": member_id, "organization_id": "org-1"} for member_id in ["m-1", "m-2", "m-3"]]
+        apps = {"connected_apps": [{"connected_app_id": "app-1"}]}
+        result = _driver().run(
+            "member_connected_apps",
+            route(
+                {
+                    "/v1/b2b/organizations/search": [_org_search(["org-1"])],
+                    "/v1/b2b/organizations/members/search": [_response(_search_page("members", members, None))],
+                    **{
+                        f"/v1/b2b/organizations/org-1/members/{member_id}/connected_apps": [_response(apps)]
+                        for member_id in ["m-1", "m-2", "m-3"]
+                    },
+                }
+            ),
+            resume_state=StytchResumeConfig(cursor="page-2", org_bookmark="org-1", member_bookmark=member_bookmark),
+        )
+
+        assert result.raised is None
+        assert [row["member_id"] for row in result.rows] == expected_members
+        member_searches = [request.json() for request in result.requests if request.path.endswith("/members/search")]
+        assert [body.get("cursor") for body in member_searches] == ["page-2"]
+        # Each yield stages the next unread member on the same page.
+        assert [(state.cursor, state.member_bookmark) for state in result.saved_states] == [
+            ("page-2", member_id) for member_id in expected_members[1:]
+        ]
 
 
 class TestStytchSourceResponse:

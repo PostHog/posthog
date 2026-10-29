@@ -23,6 +23,7 @@ from products.signals.backend.first_report_scout import (
     set_first_report_state,
 )
 from products.signals.backend.first_report_scout_types import FirstReportStatus
+from products.signals.backend.github_optional import GITHUB_OPTIONAL_ACTIVATION
 from products.signals.backend.models import SignalScoutConfig, SignalTeamConfig
 from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
@@ -121,7 +122,11 @@ class InboxOnboardingActivation:
         return True
 
     def _start_default_scout(self, team: Team, state: dict[str, Any]) -> bool:
-        return state.get("variant") == "test-github" and self._start_general_scout(team)
+        quick = (
+            state.get("variant") == "test-github"
+            or (state.get("draft") or {}).get("activation_mode") == GITHUB_OPTIONAL_ACTIVATION
+        )
+        return quick and self._start_general_scout(team)
 
     def _start_general_scout(self, team: Team) -> bool:
         scout = (
@@ -154,7 +159,11 @@ class InboxOnboardingActivation:
             team_id=self.team_id
         )
         state = config.onboarding or {}
-        if state.get("variant") not in ("test-github", "test-ui") or not state.get("completed_at"):
+        quick = (
+            state.get("variant") in ("test-github", "test-ui")
+            or (state.get("draft") or {}).get("activation_mode") == GITHUB_OPTIONAL_ACTIVATION
+        )
+        if not quick or not state.get("completed_at"):
             return
         if state.get("jobs", {}).get(job) in ("started", "skipped"):
             return

@@ -128,6 +128,13 @@ export const signalsOnboardingCreateBodyActivationScoutsItemMax = 200
 export const signalsOnboardingCreateBodyActivationScoutsMax = 50
 
 export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
+    activation_mode: zod
+        .enum(['github_optional'])
+        .describe('\* `github_optional` - GitHub optional')
+        .optional()
+        .describe(
+            'Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.\n\n\* `github_optional` - GitHub optional'
+        ),
     step: zod
         .enum(['signals', 'scouts', 'github'])
         .describe('\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub')
@@ -367,6 +374,13 @@ export const signalsOnboardingCompleteCreateBodyActivationScoutsItemMax = 200
 export const signalsOnboardingCompleteCreateBodyActivationScoutsMax = 50
 
 export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
+    activation_mode: zod
+        .enum(['github_optional'])
+        .describe('\* `github_optional` - GitHub optional')
+        .optional()
+        .describe(
+            'Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.\n\n\* `github_optional` - GitHub optional'
+        ),
     step: zod
         .enum(['signals', 'scouts', 'github'])
         .describe('\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub')
@@ -1067,7 +1081,7 @@ export const SignalsReportsStateCreateBody = /* @__PURE__ */ zod.object({
             '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
         )
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
@@ -1343,7 +1357,7 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
             '\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring'
         )
         .describe(
-            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
+            "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, 'potential' to snooze\/reopen it for later review, or 'resolved' when the report is finished. Resolving is allowed from ready, pending_input, failed, closed, or monitoring, or from a suppressed report that previously held one of those statuses or resolved. Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). Dismissing or resolving closes the report's open implementation PR, if it has one. Use 'monitoring' when implementation is complete and outcome verification is pending. Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. Without applicable checks the report resolves directly. Manual completion records caller attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment.\n\n\* `suppressed` - suppressed\n\* `potential` - potential\n\* `resolved` - resolved\n\* `monitoring` - monitoring"
         ),
     dismissal_reason: zod
         .enum([
