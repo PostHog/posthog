@@ -15,7 +15,8 @@ class HumanitixEndpointConfig:
     path: str
     # Key of the row array in the paginated response envelope; it differs per endpoint
     # (e.g. `events` for /events, `tags` for /tags) even though the envelope shape is identical.
-    list_key: str
+    # None for an endpoint that returns a single object instead of a list.
+    list_key: Optional[str] = None
     # Humanitix objects are Mongo documents, so `_id` is a stable, globally unique primary key.
     primary_keys: list[str] = field(default_factory=lambda: ["_id"])
     # A stable (never-rewritten) datetime field to partition by.
@@ -26,6 +27,9 @@ class HumanitixEndpointConfig:
     incremental_fields: list[Any] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
     page_size: int = PAGE_SIZE
+    # Set for endpoints fetched once per event date. The dates come from each event's `dates` array,
+    # so the shared single-hop fan-out builder can't express this.
+    per_event_date: bool = False
 
 
 # Orders and tickets are only listed per event. Fan out over `/events` and stamp the parent event id
@@ -40,8 +44,9 @@ _EVENT_FANOUT = DependentEndpointConfig(
 
 
 # Humanitix Public API list endpoints. `/events` and `/tags` are account-scoped top-level lists;
-# orders and tickets fan out per event. The `/global/*` endpoints return the public marketplace
-# catalog rather than the account's own data, so they are not exposed here.
+# orders and tickets fan out per event, and check-in counts per event date. The `/global/*`
+# endpoints return the public marketplace catalog rather than the account's own data, so they are
+# not exposed here.
 # All are full refresh only. Orders and tickets accept a `since` filter, but the API does not say
 # which timestamp it compares, so a cursor on `updatedAt` could silently miss refunds and cancellations.
 HUMANITIX_ENDPOINTS: dict[str, HumanitixEndpointConfig] = {
@@ -62,6 +67,13 @@ HUMANITIX_ENDPOINTS: dict[str, HumanitixEndpointConfig] = {
         primary_keys=["eventId", "_id"],
         partition_key="createdAt",
         fanout=_EVENT_FANOUT,
+    ),
+    # Beta endpoint that returns one check-in summary object per event date, so it has no list key.
+    "check_in_counts": HumanitixEndpointConfig(
+        name="check_in_counts",
+        path="/events/{eventId}/check-in-count",
+        primary_keys=["eventId", "eventDateId"],
+        per_event_date=True,
     ),
 }
 

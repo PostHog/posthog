@@ -439,7 +439,7 @@ export const getPersonsUpdatePropertyCreateUrl = (
 export const personsUpdatePropertyCreate = async (
     projectId: string,
     id: string,
-    personUpdatePropertyRequestApi: PersonUpdatePropertyRequestApi,
+    personUpdatePropertyRequestApi?: PersonUpdatePropertyRequestApi,
     params?: PersonsUpdatePropertyCreateParams,
     options?: RequestInit
 ): Promise<void> => {

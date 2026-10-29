@@ -21,7 +21,8 @@ class GitGuardianEndpointConfig:
     # "desc" for incremental endpoints with no `ordering` param: the pipeline then promotes the
     # watermark only when the sync completes, so it never depends on the API's row order.
     sort_mode: Literal["asc", "desc"] = "asc"
-    page_size: int = 100  # GitGuardian caps per_page at 100
+    # GitGuardian caps per_page at 100. None for endpoints that take no paging params.
+    page_size: Optional[int] = 100
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     should_sync_default: bool = True
     # Scope named in permission errors when the probe can't extract the API's own detail message.
@@ -44,6 +45,11 @@ class GitGuardianEndpointConfig:
     # parent's `id` into the `{parent_id}` placeholder. The probe for scope checks hits the parent
     # instead, since the child path can't be requested without a real id.
     parent_endpoint: Optional[str] = None
+    # Column that receives the parent's `id` on each child row, for children whose rows don't
+    # carry it themselves. Needed to keep the primary key unique across parents.
+    parent_id_field: Optional[str] = None
+    # Other endpoints whose scopes this table also needs; the permission probe checks each one.
+    also_requires: tuple[str, ...] = ()
     statuses: tuple[str, ...] = ()
 
 
@@ -152,6 +158,59 @@ GITGUARDIAN_ENDPOINTS: dict[str, GitGuardianEndpointConfig] = {
         ordering="created_at",
         primary_keys=["incident_id", "id"],
         required_scope="incidents:read",
+        should_sync_default=False,
+        incremental_fields=[],
+    ),
+    # Incident notes: analyst comments left on each secret incident, fanned out per incident.
+    # Notes can be edited (`updated_at`) and there is no server-side time filter, so full
+    # refresh. Off by default because it costs at least one request per incident.
+    "secret_incident_notes": GitGuardianEndpointConfig(
+        name="secret_incident_notes",
+        path="/v1/incidents/secrets/{parent_id}/notes",
+        parent_endpoint="secret_incidents",
+        partition_key="created_at",
+        ordering="created_at",
+        primary_keys=["incident_id", "id"],
+        required_scope="incidents:read",
+        should_sync_default=False,
+        incremental_fields=[],
+    ),
+    # Incident leaks: the public places (GitHub repos, issues, gists) where each incident's secret
+    # surfaced. The endpoint is unpaginated and its rows carry no id or incident id, so the
+    # incident id is stamped on and the leak URL completes the key. Off by default because it
+    # costs one request per incident.
+    "secret_incident_leaks": GitGuardianEndpointConfig(
+        name="secret_incident_leaks",
+        path="/v1/incidents/secrets/{parent_id}/leaks",
+        parent_endpoint="secret_incidents",
+        parent_id_field="incident_id",
+        page_size=None,
+        primary_keys=["incident_id", "url"],
+        required_scope="incidents:read",
+        should_sync_default=False,
+        incremental_fields=[],
+    ),
+    # Team sources: the source <-> team join table, fanned out per team. Rows are full source
+    # objects with no team id, so the team id is stamped on to keep the key unique across teams.
+    # Also needs `sources:read`, so the probe checks `/v1/sources` too.
+    "team_sources": GitGuardianEndpointConfig(
+        name="team_sources",
+        path="/v1/teams/{parent_id}/sources",
+        parent_endpoint="teams",
+        parent_id_field="team_id",
+        also_requires=("sources",),
+        primary_keys=["team_id", "id"],
+        required_scope="teams:read",
+        incremental_fields=[],
+    ),
+    # Public perimeter developers: developers GitGuardian links to the organization for public
+    # monitoring. The endpoint takes no paging params and has no time filter, so full refresh.
+    # Off by default because it needs the Public Monitoring product.
+    "public_developers": GitGuardianEndpointConfig(
+        name="public_developers",
+        path="/v1/public-perimeter/developers",
+        page_size=None,
+        required_scope="public-perimeter:read",
         should_sync_default=False,
         incremental_fields=[],
     ),

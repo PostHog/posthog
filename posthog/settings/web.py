@@ -1,7 +1,7 @@
 # Web app specific settings/middleware/apps setup
 import os
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -13,13 +13,7 @@ from posthog.openapi.enum_names import ChoicesEnumNameOverrides
 from posthog.run_mode import derive_run_mode
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import (
-    generate_rsa_private_key_pem,
-    get_from_env,
-    get_list,
-    str_to_bool,
-    str_to_utc_datetime,
-)
+from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -187,6 +181,8 @@ _UNVERSIONED_STATIC_MIDDLEWARE = (
 
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
+    # Outside every middleware that can swap the response, so the deferred work rides on the one sent.
+    "posthog.after_response.AfterResponseMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
     # the request path. AllowIPMiddleware and axes read the IP at or after the view.
@@ -575,6 +571,8 @@ REST_FRAMEWORK = {
     ],
     # The default STRICT_JSON fails the whole request if the data can't be strictly JSON-serialized
     "STRICT_JSON": False,
+    # Keep the pre-3.18 list shape for `many=True` errors that API clients parse. DRF drops this setting in 3.20.
+    "LIST_SERIALIZER_ERRORS_AS_DICT": False,
 }
 
 if DEBUG:
@@ -656,12 +654,27 @@ SPECTACULAR_SETTINGS = {
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
+            # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
+            "ImportProviderKeyEnum": "products.messaging.backend.models.provider_import_run.ImportProviderKey.choices",
             # Workflow steps and workflow template steps both take a field named `type` with this set.
             "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
             "SlackSummaryCadenceEnum": ["daily", "weekly", "monthly"],
+            # Keeps `EngineEnum` for the warehouse source engines. The saved-query run endpoint
+            # also has an `engine` field, which would otherwise rename this one.
+            "EngineEnum": [
+                "duckdb",
+                "postgres",
+                "mysql",
+                "snowflake",
+                "redshift",
+                "clickhouse",
+                "motherduck",
+                "trino",
+                None,
+            ],
             # signals' report-metric role; AutoresearchModel.Role also sits on a field named `role`.
             "RoleEnum": ["primary", "supporting"],
             # Keeps the name `CodeEnum` for the dataset conflict codes of ai_observability. A second field named
@@ -1292,14 +1305,6 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
-
-# A provisioning partner whose app predates the signing requirement may call unsigned until the grace period ends.
-PROVISIONING_SIGNING_REQUIRED_SINCE: datetime = get_from_env(
-    "PROVISIONING_SIGNING_REQUIRED_SINCE", datetime(2026, 10, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
-)
-PROVISIONING_UNSIGNED_GRACE_UNTIL: datetime = get_from_env(
-    "PROVISIONING_UNSIGNED_GRACE_UNTIL", datetime(2026, 10, 23, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
-)
 
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)

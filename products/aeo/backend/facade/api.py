@@ -252,7 +252,12 @@ def get_prompt_stats(team_id: int, prompt_id: str, *, timezone_name: str, days: 
         )
         for row in in_window.annotate(date=TruncDate("created_at", tzinfo=tz))
         .values("date", "engine")
-        .annotate(**counts)
+        .annotate(
+            checks=Count("id"),
+            mentioned=Count("id", filter=Q(check_failed=False) & mention_filter(target_domains)),
+            cited=Count("id", filter=Q(cited=True)),
+            failed=Count("id", filter=Q(check_failed=True)),
+        )
         .order_by("date", "engine")
     )
     answered = in_window.filter(check_failed=False)

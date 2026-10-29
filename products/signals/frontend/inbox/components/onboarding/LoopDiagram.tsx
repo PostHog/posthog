@@ -54,7 +54,7 @@ export function LoopDiagram(): JSX.Element {
         <div className="@container/loop w-full">
             <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 text-left @2xl/loop:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
                 <div className="flex flex-col gap-2">
-                    <StageLabel>Signal sources</StageLabel>
+                    <StageLabel>Sources</StageLabel>
                     <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
                         <span className="flex size-5 shrink-0 items-center justify-center">
                             <IconRewindPlay className="text-sm text-[var(--color-product-session-replay-light)] dark:text-[var(--color-product-session-replay-dark)]" />

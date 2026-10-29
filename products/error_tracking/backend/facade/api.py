@@ -18,7 +18,7 @@ from products.access_control.backend.facade.api import valid_role_member_user_id
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
-from ..logic import external_references, github_external_references, rules
+from ..logic import built_in_filters, external_references, github_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -38,6 +38,7 @@ ExternalReferenceValidationError = external_references.ErrorTrackingExternalRefe
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
+UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -573,6 +574,25 @@ def reorder_suppression_rules(team_id: int, orders: dict[str, int]) -> None:
 
 def get_client_safe_suppression_rules(team_id: int) -> list[dict]:
     return rules.get_client_safe_suppression_rules(team_id)
+
+
+def _to_built_in_filter(state: built_in_filters.BuiltInFilterState) -> contracts.ErrorTrackingBuiltInFilter:
+    return contracts.ErrorTrackingBuiltInFilter(
+        key=state.definition.key,
+        name=state.definition.name,
+        description=state.definition.description,
+        evaluation=contracts.BuiltInFilterEvaluation(built_in_filters.built_in_filter_evaluation(state.definition)),
+        enabled=state.enabled,
+        disabled_reason=state.disabled_reason,
+    )
+
+
+def list_built_in_filters(team_id: int) -> list[contracts.ErrorTrackingBuiltInFilter]:
+    return [_to_built_in_filter(state) for state in built_in_filters.list_built_in_filters(team_id)]
+
+
+def set_built_in_filter_enabled(team_id: int, key: str, *, enabled: bool) -> contracts.ErrorTrackingBuiltInFilter:
+    return _to_built_in_filter(built_in_filters.set_built_in_filter_enabled(team_id, key, enabled=enabled))
 
 
 def _to_bypass_rule(rule) -> contracts.ErrorTrackingBypassRule:

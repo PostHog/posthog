@@ -20,7 +20,6 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
 from pydantic import BaseModel, Field
 
 from posthog.dataclasses import frozen
@@ -29,7 +28,7 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
-from products.replay_vision.backend.gemini_client import gemini_api_key
+from products.replay_vision.backend.gemini_client import gemini_text_models
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin
@@ -60,7 +59,6 @@ MAX_CONTEXT_RATINGS_PER_SCANNER = 20
 _SCANNER_PROMPT_CHARS = 1200
 # Long enough for most answers whole: without the session, the scanner's own words are all a pattern can rest on.
 _REASONING_CHARS = 2000
-_NOTABILITY_CHARS = 300
 _FEEDBACK_CHARS = 600
 # A first run reads ratings this far back; older ones may describe a scanner that has changed since.
 FIRST_RUN_LOOKBACK = dt.timedelta(days=90)
@@ -695,16 +693,12 @@ def _describe(rating: _Rating, scanner_version: int) -> str:
 
 
 def _output_details(output: dict) -> str:
-    """Confidence, notability and the moment the scanner picked, which a pattern across unexplained ratings
-    can turn on (for example, every rejected answer being low-confidence)."""
+    """Confidence and the moment the scanner picked, which a pattern across unexplained ratings can turn on
+    (for example, every rejected answer being low-confidence)."""
     parts: list[str] = []
     confidence = output.get("confidence")
     if isinstance(confidence, int | float):
         parts.append(f"confidence {confidence:.2f}")
-    notability = output.get("notability")
-    if isinstance(notability, int | float):
-        reason = " ".join(str(output.get("notability_reason") or "").split())[:_NOTABILITY_CHARS]
-        parts.append(f"notability {notability:.2f}" + (f" ({reason})" if reason else ""))
     key_moment_ms = output.get("key_moment_ms")
     if isinstance(key_moment_ms, int):
         parts.append(f"key moment at {key_moment_ms // 1000}s")
@@ -759,15 +753,8 @@ def _build_user_content(
 
 
 def _generate(*, user_content: str, team_id: int, trace_id: str) -> _LlmRules:
-    api_key = gemini_api_key()
     try:
-        client = genai.Client(
-            api_key=api_key,
-            # Privacy mode keeps customer content out of the internal project, where it could not be deleted on request.
-            posthog_privacy_mode=True,
-            posthog_client=posthoganalytics.default_client,
-            http_options={"timeout": _MODEL_CALL_TIMEOUT_MS},
-        )
+        models = gemini_text_models(timeout_ms=_MODEL_CALL_TIMEOUT_MS)
     except Exception as e:
         raise LearnedRulesError("model client unavailable") from e
     config = GenerateContentConfig(
@@ -776,14 +763,13 @@ def _generate(*, user_content: str, team_id: int, trace_id: str) -> _LlmRules:
         response_json_schema=_LlmRules.model_json_schema(),
     )
     try:
-        response = client.models.generate_content(
+        response = models.generate_content(
             model=_RULES_MODEL,
             contents=user_content,
             config=config,
             posthog_distinct_id=f"team:{team_id}",
             posthog_trace_id=trace_id,
             posthog_properties={"ai_product": "replay_vision", "feature": "learned_rules", "team_id": team_id},
-            posthog_groups={"project": str(team_id)},
         )
     except Exception as e:
         logger.exception("replay_vision.learned_rules.generate_failed", team_id=team_id)

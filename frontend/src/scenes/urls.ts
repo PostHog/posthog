@@ -46,7 +46,7 @@ export interface AnalyticsListUrlParams {
 
 export const urls = {
     ...productUrls,
-    absolute: (path = ''): string => window.location.origin + path,
+    absolute: (path = ''): string => new URL(path, window.location.origin).href,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),

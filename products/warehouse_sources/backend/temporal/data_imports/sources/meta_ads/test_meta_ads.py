@@ -13,6 +13,8 @@ from requests.exceptions import (
     JSONDecodeError as RequestsJSONDecodeError,
 )
 
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
     VersionDeprecation,
     error_message_matches,
@@ -53,6 +55,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     SMALLEST_PAGE_LIMIT_MAX_RETRIES,
     MetaAdsAuthError,
+    MetaAdsRateLimitError,
     MetaAdsResumeConfig,
     _earliest_supported_since,
     _fetch_integration_row,
@@ -334,6 +337,64 @@ class TestSimplePaginationLimitFallback:
 
         assert batches == [[{"id": "1"}]]
         assert mock_get.return_value.get.call_args_list[-1].kwargs["params"]["limit"] == PAGE_LIMIT_FALLBACK_SIZES[-1]
+
+    def test_smallest_limit_refusal_drops_refusable_fields_and_reads_them_per_row(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        params = {**self.PARAMS, "fields": "id,name,targeting"}
+        get_responses = [
+            *(_mock_response(500, self.REDUCE_BODY) for _ in PAGE_LIMIT_FALLBACK_SIZES),
+            _mock_response(200, {"data": [{"id": "1", "name": "a"}], "paging": {}}),
+        ]
+        batch_response = mock.MagicMock()
+        batch_response.status_code = 200
+        batch_response.json.return_value = [
+            {"code": 200, "body": json.dumps({"id": "1", "targeting": {"age_min": 18}})}
+        ]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = get_responses
+            mock_get.return_value.post.side_effect = [batch_response]
+            batches = list(
+                _iter_simple_pagination(
+                    self.INITIAL_URL, params, None, manager, ("targeting",), "https://graph.facebook.com/v20/"
+                )
+            )
+
+        assert batches == [[{"id": "1", "name": "a", "targeting": {"age_min": 18}}]]
+        get_calls = mock_get.return_value.get.call_args_list
+        # Every rung of the ladder is tried with the full field list before any field is dropped.
+        assert len(get_calls) == len(PAGE_LIMIT_FALLBACK_SIZES) + 1
+        assert all(call.kwargs["params"]["fields"] == "id,name,targeting" for call in get_calls[:-1])
+        assert get_calls[-1].kwargs["params"]["fields"] == "id,name"
+        assert get_calls[-1].kwargs["params"]["limit"] == PAGE_LIMIT_FALLBACK_SIZES[-1]
+
+    def test_smallest_limit_refusal_without_refusable_fields_still_raises_retryable_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(meta_ads_module, "_backoff_sleep", lambda attempt: None)
+        manager = _build_manager()
+        params = {**self.PARAMS, "fields": "id,name,targeting"}
+        attempts = len(PAGE_LIMIT_FALLBACK_SIZES) + 1 + SMALLEST_PAGE_LIMIT_MAX_RETRIES
+        responses = [_mock_response(500, self.REDUCE_BODY) for _ in range(attempts)]
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.meta_ads.make_tracked_session"
+        ) as mock_get:
+            mock_get.return_value.get.side_effect = responses
+            with pytest.raises(Exception, match="smallest page size"):
+                list(
+                    _iter_simple_pagination(
+                        self.INITIAL_URL, params, None, manager, ("targeting",), "https://graph.facebook.com/v20/"
+                    )
+                )
+
+        assert mock_get.return_value.get.call_count == attempts
+        mock_get.return_value.post.assert_not_called()
 
     def test_non_timeout_error_does_not_retry(self) -> None:
         manager = _build_manager()
@@ -1694,8 +1755,10 @@ class TestNonRetryableErrors:
             # Token refresh failure raised by get_integration.
             META_TOKEN_REFRESH_ERROR_MESSAGE,
             # Integration row deleted/de-authorized while the source still references it —
-            # get_integration raises Django's Integration.DoesNotExist with this message.
+            # get_integration raises Django's IntegrationNotFound with this message.
             "Integration matching query does not exist.",
+            # `_fetch_integration_row` raises `IntegrationNotFound` with this text.
+            "Integration not found: 42",
             # 400 from Meta when the ad account no longer belongs to the authorised user.
             'Meta API request failed: 400 - {"error":{"message":"(#200) Ad account owner has NOT granted ads_management or ads_read permission.","type":"OAuthException","code":200}}',
             # 400 when a specific endpoint cannot be accessed with the granted permissions.
@@ -1895,6 +1958,21 @@ class TestRetryableErrors:
             _raise_meta_api_error(response)
         assert any(pattern in str(exc_info.value) for pattern in patterns)
 
+    def test_html_429_matches_rate_limit_pattern(self) -> None:
+        # A fronting proxy has been observed answering throttling with a bare HTTP 429 and an
+        # HTML error page instead of Meta's own JSON error body. With no error code to parse,
+        # this must still be tagged as rate-limiting rather than falling through to the generic,
+        # unclassified message on every attempt.
+        response = mock.MagicMock()
+        response.status_code = 429
+        response.json.side_effect = RequestsJSONDecodeError("Expecting value", "", 0)
+        response.text = "<!DOCTYPE html><html><body><h1>4xx Client Error</h1></body></html>"
+
+        patterns = MetaAdsSource().get_retryable_errors()
+        with pytest.raises(Exception) as exc_info:
+            _raise_meta_api_error(response)
+        assert any(pattern in str(exc_info.value) for pattern in patterns)
+
     @pytest.mark.parametrize(
         "error_message,expected_fragment",
         [
@@ -2039,10 +2117,10 @@ class TestGetIntegration:
         integration = mock.MagicMock()
 
         def fake_get(*args: Any, **kwargs: Any) -> mock.MagicMock:
-            calls.append("Integration.objects.get")
+            calls.append("IntegrationManager.get")
             return integration
 
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", fake_get)
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", fake_get)
 
         meta_ads_integration = mock.MagicMock()
         meta_ads_integration.integration = integration
@@ -2052,7 +2130,7 @@ class TestGetIntegration:
         config = MetaAdsSourceConfig(account_id="act_123", meta_ads_integration_id=42)
         result = get_integration(config, team_id=1)
 
-        assert calls == ["close_old_connections", "Integration.objects.get"]
+        assert calls == ["close_old_connections", "IntegrationManager.get"]
         meta_ads_integration.refresh_access_token.assert_called_once()
         assert result is integration
 
@@ -2062,7 +2140,7 @@ class TestFetchIntegrationRowDbResilience:
         integration = object()
         get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
         close = mock.Mock()
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", close)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda _s: None)
 
@@ -2083,7 +2161,7 @@ class TestFetchIntegrationRowDbResilience:
             ]
         )
         sleeps: list[int] = []
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda s: sleeps.append(s))
 
@@ -2097,7 +2175,7 @@ class TestFetchIntegrationRowDbResilience:
     def test_reraises_after_exhausting_attempts(self, monkeypatch) -> None:
         get = mock.Mock(side_effect=OperationalError("query_wait_timeout"))
         sleeps: list[int] = []
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda s: sleeps.append(s))
 
@@ -2110,12 +2188,12 @@ class TestFetchIntegrationRowDbResilience:
         assert sleeps == [2, 4, 6]
 
     def test_missing_integration_is_not_retried(self, monkeypatch) -> None:
-        get = mock.Mock(side_effect=meta_ads_module.Integration.DoesNotExist())
-        monkeypatch.setattr(meta_ads_module.Integration.objects, "get", get)
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
+        monkeypatch.setattr(meta_ads_module.IntegrationManager.meta_ads.oauth, "get", get)
         monkeypatch.setattr(meta_ads_module, "close_old_connections", lambda: None)
         monkeypatch.setattr(meta_ads_module.time, "sleep", lambda _s: None)
 
-        with pytest.raises(meta_ads_module.Integration.DoesNotExist):
+        with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
             _fetch_integration_row(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.
@@ -2184,6 +2262,17 @@ class TestListAdAccounts:
     def test_transient_failure_surfaces_retry_message_to_the_picker(self, answer: Any) -> None:
         with scripted_network(always(answer)):
             with pytest.raises(IntegrationAccountListingError, match=META_AD_ACCOUNT_LISTING_UNAVAILABLE_MESSAGE):
+                list_ad_accounts(self._integration())
+
+    def test_html_429_raises_meta_ads_rate_limit_error(self) -> None:
+        # Before the HTTP-429 fallback in `_is_rate_limit_error`, this fell through to the
+        # generic, unclassified error instead of `MetaAdsRateLimitError` (which
+        # `get_oauth_accounts` turns into the actionable message the picker shows). A 429 is in
+        # the adapter's retry status_forcelist, so `always()` answers every retried attempt.
+        with scripted_network(
+            always(ScriptedResponse(status=429, body=b"<!DOCTYPE html><html><body>4xx Client Error</body></html>"))
+        ):
+            with pytest.raises(MetaAdsRateLimitError, match=META_RATE_LIMIT_ERROR_MESSAGE):
                 list_ad_accounts(self._integration())
 
     def test_page_limit_exceeded_fails_closed_instead_of_returning_partial(self) -> None:
@@ -2400,13 +2489,29 @@ class TestBreakdownStatsRequests:
         assert fields_param is not None
         requested_fields = set(fields_param.split(","))
         video_fields = {"video_play_actions", "video_thruplay_watched_actions"}
+        # Meta rejects the whole request when `region` asks for these, so they must not leak into
+        # the field list that every breakdown shares.
+        watch_depth_fields = {
+            "video_30_sec_watched_actions",
+            "video_p25_watched_actions",
+            "video_p50_watched_actions",
+            "video_p75_watched_actions",
+            "video_p95_watched_actions",
+            "video_p100_watched_actions",
+            "video_avg_time_watched_actions",
+        }
+        breakdowns = schema.extra_params["breakdowns"]
         if (
-            "hourly_stats_aggregated_by_advertiser_time_zone" in schema.extra_params["breakdowns"]
+            "hourly_stats_aggregated_by_advertiser_time_zone" in breakdowns
             or endpoint == MetaAdsResource.AdStatsByLinkUrl
         ):
-            assert video_fields.isdisjoint(requested_fields)
+            assert (video_fields | watch_depth_fields).isdisjoint(requested_fields)
+        elif breakdowns in ("country", "publisher_platform,platform_position,impression_device"):
+            assert video_fields | watch_depth_fields <= requested_fields
         else:
             assert video_fields <= requested_fields
+            if breakdowns == "region":
+                assert watch_depth_fields.isdisjoint(requested_fields)
 
     def test_non_stats_endpoint_is_not_windowed(self, monkeypatch) -> None:
         result = self._capture_request(monkeypatch, MetaAdsResource.AdCreatives)
@@ -2414,25 +2519,45 @@ class TestBreakdownStatsRequests:
         assert result.requests[0].param("time_range") is None
         assert result.requests[0].path.endswith("/act_123/adcreatives")
 
-    def test_attribution_settings_omitted_when_unset(self, monkeypatch) -> None:
+    @pytest.mark.parametrize("action_attribution_windows", [None, "", "first_touch, 30d_click"])
+    def test_attribution_settings_omitted_when_unset(self, monkeypatch, action_attribution_windows: str | None) -> None:
         # Backward compatibility: an existing connection that never set attribution config must
         # produce the same Insights request as before — Meta then applies its own default window.
-        result = self._capture_request(monkeypatch, MetaAdsResource.CampaignStats)
+        # A setting with no value Meta accepts falls back the same way, because Meta rejects the
+        # whole request for one unknown window.
+        result = self._capture_request(
+            monkeypatch, MetaAdsResource.CampaignStats, action_attribution_windows=action_attribution_windows
+        )
 
         assert result.requests[0].param("action_attribution_windows") is None
         assert result.requests[0].param("use_unified_attribution_setting") is None
 
-    def test_attribution_settings_threaded_into_stats_request(self, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        "action_attribution_windows, expected",
+        [
+            ("7d_click, 1d_view", ["7d_click", "1d_view"]),
+            ("7D_Click;1d_VIEW", ["7d_click", "1d_view"]),
+            ("7d_click 1d_view", ["7d_click", "1d_view"]),
+            ('["7d_click", "28d_view"]', ["7d_click", "28d_view"]),
+            ("7 day click, 1-day view, 28 days clicks", ["7d_click", "1d_view", "28d_click"]),
+            ("7d_click, 7d_click", ["7d_click"]),
+            ("dda, 7d_view_first_conversion, skan_click", ["dda", "7d_view_first_conversion", "skan_click"]),
+            ("7d_click, last_touch, 2d_click", ["7d_click"]),
+        ],
+    )
+    def test_attribution_settings_threaded_into_stats_request(
+        self, monkeypatch, action_attribution_windows: str, expected: list[str]
+    ) -> None:
         result = self._capture_request(
             monkeypatch,
             MetaAdsResource.CampaignStats,
-            action_attribution_windows="7d_click, 1d_view",
+            action_attribution_windows=action_attribution_windows,
             use_unified_attribution_setting="true",
         )
 
-        # Windows are sent JSON-encoded (Meta's list-parameter shape) with surrounding whitespace
-        # trimmed; the unified-setting flag is passed through verbatim.
-        assert json.loads(result.requests[0].param("action_attribution_windows") or "null") == ["7d_click", "1d_view"]
+        # Windows are sent JSON-encoded (Meta's list-parameter shape), normalized to the values Meta
+        # accepts, with unknown ones dropped; the unified-setting flag is passed through verbatim.
+        assert json.loads(result.requests[0].param("action_attribution_windows") or "null") == expected
         assert result.requests[0].param("use_unified_attribution_setting") == "true"
 
     def test_attribution_default_sentinel_leaves_unified_setting_unset(self, monkeypatch) -> None:
