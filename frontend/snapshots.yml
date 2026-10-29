@@ -6690,6 +6690,18 @@ snapshots:
         hash: v1.k794b7964.31703656b8a306a7d49b09cc8f656c7c42736668885c84bc98bb313bf1ebf501.mQsSNC-D51SFFN3Ck7nPjwPYTva-iHTshY5Nn4Nprqg
     products-autoresearch-training-run-row--run-produced-the-champion--light:
         hash: v1.k794b7964.0ca7c29c5445ee44d47a1cef4c7c8f6d331310b0176e173f43530b99079e4e86.tjZPXyNflXDsKIgM8KBKf31qxG5l2W-_GViGBr51tn0
+    products-business-intelligence-catalog-metric-picker--empty--dark:
+        hash: v1.k794b7964.d720ec072a609015330a04f41d87b1a818f8220e17f1d06ffc29b2efaecba461.g9DVnk37vCW2Y1DYp4RRiW9zJroZLiUF1k2hKwWJCe4
+    products-business-intelligence-catalog-metric-picker--empty--light:
+        hash: v1.k794b7964.f534a88199894d3c8fa4d8990b25c45d6617495dfe5b76eb43bb1ad2a38b4a67.PSXPc4BqPVgHa9oBoUXc363PVvm2pbnJYFmpWuYVc7k
+    products-business-intelligence-catalog-metric-picker--error--dark:
+        hash: v1.k794b7964.d720ec072a609015330a04f41d87b1a818f8220e17f1d06ffc29b2efaecba461.tVkqzRsssFFOiAbYtXU9RTOnJ43gfGy_p_Iy9qd1lsk
+    products-business-intelligence-catalog-metric-picker--error--light:
+        hash: v1.k794b7964.f534a88199894d3c8fa4d8990b25c45d6617495dfe5b76eb43bb1ad2a38b4a67.R_YB0437a_f0kOwNGZiCtwPzXjpalwtZ72BgtPXUt5M
+    products-business-intelligence-catalog-metric-picker--metrics--dark:
+        hash: v1.k794b7964.d720ec072a609015330a04f41d87b1a818f8220e17f1d06ffc29b2efaecba461.GorW3yGOHai9TqWzRjVR0H6m62T8qiKA_M2QwdehxDM
+    products-business-intelligence-catalog-metric-picker--metrics--light:
+        hash: v1.k794b7964.f534a88199894d3c8fa4d8990b25c45d6617495dfe5b76eb43bb1ad2a38b4a67.gn4BCzeyH8nRlL4JslkOFstSnrR0dxEWNOnyJlL_a8o
     products-business-intelligence-chart-years--many-years-narrow--dark:
         hash: v1.k794b7964.54ae233495f20e81b0fd03abe4649f9147b0d87142b515fce894b1325b57b104.67n9Ipd2-Q0jG4n-8sao7_rHt4kFjQghNhHqbr-vAWQ
     products-business-intelligence-chart-years--many-years-narrow--light:
@@ -6831,9 +6843,9 @@ snapshots:
     products-business-intelligence-worksheet-exploration--table-conditional-formatting--light:
         hash: v1.k794b7964.351c0fda7bf0696591ba8fae59fee71acf2a28865cfc5ce637468823c8303fdd.h8tIQMd2l9RRcDLLWKJ9e7fOe_vtc4lvbO0Ak93-5WI
     products-business-intelligence-worksheets--worksheets--dark:
-        hash: v1.k794b7964.d1df9387de5567d9926e1a4f1af6432e787451bd86b2791c80ead800a38f0bc0.oy5LT9ZePUH1pJcr6VUR75vT8i76u9g9p6MU3WHzqgY
+        hash: v1.k794b7964.5c549c48bdda54c0e83156cf4c8966be00db5df63f9fea9e5ce33cd6795362c6.mFBUqCDqd9sZIV8zk8ipCmRqrwLL0-qYHdoRXf3s_Sg
     products-business-intelligence-worksheets--worksheets--light:
-        hash: v1.k794b7964.0654432f426ef88b0ef02fc6e2565d438ac2ca026366683b4f1c06db07148c03.z-7Vqzq0H7LR9bxYgn7nLIKxX45E_4f1U9INfUp67wg
+        hash: v1.k794b7964.11735ab4f2ae078466c442dd98cac171f7a3b7323bd0abe19e6bbe39accf2aad.e18DKhym2YOvkIka0-Q7spLyWgPZrCQE3jibpbLYCwY
     products-dashboards--dashboard-states--dark:
         hash: v1.k794b7964.cc591635f83447f7bcfb802062302b8b1bbcd51826110b12fa0f68d4830dcfd3.CIgt_KxCyQRgbn7DPF4MDXc5JBlSxbaCPS0Snyx3cRs
     products-dashboards--dashboard-states--light:
