@@ -375,7 +375,7 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                     }
                 return common
 
-            messages = convert_image_parts(request.messages, _openai_image_block)
+            messages = request.messages
             system = request.system or ""
 
             if supports_reasoning:

@@ -136,17 +136,19 @@ class TestModelConfigurationSerializer(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("llm", {}, {"judge_method": "llm"}),
-            ("decision", {}, {"judge_method": "decision"}),
-            ("llm", {"judge_method": None}, {}),
-            ("decision", {"judge_method": "llm"}, {"judge_method": "llm"}),
-            (None, {}, {}),
+            ({"judge_method": "llm"}, {}, {"judge_method": "llm"}),
+            ({"judge_method": "decision"}, {}, {"judge_method": "decision"}),
+            ({"judge_method": "llm"}, {"judge_method": None}, {}),
+            ({"judge_method": "decision"}, {"judge_method": "llm"}, {"judge_method": "llm"}),
+            ({}, {}, {}),
+            ({"include_media": False}, {}, {"include_media": False}),
+            ({"include_media": False}, {"include_media": True}, {"include_media": True}),
         ]
     )
-    def test_prompt_patch_preserves_method_unless_explicitly_changed(
-        self, method: str | None, patch_config: dict[str, object], expected_method: dict[str, str]
+    def test_prompt_patch_preserves_saved_choices_unless_explicitly_changed(
+        self, saved: dict[str, object], patch_config: dict[str, object], expected_method: dict[str, object]
     ) -> None:
-        stored_config = {"prompt": "Check the response.", **({"judge_method": method} if method else {})}
+        stored_config = {"prompt": "Check the response.", **saved}
         evaluation = Evaluation(
             evaluation_type="llm_judge",
             evaluation_config=stored_config.copy(),
