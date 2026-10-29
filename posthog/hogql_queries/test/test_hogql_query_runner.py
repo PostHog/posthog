@@ -1,7 +1,14 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import cast
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -26,8 +33,10 @@ from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALL
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
+from posthog.hogql_queries.sql_cache_window import API_SQL_WINDOW_CACHE_AGE_FLAG
 from posthog.models.utils import UUIDT
 
 from products.managed_warehouse.backend.facade.query_labels import MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX
@@ -573,3 +582,29 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+
+class TestHogQLQueryRunnerApiCacheWindow(BaseTest):
+    @parameterized.expand(
+        [
+            ("api_key_flag_on", "personal_api_key", True, False),
+            ("app_flag_on", None, True, True),
+            ("api_key_flag_off", "personal_api_key", False, True),
+        ]
+    )
+    def test_window_age_applies_only_to_flagged_api_key_requests(
+        self, _name: str, access_method: str | None, flag_on: bool, expected_stale: bool
+    ) -> None:
+        runner = HogQLQueryRunner(
+            team=self.team,
+            query=HogQLQuery(query="select count() from events where timestamp > now() - interval 7 day"),
+        )
+        with (
+            tags_context(access_method=access_method),
+            patch(
+                "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: flag_on and key == API_SQL_WINDOW_CACHE_AGE_FLAG,
+            ),
+        ):
+            stale = runner._is_stale_for_request(last_refresh=datetime.now(UTC) - timedelta(minutes=10))
+        assert stale is expected_stale

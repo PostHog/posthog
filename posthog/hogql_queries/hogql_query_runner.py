@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Optional, cast
 
@@ -13,6 +13,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
+    IntervalType,
     QueryStatusResponse,
 )
 
@@ -32,10 +33,18 @@ from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.hogql_queries.sql_cache_window import (
+    API_SQL_WINDOW_CACHE_AGE_FLAG,
+    SQL_WINDOW_MAX_AGE,
+    SqlTimeWindow,
+    SqlWindowClass,
+    SqlWindowClassifier,
+)
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 
@@ -78,6 +87,48 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if last_refresh is None:
             return None
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+
+    def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
+        window_class = self._api_sql_window_class
+        if window_class is None:
+            return super()._is_stale(last_refresh, lazy=lazy)
+        if last_refresh is None:
+            return True
+        return datetime.now(UTC) > last_refresh + SQL_WINDOW_MAX_AGE[window_class]
+
+    def _staleness_event_properties(self) -> dict[str, Any]:
+        window_class = self._api_sql_window_class
+        if window_class is None:
+            return {}
+        return {
+            "sql_cache_window": window_class.value,
+            "sql_cache_window_max_age_seconds": int(SQL_WINDOW_MAX_AGE[window_class].total_seconds()),
+        }
+
+    @cached_property
+    def _api_sql_window_class(self) -> Optional[SqlWindowClass]:
+        if self.query.connectionId or not is_api_key_access_method(get_query_tag_value("access_method")):
+            return None
+        if not self._team_flag_enabled_locally(API_SQL_WINDOW_CACHE_AGE_FLAG):
+            return None
+        now = datetime.now(UTC)
+        try:
+            classifier = SqlWindowClassifier(
+                now=now, timezone=self.team.timezone_info, filters_window=self._filters_time_window(now)
+            )
+            return classifier.classify(self._parse_query()[0])
+        except Exception:
+            return SqlWindowClass.UNCLASSIFIED
+
+    def _filters_time_window(self, now: datetime) -> Optional[SqlTimeWindow]:
+        date_range = self.query.filters.dateRange if self.query.filters else None
+        if date_range is None or date_range.date_from in (None, "all"):
+            return None
+        query_date_range = QueryDateRange(date_range=date_range, team=self.team, interval=IntervalType.MINUTE, now=now)
+        return SqlTimeWindow(
+            start=query_date_range.date_from(),
+            end=query_date_range.date_to() if date_range.date_to else None,
+        )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:

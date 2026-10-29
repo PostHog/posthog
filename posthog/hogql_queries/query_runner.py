@@ -2827,6 +2827,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             **query_run.event_properties(self.modifiers),
             "cache_hit": isinstance(results, self.cached_response_type),
             "cache_age_override": self._cache_age_override,
+            **self._staleness_event_properties(),
             "response_time_ms": query_run.elapsed_ms(),
             "clickhouse_rows_read": cached_query_scan.rows_read if cached_query_scan else None,
             "clickhouse_duration_ms": cached_query_scan.duration_ms if cached_query_scan else None,
@@ -3081,6 +3082,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
+                **self._staleness_event_properties(),
                 "calculation_trigger": query_run.trigger,
                 "response_time_ms": query_run.elapsed_ms(),
                 "query_duration_ms": query_duration_ms,
@@ -3521,6 +3523,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if last_refresh is None:
             return True
         return datetime.now(UTC) > last_refresh + timedelta(seconds=override)
+
+    def _staleness_event_properties(self) -> dict[str, Any]:
+        return {}
 
     def _is_stale(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         query_date_range = getattr(self, "query_date_range", None)
