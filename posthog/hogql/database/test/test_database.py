@@ -1045,7 +1045,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
         # credential joins (decrypt once per credential, not per table/view). +1 more for the
         # organization's flag_evaluations mode, which is_flag_evaluations_table_enabled reads once per build.
-        max_queries = FuzzyInt(7, 9)
+        max_queries = FuzzyInt(7, 10)
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"
         )
@@ -1103,7 +1103,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         # initialization team query doesn't run; the extra query is the single bulk credential fetch
         # (credentials are decrypted once each here instead of re-decrypted per table/view row),
-        # plus the saved-expressions fetch and the organization's flag_evaluations mode
+        # plus the saved-expressions fetch and the organization's flag_evaluations mode.
+        # The custom MCP harness rules come from Redis, which the first build filled.
         with self.assertNumQueries(7):
             modifiers = create_default_modifiers_for_team(
                 self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
@@ -2432,7 +2433,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
             # +1 vs the pre-bulk-credential baseline: one bulk credential fetch replaces the per-row
             # credential joins (decrypt once per credential, not per table/view).
-            with self.assertNumQueries(FuzzyInt(6, 9)):
+            # Upper bound +1 for the custom MCP harness lookup.
+            with self.assertNumQueries(FuzzyInt(6, 10)):
                 Database.create_for(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable
