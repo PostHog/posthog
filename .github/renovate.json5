@@ -3,7 +3,6 @@
   extends: [
     'config:best-practices',
     ':dependencyDashboardApproval',
-    ':separateMultipleMajorReleases',
   ],
   enabledManagers: [
     'pep621',
