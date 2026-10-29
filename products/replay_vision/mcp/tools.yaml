@@ -152,6 +152,65 @@ tools:
             after creation. Set `enabled: false` to pause it (a metric alert resets to `not_firing`), or set
             `snooze_until` to an ISO 8601 timestamp to silence it until then and to null to unsnooze. To manage where it
             notifies, use `vision-alerts-destinations-create` and `vision-alerts-destinations-delete`.
+    vision-groups-get:
+        operation: vision_groups_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get one group of near-duplicate issues
+        description: >
+            Get one group's counts and up to three example observations over a window (`date_from` defaults to `-7d`).
+            Takes an `id` from `vision-groups-list`. Returns 404 when the group has no readable member in the window.
+        agent_note: >
+            A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read
+            a few members, and the recordings behind them, before you describe or report the issue.
+    vision-groups-list:
+        operation: vision_groups_list
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List groups of near-duplicate issues
+        description: >
+            List groups: tight clusters of one scanner's issue observations that tell the same story, such as one bug
+            many people hit. Narrower than themes. Large groups get a model-written `name`; otherwise `example_summary`
+            (the best member's summary) is the label. Each row counts readable members by UTC day in the window
+            (`date_from` defaults to `-7d`, at most 90 days): observations, distinct people, and members in the
+            same-length window before it for the trend. `status` says whether a group is `emerging`, `active`,
+            `fading` or `dormant`, or what the team decided (`known`, `resolved`, `regressed`, `not_an_issue`).
+            `review_state=none` leaves out what the team already handled. `order` by `people` (default),
+            `observations`, `growth` or `recent`. Read the members with `vision-scanners-observations-list` filtered by
+            `group`. On an experiment scanner, set `include_routine` to group ordinary behavior too and `by_variant` to
+            split each group's counts by variant.
+        agent_note: >
+            A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read
+            a few members, and the recordings behind them, before you describe or report the issue.
+    vision-groups-review:
+        operation: vision_groups_review_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Review a group
+        description: >
+            Record the team's decision about a group: `known`, `resolved` or `not_an_issue`, or an empty string to clear
+            it. A resolved group that gets new members shows as `regressed`. Needs editor access to the group's scanner.
+        agent_note: >
+            Set a review only when a person asked for it or confirmed the decision. Never mark a group resolved on your
+            own judgement.
     vision-observations-create-task:
         operation: vision_observations_create_task_create
         enabled: true
@@ -1045,3 +1104,60 @@ tools:
             `analysis_observations`, not of `observations`. Balanced sampling gives small variants a higher
             `sampling_rate`, so even observation counts do not mean even traffic. To read one variant's summaries, call
             `vision-scanners-observations-list` with `variant` set to its key.
+    vision-themes-get:
+        operation: vision_themes_retrieve
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get one theme of recurring issues
+        description: >
+            Get one search theme's name, counts and up to three example observations over a window (`date_from` defaults
+            to `-7d`). Takes an `id` from `vision-themes-list`. Returns 404 when the theme has no readable member in the
+            window.
+        agent_note: >
+            A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read
+            a few members, and the recordings behind them, before you describe or report the issue.
+    vision-themes-list:
+        operation: vision_themes_list
+        enabled: true
+        scopes:
+            - replay_scanner:read
+            - session_recording:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List recurring themes of issues
+        description: >
+            List search themes: broad clusters of one scanner's issue observations (failures, struggles, confusion) that
+            describe the same kind of situation, each with a short model-written `name` once it has enough members. Each
+            row counts readable members by UTC day in the window (`date_from` defaults to `-7d`, at most 90 days):
+            observations, distinct people, and members in the same-length window before it for the trend. `status` and
+            `review_state` work as on groups. `order` by `people`, `observations`, `growth` or `recent`. Only issue
+            observations join a theme, and a theme never spans scanners. Use it to see what comes up often or is getting
+            worse, then read the members with `vision-scanners-observations-list` filtered by `theme`.
+        agent_note: >
+            A cluster is a pointer, not a finding: the counts say where to look, and the members say what happened. Read
+            a few members, and the recordings behind them, before you describe or report the issue.
+    vision-themes-review:
+        operation: vision_themes_review_create
+        enabled: true
+        scopes:
+            - replay_scanner:write
+            - session_recording:read
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Review a theme
+        description: >
+            Record the team's decision about a theme: `known`, `resolved` or `not_an_issue`, or an empty string to clear
+            it. A resolved theme that gets new members shows as `regressed`. Needs editor access to the theme's scanner.
+        agent_note: >
+            Set a review only when a person asked for it or confirmed the decision. Never mark a theme resolved on your
+            own judgement.

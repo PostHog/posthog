@@ -446,6 +446,24 @@ export const VisionAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.obje
 })
 
 /**
+ * Record the team's decision about a group, or clear it. Needs editor access to its scanner.
+ */
+export const VisionGroupsReviewCreateBody = /* @__PURE__ */ zod.object({
+    review_state: zod
+        .union([
+            zod
+                .enum(['known', 'resolved', 'not_an_issue'])
+                .describe(
+                    '\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+                ),
+            zod.enum(['']),
+        ])
+        .describe(
+            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+        ),
+})
+
+/**
  * Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops showing it to that user. Sending it again replaces the reason.
  */
 export const VisionObservationsFeedDismissalCreateBody = /* @__PURE__ */ zod
@@ -1560,3 +1578,21 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
     .describe(
         'Body of POST \/vision\/scanners\/inline_scan\/ - a prompt or built-in scan plus the sessions to point it at.'
     )
+
+/**
+ * Record the team's decision about a theme, or clear it. Needs editor access to its scanner.
+ */
+export const VisionThemesReviewCreateBody = /* @__PURE__ */ zod.object({
+    review_state: zod
+        .union([
+            zod
+                .enum(['known', 'resolved', 'not_an_issue'])
+                .describe(
+                    '\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+                ),
+            zod.enum(['']),
+        ])
+        .describe(
+            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+        ),
+})

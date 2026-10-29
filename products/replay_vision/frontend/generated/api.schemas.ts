@@ -584,6 +584,118 @@ export interface PaginatedVisionAlertEventListApi {
 }
 
 /**
+ * * `emerging` - emerging
+ * * `active` - active
+ * * `fading` - fading
+ * * `dormant` - dormant
+ * * `known` - known
+ * * `resolved` - resolved
+ * * `regressed` - regressed
+ * * `not_an_issue` - not_an_issue
+ */
+export type ClusterStatusEnumApi = (typeof ClusterStatusEnumApi)[keyof typeof ClusterStatusEnumApi]
+
+export const ClusterStatusEnumApi = {
+    Emerging: 'emerging',
+    Active: 'active',
+    Fading: 'fading',
+    Dormant: 'dormant',
+    Known: 'known',
+    Resolved: 'resolved',
+    Regressed: 'regressed',
+    NotAnIssue: 'not_an_issue',
+} as const
+
+export interface VariantCountApi {
+    /** The variant key, or `__unattributed__` for members with none. */
+    key: string
+    /** The group's members in this variant in the window. */
+    observation_count: number
+    /** Distinct people among them. */
+    people_count: number
+}
+
+export interface ClusterApi {
+    /** The cluster id. Pass it as `theme` or `group` to `vision-scanners-observations-list` to read members. */
+    id: string
+    /** The scanner whose observations the cluster groups. */
+    scanner_id: string
+    /** The scanner's name. */
+    scanner_name: string
+    /**
+     * A short model-written label: a search phrase for a theme, a headline for a group. Null until the cluster is large enough to be named; `example_summary` stands in.
+     * @nullable
+     */
+    name: string | null
+    /** Where the cluster stands. From its activity: `emerging` (first member this week), `active`, `fading` (last week under half of the week before) or `dormant` (no member for two weeks). From a review: `known`, `resolved`, `regressed` (new members after it was resolved) or `not_an_issue`.
+     *
+     * * `emerging` - emerging
+     * * `active` - active
+     * * `fading` - fading
+     * * `dormant` - dormant
+     * * `known` - known
+     * * `resolved` - resolved
+     * * `regressed` - regressed
+     * * `not_an_issue` - not_an_issue */
+    status: ClusterStatusEnumApi
+    /** The team's review, or an empty string when nobody reviewed it. */
+    review_state: string
+    /**
+     * When the review was set.
+     * @nullable
+     */
+    reviewed_at: string | null
+    /** Readable observations in the window: issue observations, plus routine ones with `include_routine`. */
+    observation_count: number
+    /** Distinct people among them; a session without an identified person counts as one. */
+    people_count: number
+    /** Members in the same-length window just before `date_from`, to compare the trend against. */
+    previous_observation_count: number
+    /** UTC day of the window's oldest member. */
+    first_seen: string
+    /** UTC day of the window's newest member. */
+    last_seen: string
+    /** Up to 3 of the window's highest-ranked members, best first. */
+    example_observation_ids: string[]
+    /** One-line summary of the best example; the readable label for a group, which has no name. */
+    example_summary: string
+    /** The window's members split by experiment variant, largest first. Empty unless `by_variant` is set. Compare each variant's share of the group with its share of the scanner's sessions, since variants are sampled at different rates. */
+    variants: VariantCountApi[]
+}
+
+export interface ClusterListApi {
+    /** Clusters with at least one member in the window. */
+    results: ClusterApi[]
+    /** Whether another page follows at `offset + limit`. */
+    has_more: boolean
+}
+
+/**
+ * * `known` - Known
+ * * `resolved` - Resolved
+ * * `not_an_issue` - Not an issue
+ * * `` - None
+ */
+export type ClusterReviewEnumApi = (typeof ClusterReviewEnumApi)[keyof typeof ClusterReviewEnumApi]
+
+export const ClusterReviewEnumApi = {
+    Known: 'known',
+    Resolved: 'resolved',
+    NotAnIssue: 'not_an_issue',
+} as const
+
+export const ClusterReviewApiReviewState = { ...ClusterReviewEnumApi, ...BlankEnumApi } as const
+export interface ClusterReviewApi {
+    /** `known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.
+     *
+     * * `known` - Known
+     * * `resolved` - Resolved
+     * * `not_an_issue` - Not an issue
+     * * `` - None */
+    review_state: (typeof ClusterReviewApiReviewState)[keyof typeof ClusterReviewApiReviewState]
+}
+
+/**
  * * `configured` - Configured
  * * `inline` - Inline
  */
@@ -3044,6 +3156,101 @@ export const VisionAlertsEventsListKind = {
     Unsnooze: 'unsnooze',
 } as const
 
+export type VisionGroupsListParams = {
+    /**
+     * Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.
+     */
+    by_variant?: boolean
+    /**
+     * Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.
+     */
+    include_routine?: boolean
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Rows to skip, for the next page.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
+     *
+     * * `people` - people
+     * * `observations` - observations
+     * * `growth` - growth
+     * * `recent` - recent
+     * @minLength 1
+     */
+    order?: VisionGroupsListOrder
+    /**
+     * Only clusters with these reviews (comma-separated): `known`, `resolved`, `not_an_issue`, or `none` for clusters nobody reviewed. Pass `none` to leave out what the team already handled.
+     * @minLength 1
+     */
+    review_state?: string
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+    /**
+     * Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.
+     * @minLength 1
+     */
+    variant?: string
+}
+
+export type VisionGroupsListOrder = (typeof VisionGroupsListOrder)[keyof typeof VisionGroupsListOrder]
+
+export const VisionGroupsListOrder = {
+    People: 'people',
+    Observations: 'observations',
+    Growth: 'growth',
+    Recent: 'recent',
+} as const
+
+export type VisionGroupsRetrieveParams = {
+    /**
+     * Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.
+     */
+    by_variant?: boolean
+    /**
+     * Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.
+     */
+    include_routine?: boolean
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+    /**
+     * Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.
+     * @minLength 1
+     */
+    variant?: string
+}
+
 export type VisionObservationsListParams = {
     /**
      * Number of results to return per page.
@@ -3077,6 +3284,14 @@ export type VisionObservationsRetrieveParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -3108,6 +3323,10 @@ export type VisionObservationsRetrieveParams = {
      * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string
+    /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
     /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
@@ -3320,6 +3539,14 @@ export type VisionScannersObservationsListParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean
@@ -3360,6 +3587,10 @@ export type VisionScannersObservationsListParams = {
      */
     tags?: string
     /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
+    /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
     triggered_by?: string
@@ -3395,6 +3626,14 @@ export type VisionScannersObservationsRetrieveParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -3426,6 +3665,10 @@ export type VisionScannersObservationsRetrieveParams = {
      * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string
+    /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
     /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
@@ -3462,6 +3705,14 @@ export type VisionScannersObservationsSignalReportsListParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: boolean
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: boolean
@@ -3493,6 +3744,10 @@ export type VisionScannersObservationsSignalReportsListParams = {
      * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string
+    /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
     /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
@@ -3553,6 +3808,14 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      */
     date_to?: string
     /**
+     * Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.
+     */
+    group?: string
+    /**
+     * With `group`, also list the group's routine observations, as the groups list does with the same flag.
+     */
+    include_routine?: string
+    /**
      * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
      */
     labeled?: string
@@ -3584,6 +3847,10 @@ export type VisionScannersObservationsStatsRetrieveParams = {
      * Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.
      */
     tags?: string
+    /**
+     * Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.
+     */
+    theme?: string
     /**
      * Filter by trigger source (schedule, on_demand, retry, or backfill). Accepts a comma-separated list.
      */
@@ -3676,3 +3943,72 @@ export const VisionScannersHighlightFeedRetrieveScannerType = {
     Summarizer: 'summarizer',
     Experiment: 'experiment',
 } as const
+
+export type VisionThemesListParams = {
+    /**
+     * Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Page size.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Rows to skip, for the next page.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
+     *
+     * * `people` - people
+     * * `observations` - observations
+     * * `growth` - growth
+     * * `recent` - recent
+     * @minLength 1
+     */
+    order?: VisionThemesListOrder
+    /**
+     * Only clusters with these reviews (comma-separated): `known`, `resolved`, `not_an_issue`, or `none` for clusters nobody reviewed. Pass `none` to leave out what the team already handled.
+     * @minLength 1
+     */
+    review_state?: string
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+}
+
+export type VisionThemesListOrder = (typeof VisionThemesListOrder)[keyof typeof VisionThemesListOrder]
+
+export const VisionThemesListOrder = {
+    People: 'people',
+    Observations: 'observations',
+    Growth: 'growth',
+    Recent: 'recent',
+} as const
+
+export type VisionThemesRetrieveParams = {
+    /**
+     * Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.
+     * @minLength 1
+     */
+    date_from?: string
+    /**
+     * Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.
+     * @minLength 1
+     */
+    date_to?: string
+    /**
+     * Only this scanner's clusters. Defaults to every scanner you can read.
+     */
+    scanner_id?: string
+}

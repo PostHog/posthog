@@ -10,7 +10,7 @@ compatibility: >
   (scratchpad) + signal_scout_report:write (report channel), plus the replay-vision tools in
   the MCP tools section (execute-sql over `$recording_observed`, read-data-schema, and the
   feature-gated vision-scanners-list / -get / -observations-list / vision-observations-list /
-  vision-quota-get when available — leads with `$recording_observed` SQL when absent), plus
+  vision-groups-list / vision-themes-list / vision-quota-get when available — leads with `$recording_observed` SQL when absent), plus
   the scanner write tools on a scout granted `replay_scanner:write`.
 allowed_tools:
   - emit_report
@@ -196,6 +196,22 @@ LIMIT 30
 
 A tag whose `sessions_7d` jumps clearly above its `prior_weekly_sessions` (already the weekly-equivalent baseline) is a candidate. For **summarizers**, raw `scanner_output_summary` text is freeform — don't group on it. Instead read the top recent summaries (`vision-scanners-observations-list` for the scanner, or the `scanner_output_title`/`scanner_output_summary` columns) and look for a **recurring theme** across many distinct sessions: the same complaint, flow, or failure described again and again. That's the aggregation the summarizer can't do for itself. Summarizers always emit facet embeddings, so recurring themes may also be searchable via the signals semantic surface — but the cross-session _count_ is what makes it a finding.
 
+#### Clusters as a starting map (any scanner type)
+
+Replay Vision clusters each scanner's issue observations as they arrive, in two independent ways.
+`vision-groups-list` returns groups of near-duplicates (one story, such as one bug many people hit), and `vision-themes-list` returns broader themes with a short model-written name.
+Each row counts distinct people and observations in your window, plus the same-length window before it, so `order=growth` puts what is spreading first and `order=people` puts what reaches the most people first.
+Leave out `scanner_id` to rank across every scanner, or pass it to stay on one.
+Each cluster carries a `status`: `emerging`, `active`, `fading` or `dormant` from its activity, or `known`, `resolved`, `regressed` or `not_an_issue` from the team's review.
+Pass `review_state=none` to leave out what the team already handled, and treat `regressed` (new members after a fix was marked) as the strongest lead.
+Never set a review with `vision-groups-review` or `vision-themes-review` unless a person asked for it.
+
+Use them to decide which scanners and patterns to read first, and to check a grouping you made yourself.
+A cluster is never the finding on its own: it covers issue observations only, two causes can share one cluster and one cause can span two, and a theme name is a search phrase, not a diagnosis.
+Before you report on a cluster, read a few of its members (`vision-scanners-observations-list` with `scanner_id` and `group` or `theme`) and the recordings behind them.
+Keep the SQL patterns above as well, because a shift in a verdict rate, a score, or a new problem that has not formed a cluster yet only shows there.
+These tools may be absent on some projects; then skip this section.
+
 #### Emits-signals dedupe courtesy
 
 For any scanner with `emits_signals: true`, its per-session findings are already in this inbox. Before authoring anything touching that scanner, `inbox-reports-list` on the `replay_vision` source and look for an overlapping report, backed by an unfiltered recent-reports scan matched on the scanner name / example `session_id`s. Author only if you add the aggregate angle the per-session pushes lack, and cite the overlapping report's id. If the push path itself looks broken (a scanner with `emits_signals` whose observations succeed but no matching reports appear over a soak window), that _is_ a finding — a silent push gap — P3, name the scanner.
@@ -260,6 +276,7 @@ Direct calls (read-only):
 - `vision-observations-list` (`session_id`) — every scanner's observation on one session, for example links.
   A `$recording_observed` event row's `uuid` is the observation id, so on the primary `execute-sql` route select `toString(uuid)` and pass it straight to `vision-observations-get` (`id`).
   Fall back to this list when you have only a session id, or to pick one scanner's observation out of a session several scanners observed.
+- `vision-groups-list` / `vision-groups-get` and `vision-themes-list` / `vision-themes-get` (`scanner_id`, `date_from`, `date_to`, `order`) — clusters of issue observations with people counts and a previous-window count. A map of where to look, never the evidence: read members through `vision-scanners-observations-list` with `group` or `theme`.
 - `vision-quota-get` — the org's credit budget for the billing period: `remaining` / `exhausted`.
 - `query-session-recordings-list` / `session-recording-get` — resolve `session_id`s to watchable recordings for a finding's example links.
 - `read-data-schema` — confirm `$recording_observed` and its `scanner_output_*` properties exist before aggregating.

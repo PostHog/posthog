@@ -16,6 +16,9 @@ import type {
     BackfillWindowApi,
     BulkObserveRequestApi,
     BulkObserveResponseApi,
+    ClusterApi,
+    ClusterListApi,
+    ClusterReviewApi,
     CreateObservationRequestApi,
     CreateTaskFromObservationResponseApi,
     DraftScannerRequestApi,
@@ -64,6 +67,8 @@ import type {
     VisionAlertDestinationResponseApi,
     VisionAlertsEventsListParams,
     VisionAlertsListParams,
+    VisionGroupsListParams,
+    VisionGroupsRetrieveParams,
     VisionObservationsListParams,
     VisionObservationsRetrieveParams,
     VisionObservationsSearchRetrieveParams,
@@ -80,6 +85,8 @@ import type {
     VisionScannersObservationsStatsRetrieveParams,
     VisionScannersObservationsThumbnailRetrieveParams,
     VisionSpendSeriesApi,
+    VisionThemesListParams,
+    VisionThemesRetrieveParams,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -293,6 +300,88 @@ export const visionAlertsResetCreate = async (
     return apiMutator<VisionAlertConfigurationApi>(getVisionAlertsResetCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getVisionGroupsListUrl = (projectId: string, params?: VisionGroupsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/groups/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/groups/`
+}
+
+/**
+ * Groups of near-duplicate issue observations, each one scanner's sessions that tell the same story, such as one bug many people hit. Narrower than themes. Use it to find the issues that reach the most people.
+ */
+export const visionGroupsList = async (
+    projectId: string,
+    params?: VisionGroupsListParams,
+    options?: RequestInit
+): Promise<ClusterListApi[]> => {
+    return apiMutator<ClusterListApi[]>(getVisionGroupsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionGroupsRetrieveUrl = (projectId: string, id: string, params?: VisionGroupsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/groups/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/groups/${id}/`
+}
+
+/**
+ * One group's counts and examples over the window.
+ */
+export const visionGroupsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisionGroupsRetrieveParams,
+    options?: RequestInit
+): Promise<ClusterApi> => {
+    return apiMutator<ClusterApi>(getVisionGroupsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionGroupsReviewCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/groups/${id}/review/`
+}
+
+/**
+ * Record the team's decision about a group, or clear it. Needs editor access to its scanner.
+ */
+export const visionGroupsReviewCreate = async (
+    projectId: string,
+    id: string,
+    clusterReviewApi: ClusterReviewApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionGroupsReviewCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusterReviewApi),
     })
 }
 
@@ -1690,5 +1779,87 @@ export const visionScannersStatsRetrieve = async (
     return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionThemesListUrl = (projectId: string, params?: VisionThemesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/themes/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/themes/`
+}
+
+/**
+ * Recurring kinds of issue in replay observations, each a broad cluster of one scanner's issue observations with a short model-written name. Use it to see what comes up often and what is growing.
+ */
+export const visionThemesList = async (
+    projectId: string,
+    params?: VisionThemesListParams,
+    options?: RequestInit
+): Promise<ClusterListApi[]> => {
+    return apiMutator<ClusterListApi[]>(getVisionThemesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionThemesRetrieveUrl = (projectId: string, id: string, params?: VisionThemesRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/themes/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/themes/${id}/`
+}
+
+/**
+ * One search theme's counts and examples over the window.
+ */
+export const visionThemesRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: VisionThemesRetrieveParams,
+    options?: RequestInit
+): Promise<ClusterApi> => {
+    return apiMutator<ClusterApi>(getVisionThemesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionThemesReviewCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/themes/${id}/review/`
+}
+
+/**
+ * Record the team's decision about a theme, or clear it. Needs editor access to its scanner.
+ */
+export const visionThemesReviewCreate = async (
+    projectId: string,
+    id: string,
+    clusterReviewApi: ClusterReviewApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getVisionThemesReviewCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(clusterReviewApi),
     })
 }

@@ -55,14 +55,16 @@ survey-stats
 surveys-global-stats
 switch-project
 view-run-history
+vision-groups-review
 vision-observations-create-task
 vision-observations-retry
 vision-scanners-estimate
+vision-scanners-highlight-feed
 vision-scanners-observations-stats
 vision-scanners-scan-session
 vision-scanners-scan-sessions
 vision-scanners-self-driving-stats
-vision-scanners-highlight-feed
+vision-themes-review
 web-analytics-weekly-digest
 workflows-global-stats
 workflows-list-invocations

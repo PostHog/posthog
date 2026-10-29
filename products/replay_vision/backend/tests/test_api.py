@@ -43,8 +43,10 @@ from products.replay_vision.backend.api.scanners import (
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
+from products.replay_vision.backend.cluster_membership import Membership, record_memberships
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
+from products.replay_vision.backend.experiment_variants import UNATTRIBUTED_VARIANT
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -61,7 +63,10 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.models.replay_scanner_backfill import ReplayScannerBackfill
-from products.replay_vision.backend.models.replay_scanner_semantics import ReplayScannerSearchTheme
+from products.replay_vision.backend.models.replay_scanner_semantics import (
+    ReplayScannerFeedGroup,
+    ReplayScannerSearchTheme,
+)
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ESTIMATE_BUDGET
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.queries.scanner_volume_estimate import estimate_scanner_session_volume
@@ -4171,6 +4176,206 @@ class TestSearchSuggestionsAction(_VisionAPITestCase):
             mock_warm.assert_called_once_with(ANY, ["discount code refused", "email never arrives"])
         else:
             mock_warm.assert_not_called()
+
+
+class TestClusterViewSets(_VisionAPITestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.checkout = self._create_scanner(name="checkout")
+        self.hidden = self._create_scanner(name="hidden")
+        now = timezone.now()
+        self.big, self.growing, self.secret = (uuid.uuid4() for _ in range(3))
+        for cluster, scanner, age_days in [
+            (self.big, self.checkout, 30),
+            (self.growing, self.checkout, 3),
+            (self.secret, self.hidden, 3),
+        ]:
+            ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                id=cluster,
+                team=self.team,
+                scanner=scanner,
+                vector_sum=b"",
+                name="coupon rejected" if cluster == self.big else "",
+                last_member_at=now,
+            )
+            ReplayScannerFeedGroup.objects.for_team(self.team.id).create(
+                id=cluster, team=self.team, scanner=scanner, vector_sum=b"", last_member_at=now
+            )
+            for model in (ReplayScannerSearchTheme, ReplayScannerFeedGroup):
+                model.objects.for_team(self.team.id).filter(id=cluster).update(
+                    created_at=now - timedelta(days=age_days)
+                )
+        memberships = []
+        for name, scanner, cluster, person, age_days, category, variant, experiment in [
+            # Two people in the window, one of them twice, plus one member in the previous window.
+            ("big-1", self.checkout, self.big, "alice", 1, "failure", "test", 0),
+            ("big-2", self.checkout, self.big, "alice", 2, "failure", "test", 0),
+            ("big-3", self.checkout, self.big, "", 3, "failure", None, 0),
+            ("big-prev", self.checkout, self.big, "bob", 10, "failure", "control", 0),
+            ("big-routine", self.checkout, self.big, "carol", 1, "routine", "control", 0),
+            # Scanned for an experiment nobody here may open, so no count or example shows it.
+            ("big-restricted", self.checkout, self.big, "dan", 1, "failure", "test", 999_999),
+            # Fewer people, but none before the window, so it grew the most.
+            ("growing-1", self.checkout, self.growing, "fay", 1, "struggle", None, 0),
+            ("growing-2", self.checkout, self.growing, "fay", 2, "struggle", None, 0),
+            ("growing-3", self.checkout, self.growing, "fay", 3, "struggle", None, 0),
+            ("secret-1", self.hidden, self.secret, "gus", 1, "failure", "test", 0),
+        ]:
+            snapshot = {"experiment_targeting": {"experiment_id": experiment}} if experiment else {}
+            row = ReplayObservation.objects.create(
+                team=self.team,
+                scanner=scanner,
+                session_id=name,
+                distinct_id=person,
+                status=ObservationStatus.SUCCEEDED,
+                completed_at=now,
+                scanner_snapshot=snapshot,
+                scanner_result={"experiment_variant": variant} if variant else {},
+                watch_rank={"category": category, "contrast": 0.3, "anchor_version": ANCHOR_VERSION},
+            )
+            created_at = now - timedelta(days=age_days)
+            ReplayObservation.objects.filter(id=row.id).update(created_at=created_at)
+            memberships.append(
+                Membership(
+                    observation_id=row.id,
+                    created_at=created_at,
+                    group_id=cluster,
+                    theme_id=cluster if category != "routine" and not experiment else None,
+                    category=category,
+                    variant=variant or "",
+                    experiment_id=experiment,
+                )
+            )
+        record_memberships(self.team.id, memberships)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(self.hidden.id), access_level="none"
+        )
+
+    def url(self, kind: str, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/vision/{kind}/{suffix}"
+
+    @parameterized.expand(
+        [
+            ("themes_by_people", "themes", "people", ["big", "growing"]),
+            ("groups_by_growth", "groups", "growth", ["growing", "big"]),
+        ]
+    )
+    def test_list_counts_readable_members_in_the_window(
+        self, _name: str, kind: str, order: str, expected_order: list[str]
+    ) -> None:
+        resp = self.client.get(self.url(kind), {"order": order})
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        clusters = {str(self.big): "big", str(self.growing): "growing"}
+        results = resp.json()["results"]
+        self.assertEqual([clusters[row["id"]] for row in results], expected_order)
+        big = next(row for row in results if row["id"] == str(self.big))
+        self.assertEqual((big["observation_count"], big["people_count"], big["previous_observation_count"]), (3, 2, 1))
+        self.assertEqual((big["name"], big["status"]), ("coupon rejected" if kind == "themes" else None, "active"))
+        self.assertEqual(len(big["example_observation_ids"]), 3)
+        self.assertNotIn(str(self.rows_by_session("big-restricted")), big["example_observation_ids"])
+
+    def rows_by_session(self, session_id: str) -> uuid.UUID:
+        return ReplayObservation.objects.get(team=self.team, session_id=session_id).id
+
+    @parameterized.expand(
+        [
+            ("readable", "big", 200),
+            ("unreadable_scanner", "secret", 404),
+            ("unknown", None, 404),
+        ]
+    )
+    def test_retrieve_hides_what_the_caller_cannot_read(self, _name: str, cluster: str | None, status: int) -> None:
+        cluster_id = {"big": self.big, "secret": self.secret}.get(cluster or "", uuid.uuid4())
+
+        resp = self.client.get(self.url("groups", f"{cluster_id}/"))
+
+        self.assertEqual(resp.status_code, status)
+
+    @parameterized.expand(
+        [
+            ("issues", {}, {"test": (2, 1), UNATTRIBUTED_VARIANT: (1, 1)}),
+            (
+                "with_routine",
+                {"include_routine": "true"},
+                {"test": (2, 1), "control": (1, 1), UNATTRIBUTED_VARIANT: (1, 1)},
+            ),
+            ("one_variant", {"variant": "test"}, {"test": (2, 1)}),
+        ]
+    )
+    def test_group_splits_its_window_by_variant(
+        self, _name: str, params: dict[str, str], expected: dict[str, tuple[int, int]]
+    ) -> None:
+        resp = self.client.get(self.url("groups", f"{self.big}/"), {"by_variant": "true", **params})
+
+        self.assertEqual(resp.status_code, 200, resp.json())
+        variants = {v["key"]: (v["observation_count"], v["people_count"]) for v in resp.json()["variants"]}
+        self.assertEqual(variants, expected)
+        self.assertEqual(resp.json()["observation_count"], sum(count for count, _ in expected.values()))
+
+    @parameterized.expand(
+        [
+            ("cross_scanner_90d", "", {"date_from": "-90d"}, 200),
+            ("three_months", "", {"date_from": "-3m"}, 200),
+            ("past_the_cap", "", {"date_from": "-120d"}, 400),
+            ("cluster_of_another_scanner", "big", {"scanner": "hidden"}, 404),
+        ]
+    )
+    def test_window_cap(self, _name: str, cluster: str, params: dict[str, str], status: int) -> None:
+        query = {key: value for key, value in params.items() if key != "scanner"}
+        if params.get("scanner"):
+            query["scanner_id"] = str({"checkout": self.checkout, "hidden": self.hidden}[params["scanner"]].id)
+
+        resp = self.client.get(self.url("groups", f"{self.big}/" if cluster else ""), query)
+
+        self.assertEqual(resp.status_code, status, resp.json())
+
+    def test_a_review_sets_status_reopens_on_new_members_and_filters_the_list(self) -> None:
+        resolved = self.client.post(self.url("groups", f"{self.big}/review/"), {"review_state": "resolved"})
+        status_after_review = self.client.get(self.url("groups", f"{self.big}/")).json()["status"]
+        ReplayScannerFeedGroup.objects.for_team(self.team.id).filter(id=self.big).update(
+            last_member_at=timezone.now() + timedelta(minutes=1)
+        )
+        status_after_new_member = self.client.get(self.url("groups", f"{self.big}/")).json()["status"]
+        unreviewed = self.client.get(self.url("groups"), {"review_state": "none"}).json()["results"]
+
+        self.assertEqual(resolved.status_code, 204)
+        self.assertEqual((status_after_review, status_after_new_member), ("resolved", "regressed"))
+        self.assertEqual([row["id"] for row in unreviewed], [str(self.growing)])
+
+    def test_a_review_needs_editor_access_to_the_scanner(self) -> None:
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(self.checkout.id), access_level="viewer"
+        )
+
+        resp = self.client.post(self.url("groups", f"{self.big}/review/"), {"review_state": "known"})
+
+        self.assertEqual(resp.status_code, 403)
+
+    @parameterized.expand(
+        [
+            ("theme", {"theme": "big"}, {"big-1", "big-2", "big-3"}),
+            ("group", {"group": "big"}, {"big-1", "big-2", "big-3"}),
+            (
+                "group_with_routine",
+                {"group": "big", "include_routine": "true"},
+                {"big-1", "big-2", "big-3", "big-routine"},
+            ),
+        ]
+    )
+    def test_observation_list_filters_to_the_members_a_cluster_counts(
+        self, _name: str, params: dict[str, str], expected: set[str]
+    ) -> None:
+        query = {key: str(self.big) if value == "big" else value for key, value in params.items()}
+
+        resp = self.client.get(self.observations_url(str(self.checkout.id)), {**query, "date_from": "-7d"})
+
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
 
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):

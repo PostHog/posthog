@@ -81,6 +81,7 @@ from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
     readable_observation_scanner_ids,
+    readable_scanner_ids_in_scope,
     scanner_for_reading_observations,
 )
 from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
@@ -96,6 +97,7 @@ from products.replay_vision.backend.search import (
     search_observations,
     warm_query_vectors,
 )
+from products.replay_vision.backend.semantic_clusters import ClusterKind, cluster_members
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
@@ -789,6 +791,25 @@ class ReplayObservationFilter(django_filters.FilterSet):
             "failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
         ),
     )
+    theme = django_filters.UUIDFilter(
+        method="_filter_theme",
+        help_text=(
+            "Only issue observations in this search theme, an `id` from the themes list. "
+            "Pair it with the same `date_from` and `date_to` to list the observations the theme counted."
+        ),
+    )
+    group = django_filters.UUIDFilter(
+        method="_filter_group",
+        help_text=(
+            "Only issue observations in this group of near duplicates, an `id` from the groups list. "
+            "Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations "
+            "the group counted."
+        ),
+    )
+    include_routine = django_filters.BooleanFilter(
+        method="_filter_include_routine",
+        help_text="With `group`, also list the group's routine observations, as the groups list does with the same flag.",
+    )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
         help_text=(
@@ -903,6 +924,23 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags__contains=[tag])
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
+
+    def _filter_theme(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
+    ) -> QuerySet[ReplayObservation]:
+        return cluster_members(queryset, ClusterKind.THEME, value)
+
+    def _filter_group(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
+    ) -> QuerySet[ReplayObservation]:
+        include_routine = self.form.cleaned_data.get("include_routine") is True
+        return cluster_members(queryset, ClusterKind.GROUP, value, include_routine=include_routine)
+
+    def _filter_include_routine(
+        self, queryset: QuerySet[ReplayObservation], _name: str, _value: bool | None
+    ) -> QuerySet[ReplayObservation]:
+        # Read by `_filter_group`; on its own it narrows nothing.
+        return queryset
 
     def _filter_watch_group(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
@@ -1731,7 +1769,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         params.is_valid(raise_exception=True)
         validated = params.validated_data
 
-        scanner_ids = self._searchable_scanner_ids(validated.get("scanner_id"))
+        scanner_ids = readable_scanner_ids_in_scope(self.user_access_control, self.team_id, validated.get("scanner_id"))
         if not scanner_ids:
             return self._search_response([])
         # Gate before the embedding call so an opted-out org gets an actionable 400, not an opaque failure.
@@ -1785,7 +1823,9 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         embedding consumer named from recent issue observations. Reads only, with no side effect."""
         params = SearchSuggestionsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        scanner_ids = readable_scanner_ids_in_scope(
+            self.user_access_control, self.team_id, params.validated_data.get("scanner_id")
+        )
         queries = theme_suggestions(self.team_id, scanner_ids, now())
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
@@ -1801,7 +1841,9 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         It embeds text, so it is a POST rather than part of the read."""
         params = SearchSuggestionsQuerySerializer(data=request.data)
         params.is_valid(raise_exception=True)
-        scanner_ids = self._searchable_scanner_ids(params.validated_data.get("scanner_id"))
+        scanner_ids = readable_scanner_ids_in_scope(
+            self.user_access_control, self.team_id, params.validated_data.get("scanner_id")
+        )
         # The phrases derive from recordings, so they reach the embedding service only with AI data processing on.
         if is_ai_data_processing_approved(self.team.id):
             warm_query_vectors(self.team, theme_suggestions(self.team_id, scanner_ids, now()))
@@ -1814,22 +1856,6 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             {"results": results, "truncated": truncated, "reranked": reranked}, context=self.get_serializer_context()
         )
         return Response(serializer.data)
-
-    def _searchable_scanner_ids(self, scanner_id: uuid.UUID | None) -> list[str]:
-        # Observations expose recording-derived output, so searching them requires session_recording read.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Searching replay observations requires session_recording read access.")
-        if scanner_id is not None:
-            scanner = scanner_for_reading_observations(self.team_id, scanner_id)
-            # Not-found doubles as no-access so the response never leaks the scanner or its experiment.
-            if (
-                scanner is None
-                or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
-                or not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner)
-            ):
-                raise NotFound("Scanner not found.")
-            return [str(scanner.id)]
-        return [str(sid) for sid in readable_observation_scanner_ids(self.user_access_control, self.team_id)]
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])

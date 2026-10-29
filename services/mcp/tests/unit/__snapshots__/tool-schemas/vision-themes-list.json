@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Page size.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Rows to skip, for the next page.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "order": {
+            "default": "people",
+            "description": "`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n* `people` - people\n* `observations` - observations\n* `growth` - growth\n* `recent` - recent",
+            "enum": ["people", "observations", "growth", "recent"],
+            "type": "string"
+        },
+        "review_state": {
+            "description": "Only clusters with these reviews (comma-separated): `known`, `resolved`, `not_an_issue`, or `none` for clusters nobody reviewed. Pass `none` to leave out what the team already handled.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "scanner_id": {
+            "description": "Only this scanner's clusters. Defaults to every scanner you can read.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "scanner_id": {
+            "description": "Only this scanner's clusters. Defaults to every scanner you can read.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

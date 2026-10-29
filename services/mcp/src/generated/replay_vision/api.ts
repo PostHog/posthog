@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 51 enabled ops
+ * PostHog API - MCP 57 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -409,6 +409,171 @@ export const VisionAlertsResetCreateParams = () => zod.object({
 })
 
 /**
+ * Groups of near-duplicate issue observations, each one scanner's sessions that tell the same story, such as one bug many people hit. Narrower than themes. Use it to find the issues that reach the most people.
+ */
+export const VisionGroupsListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionGroupsListQueryByVariantDefault = false
+
+export const visionGroupsListQueryIncludeRoutineDefault = false
+export const visionGroupsListQueryLimitDefault = 20
+export const visionGroupsListQueryLimitMax = 100
+
+export const visionGroupsListQueryOffsetDefault = 0
+export const visionGroupsListQueryOffsetMin = 0
+
+export const visionGroupsListQueryOrderDefault = `people`
+
+export const VisionGroupsListQueryParams = () => zod.object({
+    by_variant: zod
+        .boolean()
+        .default(visionGroupsListQueryByVariantDefault)
+        .describe(
+            "Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners."
+        ),
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    include_routine: zod
+        .boolean()
+        .default(visionGroupsListQueryIncludeRoutineDefault)
+        .describe(
+            "Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave."
+        ),
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionGroupsListQueryLimitMax)
+        .default(visionGroupsListQueryLimitDefault)
+        .describe('Page size.'),
+    offset: zod
+        .number()
+        .min(visionGroupsListQueryOffsetMin)
+        .default(visionGroupsListQueryOffsetDefault)
+        .describe('Rows to skip, for the next page.'),
+    order: zod
+        .enum(['people', 'observations', 'growth', 'recent'])
+        .default(visionGroupsListQueryOrderDefault)
+        .describe(
+            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - people\n\* `observations` - observations\n\* `growth` - growth\n\* `recent` - recent'
+        ),
+    review_state: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Only clusters with these reviews (comma-separated): `known`, `resolved`, `not_an_issue`, or `none` for clusters nobody reviewed. Pass `none` to leave out what the team already handled.'
+        ),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+    variant: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.'
+        ),
+})
+
+/**
+ * One group's counts and examples over the window.
+ */
+export const VisionGroupsRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionGroupsRetrieveQueryByVariantDefault = false
+
+export const visionGroupsRetrieveQueryIncludeRoutineDefault = false
+
+export const VisionGroupsRetrieveQueryParams = () => zod.object({
+    by_variant: zod
+        .boolean()
+        .default(visionGroupsRetrieveQueryByVariantDefault)
+        .describe(
+            "Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners."
+        ),
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    include_routine: zod
+        .boolean()
+        .default(visionGroupsRetrieveQueryIncludeRoutineDefault)
+        .describe(
+            "Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave."
+        ),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+    variant: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.'
+        ),
+})
+
+/**
+ * Record the team's decision about a group, or clear it. Needs editor access to its scanner.
+ */
+export const VisionGroupsReviewCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisionGroupsReviewCreateBody = () => zod.object({
+    review_state: zod
+        .union([
+            zod
+                .enum(['known', 'resolved', 'not_an_issue'])
+                .describe(
+                    '\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+                ),
+            zod.enum(['']),
+        ])
+        .describe(
+            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+        ),
+})
+
+/**
  * A session's observations across every scanner the caller can read, plus the team-level semantic
  * `search` action, which resolves its own scanner scope instead of this queryset.
  */
@@ -458,6 +623,18 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
+    group: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .string()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
     labeled: zod
         .string()
         .optional()
@@ -496,6 +673,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
         ),
     triggered_by: zod
         .string()
@@ -1538,6 +1721,18 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
+    group: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .boolean()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
     labeled: zod
         .boolean()
         .optional()
@@ -1578,6 +1773,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
         ),
     triggered_by: zod
         .string()
@@ -1636,6 +1837,18 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
+    group: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .string()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
     labeled: zod
         .string()
         .optional()
@@ -1674,6 +1887,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
         ),
     triggered_by: zod
         .string()
@@ -1731,6 +1950,18 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .describe(
             "Only observations created at or before this time. Accepts ISO 8601, a relative date like `-1d`, or `now` for the current time; omit it to query through the current time. Date-only values include the whole day, interpreted in the project's timezone."
         ),
+    group: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this group of near duplicates, an `id` from the groups list. Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations the group counted.'
+        ),
+    include_routine: zod
+        .string()
+        .optional()
+        .describe(
+            "With `group`, also list the group's routine observations, as the groups list does with the same flag."
+        ),
     labeled: zod
         .string()
         .optional()
@@ -1769,6 +2000,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .optional()
         .describe(
             'Filter classifier observations whose fixed or freeform tags include any of the given values (comma-separated). Matches if the tag appears in either `tags` or `tags_freeform`.'
+        ),
+    theme: zod
+        .string()
+        .optional()
+        .describe(
+            'Only issue observations in this search theme, an `id` from the themes list. Pair it with the same `date_from` and `date_to` to list the observations the theme counted.'
         ),
     triggered_by: zod
         .string()
@@ -2430,5 +2667,125 @@ export const VisionScannersStatsRetrieveParams = () => zod.object({
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Recurring kinds of issue in replay observations, each a broad cluster of one scanner's issue observations with a short model-written name. Use it to see what comes up often and what is growing.
+ */
+export const VisionThemesListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const visionThemesListQueryLimitDefault = 20
+export const visionThemesListQueryLimitMax = 100
+
+export const visionThemesListQueryOffsetDefault = 0
+export const visionThemesListQueryOffsetMin = 0
+
+export const visionThemesListQueryOrderDefault = `people`
+
+export const VisionThemesListQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(visionThemesListQueryLimitMax)
+        .default(visionThemesListQueryLimitDefault)
+        .describe('Page size.'),
+    offset: zod
+        .number()
+        .min(visionThemesListQueryOffsetMin)
+        .default(visionThemesListQueryOffsetDefault)
+        .describe('Rows to skip, for the next page.'),
+    order: zod
+        .enum(['people', 'observations', 'growth', 'recent'])
+        .default(visionThemesListQueryOrderDefault)
+        .describe(
+            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - people\n\* `observations` - observations\n\* `growth` - growth\n\* `recent` - recent'
+        ),
+    review_state: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Only clusters with these reviews (comma-separated): `known`, `resolved`, `not_an_issue`, or `none` for clusters nobody reviewed. Pass `none` to leave out what the team already handled.'
+        ),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+})
+
+/**
+ * One search theme's counts and examples over the window.
+ */
+export const VisionThemesRetrieveParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisionThemesRetrieveQueryParams = () => zod.object({
+    date_from: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.'
+        ),
+    date_to: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe('Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.'),
+    scanner_id: zod
+        .string()
+        .optional()
+        .describe("Only this scanner's clusters. Defaults to every scanner you can read."),
+})
+
+/**
+ * Record the team's decision about a theme, or clear it. Needs editor access to its scanner.
+ */
+export const VisionThemesReviewCreateParams = () => zod.object({
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const VisionThemesReviewCreateBody = () => zod.object({
+    review_state: zod
+        .union([
+            zod
+                .enum(['known', 'resolved', 'not_an_issue'])
+                .describe(
+                    '\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+                ),
+            zod.enum(['']),
+        ])
+        .describe(
+            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
         ),
 })

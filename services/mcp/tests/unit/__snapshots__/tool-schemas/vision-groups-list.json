@@ -1,0 +1,59 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "by_variant": {
+            "default": false,
+            "description": "Split each group's window counts by experiment variant in `variants`. Use it on experiment scanners.",
+            "type": "boolean"
+        },
+        "date_from": {
+            "description": "Count members from the UTC day of this time: ISO 8601 or relative like `-7d`. Defaults to `-7d`. The window spans at most 90 days.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Count members up to the UTC day of this time: ISO 8601, relative, or `now`. Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "include_routine": {
+            "default": false,
+            "description": "Also count routine observations, so groups describe ordinary behavior and not only issues. Use it for experiment scanners, where the question is how each variant's users behave.",
+            "type": "boolean"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Page size.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Rows to skip, for the next page.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "order": {
+            "default": "people",
+            "description": "`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n* `people` - people\n* `observations` - observations\n* `growth` - growth\n* `recent` - recent",
+            "enum": ["people", "observations", "growth", "recent"],
+            "type": "string"
+        },
+        "review_state": {
+            "description": "Only clusters with these reviews (comma-separated): `known`, `resolved`, `not_an_issue`, or `none` for clusters nobody reviewed. Pass `none` to leave out what the team already handled.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "scanner_id": {
+            "description": "Only this scanner's clusters. Defaults to every scanner you can read.",
+            "type": "string"
+        },
+        "variant": {
+            "description": "Experiment scanners only: count only members attributed to these variant keys (comma-separated). `__unattributed__` matches members with no attributed variant.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
