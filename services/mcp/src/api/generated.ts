@@ -121554,6 +121554,27 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export interface TraceCluster {
+      /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
+      runId: string;
+      /** When the run finished. */
+      runAt: string;
+      /** The clustering job the run belongs to, null for a run without a job. */
+      jobId: string | null;
+      jobName: string | null;
+      /** The cluster's id within its run. -1 is the run's outliers. */
+      clusterId: number;
+      title: string | null;
+      description: string | null;
+      /** The trace fit no cluster in this run. */
+      isOutlier: boolean;
+    }
+
+    export interface TraceClusters {
+      /** The clusters that list the trace: for each clustering job, the newest scheduled run that lists it. Manual runs are left out. Clusters come before outliers, then newest first. */
+      clusters: TraceCluster[];
+    }
+
     export type TraceEvaluationResultOutcomeEnum = typeof TraceEvaluationResultOutcomeEnum[keyof typeof TraceEvaluationResultOutcomeEnum];
 
 
@@ -130168,6 +130189,13 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesClustersRetrieveParams = {
+    /**
+     * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
+     */
+    created_at: string;
     };
 
     export type AiObservabilityTracesFeedbackRetrieveParams = {
