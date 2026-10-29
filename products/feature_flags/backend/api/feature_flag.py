@@ -3052,7 +3052,7 @@ class FeatureFlagSerializer(
         """The stored filters, normalized the way `validate_filters` normalizes the request's, so a shape the
         serializer rewrites (a condition without a `properties` key, an operator alias) does not read as an edit.
         Payloads are left out because the classifier does not read them and stored ones can be ciphertext."""
-        stored = {key: value for key, value in (locked_instance.filters or {}).items() if key != "payloads"}
+        stored = flag_filters.without_payloads(locked_instance.filters)
         structural = FeatureFlagFiltersSerializer(
             data=stored,
             context={FLAG_ID_CONTEXT_KEY: locked_instance.id, PRESERVE_UNKNOWN_KEYS_CONTEXT_KEY: True},
