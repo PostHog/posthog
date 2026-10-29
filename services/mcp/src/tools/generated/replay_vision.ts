@@ -1664,7 +1664,6 @@ const visionScannersWatchFeed = (): ToolBase<
                 offset: params.offset,
                 scanner_ids: params.scanner_ids,
                 scanner_type: params.scanner_type,
-                search: params.search,
                 tags: params.tags,
             },
         })

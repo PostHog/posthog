@@ -7,18 +7,19 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.models import FileSystemViewLog
+from posthog.models import FileSystemViewLog, User
 
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 from products.today.backend.logic.highlight_rules import human, short
-from products.today.backend.logic.highlight_sources import home, routine
 from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
 from products.today.backend.logic.highlight_types import Context
+from products.today.backend.logic.today_highlights import home, routine
 
 TODAY = date(2026, 10, 13)
 
@@ -253,6 +254,10 @@ class TestHomeTiles(SimpleTestCase):
 
 
 class TestRoutineInsights(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_an_insight_opened_most_days_shows_its_last_week_in_the_pulse(self) -> None:
         FileSystemViewLog.objects.create(
@@ -401,30 +406,106 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual([m.key for m in pulse], expected)
 
+    @parameterized.expand(
+        [
+            ("first_insight", "a", ["b", "c", "d"]),
+            ("dashboard_tile", "slow", ["a", "b", "c", "d"]),
+        ]
+    )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_suggestions_skip_pinned_insights_and_leave_their_places_free(self) -> None:
-        for ref in ("pinned", "first", "second", "third"):
+    def test_suggestions_skip_pins_and_keep_fast_results_when_an_earlier_query_uses_the_deadline(
+        self, _name: str, slow_ref: str, expected: list[str]
+    ) -> None:
+        for age, (kind, ref) in enumerate(
+            (("insight", "pinned"), ("insight", "a"), ("dashboard", "7"), ("insight", "c"), ("insight", "d")), start=1
+        ):
             FileSystemViewLog.objects.create(
                 team=self.team,
                 user=self.user,
-                type="insight",
+                type=kind,
                 ref=ref,
-                view_days=[TODAY - timedelta(days=1)],
-                viewed_at=datetime.combine(TODAY - timedelta(days=1), time(12), tzinfo=UTC),
+                view_days=[TODAY - timedelta(days=age)],
+                viewed_at=datetime.combine(TODAY - timedelta(days=age), time(12), tzinfo=UTC),
             )
+        growth = DashboardInsights(
+            dashboard_id=7,
+            name="Growth",
+            filters={},
+            variables=None,
+            tiles=(
+                DashboardInsightTile(insight_short_id="slow", filters_overrides=None),
+                DashboardInsightTile(insight_short_id="b", filters_overrides=None),
+            ),
+        )
         points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
-        queried: list[str] = []
+        queried: list[tuple[str, bool, float | None, float]] = []
+        started: set[str] = set()
+        clock = [0.0]
 
-        def series(**kwargs: Any) -> InsightSeries:
-            queried.append(kwargs["short_id"])
-            return insight({"opened": points}, short_id=kwargs["short_id"], name=kwargs["short_id"])
+        def series(**kwargs: Any) -> InsightSeries | None:
+            ref = kwargs["short_id"]
+            queried.append((ref, kwargs["blocking"], kwargs["wait_until"], clock[0]))
+            if ref not in started:
+                started.add(ref)
+                return None
+            if ref == slow_ref and kwargs["blocking"]:
+                clock[0] = 30.0
+            if ref in ("slow", slow_ref):
+                return None
+            return insight({"opened": points}, short_id=ref, name=ref)
 
         with (
-            patch.object(routine, "pulse_ranking", return_value="frecency"),
+            patch.object(routine, "pulse_ranking", return_value="recency"),
+            patch.object(routine, "dashboard_insights", return_value=growth),
             patch.object(routine, "get_insight_series", side_effect=series),
+            patch.object(routine, "monotonic", side_effect=lambda: clock[0]),
         ):
             pulse = routine.find(
                 Context(self.team, self.user, TODAY, pinned=frozenset({"insight:pinned", "signup_event"}))
             ).pulse
 
-        self.assertEqual((len(pulse), "pinned" in queried), (2, False))
+        self.assertEqual([metric.key for metric in pulse], [f"insight:{ref}" for ref in expected])
+        self.assertEqual({ref for ref, _, _, _ in queried}, {"a", "slow", "b", "c", "d"})
+        self.assertTrue(all(deadline == 20.0 for _, _, deadline, _ in queried))
+        self.assertTrue(any(blocking for _, blocking, _, _ in queried))
+        self.assertTrue(all(not blocking for _, blocking, _, at in queried if at >= 30.0))
+
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_a_person_with_few_views_also_sees_the_insights_the_project_opens_most(self) -> None:
+        others = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(2)]
+        for user, ref, age in (
+            (self.user, "mine", 1),
+            (others[0], "mine", 1),
+            (others[0], "shared", 1),
+            (others[1], "shared", 2),
+            (others[1], "once", 1),
+            (others[0], "stale", 40),
+        ):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=user,
+                type="insight",
+                ref=ref,
+                view_days=[TODAY - timedelta(days=age)],
+                viewed_at=datetime.combine(TODAY - timedelta(days=age), time(12), tzinfo=UTC),
+            )
+        points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
+
+        with (
+            patch.object(routine, "pulse_ranking", return_value="recency"),
+            patch.object(
+                routine,
+                "get_insight_series",
+                side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
+            ),
+        ):
+            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
+
+        self.assertEqual(
+            [(m.key, m.reason, m.last_opened) for m in pulse],
+            [
+                ("insight:mine", "routine", TODAY - timedelta(days=1)),
+                ("insight:shared", "popular", None),
+                ("insight:once", "popular", None),
+            ],
+        )

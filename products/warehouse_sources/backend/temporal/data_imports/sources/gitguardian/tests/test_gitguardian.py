@@ -172,6 +172,60 @@ class TestFanOut:
         ]
         assert result.saved_states == []
 
+    @parameterized.expand(
+        [
+            (
+                "notes_carry_incident_id",
+                "secret_incident_notes",
+                [
+                    f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date",
+                    f"{BASE_URL}/v1/incidents/secrets/7/notes?per_page=100&ordering=created_at",
+                ],
+                [{"id": 3, "incident_id": 7, "comment": "Rotated the key"}],
+                [{"id": 3, "incident_id": 7, "comment": "Rotated the key"}],
+            ),
+            (
+                "leaks_are_unpaginated_and_get_incident_id",
+                "secret_incident_leaks",
+                [
+                    f"{BASE_URL}/v1/incidents/secrets?per_page=100&ordering=date",
+                    f"{BASE_URL}/v1/incidents/secrets/7/leaks",
+                ],
+                [{"source": "github_gist", "name": "fake-gist", "url": "https://gist.example.com/abc"}],
+                [
+                    {
+                        "source": "github_gist",
+                        "name": "fake-gist",
+                        "url": "https://gist.example.com/abc",
+                        "incident_id": 7,
+                    }
+                ],
+            ),
+            (
+                "team_sources_get_team_id",
+                "team_sources",
+                [f"{BASE_URL}/v1/teams?per_page=100", f"{BASE_URL}/v1/teams/7/sources?per_page=100"],
+                [{"id": 42, "full_name": "example-org/example-repo"}],
+                [{"id": 42, "full_name": "example-org/example-repo", "team_id": 7}],
+            ),
+        ]
+    )
+    def test_child_rows_are_keyed_to_their_parent(
+        self,
+        _name: str,
+        endpoint: str,
+        expected_urls: list[str],
+        child_rows: list[dict[str, Any]],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _driver().run(endpoint, [_page([{"id": 7}]), _page(child_rows)])
+        assert result.raised is None
+        assert result.urls == expected_urls
+        assert result.rows == expected_rows
+        assert result.response is not None
+        primary_keys = result.response.primary_keys or []
+        assert primary_keys and all(key in row for row in result.rows for key in primary_keys)
+
     def test_parent_deleted_mid_sync_is_skipped(self) -> None:
         result = _driver().run(
             "team_memberships",
@@ -276,6 +330,7 @@ class TestCheckEndpointAccess:
             ("honeytokens", "honeytokens:read"),
             ("custom_tags", "custom_tags:read"),
             ("audit_logs", "audit_logs:read"),
+            ("public_developers", "public-perimeter:read"),
         ]
     )
     def test_denial_without_detail_names_the_required_scope(self, endpoint: str, scope: str) -> None:
@@ -313,6 +368,22 @@ class TestCheckEndpointAccess:
         with scripted_network([ScriptedResponse(status=200)]) as network:
             check_endpoint_access("gg_sat_x", BASE_URL, endpoint)
         assert [request.path for request in network.requests_log] == [parent_path]
+
+    def test_team_sources_probes_teams_and_sources(self) -> None:
+        with scripted_network([ScriptedResponse(status=200), ScriptedResponse(status=200)]) as network:
+            reason = check_endpoint_access("gg_sat_x", BASE_URL, "team_sources")
+        assert reason is None
+        assert [request.path for request in network.requests_log] == ["/v1/teams", "/v1/sources"]
+
+    def test_team_sources_without_sources_scope_is_blocked(self) -> None:
+        with scripted_network([ScriptedResponse(status=200), ScriptedResponse(status=403, body=b"no json")]):
+            reason = check_endpoint_access("gg_sat_x", BASE_URL, "team_sources")
+        assert reason is not None and "sources:read" in reason
+
+    def test_unpaginated_endpoint_is_probed_without_paging_params(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            check_endpoint_access("gg_sat_x", BASE_URL, "public_developers")
+        assert [request.url for request in network.requests_log] == [f"{BASE_URL}/v1/public-perimeter/developers"]
 
 
 class TestFetchPageRetries:

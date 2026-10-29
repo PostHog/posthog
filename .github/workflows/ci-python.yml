@@ -43,13 +43,15 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
     # Job to decide if we should run python ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run python checks
@@ -244,8 +246,8 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
-        # Master runs mypy cold after a dependency change, which needs more than 8 GB.
-        runs-on: ${{ github.event_name == 'pull_request' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        # Master and the merge queue run mypy cold after a dependency change, which needs more than 8 GB.
+        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:

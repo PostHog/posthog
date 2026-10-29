@@ -20,6 +20,7 @@ export interface BulkSelectionContext<T, K extends BulkSelectionKey = BulkSelect
 export interface BulkSelectionConfig<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
     /** Render bulk action UI shown above the table whenever `selectedCount > 0`. */
     renderActions: (ctx: BulkSelectionContext<T, K>) => ReactNode
+    actionsPlacement?: 'start' | 'end'
     /** Per-row gate. Return `false` or `{ disabledReason }` to disable that row's checkbox. */
     isRowSelectable?: (record: T, rowIndex: number) => BulkSelectionRowGate
     /** Override how a record is mapped to a selection key. Defaults to LemonTable's `rowKey`.

@@ -53,6 +53,9 @@ DELETE_TOMBSTONED_DEFAULT_ROWS = 1000
 # The replica's cap on keys per version floor request.
 VERSION_RPC_MAX_KEYS = 250
 
+# The replica's cap on distinct ids across all persons in one restore request.
+RESTORE_MAX_DISTINCT_IDS = 1000
+
 
 class FakePersonHogClient:
     """In-memory fake that implements the same interface as PersonHogClient.
@@ -1084,6 +1087,8 @@ class FakePersonHogClient:
         if not all(isinstance(props, dict) for props in parsed_properties):
             raise ValueError("properties must be a JSON object")
         listed = [d for p in request.persons for d in p.distinct_ids]
+        if len(listed) > RESTORE_MAX_DISTINCT_IDS:
+            raise ValueError(f"At most {RESTORE_MAX_DISTINCT_IDS} distinct ids per restore, got {len(listed)}")
         if len({d.distinct_id for d in listed}) != len(listed) or any(
             not d.distinct_id or d.version < 0 for d in listed
         ):

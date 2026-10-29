@@ -622,6 +622,16 @@ export interface GitHubReposRefreshResponseApi {
     installation_status: InstallationStatusEnumApi
 }
 
+export interface GitHubRepositoryAccessResponseApi {
+    /** Whether a live GitHub request confirmed repository access. */
+    available: boolean
+}
+
+export interface ErrorResponseApi {
+    /** Error message */
+    error: string
+}
+
 export interface GitHubTeamApi {
     /** GitHub team numeric identifier. */
     id: number
@@ -662,6 +672,31 @@ export interface LinearTeamApi {
 export interface LinearTeamsResponseApi {
     /** Linear teams available to this integration. */
     teams: LinearTeamApi[]
+}
+
+export interface PushTokenSubscriptionApi {
+    /**
+     * The person's distinct ID in this project.
+     * @maxLength 200
+     */
+    distinct_id: string
+    /**
+     * The APNs device token or FCM registration token of one device.
+     * @maxLength 4096
+     */
+    device_token: string
+}
+
+export interface PushTokenImportRequestApi {
+    /** Up to 1000 devices to register on this push channel. List a person once per device. */
+    subscriptions: PushTokenSubscriptionApi[]
+}
+
+export interface PushTokenImportResponseApi {
+    /** Number of devices stored on their person. */
+    imported: number
+    /** Distinct IDs with at least one device that was not stored. Send those rows again. */
+    failed_distinct_ids: string[]
 }
 
 export interface SlackUserApi {
@@ -1200,6 +1235,14 @@ export type IntegrationsGithubReposRetrieveParams = {
      * Optional case-insensitive repository name search query.
      */
     search?: string
+}
+
+export type IntegrationsGithubRepositoryAccessRetrieveParams = {
+    /**
+     * Repository in owner/repo format. Omit to check access to any repository.
+     * @minLength 1
+     */
+    repository?: string
 }
 
 export type IntegrationsGithubTeamsRetrieveParams = {

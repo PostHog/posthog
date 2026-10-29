@@ -6,7 +6,7 @@ between the experiments product and the rest of the system.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -18,6 +18,27 @@ if TYPE_CHECKING:
 
 # Metrics per section (primary/secondary) included in the AI results summary
 MAX_METRICS_TO_SUMMARIZE = 50
+
+
+@frozen
+class StoredArmResult:
+    key: str
+    number_of_samples: int
+    mean: float | None
+    change: float | None = None
+    significant: bool | None = None
+
+
+@frozen
+class StoredPrimaryResult:
+    """The current stored result of an experiment's primary metric."""
+
+    metric_name: str
+    metric_type: str | None
+    proportion: bool
+    goal: str | None
+    baseline: StoredArmResult
+    variants: tuple[StoredArmResult, ...]
 
 
 @frozen
@@ -107,7 +128,10 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTER_ON_DYNAMIC_COHORT = "exposure_filter_on_dynamic_cohort"
+    EXPOSURE_FILTER_EXCLUDES_EVENTS = "exposure_filter_excludes_events"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
@@ -210,7 +234,9 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"
@@ -248,6 +274,66 @@ class ExperimentHealthReaderAccess:
     can_read_flag_history: bool
     can_query_events: bool
     denied_event_properties: frozenset[str]
+
+
+class ExperimentValidationError(Exception):
+    """Raised when the facade refuses an experiment write for its input. The message is written for the person who
+    sent the input, so a caller at an HTTP boundary can return it as a 400."""
+
+
+class LegacyMigrationError(Exception):
+    """Raised when a legacy experiment can't move onto the new engine. The message is written for the person who asked
+    for the migration."""
+
+
+@frozen
+class InSessionExposureSemantics:
+    """How the in-session narrowing reads on one experiment.
+
+    One resolution serves both the recordings query's refusal and the tab's scope control, so the
+    two can't drift: the control disables exactly what the query would refuse, and the copy can say
+    when the evidence is the stamped-property stand-in rather than the exposure event itself.
+    """
+
+    # Why in-session narrowing can't answer for this experiment. None when it can.
+    unavailable_reason: str | None
+    # True when the evidence is the stamped `$feature/<key>` property: it means the flag was active in the session,
+    # not that the exposure event was captured there.
+    uses_stamped_fallback: bool
+
+    @property
+    def available(self) -> bool:
+        """True when a query carrying the narrowing would be accepted."""
+        return self.unavailable_reason is None
+
+
+@frozen
+class ExperimentExposureLinkage:
+    """A validated experiment-exposure filter, resolved to how its population will be read.
+
+    Obtained from `facade.replay.resolve_exposure_linkage` and handed back to the replay facade's
+    select builders and `session_attribution`, so a query built later reads the same resolution.
+    """
+
+    # The variants the population covers: the caller's narrowing without duplicates, or every requestable variant when
+    # the caller asked for none.
+    requested_variants: tuple[str, ...]
+    # max_memory_usage ceiling the synchronous recordings-list run must apply when the live
+    # scan needs explicit bounding instead of relying on cluster defaults. It bounds the whole
+    # embedding query, so a kill renders as the platform's generic memory-limit error rather
+    # than anything exposure-specific. Composition callers that execute the linkage's AST
+    # through their own async or batch pipelines run under those pipelines' limits and may
+    # ignore it.
+    live_scan_max_memory_bytes: int | None
+    # True when the exposure criteria apply the team's test-account filters, so the exposed
+    # population is already test-filtered at the person level. Queries that restrict their rows
+    # to this population can skip re-applying the same filters to their own rows.
+    population_filters_test_accounts: bool
+    # True when the linkage narrows to sessions with in-session exposure evidence.
+    in_session: bool
+    # The product's resolution, which only the replay facade reads back. It holds the query context, so it is typed
+    # `object` to keep that context off the contract. It is left out of equality and hashing.
+    _resolution: object = field(compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -364,6 +450,52 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+class RunningTimeMode(LabeledStrEnum):
+    # pinned: the page's `ConversionRateInputType` values in frontend/src/types.ts, stored in
+    # `running_time_calculation.exposure_estimate_config.conversionRateInputType`.
+    AUTOMATIC = "automatic", "Sized from the results"
+    MANUAL = "manual", "Saved from a baseline the user entered"
+
+
+@frozen
+class ExperimentDetectableEffectCheckpoint:
+    weeks_since_launch: int
+    # The smallest relative effect, as a percentage, that the exposures by then detect.
+    detectable_effect: float
+
+
+@frozen
+class ExperimentRunningTimeOutlook:
+    """What the experiment can detect over time, at its exposure rate so far."""
+
+    days_since_launch: float
+    # The exposures that count toward the target, per day from launch to the end of the window the results cover.
+    exposures_per_day: float
+    # The smallest relative effect, as a percentage, that the exposures so far detect.
+    detectable_effect_now: float
+    # The next week marks after today.
+    upcoming_checkpoints: tuple[ExperimentDetectableEffectCheckpoint, ...]
+    # The smallest effect the experiment detects within four weeks from today. A target for a smaller one is out of
+    # reach.
+    reachable_effect: float
+
+
+@frozen
+class ExperimentRunningTimeTarget:
+    """The target sample of an experiment's running time estimate."""
+
+    # The relative effect, as a percentage, that the target sizes the experiment to detect.
+    minimum_detectable_effect: float
+    # The exposures across the analyzed variants that the experiment needs. None when no stored result can size it.
+    recommended_sample_size: int | None
+    # The exposures so far that count toward the target: the control's and those of the variants that get traffic.
+    # None in manual mode, and when no stored result can size the target.
+    current_sample_size: int | None
+    # None in manual mode, before the experiment has run long enough to project, and when no stored result can size the
+    # target.
+    outlook: ExperimentRunningTimeOutlook | None
 
 
 @frozen

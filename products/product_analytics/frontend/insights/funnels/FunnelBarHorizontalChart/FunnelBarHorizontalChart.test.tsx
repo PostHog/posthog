@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
-import { clickAtIndex, ensureJsdom, hoverUntilTooltip } from '@posthog/quill-charts/testing'
+import { clickAtIndex, ensureJsdom, getChart, hoverUntilTooltip } from '@posthog/quill-charts/testing'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -16,6 +16,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
+import { FunnelBarListChart } from '../FunnelBarListChart/FunnelBarListChart'
+import { FunnelStepsBarChart } from '../FunnelStepsBarChart/FunnelStepsBarChart'
 import { FunnelBarHorizontalChart } from './FunnelBarHorizontalChart'
 
 jest.mock('scenes/trends/persons-modal/PersonsModal', () => ({ openPersonsModal: jest.fn() }))
@@ -27,11 +29,26 @@ ensureJsdom()
 let uniqueNode = 0
 
 /** Mounts the chart and returns the event wrapper of the first step's bar. */
-async function renderFirstStepBar(inCardView: boolean): Promise<HTMLElement> {
+async function renderFirstStepBar(
+    inCardView: boolean,
+    Chart = FunnelBarHorizontalChart,
+    withThresholds = false
+): Promise<HTMLElement> {
     const dashboardItemId = `FunnelBarHorizontalChartTest.${uniqueNode++}` as InsightShortId
     const fixture = funnelTopToBottomFixture as any
-    const source = fixture.query.source
-    const cachedInsight = { ...fixture, short_id: dashboardItemId }
+    const source = {
+        ...fixture.query.source,
+        funnelsFilter: {
+            ...fixture.query.source.funnelsFilter,
+            goalLines: withThresholds
+                ? [
+                      { label: 'Lower threshold', value: 20 },
+                      { label: 'Upper threshold', value: 80 },
+                  ]
+                : undefined,
+        },
+    }
+    const cachedInsight = { ...fixture, query: { ...fixture.query, source }, short_id: dashboardItemId }
     const insightProps: InsightLogicProps = { dashboardItemId, doNotLoad: true, cachedInsight }
     const dataNodeLogicProps: DataNodeLogicProps = {
         query: source,
@@ -43,7 +60,7 @@ async function renderFirstStepBar(inCardView: boolean): Promise<HTMLElement> {
     render(
         <BindLogic logic={insightLogic} props={insightProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <FunnelBarHorizontalChart inCardView={inCardView} />
+                <Chart inCardView={inCardView} />
             </BindLogic>
         </BindLogic>
     )
@@ -61,6 +78,22 @@ describe('FunnelBarHorizontalChart', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    it.each([
+        ['vertical steps', FunnelStepsBarChart],
+        ['horizontal steps', FunnelBarHorizontalChart],
+        ['bar list', FunnelBarListChart],
+    ])('shows both alert limits for %s', async (_name, Chart) => {
+        const bar = await renderFirstStepBar(true, Chart, true)
+
+        await waitFor(() => {
+            expect(
+                getChart(bar)
+                    .referenceLines()
+                    .map((line) => line.label)
+            ).toEqual(['Lower threshold', 'Upper threshold'])
+        })
     })
 
     // A card-view bar used to render the hint while its click handler was withheld, so the tooltip

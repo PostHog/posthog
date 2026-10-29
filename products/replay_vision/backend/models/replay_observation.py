@@ -48,8 +48,8 @@ def watch_rank_contrast() -> Cast:
 
 
 def watch_group_root() -> Coalesce:
-    """A ranked row's duplicate group: the observation it duplicates, or itself. `rlo_ranked_group_idx` indexes it."""
-    return Coalesce(KeyTextTransform("duplicate_of", "watch_rank"), Cast("id", CharField()), output_field=CharField())
+    """A ranked row's feed group, or the row itself when it has none. `rlo_ranked_feed_group_idx` indexes it."""
+    return Coalesce(KeyTextTransform("group", "watch_rank"), Cast("id", CharField()), output_field=CharField())
 
 
 class ReplayObservation(UUIDModel):
@@ -200,10 +200,10 @@ class ReplayObservation(UUIDModel):
                 name="rlo_ranked_contrast_idx",
                 condition=models.Q(status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=1),
             ),
-            # Finds the members of the feed picks' duplicate groups, to count the sessions and people each one reached.
+            # Finds the members of the feed picks' groups, to count the sessions and people each one reached.
             models.Index(
                 watch_group_root(),
-                name="rlo_ranked_group_idx",
+                name="rlo_ranked_feed_group_idx",
                 condition=models.Q(status="succeeded", watch_rank__isnull=False),
             ),
             # Serves the per-backfill observation filter and progress counts; partial since live rows never match.

@@ -29,6 +29,7 @@ from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.gemini_client import gemini_api_key
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin
@@ -39,7 +40,6 @@ from products.replay_vision.backend.models.replay_vision_learned_ruleset import 
 from products.replay_vision.backend.models.team_replay_vision_config import TeamReplayVisionConfig
 from products.replay_vision.backend.observation_formatting import describe_output, explanation_text, read_output
 from products.replay_vision.backend.scanner_access import snapshot_experiment_scope_q
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.team_context import sanitize_prompt_text
 
 from ee.hogai.utils.untrusted import neutralize_markup
@@ -60,7 +60,6 @@ MAX_CONTEXT_RATINGS_PER_SCANNER = 20
 _SCANNER_PROMPT_CHARS = 1200
 # Long enough for most answers whole: without the session, the scanner's own words are all a pattern can rest on.
 _REASONING_CHARS = 2000
-_NOTABILITY_CHARS = 300
 _FEEDBACK_CHARS = 600
 # A first run reads ratings this far back; older ones may describe a scanner that has changed since.
 FIRST_RUN_LOOKBACK = dt.timedelta(days=90)
@@ -695,16 +694,12 @@ def _describe(rating: _Rating, scanner_version: int) -> str:
 
 
 def _output_details(output: dict) -> str:
-    """Confidence, notability and the moment the scanner picked, which a pattern across unexplained ratings
-    can turn on (for example, every rejected answer being low-confidence)."""
+    """Confidence and the moment the scanner picked, which a pattern across unexplained ratings can turn on
+    (for example, every rejected answer being low-confidence)."""
     parts: list[str] = []
     confidence = output.get("confidence")
     if isinstance(confidence, int | float):
         parts.append(f"confidence {confidence:.2f}")
-    notability = output.get("notability")
-    if isinstance(notability, int | float):
-        reason = " ".join(str(output.get("notability_reason") or "").split())[:_NOTABILITY_CHARS]
-        parts.append(f"notability {notability:.2f}" + (f" ({reason})" if reason else ""))
     key_moment_ms = output.get("key_moment_ms")
     if isinstance(key_moment_ms, int):
         parts.append(f"key moment at {key_moment_ms // 1000}s")

@@ -3,7 +3,6 @@ from zoneinfo import ZoneInfo
 
 import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
-from unittest.mock import patch
 
 from django.forms.models import model_to_dict
 from django.test import override_settings
@@ -14,10 +13,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureQuery,
+    ExperimentWarehouseNativeExposureConfig,
     MultipleVariantHandling,
 )
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import AccessMethod, tags_context
 from posthog.constants import AvailableFeature
@@ -32,12 +35,12 @@ from products.experiments.backend.hogql_queries.experiment_exposures_query_runne
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
 )
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.utils import (
     create_standard_group_test_events,
 )
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -85,6 +88,20 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ExperimentExposuresQueryRunner(team=self.team, query=self._null_multivariate_query())
 
         self.assertIn("has no variants", str(ctx.exception))
+
+    def test_refuses_warehouse_native_exposure_criteria_as_a_query_error(self):
+        # The request carries its own criteria, so a warehouse-native exposure reaches the runner
+        # without a save. It must fail as a query error (a 400), not as a server error.
+        query = self._null_multivariate_query()
+        query.exposure_criteria = ExperimentExposureCriteria(
+            exposure_config=ExperimentWarehouseNativeExposureConfig(
+                connection_id="00000000-0000-0000-0000-000000000000",
+                query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+            )
+        )
+
+        with self.assertRaisesMessage(ExposedHogQLError, "Warehouse-native sources cannot be calculated yet."):
+            ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
     def test_missing_experiment_raises_validation_error(self):
         # Cached exposure queries can outlive their experiment; a stale id must
@@ -239,12 +256,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_criteria=experiment.exposure_criteria,
         )
 
-        # Only answer for the exposure-event flag; returning True for every flag would flip
-        # unrelated HogQL query modifiers on and break the query under test.
-        def fake_feature_enabled(flag_key: str, *args, **kwargs) -> bool:
-            return new_event_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=new_event_enabled):
             response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
 
         self.assertEqual(response.total_exposures, expected_exposures)

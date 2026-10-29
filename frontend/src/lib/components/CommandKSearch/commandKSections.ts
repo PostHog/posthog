@@ -224,17 +224,22 @@ export interface SectionsInput extends SectionsQuery {
     remote: RemoteSlots
     stale: boolean
     personsFirst: boolean
+    settingsInResults: boolean
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
     !!query.remoteQueries.results && freeWords(query.remoteQueries.results).length > 0
+
+export const resultsSettled = (query: SectionsQuery, remote: RemoteSlots): boolean =>
+    isSettled(remote.results, query.remoteQueries.results) &&
+    (!isRanked(query) || isSettled(remote.accounts, query.remoteQueries.accounts))
 
 export function pickDisplayedQuery(
     current: SectionsQuery,
     shown: SectionsQuery | null,
     remote: RemoteSlots
 ): { query: SectionsQuery; stale: boolean } {
-    if (!shown?.remoteQueries.results || isSettled(remote.results, current.remoteQueries.results)) {
+    if (!shown?.remoteQueries.results || resultsSettled(current, remote)) {
         return { query: current, stale: false }
     }
     if (isRanked(current) && !isRanked(shown)) {
@@ -243,8 +248,8 @@ export function pickDisplayedQuery(
     return { query: shown, stale: true }
 }
 
-export const resultsSettled = (query: SectionsQuery, remote: RemoteSlots): boolean =>
-    isSettled(remote.results, query.remoteQueries.results)
+const exactSettingsMatches = (settings: SearchItem[], localQuery: string): SearchItem[] =>
+    localQuery ? matchLocal('settings', settings, localQuery, true) : []
 
 const LOCAL_MATCH_CACHE_SIZE = 50
 const localMatchCache = new WeakMap<SearchItem[], Map<string, SearchItem[]>>()
@@ -282,17 +287,32 @@ function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): 
     }
 }
 
+const plainName = (item: SearchItem): string =>
+    String(item.displayName || item.name)
+        .toLowerCase()
+        .replace(/\s*\([^)]*\)\s*$/, '')
+        .trim()
+
+export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
+    const productNames = new Set(local.products.map(plainName))
+    return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
+}
+
 function rankedResultsSections(
     results: SearchItem[],
     query: string,
     local: LocalLists,
     localQuery: string,
     state: CommandKSection['state'],
-    persons: SearchItem[]
+    persons: SearchItem[],
+    accounts: SearchItem[],
+    settingsInResults: boolean
 ): CommandKSection[] {
     const words = freeWords(query)
     return buildRankedResults({
         persons,
+        accounts,
+        settings: settingsInResults ? rankableSettings(local, localQuery) : [],
         query: words.join(' '),
         highlightWords: words,
         results,
@@ -338,7 +358,7 @@ function lowerSections(
             if (ranked && source === 'products') {
                 continue
             }
-            const filtered = matchLocal(source, local[source], localQuery, ranked)
+            const filtered = matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
             const themeItem = source === 'settings' ? input.themeItem : null
             const rows = themeItem
                 ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
@@ -395,7 +415,12 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
     const results = resultsQuery ? remote.results.cache[resultsQuery] : undefined
     const ranked = isRanked(input)
     const personsQuery = input.personsFirst && mode !== 'value' ? remoteQueries.persons : undefined
-    if ((resultsQuery && !results) || (personsQuery && !isSettled(remote.persons, personsQuery))) {
+    const accountsQuery = ranked && mode !== 'value' ? remoteQueries.accounts : undefined
+    if (
+        (resultsQuery && !results) ||
+        (personsQuery && !isSettled(remote.persons, personsQuery)) ||
+        (accountsQuery && !isSettled(remote.accounts, accountsQuery))
+    ) {
         sections.push(withViewAll(loadingSection('results'), input.viewAll))
         return sections.filter((section): section is CommandKSection => section !== null)
     }
@@ -404,7 +429,16 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
         sections.push(remoteSection('persons', leadingPersons, state))
     }
     if (ranked && results && resultsQuery) {
-        const rankedSections = rankedResultsSections(results, resultsQuery, local, localQuery, state, leadingPersons)
+        const rankedSections = rankedResultsSections(
+            results,
+            resultsQuery,
+            local,
+            localQuery,
+            state,
+            leadingPersons,
+            accountsQuery ? remote.accounts.cache[accountsQuery] : [],
+            input.settingsInResults
+        )
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')
                 ? rankedSections.map((section) =>

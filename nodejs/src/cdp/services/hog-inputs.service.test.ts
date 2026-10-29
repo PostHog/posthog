@@ -93,6 +93,17 @@ describe('Hog Inputs', () => {
         await closeHub(hub)
     })
 
+    const insertWarehouseIntegration = async (config: unknown): Promise<number> => {
+        const id = team.id + 3
+        await insertIntegration(hub.postgres, team.id, {
+            id,
+            kind: 'postgresql' as any,
+            config: (typeof config === 'string' ? JSON.stringify(config) : config) as any,
+            sensitive_config: { password: hub.encryptedFields.encrypt('secret-password') },
+        })
+        return id
+    }
+
     describe('formatInput', () => {
         it('can handle null values in input objects', async () => {
             const globals = {
@@ -362,7 +373,58 @@ describe('Hog Inputs', () => {
             expect(inputs.connection).toBeNull()
         })
 
-        it('should add unsubscribe url if email input is present', async () => {
+        it.each([
+            ['a marker with a string value', { warehouse_source_type: 'Postgres', host: 'db.example.com' }],
+            ['a marker with an empty string', { warehouse_source_type: '', host: 'db.example.com' }],
+            ['a marker with a null value', { warehouse_source_type: null, host: 'db.example.com' }],
+            ['a config that is a string', 'host=db.example.com'],
+            ['a config that is an array', ['db.example.com']],
+        ])('blocks an integration with %s', async (_name, config) => {
+            const warehouseId = await insertWarehouseIntegration(config)
+            hogFunction.inputs = { connection: { value: warehouseId } }
+            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+
+            const error = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+
+            expect(error.message).toContain("The integration for input 'connection' can't be used as a function input.")
+            expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
+            const loaded = await hogInputsService.loadIntegrationInputs(hogFunction)
+            expect(loaded.connection.value).toBeNull()
+        })
+
+        it.each([
+            ['no marker', { team: 'foobar' }],
+            ['a null config', null],
+        ])('loads an integration with %s', async (_name, config) => {
+            const warehouseId = await insertWarehouseIntegration({ team: 'foobar' })
+            if (config === null) {
+                const row = (await hub.integrationManager.getMany([warehouseId]))[warehouseId]
+                jest.spyOn(hub.integrationManager, 'getMany').mockResolvedValue({
+                    [warehouseId]: { ...row!, config: null as any },
+                })
+            }
+            hogFunction.inputs = { connection: { value: warehouseId } }
+            hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.connection).toMatchObject({ $integration_id: warehouseId, password: 'secret-password' })
+        })
+
+        it('fails an integration_multi input that holds a marked row', async () => {
+            const warehouseId = await insertWarehouseIntegration({ warehouse_source_type: 'Postgres' })
+            hogFunction.inputs = { channels: { value: [integrationId1, warehouseId] } }
+            hogFunction.inputs_schema = [{ key: 'channels', type: 'integration_multi', required: true }]
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).rejects.toThrow(
+                "The integration for input 'channels' can't be used as a function input."
+            )
+        })
+
+        it.each([
+            { name: 'a hog function', source: undefined },
+            { name: 'a workflow email step', source: { appSourceId: 'flow-1', instanceId: 'action-1' } },
+        ])('should add unsubscribe url if email input is present for $name', async ({ source }) => {
             hogFunction.inputs = {
                 email: {
                     templating: 'liquid',
@@ -375,11 +437,11 @@ describe('Hog Inputs', () => {
 
             hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
 
-            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals, undefined, source)
             expect(inputs.email.to.email).toEqual('test@posthog.com')
             const recipient = { team_id: team.id, identifier: 'test@posthog.com' }
             expect(inputs.email.html).toEqual(
-                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient)}">here</a> to immediately unsubscribe from all marketing emails</div>`
+                `<div>Manage subscription preferences here <a href="${recipientTokensService.generatePreferencesUrl(recipient, source)}">here</a>Or, click <a href="${recipientTokensService.generateOneClickUnsubscribeUrl(recipient, source)}">here</a> to immediately unsubscribe from all marketing emails</div>`
             )
         })
 
