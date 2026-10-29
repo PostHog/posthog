@@ -251,6 +251,9 @@ class TestRejectLookalikeEmailCharacters(SimpleTestCase):
             ("zero_width_joiner_in_local_part", "us\u200der@example.com"),
             ("word_joiner", "user@exam\u2060ple.com"),
             ("byte_order_mark", "\ufeffuser@example.com"),
+            ("soft_hyphen", "user@exa\u00admple.com"),
+            ("right_to_left_mark", "user@example.com\u200f"),
+            ("right_to_left_override", "user@\u202eexample.com"),
         ]
     )
     def test_rejects_lookalike_dots_and_hidden_characters(self, _name: str, email: str) -> None:
@@ -263,6 +266,13 @@ class TestRejectLookalikeEmailCharacters(SimpleTestCase):
             ("ascii", "user@example.com"),
             ("idn_domain", "user@ex\u00e4mple.com"),
             ("non_latin_domain", "user@\u4f8b\u3048.jp"),
+            ("vietnamese", "nguy\u1ec5n@v\u00ed-d\u1ee5.vn"),
+            ("polish", "\u0142ukasz@\u017c\u00f3\u0142w.pl"),
+            ("russian", "\u0438\u0432\u0430\u043d@\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444"),
+            (
+                "greek",
+                "user@\u03c0\u03b1\u03c1\u03ac\u03b4\u03b5\u03b9\u03b3\u03bc\u03b1.\u03b4\u03bf\u03ba\u03b9\u03bc\u03ae",
+            ),
         ]
     )
     def test_allows_addresses_without_lookalike_characters(self, _name: str, email: str) -> None:
