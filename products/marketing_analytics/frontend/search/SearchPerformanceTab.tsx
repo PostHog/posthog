@@ -60,6 +60,22 @@ export function SearchPerformanceTab({
 
     return (
         <div className="@container flex flex-col gap-4 pb-8" data-attr="marketing-search-performance">
+            <div>
+                <h2 className="mb-1">
+                    {breakdown === 'page'
+                        ? 'Landing page performance'
+                        : breakdown === 'search_term'
+                          ? 'Search term performance'
+                          : 'Search performance'}
+                </h2>
+                <p className="text-secondary mb-0">
+                    {breakdown === 'page'
+                        ? 'See which pages receive paid and organic search traffic. Click a page to explore its organic queries.'
+                        : breakdown === 'search_term'
+                          ? 'Compare the searches that triggered your Google Ads with organic search queries. Click a term to explore its organic landing pages.'
+                          : 'Compare ad keywords with organic search queries. Click a keyword or query to explore its landing pages.'}
+                </p>
+            </div>
             <div className="flex flex-wrap gap-2 items-center justify-between">
                 <LemonSegmentedButton<SearchBreakdown>
                     value={breakdown}
@@ -79,22 +95,6 @@ export function SearchPerformanceTab({
                         { value: 'organic', label: 'Organic search' },
                     ]}
                 />
-            </div>
-            <div>
-                <h2 className="mb-1">
-                    {breakdown === 'page'
-                        ? 'Landing page performance'
-                        : breakdown === 'search_term'
-                          ? 'Search term performance'
-                          : 'Search performance'}
-                </h2>
-                <p className="text-secondary mb-0">
-                    {breakdown === 'page'
-                        ? 'See which pages receive paid and organic search traffic. Click a page to explore its organic queries.'
-                        : breakdown === 'search_term'
-                          ? 'Compare the searches that triggered your Google Ads with organic search queries. Click a term to explore its organic landing pages.'
-                          : 'Compare ad keywords with organic search queries. Click a keyword or query to explore its landing pages.'}
-                </p>
             </div>
             {loading ? (
                 <LemonSkeleton repeat={5} className="h-10" />
