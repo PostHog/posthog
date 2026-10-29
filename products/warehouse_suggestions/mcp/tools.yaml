@@ -28,7 +28,8 @@ tools:
             its refreshes feed person properties, a destination or a workflow; `created_asset.stopped_materialization`
             says whether refreshes stopped. A deprecate suggestion can be about a plain view too, with no refresh cost.
             Pass delete_view=true on a deprecate suggestion to delete the view instead of marking it deprecated; this
-            cannot be undone, and a 409 means another view now reads from it. Unmaterialize suggestions turn a rarely
+            cannot be undone, and a 409 means another view, a sync, a destination or a workflow now reads from it.
+            Unmaterialize suggestions turn a rarely
             read materialized view back into a plain view: its refreshes stop, its stored table is deleted, and each
             read computes the view, taking about `read_seconds`. A 409 means the view changed since the suggestion was
             made, for example another view now reads from it or it now refreshes incrementally. Materialize suggestions

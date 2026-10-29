@@ -159,6 +159,8 @@ class DeprecateAcceptor(CertificationAcceptor):
     ) -> CreatedAsset:
         if not request.options.delete_view:
             return super().accept(suggestion, payload, request)
+        if suggestion.subject_id in saved_queries_feeding_consumers(suggestion.team_id, [suggestion.subject_id]):
+            raise SuggestionOutdatedError(SYNCS_READ_IT)
         stopped_materialization = saved_query_still_materializes(suggestion.team_id, suggestion.subject_id)
         try:
             delete_saved_query_by_id(

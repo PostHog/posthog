@@ -391,6 +391,7 @@ class TestAcceptSuggestion(APIBaseTest):
             ("deletes_a_materialized_view", True, None, status.HTTP_200_OK),
             ("deletes_a_plain_view", False, None, status.HTTP_200_OK),
             ("refuses_when_a_view_was_built_on_it", True, add_dependent_view, status.HTTP_409_CONFLICT),
+            ("refuses_when_it_feeds_a_destination", True, add_destination, status.HTTP_409_CONFLICT),
         ]
     )
     def test_accepting_a_deprecate_suggestion_can_delete_the_view(

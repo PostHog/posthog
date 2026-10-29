@@ -57,7 +57,7 @@ class DeprecateCandidate(Candidate):
             if reason is not None:
                 rejections.append(Rejection(subject=subject, reason=reason))
                 continue
-            refreshes = context.reads.refreshes.get(saved_query.id)
+            refreshes = context.reads.refreshes.get(saved_query.id) if saved_query.materializes else None
             seconds = refreshes.duration_ms / MILLISECONDS_PER_SECOND * context.month_scale if refreshes else 0.0
             read_bytes = refreshes.read_bytes * context.month_scale if refreshes else 0.0
             drafts.append(

@@ -385,6 +385,7 @@ class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
             "delete_view": {
                 "allow_null": False,
                 "help_text": "Deprecate only: true to delete the view instead of marking it deprecated. Deleting also "
-                "drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it.",
+                "drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when "
+                "it feeds person properties, account properties, a destination or a workflow.",
             },
         }

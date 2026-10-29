@@ -343,16 +343,28 @@ class TestDeprecateCandidate(BaseTest):
 
     @parameterized.expand(
         [
-            ("unread", None, [(0.0, False)], False),
-            ("already_deprecated", CertificationStatus.DEPRECATED, [], True),
+            ("unread", None, None, [(0.0, False)], False),
+            (
+                "unmaterialized_during_the_window",
+                None,
+                SubjectRefreshes(runs=20, duration_ms=20 * 60_000, read_bytes=20 * 10**12),
+                [(0.0, False)],
+                False,
+            ),
+            ("already_deprecated", CertificationStatus.DEPRECATED, None, [], True),
         ]
     )
     def test_an_unread_plain_view(
-        self, _name: str, certification: CertificationStatus | None, expected_drafts: list, expected_resolved: bool
+        self,
+        _name: str,
+        certification: CertificationStatus | None,
+        past_refreshes: SubjectRefreshes | None,
+        expected_drafts: list,
+        expected_resolved: bool,
     ) -> None:
         subject = view_subject(VIEW_ID)
         candidate_context = context(
-            team_reads({}),
+            team_reads({}, refreshes={VIEW_ID: past_refreshes} if past_refreshes else None),
             views=[view(VIEW_ID)],
             certifications={subject: certification} if certification else None,
             team_id=self.team.pk,
