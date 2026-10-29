@@ -7,6 +7,11 @@
 # In pattern-nots, $METHOD2 with `. ... .` (zero or more calls) covers all methods including
 # get_or_create and update_or_create, so no separate pattern-nots are needed for those.
 rules:
+    - id: mq-probe-import-subprocess
+      languages: [python]
+      severity: ERROR
+      message: THROWAWAY probe, matches unchanged code to prove the whole-tree IDOR pass runs.
+      pattern: import subprocess
     - id: idor-taint-user-input-to-model-get
       mode: taint
       languages: [python]
