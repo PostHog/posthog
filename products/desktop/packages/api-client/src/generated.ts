@@ -9156,6 +9156,9 @@ export namespace Schemas {
                         judge_method?:
                             | (("llm" | "decision") | null)
                             | undefined;
+                        reasoning_level?:
+                            | (("minimal" | "low" | "medium" | "high") | null)
+                            | undefined;
                     }
                   | {
                         /**
@@ -19397,6 +19400,9 @@ export namespace Schemas {
             | {
                   prompt: string;
                   judge_method?: (("llm" | "decision") | null) | undefined;
+                  reasoning_level?:
+                      | (("minimal" | "low" | "medium" | "high") | null)
+                      | undefined;
               }
             | { source: string }
             | Partial<{ source: "user_messages" }>;
