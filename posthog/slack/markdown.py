@@ -12,6 +12,8 @@ from typing import Any
 
 from markdown_it import MarkdownIt
 
+from posthog.dataclasses import frozen
+
 # Slack budgets 12,000 characters across every markdown block in one message. A message carries
 # one, and the headroom covers the blocks around it.
 SLACK_MARKDOWN_TEXT_MAX_LEN = 11500
@@ -62,7 +64,13 @@ _INLINE_MARKUP = re.compile(
 )
 
 
-def rendered_code_spans(line: str) -> list[tuple[int, int]]:
+@frozen
+class CodeSpan:
+    start: int
+    end: int
+
+
+def rendered_code_spans(line: str) -> list[CodeSpan]:
     """The regions of one line this module renders as code.
 
     Found with the pairing the renderer itself uses, so a caller that must know what is already
@@ -70,7 +78,11 @@ def rendered_code_spans(line: str) -> list[tuple[int, int]]:
     marker before the opening backtick makes this scan pair the bold first, and the backticks after
     it are then ordinary text.
     """
-    return [match.span() for match in _INLINE_MARKUP.finditer(line) if match.group("code") is not None]
+    return [
+        CodeSpan(start=match.start(), end=match.end())
+        for match in _INLINE_MARKUP.finditer(line)
+        if match.group("code") is not None
+    ]
 
 
 def _inline_elements(text: str, style: dict[str, bool], allowed_root: str) -> list[dict[str, Any]]:

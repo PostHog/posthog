@@ -113,7 +113,7 @@ def _drop_stray_backticks(line: str) -> str:
     return "".join(
         character
         for index, character in enumerate(line)
-        if character != "`" or any(start <= index < end for start, end in spans)
+        if character != "`" or any(span.start <= index < span.end for span in spans)
     )
 
 
@@ -164,10 +164,10 @@ def _neutralize_urls_outside_code(markdown: str) -> str:
         line = _drop_stray_backticks(line)
         parts: list[str] = []
         cursor = 0
-        for start, end in rendered_code_spans(line):
-            parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, line[cursor:start]))
-            parts.append(line[start:end])
-            cursor = end
+        for span in rendered_code_spans(line):
+            parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, line[cursor : span.start]))
+            parts.append(line[span.start : span.end])
+            cursor = span.end
         parts.append(_BARE_URL_RE.sub(_neutralize_bare_url, line[cursor:]))
         lines.append(_redact_leaked_urls("".join(parts)))
     return "".join(lines)

@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.markdown import slack_rich_text
 
@@ -43,6 +42,9 @@ def truncate_markdown_safely(text: str, limit: int) -> str:
 
 def bounded_destination_summary(summary: str, *, limit: int, allowed_root: str | None = None) -> str:
     """Defang before the cut. Defanging only adds characters, so a cut taken before it is not a bound."""
+    # Deferred: markdown_safety pulls in posthog.api.utils, which is too heavy for the django.setup() path.
+    from posthog.helpers.markdown_safety import strip_external_links_markdown  # noqa: PLC0415
+
     return truncate_markdown_safely(
         strip_external_links_markdown(summary, additional_allowed_origin=allowed_root), limit
     )
