@@ -282,9 +282,9 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                 )
                 actions.setView('pending')
                 // Lazy: authStepViewed reads the OAuth cookie through `he`, which every logged-in page would otherwise load.
-                void import('scenes/authentication/shared/authStepViewed').then(({ captureAuthStepViewed }) =>
-                    captureAuthStepViewed('verify_email', null)
-                )
+                void import('scenes/authentication/shared/authStepViewed')
+                    .then(({ captureAuthStepViewed }) => captureAuthStepViewed('verify_email', null))
+                    .catch(() => {})
             }
         }
         return {
