@@ -1,1 +1,1 @@
-0142_replay_highlight_rank_tables
+0143_replay_highlight_autovacuum
