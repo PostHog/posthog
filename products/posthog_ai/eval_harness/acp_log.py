@@ -65,6 +65,9 @@ class ParsedLog:
     the posthog claude/codex adapters actually populate).
     Empty when the log predates this capture (callers should fall back)."""
 
+    trailing_messages: list[dict[str, Any]] = field(default_factory=list)
+    """History after the last generation, such as tool results that arrive just before ``end_turn``."""
+
     @property
     def messages(self) -> list[dict[str, Any]]:
         """Flat Anthropic message list (for Braintrust compatibility).
@@ -78,7 +81,7 @@ class ParsedLog:
         msgs = list(last.input_messages)
         if last.output_content:
             msgs.append({"role": "assistant", "content": list(last.output_content)})
-        return msgs
+        return msgs + list(self.trailing_messages)
 
     @property
     def total_token_usage(self) -> dict[str, int]:
@@ -137,6 +140,9 @@ class AcpLogParser:
         # Flush anything remaining (e.g. if end_turn was missing)
         self._drain_pending_tool_results_into_history()
         self._flush_generation()
+        if self._result.generations:
+            last = self._result.generations[-1]
+            self._result.trailing_messages = self._history[len(last.input_messages) + 1 :]
         return self._result
 
     def _handle_entry(self, entry: dict) -> None:

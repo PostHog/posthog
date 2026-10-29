@@ -7,7 +7,7 @@ from typing import Any, cast
 from parameterized import parameterized
 from posthoganalytics import Posthog
 
-from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor
+from products.posthog_ai.eval_harness.acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor, parse_log
 from products.posthog_ai.eval_harness.base import _SandboxedEvalRun
 from products.posthog_ai.eval_harness.one_shot import _OneShotEvalRun
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
@@ -16,6 +16,15 @@ from products.posthog_ai.eval_harness.scorers.tracing import (
     TracedScorer,
     _build_posthog_kwargs,
     _scorer_context,
+)
+from products.posthog_ai.eval_harness.test.test_log_parser import (
+    _agent_text,
+    _end_turn,
+    _join,
+    _prompt,
+    _tool_call_completed,
+    _tool_call_input,
+    _tool_call_start,
 )
 from products.posthog_ai.eval_harness.trace_events import RunMetadata, emit_trace_events, emit_trace_root
 
@@ -173,3 +182,41 @@ def test_repeated_case_scores_link_to_their_own_trial_traces() -> None:
         "agent-2",
     ]
     assert len({call["properties"]["$ai_span_id"] for call in client.calls}) == 2
+
+
+@parameterized.expand([("claude", "anthropic"), ("codex", "openai")])
+def test_each_tool_call_becomes_a_span_under_its_generation(runtime: str, provider: str) -> None:
+    raw_log = _join(
+        [
+            _prompt("2026-04-15T10:00:00.000Z"),
+            _tool_call_start("2026-04-15T10:00:01.000Z", "sql", "mcp__posthog__execute-sql"),
+            _tool_call_input("2026-04-15T10:00:01.100Z", "sql", {"query": "SELECT 1"}),
+            _tool_call_completed("2026-04-15T10:00:03.500Z", "sql", "1"),
+            _tool_call_start("2026-04-15T10:00:04.000Z", "list", "mcp__posthog__metric-list"),
+            _tool_call_completed("2026-04-15T10:00:05.000Z", "list", "boom", status="failed"),
+            _agent_text("2026-04-15T10:00:06.000Z", "done"),
+            _end_turn("2026-04-15T10:00:07.000Z"),
+        ]
+    )
+    client = _CapturingClient()
+
+    emit_trace_events(
+        cast(Posthog, client),
+        "trace-1",
+        "exp-1",
+        "my-suite",
+        "case-1",
+        parse_log(raw_log, initial_prompt="hi"),
+        namespace="ns",
+        run_metadata={**RUN_METADATA, "agent_runtime": runtime},
+    )
+
+    generations = {
+        call["properties"]["$ai_span_id"]: call for call in client.calls if call["event"] == "$ai_generation"
+    }
+    tool_spans = [call["properties"] for call in client.calls if call["event"] == "$ai_span"]
+    assert [span["$ai_span_name"] for span in tool_spans] == ["execute-sql", "metric-list"]
+    assert all(span["$ai_parent_id"] in generations for span in tool_spans)
+    assert [span["$ai_is_error"] for span in tool_spans] == [False, True]
+    assert tool_spans[0]["$ai_latency"] == 2.5
+    assert {call["properties"]["$ai_provider"] for call in generations.values()} == {provider}
