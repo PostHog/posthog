@@ -13,7 +13,7 @@ export function ReportClaimAvatar({ claim }: { claim: ReportClaim }): JSX.Elemen
                     user={claim.person}
                     name={claim.name}
                     size="sm"
-                    className={clsx('rounded-full', claim.isMine && 'ring-2 ring-success')}
+                    className={clsx('rounded-full', claim.isMine && 'ring-3 ring-(--success)')}
                 />
             </span>
         </Tooltip>
