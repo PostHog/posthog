@@ -49,7 +49,8 @@ FLAG_EVALUATIONS_RETENTION_DAYS = 90
 # the timezone and the time of day. A 92-day TTL keeps every UTC day that such a range covers.
 # This value sets the TTL only when the table is created. Changing the TTL of an existing table takes a
 # migration, such as 0362_flag_evaluations_ttl_92_days.
-# The Node fork step mirrors this value in fork-flag-evaluations-step.ts. Change both together.
+# The Node fork step mirrors this value in fork-flag-evaluations-step.ts.
+# The Rust cohort seeder mirrors it in rust/cohort-seeder/src/domain/pinned.rs. Change all three together.
 FLAG_EVALUATIONS_TTL_DAYS = 92
 
 # The only event this table stores. posthog/models/deletion_targets.py uses it to skip this table
