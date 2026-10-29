@@ -1733,7 +1733,7 @@ class HighlightFeedQuerySerializer(serializers.Serializer):
         categories = set(validate_csv_choices(value, frozenset(ISSUE_CATEGORIES), "categories"))
         if not categories:
             raise serializers.ValidationError("Include at least one category.")
-        # Every category is the unfiltered feed, so it shares that feed's cached picks.
+        # Every category is the unfiltered feed, so both spellings read alike.
         return None if categories == set(ISSUE_CATEGORIES) else sorted(categories)
 
     def validate_scanner_ids(self, value: str) -> list[UUID]:

@@ -11,7 +11,7 @@ import math
 import asyncio
 from collections import Counter
 from collections.abc import Collection, Sequence
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Literal, cast
 
 from django.core.cache import cache
@@ -98,10 +98,8 @@ HIGHLIGHT_PICK_IMPRESSION_DECAY = 0.8
 # that hit six people outranks an equally strong one-off without burying everything else.
 HIGHLIGHT_PICK_PEOPLE_BOOST = 0.25
 HIGHLIGHT_PICK_PEOPLE_BOOST_CAP = 2.0
-# Copies of one finding the pick query keeps, so a viewed or restricted top copy does not hide the group.
+# Copies of one finding the feed keeps per group, so a viewed or restricted top copy does not hide the group.
 HIGHLIGHT_PICK_GROUP_CANDIDATES = 3
-# Group members older than the feed's longest window before the oldest pick can never fall inside a requested window.
-HIGHLIGHT_FEED_MEMBER_LOOKBACK = timedelta(days=90)
 # How much wider the second pick fetch reads when the first is all copies of a few feed groups.
 HIGHLIGHT_PICK_REFILL_FACTOR = 10
 

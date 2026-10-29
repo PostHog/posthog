@@ -86,7 +86,7 @@ class TestRankHighlightFeedByEmbedding(SimpleTestCase):
     def test_a_finding_that_reached_more_people_outranks_a_stronger_one_off(self) -> None:
         rows = [_row(f"a-{index}", 0.01 * index, minutes_ago=index + 1) for index in range(10)]
         rows += [_row("one-off", 0.9), _row("widespread", 0.5)]
-        # Window percentiles and group reach, as the whole-window pick query supplies them.
+        # Window percentiles and group reach, as a stored build supplies them.
         for row in rows:
             row["watch_percentile"] = {"one-off": 0.99, "widespread": 0.85}.get(str(row["id"]))
             row["watch_group_people"] = 6 if row["id"] == "widespread" else 1
