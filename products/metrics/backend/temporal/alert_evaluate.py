@@ -25,7 +25,7 @@ with workflow.unsafe.imports_passed_through():
 
 WORKFLOW_NAME = "metrics-alert-evaluate"
 
-# Above `BATCH_QUERY_BUDGET_SECONDS` and the checkpoint query, so the evaluation stops starting
+# Above `BATCH_QUERY_BUDGET_SECONDS` and `FRESHNESS_QUERY_SECONDS`, so the evaluation stops starting
 # queries before the activity times out.
 EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=40)
 EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=60)
