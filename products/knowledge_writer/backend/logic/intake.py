@@ -9,11 +9,12 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.contracts import TaskDetailDTO
 
 from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
 from ..feature_flags import is_agent_launch_enabled
 from ..settings import writer_settings
-from .launch import start_writer
+from .launch import restart_writer, start_writer
 
 logger = structlog.get_logger(__name__)
 
@@ -39,16 +40,23 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     if writer is None or writer.team_id != team_id:
         return IntakeOutcome(status="unconfigured")
     existing_task = tasks_facade.get_task_by_origin_key(team_id, request.dedupe_id)
-    if existing_task is not None:
+    if existing_task is not None and not latest_run_failed(existing_task):
         return IntakeOutcome(status="duplicate", task_id=existing_task.id)
     team = Team.objects.get(id=team_id)
     if not is_agent_launch_enabled(team):
         return IntakeOutcome(status="shadow")
+    if existing_task is not None:
+        restart_writer(existing_task.id, request, team=team, writer=writer)
+        return IntakeOutcome(status="started", task_id=existing_task.id)
     try:
         task_id = start_writer(request, team=team, writer=writer)
     except IntegrityError:
         return IntakeOutcome(status="duplicate")
     return IntakeOutcome(status="started", task_id=task_id)
+
+
+def latest_run_failed(task: TaskDetailDTO) -> bool:
+    return task.latest_run is not None and task.latest_run.status == tasks_facade.TaskRunStatus.FAILED
 
 
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:

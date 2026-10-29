@@ -22,6 +22,14 @@ def no_store_connectors_run_state() -> dict[str, Any]:
     return {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
 
 
+def rerun_state(writer: WriterSettings) -> dict[str, Any]:
+    # create_and_run_task writes pending_dispatch itself; create_run leaves it to the caller, and the reconciler needs it.
+    return {
+        **no_store_connectors_run_state(),
+        "pending_dispatch": {"create_pr": False, "posthog_mcp_scopes": [], "user_id": writer.user_id},
+    }
+
+
 def build_writer_prompt(request: DocsRequest) -> str:
     sections = [
         "You update the PostHog docs in this repository so they match what shipped.",
@@ -63,3 +71,29 @@ def start_writer(request: DocsRequest, *, team: Team, writer: WriterSettings) ->
             created.task_id, team.id, REQUEST_STATE_KEY, lambda _current: (stored_request, None)
         )
     return created.task_id
+
+
+def restart_writer(task_id: UUID, request: DocsRequest, *, team: Team, writer: WriterSettings) -> None:
+    from products.tasks.backend.facade.temporal import (  # noqa: PLC0415 — keeps temporalio off the intake import path
+        dispatch_task_processing_workflow,
+    )
+
+    stored_request = _request_json.dump_python(request, mode="json")
+    with transaction.atomic():
+        tasks_facade.update_task(
+            task_id, team.id, writer.user_id, validated_data={"description": build_writer_prompt(request)}
+        )
+        tasks_facade.update_task_state_entry(
+            task_id, team.id, REQUEST_STATE_KEY, lambda _current: (stored_request, None)
+        )
+        run = tasks_facade.create_run(
+            task_id, mode="background", acting_user_id=writer.user_id, extra_state=rerun_state(writer)
+        )
+    dispatch_task_processing_workflow(
+        task_id=str(task_id),
+        run_id=str(run.id),
+        team_id=team.id,
+        user_id=writer.user_id,
+        create_pr=False,
+        posthog_mcp_scopes=[],
+    )
