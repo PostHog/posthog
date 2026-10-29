@@ -10,19 +10,22 @@ from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 
-from posthog.schema import LLMTrace, LLMTraceEvent
+from posthog.schema import DateRange, LLMTrace, LLMTraceEvent, SessionQuery, TraceQuery
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 
 from posthog.api.capture import CaptureInternalError
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
+from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models import Organization, PropertyDefinition, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 from posthog.temporal.ai_observability.run_session_evaluation import fetch_session_for_evaluation
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -338,59 +341,99 @@ class TestBackgroundEvaluationPropertyAccess:
     @pytest.mark.django_db
     @pytest.mark.parametrize("target", ["trace", "session"])
     @pytest.mark.parametrize(
-        "property_type,member_only,access_level,should_skip",
+        "property_type,member_only,access_level",
         [
-            (PropertyDefinition.Type.EVENT, False, PropertyAccessLevel.NONE, True),
-            (PropertyDefinition.Type.EVENT, True, PropertyAccessLevel.NONE, False),
-            (PropertyDefinition.Type.EVENT, False, PropertyAccessLevel.READ, False),
-            (PropertyDefinition.Type.PERSON, False, PropertyAccessLevel.NONE, False),
-            (PropertyDefinition.Type.GROUP, False, PropertyAccessLevel.NONE, False),
+            (PropertyDefinition.Type.EVENT, False, PropertyAccessLevel.NONE),
+            (PropertyDefinition.Type.EVENT, True, PropertyAccessLevel.NONE),
+            (PropertyDefinition.Type.EVENT, False, PropertyAccessLevel.READ),
+            (PropertyDefinition.Type.PERSON, False, PropertyAccessLevel.NONE),
+            (PropertyDefinition.Type.GROUP, False, PropertyAccessLevel.NONE),
         ],
     )
-    def test_only_default_event_denials_skip_before_reading_content(
+    @time_machine.travel(FROZEN_NOW, tick=False)
+    def test_online_evaluations_read_properties_independently_of_user_permissions(
         self,
         setup_data: dict[str, object],
         target: str,
         property_type: int,
         member_only: bool,
         access_level: PropertyAccessLevel,
-        should_skip: bool,
     ) -> None:
         organization = cast(Organization, setup_data["organization"])
         team = cast(Team, setup_data["team"])
         organization.available_product_features = [
-            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            {"name": feature, "key": feature}
+            for feature in (
+                AvailableFeature.PROPERTY_ACCESS_CONTROL,
+                AvailableFeature.ACCESS_CONTROL,
+                AvailableFeature.ROLE_BASED_ACCESS,
+            )
         ]
         organization.save()
-        member = None
-        if member_only:
-            user = User.objects.create_and_join(organization, "restricted-evaluator@example.com", "test-password")
-            member = user.organization_memberships.get(organization=organization)
-        definition = PropertyDefinition.objects.create(
-            team=team,
-            name="$ai_input",
-            type=property_type,
-            group_type_index=0 if property_type == PropertyDefinition.Type.GROUP else None,
+        user = User.objects.create_and_join(organization, "restricted-evaluator@example.com", "test-password")
+        member = user.organization_memberships.get(organization=organization)
+        AccessControl.objects.create(team=team, resource="llm_analytics", access_level="none")
+        properties = {
+            "$ai_input": [{"role": "user", "content": "What is 2 plus 2?"}],
+            "$ai_output": "The answer is four.",
+            "$ai_output_choices": [{"role": "assistant", "content": "4"}],
+            "evaluation_context": "arithmetic",
+        }
+        for name in properties:
+            definition = PropertyDefinition.objects.create(
+                team=team,
+                name=name,
+                type=property_type,
+                group_type_index=0 if property_type == PropertyDefinition.Type.GROUP else None,
+            )
+            PropertyAccessControl.objects.create(
+                team=team,
+                property_definition=definition,
+                organization_member=member if member_only else None,
+                access_level=access_level.value,
+            )
+        unit_id = str(uuid.uuid4())
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "team": team,
+                    "distinct_id": "test-person",
+                    "timestamp": FROZEN_NOW - timedelta(minutes=1),
+                    "properties": {"$ai_trace_id": unit_id, "$ai_session_id": unit_id, **properties},
+                }
+            ]
         )
-        PropertyAccessControl.objects.create(
-            team=team,
-            property_definition=definition,
-            organization_member=member,
-            access_level=access_level.value,
-        )
-        with patch(
-            f"posthog.temporal.ai_observability.run_{target}_evaluation.query_ai_events",
-            return_value=MagicMock(results=[]),
-        ) as mock_query:
-            fetch = fetch_trace_for_evaluation if target == "trace" else fetch_session_for_evaluation
-            outcome = fetch(team.id, "missing-unit", FROZEN_NOW)
+        fetch = fetch_trace_for_evaluation if target == "trace" else fetch_session_for_evaluation
+        outcome = fetch(team.id, unit_id, FROZEN_NOW)
 
-        assert outcome.skip_reason == ("property_access_restricted" if should_skip else f"{target}_not_found")
-        assert outcome.event_count == 0
-        if should_skip:
-            mock_query.assert_not_called()
+        assert outcome.skip_reason is None
+        assert outcome.event_count == 1
+        if isinstance(outcome, TraceFetchOutcome):
+            assert outcome.trace is not None
+            trace = outcome.trace
         else:
-            mock_query.assert_called_once()
+            assert outcome.traces is not None
+            trace = outcome.traces[0]
+        assert len(trace.events) == 1
+        for name, value in properties.items():
+            assert trace.events[0].properties[name] == value
+
+        date_range = DateRange(date_from=(FROZEN_NOW - timedelta(hours=1)).isoformat(), date_to=FROZEN_NOW.isoformat())
+        runner = (
+            TraceQueryRunner(team=team, user=user, query=TraceQuery(traceId=unit_id, dateRange=date_range))
+            if target == "trace"
+            else SessionQueryRunner(team=team, user=user, query=SessionQuery(sessionId=unit_id, dateRange=date_range))
+        )
+        system_runner = type(runner)(team=team, query=runner.query, bypass_property_access_control=True)
+        default_runner = type(runner)(team=team, query=runner.query)
+        assert system_runner.get_cache_key() != default_runner.get_cache_key()
+        user_trace = runner.calculate().results[0]
+        for name, value in properties.items():
+            if property_type == PropertyDefinition.Type.EVENT and access_level == PropertyAccessLevel.NONE:
+                assert name not in user_trace.events[0].properties
+            else:
+                assert user_trace.events[0].properties[name] == value
 
 
 class TestFetchTraceForEvaluation:
@@ -498,6 +541,17 @@ class TestFetchTraceForEvaluation:
     @pytest.mark.parametrize("insert_events", [bulk_create_ai_events, bulk_create_events])
     def test_reads_the_trace_without_building_the_full_catalog(self, setup_data, insert_events):
         team = setup_data["team"]
+        organization = setup_data["organization"]
+        organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        organization.save()
+        definition = PropertyDefinition.objects.create(
+            team=team, name="evaluation_context", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+        )
         trace_id = f"trace-{uuid.uuid4()}"
         timestamp = FROZEN_NOW - timedelta(minutes=1)
         insert_events(
@@ -518,6 +572,7 @@ class TestFetchTraceForEvaluation:
                         "$ai_trace_id": trace_id,
                         "$ai_input": [{"role": "user", "content": "What is the weather?"}],
                         "$ai_output_choices": [{"role": "assistant", "content": "Sunny all day."}],
+                        "evaluation_context": "weather",
                     },
                 },
             ]
@@ -532,6 +587,7 @@ class TestFetchTraceForEvaluation:
         assert outcome.skip_reason is None
         assert outcome.trace is not None
         assert [event.event for event in outcome.trace.events] == ["$ai_generation"]
+        assert outcome.trace.events[0].properties["evaluation_context"] == "weather"
 
 
 class TestRunHogEvalOverRecentTraces:
@@ -788,7 +844,7 @@ class TestExecuteTraceLLMJudgeActivity:
         assert result["result_type"] == output_type
         mock_client_class.assert_not_called()
 
-    @pytest.mark.parametrize("skip_reason", ["trace_not_found", "property_access_restricted"])
+    @pytest.mark.parametrize("skip_reason", ["trace_not_found", "trace_too_large"])
     def test_skips_without_llm_call(self, skip_reason: str) -> None:
         with patch(
             "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
@@ -811,8 +867,7 @@ class TestExecuteTraceLLMJudgeActivity:
 
         assert result["skipped"] is True
         assert result["skip_reason"] == skip_reason
-        if skip_reason == "property_access_restricted":
-            assert "property access rules" in result["reasoning"]
+        assert result["reasoning"]
         mock_client_class.assert_not_called()
 
 
@@ -878,7 +933,7 @@ class TestExecuteTraceHogEvalActivity:
         assert not result.get("skipped")
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("skip_reason", ["trace_too_large", "property_access_restricted"])
+    @pytest.mark.parametrize("skip_reason", ["trace_too_large", "trace_not_found"])
     async def test_skips_without_running_hog(self, skip_reason: str) -> None:
         bytecode = compile_hog("return true", "destination")
         evaluation = {

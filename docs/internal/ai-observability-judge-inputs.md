@@ -12,6 +12,11 @@ They do not change with the selected judge model.
 
 ## Trace and session formatting
 
+Online trace and session evaluations run as project workflows. Their event reads include all
+properties regardless of default, role, or member property access rules and AI observability
+product access. Evaluation previews and interactive trace/session queries continue to apply
+the requesting user's permissions.
+
 Trace evaluations skip the LLM judge when a trace has no child events and no readable trace-level input or output.
 Message role headers, empty OpenTelemetry parts, and whitespace-only message bodies do not count as readable content.
 Tool calls embedded in output content count as readable content, even when the adjacent text is whitespace.
