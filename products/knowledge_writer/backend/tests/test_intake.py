@@ -13,11 +13,11 @@ from products.knowledge_writer.backend.adapters.registry import REGISTRY
 from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
 from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import caps, intake
-from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_marker
+from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_label, section_marker
 from products.knowledge_writer.backend.logic.records import PULL_REQUEST_STATE_KEY, REQUEST_STATE_KEY
 from products.knowledge_writer.backend.logic.routing import docs_section
 from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 
 FLAG_CHECK = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
 GITHUB = "posthog.models.integration.GitHubIntegration"
@@ -64,6 +64,7 @@ def _open_on_github(
     author_login: str = WRITER_APP_LOGIN,
     published_page_paths: tuple[str, ...] = (),
     lookup_error: Exception | None = None,
+    labels: tuple[str, ...] = (),
 ) -> Callable[..., MagicMock]:
     listed = [
         {
@@ -71,6 +72,7 @@ def _open_on_github(
             "html_url": f"https://github.com/PostHog/posthog.com/pull/{number}",
             "body": body,
             "user": {"login": author_login},
+            "labels": [{"name": label} for label in labels],
             "head": {"ref": DOCS_HEAD["branch"], "repo": {"full_name": "PostHog/posthog.com"}},
         }
         for number, body in bodies_by_number
@@ -107,6 +109,23 @@ def _finish_run(task_id, django_capture_on_commit_callbacks) -> None:
         run.status = TaskRun.Status.COMPLETED
         run.output = {"head_branches": [DOCS_HEAD]}
         run.save(update_fields=["status", "output"])
+
+
+@pytest.mark.django_db
+def test_a_writer_run_with_malformed_output_still_saves_completed(team, writer_env) -> None:
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(), team_id=team.id)
+    run = TaskRun.objects.get(task_id=started.task_id)
+    run.status = TaskRun.Status.COMPLETED
+    run.output = "not a dict"
+
+    run.save(update_fields=["status", "output"])
+
+    assert TaskRun.objects.get(id=run.id).status == TaskRun.Status.COMPLETED
 
 
 @pytest.mark.django_db
@@ -154,10 +173,14 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
     assert isinstance(stored_request, dict)
     assert stored_request["dedupe_id"] == verdict.request.dedupe_id
+    Task.objects.get(id=task.id).create_run()
+    run_states = TaskRun.objects.filter(task_id=task.id).values_list("state", flat=True)
+    assert len(run_states) == 2
+    assert all(state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [] for state in run_states)
 
 
 @pytest.mark.django_db
-def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_section_request_joins_it(
+def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_section_request_waits_then_joins_it(
     team, writer_env, django_capture_on_commit_callbacks
 ) -> None:
     opened = {"success": True, "pr_url": "https://github.com/PostHog/posthog.com/pull/9", "pr_number": 9}
@@ -169,9 +192,21 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     ):
         started = intake.submit(first_verdict, team_id=team.id)
     assert started.task_id is not None
+    second_verdict = _verdict(pull_request_number=456, suggested_page_urls=(SECTION_PAGE,))
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        busy = intake.submit(second_verdict, team_id=team.id)
+    assert busy.status == "section_busy"
+    start_workflow.assert_not_called()
     with patch(CREATE_PULL_REQUEST, side_effect=ConnectionError("GitHub unreachable")):
         _finish_run(started.task_id, django_capture_on_commit_callbacks)
-    with patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request:
+    with (
+        patch(CREATE_PULL_REQUEST, return_value=opened) as create_pull_request,
+        patch(f"{GITHUB}.add_pull_request_labels", return_value={"success": True}) as add_labels,
+    ):
         for _ in range(2):
             with django_capture_on_commit_callbacks(execute=True):
                 TaskRun.objects.get(task_id=started.task_id).save(update_fields=["output"])
@@ -184,10 +219,11 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     assert COMMAND.pull_request_url in create_pull_request.call_args.kwargs["body"]
 
     first_body = create_pull_request.call_args.kwargs["body"]
-    second_verdict = _verdict(pull_request_number=456, suggested_page_urls=(SECTION_PAGE,))
+    label = section_label(docs_section(SECTION_PAGE))
+    add_labels.assert_called_once_with("posthog.com", 9, [label])
     with (
         patch(FLAG_CHECK, return_value=True),
-        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, first_body))),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, "Rewritten by a reviewer."), labels=(label,))),
         patch(START_WORKFLOW),
     ):
         joined = intake.submit(second_verdict, team_id=team.id)

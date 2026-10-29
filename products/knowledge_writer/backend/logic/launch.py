@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -10,6 +11,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from ..adapters.registry import REGISTRY
 from ..facade.contracts import DocsRequest
 from ..settings import WriterSettings
+from .caps import claim_section
 from .records import (
     JOIN_STATE_KEY,
     REQUEST_STATE_KEY,
@@ -24,8 +26,13 @@ WRITER_IDLE_TIMEOUT_SECONDS = 120
 PUSH_TO_NEW_BRANCH = "Commit your docs change and push it to a new branch. Do not open a pull request."
 PUSH_TO_CHECKED_OUT_BRANCH = (
     "This branch already backs an open docs pull request. "
-    "Commit your docs change on top of it and push to the same branch. Do not open a pull request."
+    "Fetch it and rebase your commit onto it before you push to the same branch. "
+    "Never force-push. Do not open a pull request."
 )
+
+
+def no_store_connectors_run_state() -> dict[str, Any]:
+    return {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
 
 
 def build_writer_prompt(request: DocsRequest, routing: SectionRouting, *, is_joining: bool) -> str:
@@ -69,6 +76,8 @@ def start_writer(
     if joining is not None:
         state_entries[JOIN_STATE_KEY] = pull_request_json.dump_python(joining, mode="json")
     with transaction.atomic():
+        if routing.section:
+            claim_section(writer, routing.section)
         created = tasks_facade.create_and_run_task(
             team=team,
             title=f"Docs: {request.source_url}"[:255],
@@ -79,6 +88,7 @@ def start_writer(
             create_pr=False,
             internal=True,
             posthog_mcp_scopes=[],
+            extra_run_state=no_store_connectors_run_state(),
             origin_key=request.dedupe_id,
             branch=joining.head_branch if joining is not None else None,
             start_workflow=start_workflow,

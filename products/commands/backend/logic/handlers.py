@@ -110,6 +110,10 @@ DOCS_REPLIES: dict[knowledge_writer_contracts.IntakeStatus, CommandOutcome] = {
     "duplicate": CommandOutcome(accepted=True, message="The knowledge writer already has this pull request."),
     "shadow": CommandOutcome(accepted=False, message="The knowledge writer isn't starting runs yet."),
     "capped": CommandOutcome(accepted=False, message="The knowledge writer hit its run limit. Try again tomorrow."),
+    "section_busy": CommandOutcome(
+        accepted=False,
+        message="The knowledge writer is already updating that docs section. Try again once its pull request is up.",
+    ),
     "unconfigured": CommandOutcome(accepted=False, message="The knowledge writer isn't set up."),
     "no_docs": CommandOutcome(accepted=False, message="The knowledge writer found no docs to change."),
 }

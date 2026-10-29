@@ -10,6 +10,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from asgiref.sync import async_to_sync
 
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 from posthog.models.team import Team
 from posthog.utils import initialize_self_capture_api_token
@@ -118,10 +119,10 @@ class Command(BaseCommand):
 
 def connected_github(team_id: int, repository: str, installation_id: str | None) -> GitHubIntegration:
     owner = repository.split("/", 1)[0]
-    github = docs_github(team_id, owner)
+    github = docs_github(team_id, owner, priority=Priority.CRITICAL)
     if github is None and installation_id:
         GitHubIntegration.integration_from_installation_id(installation_id, team_id)
-        github = docs_github(team_id, owner)
+        github = docs_github(team_id, owner, priority=Priority.CRITICAL)
     if github is None:
         raise CommandError(f"Team {team_id} has no GitHub integration for {owner}; pass --installation-id")
     return github
