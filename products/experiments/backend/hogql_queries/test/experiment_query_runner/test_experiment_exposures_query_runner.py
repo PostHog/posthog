@@ -2305,8 +2305,10 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("as_of_on_running_experiment", None, datetime(2024, 1, 12), datetime(2024, 1, 12)),
             ("as_of_before_end_date", datetime(2024, 1, 20), datetime(2024, 1, 12), datetime(2024, 1, 12)),
             ("as_of_after_end_date", datetime(2024, 1, 10), datetime(2024, 1, 12), datetime(2024, 1, 10)),
+            ("as_of_after_now_clamps_to_now", None, datetime(9999, 12, 31), datetime(2024, 1, 15)),
         ]
     )
+    @time_machine.travel("2024-01-15T00:00:00Z", tick=False)
     def test_date_range_follows_query_not_model(
         self,
         _name: str,
@@ -2340,8 +2342,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         assert date_to is not None
         assert datetime.fromisoformat(date_to) == expected_date_to.replace(tzinfo=utc)
 
-    def test_naive_as_of_is_a_validation_error(self) -> None:
-        feature_flag = self.create_feature_flag(key="naive-as-of")
+    @parameterized.expand(
+        [
+            ("naive", "2024-01-10T00:00:00"),
+            ("malformed", "not-a-date"),
+        ]
+    )
+    def test_invalid_as_of_is_a_validation_error(self, _name: str, as_of: str) -> None:
+        feature_flag = self.create_feature_flag(key="invalid-as-of")
         experiment = self.create_experiment(
             feature_flag=feature_flag,
             start_date=datetime(2024, 1, 1),
@@ -2354,7 +2362,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             feature_flag=model_to_dict(feature_flag),
             start_date=experiment.start_date.isoformat(),
             end_date=experiment.end_date.isoformat(),
-            as_of="2024-01-10T00:00:00",
+            as_of=as_of,
             exposure_criteria=experiment.exposure_criteria,
         )
         with self.assertRaises(ValidationError):

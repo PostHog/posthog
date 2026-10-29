@@ -154,11 +154,17 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # exposures end where the metrics end. end_date keeps meaning "stopped", which the bias check reads.
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
-        query_as_of = datetime.fromisoformat(self.query.as_of) if self.query.as_of else None
+        try:
+            query_as_of = datetime.fromisoformat(self.query.as_of) if self.query.as_of else None
+        except ValueError:
+            raise ValidationError("as_of must be an ISO 8601 timestamp")
         # analysis_window_end compares as_of with end_date, and a naive value raises a TypeError there.
         if query_as_of is not None and query_as_of.tzinfo is None:
             raise ValidationError("as_of must include a timezone offset")
-        self.as_of = query_as_of or self.window_end_date or datetime.now(UTC)
+        now = datetime.now(UTC)
+        # _fill_date_gaps emits one row per day up to the window end, so a far-future as_of would allocate
+        # millions of rows. A recalculation's query_to is never later than now, so the clamp does not move it.
+        self.as_of = min(query_as_of, now) if query_as_of else self.window_end_date or now
 
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
