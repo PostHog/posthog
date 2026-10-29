@@ -95,6 +95,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
  * * `hog_function` - hog_function
+ * * `inbox` - inbox
  * * `ingestion_warning` - ingestion_warning
  * * `insight` - insight
  * * `insight_variable` - insight_variable
@@ -215,6 +216,7 @@ export const ScopeObjectEnumApi = {
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
     HogFunction: 'hog_function',
+    Inbox: 'inbox',
     IngestionWarning: 'ingestion_warning',
     Insight: 'insight',
     InsightVariable: 'insight_variable',
@@ -358,6 +360,7 @@ export interface ProjectAccessSourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -521,6 +524,7 @@ export interface AccessControlObjectRuleApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -909,6 +913,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable
@@ -1194,6 +1199,7 @@ export interface ResolvedAccessApi {
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
      * * `hog_function` - hog_function
+     * * `inbox` - inbox
      * * `ingestion_warning` - ingestion_warning
      * * `insight` - insight
      * * `insight_variable` - insight_variable

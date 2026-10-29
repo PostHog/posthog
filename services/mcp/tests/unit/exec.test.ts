@@ -8,6 +8,7 @@ import { PostHogApiError, ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildQueryToolsBlock, buildToolDomainsCompact } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
+import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { formatResponse } from '@/lib/response'
 import { SessionManager } from '@/lib/SessionManager'
 import { OrganizationSetActiveSchema, ReadDataSchemaSchema } from '@/schema/tool-inputs'
@@ -160,10 +161,11 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'help learn' })).resolves.toContain('learn <topic...>')
         })
 
-        it('directs unknown help topics to the command list', async () => {
-            await expect(createExec().handler(mockContext, { command: 'help unknown' })).rejects.toMatchObject({
+        it('directs unknown help topics to the command list and to search', async () => {
+            await expect(createExec().handler(mockContext, { command: 'help workflows' })).rejects.toMatchObject({
                 reason: 'unknown_command',
-                message: 'Unknown command: "unknown". Run "help" to list available commands.',
+                message:
+                    'Unknown command: "workflows". Run "help" to list available commands, or "search workflows" to find tools for it.',
             })
         })
     })
@@ -528,6 +530,9 @@ describe('exec tool', () => {
             await expect(exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })).resolves.toEqual(
                 JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
             )
+            await expect(exec.handler(mockContext, { command: 'call mock-tool --confirm --json' })).resolves.toEqual(
+                JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+            )
         })
 
         it('keeps UI data in structuredContent (not _meta) when the tool has no formatted table', async () => {
@@ -724,16 +729,25 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.output_tokens).not.toBe(calls[1]!.properties.output_tokens)
         })
 
-        it('passes inline JSON arguments to the inner tool', async () => {
+        it.each([
+            'call --json mock-tool {"name":"foo","tags":["a","b"]}',
+            'call mock-tool --json {"name":"foo","tags":["a","b"]}',
+            'call mock-tool {"name":"foo","tags":["a","b"]} --json',
+            'call mock-tool --confirm {"name":"foo","tags":["a","b"]} --json',
+        ])('passes inline JSON arguments to the inner tool for %s', async (command) => {
             const tool = makeMockTool({
                 schema: z.object({ name: z.string(), tags: z.array(z.string()) }),
                 handler: async (_ctx, params) => params,
             })
             const exec = createExec([tool])
-            const result = await exec.handler(mockContext, {
-                command: 'call --json mock-tool {"name":"foo","tags":["a","b"]}',
-            })
+            const result = await exec.handler(mockContext, { command })
             expect(JSON.parse(result as string)).toEqual({ name: 'foo', tags: ['a', 'b'] })
+        })
+
+        it('reads a flag after the tool name when no JSON follows it', async () => {
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call mock-tool --json' })
+            expect(JSON.parse(result as string)).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
         })
 
         it('preserves quote-heavy and multi-line content in inline JSON', async () => {
@@ -1187,8 +1201,12 @@ describe('exec tool', () => {
 
         it.each([
             ['proposed', { status: 'proposed', is_drifted: false }, "'/data-catalog/metrics/{name}'"],
-            ['drifted proposed', { status: 'proposed', is_drifted: true }, 'Do not present this as the answer'],
-            ['drifted approved', { status: 'approved', is_drifted: true }, 'Do not present this as the answer'],
+            [
+                'drifted proposed',
+                { status: 'proposed', is_drifted: true },
+                '(<url>), not yet approved, and its source insight',
+            ],
+            ['drifted approved', { status: 'approved', is_drifted: true }, '(<url>), approved, and its source insight'],
             ['deprecated', { status: 'deprecated', is_drifted: false }, 'Do not present this as the answer'],
         ])('marks a %s metric result noncanonical', async (_label, envelope, guidance) => {
             const exec = metricRunExec({ ...envelope, results: [[42]] })
@@ -1758,6 +1776,54 @@ describe('exec tool', () => {
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
 
+        const catalogTools = [
+            makeMockTool({ name: 'metric-list', title: 'List metrics' }),
+            makeMockTool({ name: 'metric-describe', title: 'Describe a metric' }),
+            makeMockTool({ name: 'data-catalog-metric-run', title: 'Run a metric' }),
+        ]
+
+        it('leaves out the metric catalog hint when the only data-domain match is incidental', async () => {
+            const exec = createExec([
+                makeMockTool({ name: 'persons-list', title: 'List persons' }),
+                makeMockTool({ name: 'persons-retrieve', title: 'Get person' }),
+                makeMockTool({ name: 'persons-property-set', title: 'Set person properties' }),
+                makeMockTool({
+                    name: 'query-logs',
+                    title: 'Query logs',
+                    description: 'Query logs for persons-related events.',
+                }),
+                ...catalogTools,
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search persons-' })) as string)
+
+            expect(result.hint).toBeUndefined()
+        })
+
+        it('keeps the metric catalog hint when catalog order puts other matches first', async () => {
+            // searchToolsRegex filters without ranking, so description matches on unrelated
+            // tools come back ahead of the query tools a `query-` search is actually about.
+            const exec = createExec([
+                makeMockTool({ name: 'cohorts-create', title: 'Create cohort', description: 'Cohorts for a query-.' }),
+                makeMockTool({ name: 'cohorts-partial-update', title: 'Update cohort', description: 'A query- edit.' }),
+                makeMockTool({ name: 'insight-create', title: 'Create insight', description: 'Insights use query-.' }),
+                makeMockTool({ name: 'query-logs', title: 'Query logs' }),
+                ...catalogTools,
+            ])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search query-' })) as string)
+
+            expect(result.hint).toContain('metric-list')
+        })
+
+        it('keeps the metric catalog hint when a data-domain tool is a top match', async () => {
+            const exec = createExec([makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools])
+
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+
+            expect(result.hint).toContain('metric-list')
+        })
+
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
             const longPattern = 'a'.repeat(801)
@@ -1876,6 +1942,62 @@ describe('exec tool', () => {
                 /invalid regex pattern/i
             )
         })
+
+        it.each(['search "project"', "search 'switch project'", 'search `switch-project`'])(
+            'ignores quotes around the query: %s',
+            async (command) => {
+                const exec = createExec([makeMockTool({ name: 'switch-project', title: 'Switch active project' })])
+                const result = JSON.parse((await exec.handler(mockContext, { command })) as string)
+                expect(Array.isArray(result) ? result : result.matches).toEqual(['switch-project'])
+            }
+        )
+
+        it('falls back to word ranking when a guessed tool name matches nothing', async () => {
+            const tracked: ExecCommandMeta[] = []
+            const exec = createExec(
+                [
+                    makeMockTool({ name: 'project-settings-update', title: 'Update project settings' }),
+                    makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' }),
+                ],
+                undefined,
+                { trackCommand: (meta) => tracked.push(meta) }
+            )
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search project-update' })) as string)
+            expect(result.matches).toEqual(['project-settings-update'])
+            expect(result.hint).toContain('No tool is named "project-update"')
+            expect(tracked.at(-1)).toMatchObject({
+                exec_search_match_count: 0,
+                exec_search_fallback_match_count: 1,
+            })
+        })
+
+        it('tells the agent to retry with plain words when nothing matches at all', async () => {
+            const exec = createExec([makeMockTool()])
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search zzz-qqq' })) as string)
+            expect(result.matches).toEqual([])
+            expect(result.hint).toContain('plain words')
+        })
+    })
+
+    describe('held tool set', () => {
+        const heldTools = new Set(['notebooks-create-markdown'])
+        const exec = createExec([makeMockTool({ name: 'notebooks-create-markdown' })], undefined, { heldTools })
+
+        // An unknown-tool reply sends the agent to `search` for another way to reach the operation.
+        it.each(['info notebooks-create', 'schema notebooks-create', 'call notebooks-create {}'])(
+            'refuses a catalog tool outside the held set as not granted on %s',
+            async (command) => {
+                await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
+                    reason: 'tool_not_granted',
+                })
+            }
+        )
+
+        it('still reports a name the catalog does not have as unknown', async () => {
+            await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toMatchObject({
+                reason: 'unknown_tool',
+            })
+        })
     })
 
     describe('flag-gated tool redirects', () => {
@@ -1969,6 +2091,8 @@ describe('exec tool', () => {
             ['query-run', 'execute-sql'],
             ['self-driving-inbox-get', 'inbox-reports-list'],
             ['experiment-get-all', 'experiment-list'],
+            ['llma-tagger-create', 'llma-evaluation-create'],
+            ['vision-scanners-suggest-tags', 'vision-scanners-update'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -2038,9 +2162,15 @@ describe('exec tool', () => {
                 apiToken: 'unrecognized-token',
                 recovery: 'Reauthorize the PostHog MCP connection, or add these scopes to the personal API key.',
             },
+            {
+                apiToken: 'pha_test',
+                oauthClientId: CHATGPT_APP_OAUTH_CLIENT_ID,
+                recovery:
+                    'If the user already reconnected and approved all access, this tool is not available through the app yet.',
+            },
         ])(
-            'gives the scope recovery step for the connection credential ($apiToken)',
-            async ({ apiToken, recovery }) => {
+            'gives the scope recovery step for the connection credential ($apiToken, $oauthClientId)',
+            async ({ apiToken, oauthClientId, recovery }) => {
                 const context = { ...mockContext, api: { config: { apiToken } } } as unknown as Context
                 const scopeGated = [
                     {
@@ -2050,7 +2180,18 @@ describe('exec tool', () => {
                         missingScopes: ['endpoint:write'],
                     },
                 ]
-                const exec = createExecTool([makeMockTool()], context, 'desc', 'cmd', undefined, undefined, scopeGated)
+                const exec = createExecTool(
+                    [makeMockTool()],
+                    context,
+                    'desc',
+                    'cmd',
+                    undefined,
+                    undefined,
+                    scopeGated,
+                    {
+                        oauthClientId,
+                    }
+                )
 
                 await expect(exec.handler(context, { command: 'call endpoint-create {}' })).rejects.toThrow(recovery)
                 const search = JSON.parse(

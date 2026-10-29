@@ -84,6 +84,23 @@ class TestMetaCheckCommand:
         # Should either pass or report missing entries clearly
         assert "bin script" in result.output.lower() or "✓" in result.output
 
+    @pytest.mark.parametrize("ci_env, expect_update", [({"CI": "true"}, False), ({}, True)])
+    def test_manifest_auto_update_skipped_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch, ci_env: dict[str, str], expect_update: bool
+    ) -> None:
+        for var in ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE"):
+            monkeypatch.delenv(var, raising=False)
+        for key, value in ci_env.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.delenv("GIT_DIR", raising=False)
+        monkeypatch.delenv("HUSKY", raising=False)
+
+        with patch("hogli.cli.auto_update_manifest", return_value=set()) as auto_update:
+            result = runner.invoke(cli, ["quickstart"])
+
+        assert result.exit_code == 0
+        assert auto_update.called is expect_update
+
 
 class TestMetaConceptsCommand:
     """Test meta:concepts command."""

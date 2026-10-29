@@ -2,7 +2,7 @@ import re
 
 from posthog.models.file_system.starred_products import has_starred_product
 
-from .highlight_types import Context
+from ..facade.contracts import HighlightContext
 
 
 def human(value: float) -> str:
@@ -36,5 +36,5 @@ def short(text: str, limit: int = 60) -> str:
     return text[:limit].rsplit(" ", 1)[0].rstrip(",;:(-– ")
 
 
-def uses_product(context: Context, *product_paths: str) -> bool:
+def uses_product(context: HighlightContext, *product_paths: str) -> bool:
     return has_starred_product(context.user, context.team, list(product_paths))

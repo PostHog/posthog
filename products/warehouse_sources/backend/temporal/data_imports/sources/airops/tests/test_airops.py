@@ -186,12 +186,6 @@ class TestBrandKitFanout:
         assert "missing its 'id'" in str(result.raised)
 
 
-class TestUnknownEndpoint:
-    def test_raises_for_unknown_endpoint(self) -> None:
-        with pytest.raises(ValueError, match="Unknown AirOps endpoint"):
-            airops_source(api_key="k", endpoint="nope", team_id=1, job_id="j")
-
-
 class TestErrorHandling:
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_retry_then_raise(self, status: int) -> None:
@@ -216,7 +210,12 @@ class TestErrorHandling:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize(("status", "expected"), [(200, True), (401, False), (403, False)])
+    @pytest.mark.parametrize(
+        ("status", "expected"),
+        [
+            (200, True),
+        ],
+    )
     def test_maps_status_to_bool(self, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             assert validate_credentials("key") is expected

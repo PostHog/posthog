@@ -49,6 +49,7 @@ import { localFieldError } from './biLocalFields'
 import { getBIMeasureSettings, isBIMeasureSettings, mergeBIMeasureSettings } from './biMeasureSettings'
 import { getBIChartFields, getBIPaneFields, isBIPanes } from './biPaneConfig'
 import { getBIFiltersPlaceholder, getBIQueryFilters, normalizeBIDates } from './biQueryFilters'
+import { isBIPivotTable } from './biTableLayout'
 
 export enum BIEditorView {
     SQL = 'sql',
@@ -227,7 +228,7 @@ export const DEFAULT_BI_CONFIG: BIConfig = {
     columns: [],
     values: [],
     filters: [],
-    limit: 1000,
+    limit: 50000,
     sort: null,
 }
 
@@ -693,7 +694,29 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
     if (candidate.comparisonPeriod != null && candidate.comparisonPeriod !== 'previous') {
         return null
     }
+    if (
+        (candidate.querySnapshot != null &&
+            (candidate.querySnapshot.kind !== NodeKind.HogQLQuery ||
+                typeof candidate.querySnapshot.query !== 'string')) ||
+        (candidate.catalogMetric != null && typeof candidate.catalogMetric !== 'string')
+    ) {
+        return null
+    }
     if (!isBIAnalysisConfig(candidate)) {
+        return null
+    }
+    const metricContext = candidate.catalogMetricContext
+    if (
+        metricContext != null &&
+        (!candidate.querySnapshot ||
+            !candidate.catalogMetric ||
+            typeof metricContext.id !== 'string' ||
+            (metricContext.status !== 'approved' && metricContext.status !== 'proposed') ||
+            typeof metricContext.isDrifted !== 'boolean' ||
+            typeof metricContext.unit !== 'string' ||
+            (metricContext.owner != null && typeof metricContext.owner !== 'string') ||
+            (metricContext.updatedAt != null && typeof metricContext.updatedAt !== 'string'))
+    ) {
         return null
     }
     if (
@@ -839,6 +862,17 @@ export function parseBIEditorState(editorViewValue: unknown, configValue: unknow
               }
             : {}),
         ...(candidate.colorBy === null || typeof candidate.colorBy === 'string' ? { colorBy: candidate.colorBy } : {}),
+        ...(candidate.querySnapshot ? { querySnapshot: candidate.querySnapshot } : {}),
+        ...(candidate.catalogMetric ? { catalogMetric: candidate.catalogMetric } : {}),
+        ...(metricContext
+            ? {
+                  catalogMetricContext: {
+                      ...metricContext,
+                      owner: metricContext.owner ?? null,
+                      updatedAt: metricContext.updatedAt ?? null,
+                  },
+              }
+            : {}),
         ...(candidate.localFields ? { localFields: candidate.localFields } : {}),
         ...(candidate.hierarchies ? { hierarchies: candidate.hierarchies } : {}),
         ...(candidate.memberAliases ? { memberAliases: candidate.memberAliases } : {}),
@@ -1286,7 +1320,7 @@ function needsGeneratedDimensionAliases(dimensions: BIDimension[], hasMeasures: 
 export function getBIResultDimensions(config: BIConfig): { field: BIField; column: string; position?: number }[] {
     const { rowDimensions, columnDimensions } = computeBIQueryParts(config)
     const dimensions = [...rowDimensions, ...columnDimensions]
-    if (config.chartType === ChartDisplayType.TwoDimensionalHeatmap) {
+    if (isBIPivotTable(config)) {
         return [rowDimensions, columnDimensions].flatMap((side, index) =>
             side.map(({ field, alias }, position) => ({
                 field,
@@ -1494,6 +1528,12 @@ function buildOrderByExpression(
 }
 
 export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQueryBuildResult | null {
+    if (config.querySnapshot) {
+        return {
+            query: config.querySnapshot.query,
+            node: { kind: NodeKind.DataVisualizationNode, source: config.querySnapshot, display: config.chartType },
+        }
+    }
     config = normalizeBIConfig(config)
     if (
         !config.source ||
@@ -1508,7 +1548,7 @@ export function buildBIQuery(config: BIConfig, probeForMoreRows = false): BIQuer
     const generatedDimensionAliases = needsGeneratedDimensionAliases(dimensions, configuredValues.length > 0)
     const comparing = !!config.compareFilter?.compare
     const dimensionExpressions = dimensions.map(({ field }) => fieldExpression(field))
-    const isPivotTable = config.chartType === ChartDisplayType.TwoDimensionalHeatmap
+    const isPivotTable = isBIPivotTable(config)
     const hasSeriesBreakdown =
         dimensions.length === 2 &&
         [

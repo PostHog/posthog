@@ -30,7 +30,8 @@ import pyarrow as pa
 from psycopg import sql
 from psycopg.errors import InsufficientPrivilege
 
-from posthog.models.integration import Integration, RedshiftIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import RedshiftIntegration
 
 from products.batch_exports.backend.facade.destinations.postgres import Fields, PostgreSQLClient
 from products.batch_exports.backend.facade.destinations.redshift import RedshiftClient
@@ -135,7 +136,7 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
         with self._configuration_errors():
             await super().abort_run(ctx)
 
-    def _client_from_integration(self, integration: Integration) -> PostgreSQLClient:
+    def _client_from_integration(self, integration: IntegrationRecord) -> PostgreSQLClient:
         return RedshiftClient.from_inputs(RedshiftIntegration(integration), database=self._database)
 
     def _column_type(self, arrow_type: pa.DataType) -> str:
@@ -214,13 +215,12 @@ class RedshiftDestinationWriter(PostgresDestinationWriter):
         # The stage was created from the destination, so both share this order. Only the name
         # in each field is read, which is why the types are left empty.
         final_table_fields: Fields = [(name, "") for name in await client.aget_table_columns(self._schema, target)]
-        merge_key: Fields = [(key, "") for key in primary_keys]
 
         await cast(RedshiftClient, client).amerge_tables(
             final_table_name=target,
             stage_table_name=stage,
             schema=self._schema,
-            merge_key=merge_key,
+            merge_key=primary_keys,
             # Only read to build the delete that `skip_delete` suppresses.
             update_key=[],
             final_table_fields=final_table_fields,

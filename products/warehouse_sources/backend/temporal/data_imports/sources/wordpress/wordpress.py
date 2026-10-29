@@ -8,10 +8,13 @@ from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
@@ -360,7 +363,7 @@ def get_rows(
             logger.warning("WordPress: ignoring resume URL whose host does not match the configured host")
         url = initial_url
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((WordpressRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=_retry_wait,

@@ -106,6 +106,76 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "comment_count": "Number of comments on the ticket.",
         },
     },
+    "UserAliases": {
+        "description": (
+            "One identity (email address or user ID) under which a person shows up in an integrated "
+            "vendor such as GitHub or Jira. Many aliases can merge into one apex user."
+        ),
+        "docs_url": "https://appfire.atlassian.net/wiki/spaces/FD/pages/1802305876",
+        "columns": {
+            "id": "User alias's unique identifier.",
+            "username": "User alias username.",
+            "name": "User alias name.",
+            "email": "User alias email address.",
+            "integration": "Integration the user alias is associated with.",
+            "vendor_type": "Vendor the user alias comes from (e.g. github).",
+            "apex_user": "Flow user that this alias is merged into.",
+            "created_at": "Date and time the user alias was created.",
+            "first_activity_at": "Time of the user alias's earliest tracked activity.",
+            "last_activity_at": "Time of the user alias's most recent tracked activity.",
+        },
+    },
+    "TeamMemberships": {
+        "description": "A relationship between a Flow user and a team.",
+        "docs_url": "https://appfire.atlassian.net/wiki/spaces/FD/pages/1802371338",
+        "columns": {
+            "id": "Unique identifier for the team membership.",
+            "membership_type": "Membership type (e.g. contributor).",
+            "apex_user": "Flow user that is a member of the team.",
+            "apex_user_id": "Unique identifier of the Flow user that is a member of the team.",
+            "team": "Team that the user is a member of.",
+        },
+    },
+    "PullRequestProjects": {
+        "description": (
+            "An entity that receives pull requests. Every pull request belongs to one pull request "
+            "project, and a pull request project is usually bound to a repository."
+        ),
+        "docs_url": "https://appfire.atlassian.net/wiki/spaces/FD/pages/1802535281",
+        "columns": {
+            "id": "Unique identifier for the pull request project.",
+            "name": "Pull request project name.",
+            "url": "URL for the pull request project.",
+            "vendor_type": "Vendor type.",
+            "repo_id": "Unique identifier for the repository the project is bound to.",
+            "added_by_id": "Unique identifier for the person who added the pull request project.",
+            "created_at": "Date and time the pull request project was created.",
+            "updated_at": "Date and time the pull request project was updated.",
+            "integration": "Name of the integration used to import the project.",
+            "last_processing_success_at": "Date and time of the last successful processing.",
+            "processing_status": "Processing status.",
+        },
+    },
+    "TicketProjects": {
+        "description": (
+            "A project in an integrated issue-tracking application that contains tickets. Every ticket "
+            "belongs to one ticket project."
+        ),
+        "docs_url": "https://appfire.atlassian.net/wiki/spaces/FD/pages/1802535305",
+        "columns": {
+            "id": "Unique identifier for the ticket project.",
+            "name": "Name of the ticket project.",
+            "url": "URL for the ticket project.",
+            "vendor_type": "Vendor type.",
+            "repo_id": "Unique identifier for a repository.",
+            "added_by": "Unique identifier for the user that added the ticket project.",
+            "created_at": "Date and time the ticket project was created.",
+            "updated_at": "Date and time the ticket project was updated.",
+            "integration": "Unique identifier for the integration.",
+            "last_processing_success_at": "Date and time the project was last successfully updated.",
+            "processing_status": "Status of the project.",
+        },
+    },
     "CodingMetrics": {
         "description": (
             "Aggregate coding activity metrics (coding days, commits per day, impact, efficiency) "

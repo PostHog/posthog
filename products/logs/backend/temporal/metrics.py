@@ -13,6 +13,7 @@ from temporalio.common import MetricMeter
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, Interceptor
 
 from posthog.temporal.common.logger import get_write_only_logger
+from posthog.temporal.common.metrics import record_schedule_to_start_latency
 
 from products.logs.backend.alert_error_classifier import AlertErrorCode
 from products.logs.backend.alert_state_machine import AlertState, NotificationAction
@@ -274,15 +275,6 @@ def record_scheduler_lag(lag_ms: int) -> None:
     _record_histogram("logs_alerting_scheduler_lag_ms", "Delay between alert due time and actual check time", lag_ms)
 
 
-def record_schedule_to_start_latency(activity_type: str, latency_ms: int) -> None:
-    _record_histogram(
-        "logs_alerting_schedule_to_start_ms",
-        "Time between activity scheduling and start",
-        latency_ms,
-        {"activity_type": activity_type},
-    )
-
-
 # TODO: Extract ExecutionTimeRecorder to posthog/temporal/common/ — copied from
 # posthog/temporal/ai_observability/metrics.py to avoid cross-product import.
 class ExecutionTimeRecorder:
@@ -345,11 +337,13 @@ class _LogsAlertingActivityInterceptor(ActivityInboundInterceptor):
         if activity_type not in ALERTING_ACTIVITY_TYPES:
             return await super().execute_activity(input)
 
-        scheduled_time = activity_info.scheduled_time
-        started_time = activity_info.started_time
-        if scheduled_time and started_time:
-            schedule_to_start_ms = int((started_time - scheduled_time).total_seconds() * 1000)
-            record_schedule_to_start_latency(activity_type, schedule_to_start_ms)
+        record_schedule_to_start_latency(
+            "logs_alerting_schedule_to_start_ms",
+            scheduled_time=activity_info.scheduled_time,
+            started_time=activity_info.started_time,
+            description="Time between activity scheduling and start",
+            attributes={"activity_type": activity_type},
+        )
 
         with ExecutionTimeRecorder(
             "logs_alerting_cycle_duration_ms",

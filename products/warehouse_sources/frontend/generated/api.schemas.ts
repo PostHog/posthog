@@ -210,6 +210,54 @@ export interface AddSourcesResponseApi {
 }
 
 /**
+ * * `Passed` - Passed
+ * * `Failed` - Failed
+ * * `Skipped` - Skipped
+ */
+export type DestinationConnectionTestStepStatusEnumApi =
+    (typeof DestinationConnectionTestStepStatusEnumApi)[keyof typeof DestinationConnectionTestStepStatusEnumApi]
+
+export const DestinationConnectionTestStepStatusEnumApi = {
+    Passed: 'Passed',
+    Failed: 'Failed',
+    Skipped: 'Skipped',
+} as const
+
+export interface DestinationConnectionTestStepApi {
+    /** What this step checks. */
+    name: string
+    /** A longer explanation of what this step checks. */
+    description: string
+    /** The result of the step. Null when the step did not run because an earlier step failed.
+     *
+     * * `Passed` - Passed
+     * * `Failed` - Failed
+     * * `Skipped` - Skipped */
+    status: DestinationConnectionTestStepStatusEnumApi | null
+    /**
+     * Why the step failed or was skipped. Null when the step passed or did not run.
+     * @nullable
+     */
+    message: string | null
+}
+
+export interface DestinationConnectionTestResponseApi {
+    /** The steps of the connection test, in order. The test stops at the first failed step. */
+    steps: DestinationConnectionTestStepApi[]
+}
+
+export interface DestinationConnectLinkApi {
+    /** The destination type the link is for. */
+    destination_type: string
+    /** The integration kind the page creates. */
+    integration_kind: string
+    /** Full URL to share with the user. It opens the connection form for this integration kind in PostHog, so credentials never pass through the agent or the chat. */
+    connect_url: string
+    /** Next steps for the agent to relay to the user. */
+    instructions: string
+}
+
+/**
  * * `full_refresh` - full_refresh
  * * `incremental` - incremental
  * * `append` - append
@@ -775,6 +823,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Attio` - Attio
  * * `SnapchatAds` - SnapchatAds
  * * `Linear` - Linear
+ * * `LiteLLM` - LiteLLM
  * * `Intercom` - Intercom
  * * `Amplitude` - Amplitude
  * * `Mixpanel` - Mixpanel
@@ -812,6 +861,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Square` - Square
  * * `Zoom` - Zoom
  * * `Trello` - Trello
+ * * `TrafficStars` - TrafficStars
  * * `Monday` - Monday
  * * `ClickUp` - ClickUp
  * * `Confluence` - Confluence
@@ -821,6 +871,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Gong` - Gong
  * * `Calendly` - Calendly
  * * `Typeform` - Typeform
+ * * `UnityAds` - UnityAds
  * * `Iterable` - Iterable
  * * `ZohoCRM` - ZohoCRM
  * * `Close` - Close
@@ -865,6 +916,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Plaid` - Plaid
  * * `SurveyMonkey` - SurveyMonkey
  * * `Eventbrite` - Eventbrite
+ * * `Everflow` - Everflow
  * * `RingCentral` - RingCentral
  * * `Twilio` - Twilio
  * * `Freshsales` - Freshsales
@@ -931,9 +983,12 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `IncidentIo` - IncidentIo
  * * `Pingdom` - Pingdom
  * * `Cloudflare` - Cloudflare
+ * * `CloudflareD1` - CloudflareD1
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
+ * * `Plane` - Plane
+ * * `Scarf` - Scarf
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -1194,6 +1249,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `ReplyIo` - ReplyIo
  * * `RetailExpress` - RetailExpress
  * * `Retently` - Retently
+ * * `Retreaver` - Retreaver
  * * `RevolutMerchant` - RevolutMerchant
  * * `RocketChat` - RocketChat
  * * `Rocketlane` - Rocketlane
@@ -1460,6 +1516,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `LambdaLabs` - LambdaLabs
  * * `LangSmith` - LangSmith
  * * `Linode` - Linode
+ * * `Listmonk` - Listmonk
  * * `LlamaCloud` - LlamaCloud
  * * `Mem0` - Mem0
  * * `Metriport` - Metriport
@@ -1644,6 +1701,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
  * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
  * * `AwsCostExplorer` - AwsCostExplorer
+ * * `AwsDocumentDB` - AwsDocumentDB
  * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
  * * `AwsGuardduty` - AwsGuardduty
  * * `AwsHealth` - AwsHealth
@@ -1690,6 +1748,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `BlackboardLearn` - BlackboardLearn
  * * `Bling` - Bling
  * * `Bloomerang` - Bloomerang
+ * * `Blueshift` - Blueshift
  * * `Bluesky` - Bluesky
  * * `BolRetailer` - BolRetailer
  * * `Boulevard` - Boulevard
@@ -1840,6 +1899,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `LoopReturns` - LoopReturns
  * * `Mastodon` - Mastodon
  * * `Meetup` - Meetup
+ * * `Megaphone` - Megaphone
  * * `Memberful` - Memberful
  * * `MercadoPago` - MercadoPago
  * * `Meteostat` - Meteostat
@@ -2059,6 +2119,7 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `SimonData` - SimonData
  * * `CommissionJunction` - CommissionJunction
  * * `Liveblocks` - Liveblocks
+ * * `Livestorm` - Livestorm
  * * `NationBuilder` - NationBuilder
  * * `Tana` - Tana
  * * `Zenchef` - Zenchef
@@ -2119,6 +2180,24 @@ export const ExternalDataSourceCreatedViaEnumApi = {
  * * `Wise` - Wise
  * * `LaravelCloud` - LaravelCloud
  * * `Northbeam` - Northbeam
+ * * `NaverAds` - NaverAds
+ * * `ChannelIO` - ChannelIO
+ * * `Airship` - Airship
+ * * `Creem` - Creem
+ * * `Leantime` - Leantime
+ * * `Testomatio` - Testomatio
+ * * `GoogleAdMob` - GoogleAdMob
+ * * `Klar` - Klar
+ * * `ConectoCRM` - ConectoCRM
+ * * `CloudflareR2` - CloudflareR2
+ * * `Particle` - Particle
+ * * `FileUpload` - FileUpload
+ * * `Dripify` - Dripify
+ * * `AwsS3Tables` - AwsS3Tables
+ * * `Beacons` - Beacons
+ * * `WooPayments` - WooPayments
+ * * `Soniox` - Soniox
+ * * `Nango` - Nango
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2162,6 +2241,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Attio: 'Attio',
     SnapchatAds: 'SnapchatAds',
     Linear: 'Linear',
+    LiteLLM: 'LiteLLM',
     Intercom: 'Intercom',
     Amplitude: 'Amplitude',
     Mixpanel: 'Mixpanel',
@@ -2199,6 +2279,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Square: 'Square',
     Zoom: 'Zoom',
     Trello: 'Trello',
+    TrafficStars: 'TrafficStars',
     Monday: 'Monday',
     ClickUp: 'ClickUp',
     Confluence: 'Confluence',
@@ -2208,6 +2289,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Gong: 'Gong',
     Calendly: 'Calendly',
     Typeform: 'Typeform',
+    UnityAds: 'UnityAds',
     Iterable: 'Iterable',
     ZohoCRM: 'ZohoCRM',
     Close: 'Close',
@@ -2252,6 +2334,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plaid: 'Plaid',
     SurveyMonkey: 'SurveyMonkey',
     Eventbrite: 'Eventbrite',
+    Everflow: 'Everflow',
     RingCentral: 'RingCentral',
     Twilio: 'Twilio',
     Freshsales: 'Freshsales',
@@ -2318,9 +2401,12 @@ export const ExternalDataSourceTypeEnumApi = {
     IncidentIo: 'IncidentIo',
     Pingdom: 'Pingdom',
     Cloudflare: 'Cloudflare',
+    CloudflareD1: 'CloudflareD1',
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
+    Plane: 'Plane',
+    Scarf: 'Scarf',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -2581,6 +2667,7 @@ export const ExternalDataSourceTypeEnumApi = {
     ReplyIo: 'ReplyIo',
     RetailExpress: 'RetailExpress',
     Retently: 'Retently',
+    Retreaver: 'Retreaver',
     RevolutMerchant: 'RevolutMerchant',
     RocketChat: 'RocketChat',
     Rocketlane: 'Rocketlane',
@@ -2847,6 +2934,7 @@ export const ExternalDataSourceTypeEnumApi = {
     LambdaLabs: 'LambdaLabs',
     LangSmith: 'LangSmith',
     Linode: 'Linode',
+    Listmonk: 'Listmonk',
     LlamaCloud: 'LlamaCloud',
     Mem0: 'Mem0',
     Metriport: 'Metriport',
@@ -3031,6 +3119,7 @@ export const ExternalDataSourceTypeEnumApi = {
     AwsCostAndUsageReport: 'AwsCostAndUsageReport',
     AwsCostAnomalyDetection: 'AwsCostAnomalyDetection',
     AwsCostExplorer: 'AwsCostExplorer',
+    AwsDocumentDB: 'AwsDocumentDB',
     AwsGlueDataCatalog: 'AwsGlueDataCatalog',
     AwsGuardduty: 'AwsGuardduty',
     AwsHealth: 'AwsHealth',
@@ -3077,6 +3166,7 @@ export const ExternalDataSourceTypeEnumApi = {
     BlackboardLearn: 'BlackboardLearn',
     Bling: 'Bling',
     Bloomerang: 'Bloomerang',
+    Blueshift: 'Blueshift',
     Bluesky: 'Bluesky',
     BolRetailer: 'BolRetailer',
     Boulevard: 'Boulevard',
@@ -3227,6 +3317,7 @@ export const ExternalDataSourceTypeEnumApi = {
     LoopReturns: 'LoopReturns',
     Mastodon: 'Mastodon',
     Meetup: 'Meetup',
+    Megaphone: 'Megaphone',
     Memberful: 'Memberful',
     MercadoPago: 'MercadoPago',
     Meteostat: 'Meteostat',
@@ -3446,6 +3537,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SimonData: 'SimonData',
     CommissionJunction: 'CommissionJunction',
     Liveblocks: 'Liveblocks',
+    Livestorm: 'Livestorm',
     NationBuilder: 'NationBuilder',
     Tana: 'Tana',
     Zenchef: 'Zenchef',
@@ -3506,6 +3598,24 @@ export const ExternalDataSourceTypeEnumApi = {
     Wise: 'Wise',
     LaravelCloud: 'LaravelCloud',
     Northbeam: 'Northbeam',
+    NaverAds: 'NaverAds',
+    ChannelIO: 'ChannelIO',
+    Airship: 'Airship',
+    Creem: 'Creem',
+    Leantime: 'Leantime',
+    Testomatio: 'Testomatio',
+    GoogleAdMob: 'GoogleAdMob',
+    Klar: 'Klar',
+    ConectoCRM: 'ConectoCRM',
+    CloudflareR2: 'CloudflareR2',
+    Particle: 'Particle',
+    FileUpload: 'FileUpload',
+    Dripify: 'Dripify',
+    AwsS3Tables: 'AwsS3Tables',
+    Beacons: 'Beacons',
+    WooPayments: 'WooPayments',
+    Soniox: 'Soniox',
+    Nango: 'Nango',
 } as const
 
 /**
@@ -3691,6 +3801,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -3728,6 +3839,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -3737,6 +3849,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -3781,6 +3894,7 @@ export interface ExternalDataSourceCreateApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -3847,9 +3961,12 @@ export interface ExternalDataSourceCreateApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -4110,6 +4227,7 @@ export interface ExternalDataSourceCreateApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -4376,6 +4494,7 @@ export interface ExternalDataSourceCreateApi {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -4560,6 +4679,7 @@ export interface ExternalDataSourceCreateApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -4606,6 +4726,7 @@ export interface ExternalDataSourceCreateApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -4756,6 +4877,7 @@ export interface ExternalDataSourceCreateApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -4975,6 +5097,7 @@ export interface ExternalDataSourceCreateApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -5034,7 +5157,25 @@ export interface ExternalDataSourceCreateApi {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam */
+     * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
     payload: ExternalDataSourceCreateApiPayload
@@ -5585,6 +5726,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -5622,6 +5764,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -5631,6 +5774,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -5675,6 +5819,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -5741,9 +5886,12 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -6004,6 +6152,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -6270,6 +6419,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -6454,6 +6604,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -6500,6 +6651,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -6650,6 +6802,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -6869,6 +7022,7 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -6928,7 +7082,25 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam */
+     * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
@@ -7052,6 +7224,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -7089,6 +7262,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -7098,6 +7272,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -7142,6 +7317,7 @@ export interface DatabaseSchemaRequestApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -7208,9 +7384,12 @@ export interface DatabaseSchemaRequestApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -7471,6 +7650,7 @@ export interface DatabaseSchemaRequestApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -7737,6 +7917,7 @@ export interface DatabaseSchemaRequestApi {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -7921,6 +8102,7 @@ export interface DatabaseSchemaRequestApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -7967,6 +8149,7 @@ export interface DatabaseSchemaRequestApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -8117,6 +8300,7 @@ export interface DatabaseSchemaRequestApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -8336,6 +8520,7 @@ export interface DatabaseSchemaRequestApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -8395,7 +8580,25 @@ export interface DatabaseSchemaRequestApi {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam */
+     * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
 }
 
@@ -8443,6 +8646,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -8480,6 +8684,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -8489,6 +8694,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -8533,6 +8739,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -8599,9 +8806,12 @@ export interface DirectConnectionSourceOptionApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -8862,6 +9072,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -9128,6 +9339,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -9312,6 +9524,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -9358,6 +9571,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -9508,6 +9722,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -9727,6 +9942,7 @@ export interface DirectConnectionSourceOptionApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -9786,7 +10002,25 @@ export interface DirectConnectionSourceOptionApi {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam */
+     * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** Human-readable name to show in the picker (falls back to the source type). */
     readonly label: string
@@ -9842,6 +10076,11 @@ export interface DraftCustomManifestResponseApi {
     error: string | null
 }
 
+export interface ExternalDataSourceExistsApi {
+    /** Whether the project has any accessible external data sources. */
+    exists: boolean
+}
+
 /**
  * Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest.
  */
@@ -9888,6 +10127,7 @@ export interface SourcePreviewRequestApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -9925,6 +10165,7 @@ export interface SourcePreviewRequestApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -9934,6 +10175,7 @@ export interface SourcePreviewRequestApi {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -9978,6 +10220,7 @@ export interface SourcePreviewRequestApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -10044,9 +10287,12 @@ export interface SourcePreviewRequestApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -10307,6 +10553,7 @@ export interface SourcePreviewRequestApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -10573,6 +10820,7 @@ export interface SourcePreviewRequestApi {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -10757,6 +11005,7 @@ export interface SourcePreviewRequestApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -10803,6 +11052,7 @@ export interface SourcePreviewRequestApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -10953,6 +11203,7 @@ export interface SourcePreviewRequestApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -11172,6 +11423,7 @@ export interface SourcePreviewRequestApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -11231,7 +11483,25 @@ export interface SourcePreviewRequestApi {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam */
+     * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -11314,6 +11584,7 @@ export interface SourceSetupApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -11351,6 +11622,7 @@ export interface SourceSetupApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -11360,6 +11632,7 @@ export interface SourceSetupApi {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -11404,6 +11677,7 @@ export interface SourceSetupApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -11470,9 +11744,12 @@ export interface SourceSetupApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -11733,6 +12010,7 @@ export interface SourceSetupApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -11999,6 +12277,7 @@ export interface SourceSetupApi {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -12183,6 +12462,7 @@ export interface SourceSetupApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -12229,6 +12509,7 @@ export interface SourceSetupApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -12379,6 +12660,7 @@ export interface SourceSetupApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -12598,6 +12880,7 @@ export interface SourceSetupApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -12657,7 +12940,25 @@ export interface SourceSetupApi {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam */
+     * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -12747,6 +13048,7 @@ export interface SourceCredentialCreateApi {
      * * `Attio` - Attio
      * * `SnapchatAds` - SnapchatAds
      * * `Linear` - Linear
+     * * `LiteLLM` - LiteLLM
      * * `Intercom` - Intercom
      * * `Amplitude` - Amplitude
      * * `Mixpanel` - Mixpanel
@@ -12784,6 +13086,7 @@ export interface SourceCredentialCreateApi {
      * * `Square` - Square
      * * `Zoom` - Zoom
      * * `Trello` - Trello
+     * * `TrafficStars` - TrafficStars
      * * `Monday` - Monday
      * * `ClickUp` - ClickUp
      * * `Confluence` - Confluence
@@ -12793,6 +13096,7 @@ export interface SourceCredentialCreateApi {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -12837,6 +13141,7 @@ export interface SourceCredentialCreateApi {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -12903,9 +13208,12 @@ export interface SourceCredentialCreateApi {
      * * `IncidentIo` - IncidentIo
      * * `Pingdom` - Pingdom
      * * `Cloudflare` - Cloudflare
+     * * `CloudflareD1` - CloudflareD1
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -13166,6 +13474,7 @@ export interface SourceCredentialCreateApi {
      * * `ReplyIo` - ReplyIo
      * * `RetailExpress` - RetailExpress
      * * `Retently` - Retently
+     * * `Retreaver` - Retreaver
      * * `RevolutMerchant` - RevolutMerchant
      * * `RocketChat` - RocketChat
      * * `Rocketlane` - Rocketlane
@@ -13432,6 +13741,7 @@ export interface SourceCredentialCreateApi {
      * * `LambdaLabs` - LambdaLabs
      * * `LangSmith` - LangSmith
      * * `Linode` - Linode
+     * * `Listmonk` - Listmonk
      * * `LlamaCloud` - LlamaCloud
      * * `Mem0` - Mem0
      * * `Metriport` - Metriport
@@ -13616,6 +13926,7 @@ export interface SourceCredentialCreateApi {
      * * `AwsCostAndUsageReport` - AwsCostAndUsageReport
      * * `AwsCostAnomalyDetection` - AwsCostAnomalyDetection
      * * `AwsCostExplorer` - AwsCostExplorer
+     * * `AwsDocumentDB` - AwsDocumentDB
      * * `AwsGlueDataCatalog` - AwsGlueDataCatalog
      * * `AwsGuardduty` - AwsGuardduty
      * * `AwsHealth` - AwsHealth
@@ -13662,6 +13973,7 @@ export interface SourceCredentialCreateApi {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -13812,6 +14124,7 @@ export interface SourceCredentialCreateApi {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -14031,6 +14344,7 @@ export interface SourceCredentialCreateApi {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -14090,7 +14404,25 @@ export interface SourceCredentialCreateApi {
      * * `RainforestPay` - RainforestPay
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
-     * * `Northbeam` - Northbeam */
+     * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
+     * * `Klar` - Klar
+     * * `ConectoCRM` - ConectoCRM
+     * * `CloudflareR2` - CloudflareR2
+     * * `Particle` - Particle
+     * * `FileUpload` - FileUpload
+     * * `Dripify` - Dripify
+     * * `AwsS3Tables` - AwsS3Tables
+     * * `Beacons` - Beacons
+     * * `WooPayments` - WooPayments
+     * * `Soniox` - Soniox
+     * * `Nango` - Nango */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -14280,7 +14612,6 @@ export interface SourceFieldSwitchGroupConfigApi {
 export type ReleaseStatusApi = (typeof ReleaseStatusApi)[keyof typeof ReleaseStatusApi]
 
 export const ReleaseStatusApi = {
-    Alpha: 'alpha',
     Beta: 'beta',
     Ga: 'ga',
 } as const
@@ -14295,6 +14626,15 @@ export interface SourceVersionDeprecationApi {
     /** ISO date the vendor stops serving this version, or null when no date is announced. */
     sunsetAt?: string | null
 }
+
+/**
+ * Change data capture engine of a source type, which picks its CDC setup form and status panel.
+ */
+export type CDCEngineApi = (typeof CDCEngineApi)[keyof typeof CDCEngineApi]
+
+export const CDCEngineApi = {
+    Postgres: 'postgres',
+} as const
 
 export interface SourceDocumentedTableApi {
     name: string
@@ -14363,6 +14703,8 @@ export interface SourceConfigResponseApi {
     /** Vendor API docs or changelog URL, or null when the vendor publishes none. */
     apiDocsUrl?: string | null
     deprecatedVersions: SourceVersionDeprecationApi[]
+    /** Change data capture engine, which picks the CDC setup form and status panel. Null when the source has no CDC. */
+    cdcEngine?: CDCEngineApi | null
     /** Credential-free documented table catalog, empty for SQL and file sources with user-defined schemas. The public endpoint sets it; the wizard omits it to keep its payload small. */
     tables?: SourceDocumentedTableApi[] | null
 }
@@ -14372,6 +14714,134 @@ export interface SourceConfigResponseApi {
  */
 export interface SourceConfigMapResponseApi {
     [key: string]: SourceConfigResponseApi
+}
+
+/**
+ * * `slack` - slack
+ * * `webhook` - webhook
+ * * `teams` - teams
+ * * `discord` - discord
+ * * `pagerduty` - pagerduty
+ */
+export type WarehouseAlertDestinationTypeEnumApi =
+    (typeof WarehouseAlertDestinationTypeEnumApi)[keyof typeof WarehouseAlertDestinationTypeEnumApi]
+
+export const WarehouseAlertDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Discord: 'discord',
+    Pagerduty: 'pagerduty',
+} as const
+
+/**
+ * * `critical` - critical
+ * * `error` - error
+ * * `warning` - warning
+ * * `info` - info
+ */
+export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
+
+export const PagerDutySeverityEnumApi = {
+    Critical: 'critical',
+    Error: 'error',
+    Warning: 'warning',
+    Info: 'info',
+} as const
+
+/**
+ * * `us` - us
+ * * `eu` - eu
+ */
+export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
+
+export const PagerDutyRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface WarehouseAlertDestinationApi {
+    /** HogFunction IDs that make up this destination, one per alert event kind it handles. Send them all to the delete endpoint to remove the destination. */
+    hog_function_ids: string[]
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty */
+    type: WarehouseAlertDestinationTypeEnumApi
+    /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
+    enabled: boolean
+    /** Integration ID of the Slack workspace. Set when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Set when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable Slack channel name. Set when type=slack. */
+    slack_channel_name?: string
+    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
+    webhook_url?: string
+    /** PagerDuty integration key reduced to its last four characters. */
+    pagerduty_routing_key?: string
+    /** Severity of the PagerDuty incident.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region the events go to.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface WarehouseAlertCreateDestinationApi {
+    /** Notification destination type.
+     *
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty */
+    type: WarehouseAlertDestinationTypeEnumApi
+    /** Integration ID for the Slack workspace. Required when type=slack. */
+    slack_workspace_id?: number
+    /** Slack channel ID. Required when type=slack. */
+    slack_channel_id?: string
+    /** Human-readable channel name for display. */
+    slack_channel_name?: string
+    /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
+    webhook_url?: string
+    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
+    pagerduty_routing_key?: string
+    /** Severity PagerDuty records on the incident. Used when type=pagerduty.
+     *
+     * * `critical` - critical
+     * * `error` - error
+     * * `warning` - warning
+     * * `info` - info */
+    pagerduty_severity?: PagerDutySeverityEnumApi
+    /** PagerDuty service region of the account. Used when type=pagerduty.
+     *
+     * * `us` - us
+     * * `eu` - eu */
+    pagerduty_region?: PagerDutyRegionEnumApi
+}
+
+export interface WarehouseAlertDestinationCreatedApi {
+    /** HogFunction IDs created for the destination, one per event kind. */
+    hog_function_ids: string[]
+}
+
+export interface WarehouseAlertDeleteDestinationApi {
+    /**
+     * HogFunction IDs of one destination, as the list endpoint returns them. They are deleted together.
+     * @minItems 1
+     * @maxItems 100
+     */
+    hog_function_ids: string[]
 }
 
 export interface WarehouseColumnStatisticsApi {
@@ -14424,6 +14894,40 @@ export type ExternalDataDestinationsListParams = {
      */
     offset?: number
 }
+
+export type ExternalDataDestinationsConnectLinkRetrieveParams = {
+    /**
+     * The destination type to connect, e.g. 'Snowflake' or 'S3'.
+     *
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     * @minLength 1
+     */
+    destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType
+    /**
+     * Which integration kind to connect when the type accepts more than one. Only S3 does: 'aws-s3' (the default) or 's3-compatible' for MinIO, Wasabi, R2, GCS and similar.
+     * @minLength 1
+     */
+    integration_kind?: string
+}
+
+export type ExternalDataDestinationsConnectLinkRetrieveDestinationType =
+    (typeof ExternalDataDestinationsConnectLinkRetrieveDestinationType)[keyof typeof ExternalDataDestinationsConnectLinkRetrieveDestinationType]
+
+export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
+    Redshift: 'Redshift',
+    Snowflake: 'Snowflake',
+    BigQuery: 'BigQuery',
+    Postgres: 'Postgres',
+    Databricks: 'Databricks',
+    AzureBlob: 'AzureBlob',
+    S3: 'S3',
+} as const
 
 export type ExternalDataSchemasListParams = {
     /**

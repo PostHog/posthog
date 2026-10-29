@@ -14,10 +14,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.settings import (
     ARTICLE_PAGEVIEWS_ENDPOINT,
     BASE_URL,
+    COUNTRY_PAGEVIEWS_ENDPOINT,
+    COUNTRY_TOP_ARTICLES_ENDPOINT,
+    COUNTRY_TOP_ARTICLES_START_DATE,
     DATA_START_DATE,
     MAX_ARTICLES,
+    MAX_COUNTRIES,
+    MEDIA_REQUEST_AGENTS,
+    MEDIA_REQUESTS_ENDPOINT,
+    MEDIA_TYPES,
     TOP_ARTICLES_ENDPOINT,
     TOP_WINDOW_DAYS,
+    UNIQUE_DEVICES_ACCESS_SITES,
+    UNIQUE_DEVICES_ENDPOINT,
     USER_AGENT,
     WIKIPEDIA_PAGEVIEWS_ENDPOINTS,
     WINDOW_DAYS,
@@ -26,6 +35,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
 REQUEST_TIMEOUT_SECONDS = 60
 
 NO_ARTICLES_ERROR = "No article titles configured for the article_pageviews table"
+NO_COUNTRIES_ERROR = "No country codes configured for the country_top_articles table"
+
+# Endpoints that serve one day per request, so a window issues one request per day.
+DAILY_REQUEST_ENDPOINTS = (TOP_ARTICLES_ENDPOINT, COUNTRY_TOP_ARTICLES_ENDPOINT)
 
 
 @dataclasses.dataclass
@@ -53,6 +66,21 @@ def _parse_articles(article_names: Optional[str]) -> list[str]:
             seen.add(article)
             articles.append(article)
     return articles
+
+
+def _parse_countries(countries: Optional[str]) -> list[str]:
+    if not countries:
+        return []
+    parsed: list[str] = []
+    for raw in re.split(r"[,\s]+", countries):
+        country = raw.strip().upper()
+        if country and country not in parsed:
+            parsed.append(country)
+    return parsed
+
+
+def _invalid_countries(countries: list[str]) -> list[str]:
+    return [country for country in countries if not re.fullmatch(r"[A-Z]{2}", country)]
 
 
 def _coerce_date(value: Any) -> Optional[date]:
@@ -173,11 +201,121 @@ def _top_rows(
     return rows
 
 
+def _next_month(month: date) -> date:
+    return date(month.year + 1, 1, 1) if month.month == 12 else date(month.year, month.month + 1, 1)
+
+
+def _country_pageview_rows(
+    session: requests.Session,
+    project: str,
+    access: str,
+    window_start: date,
+    window_end: date,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    # One request per month whose first day falls in the window, so consecutive windows never
+    # request the same month twice.
+    month = date(window_start.year, window_start.month, 1)
+    if month < window_start:
+        month = _next_month(month)
+    while month <= window_end:
+        url = f"{BASE_URL}/pageviews/top-by-country/{quote(project, safe='')}/{access}/{month:%Y}/{month:%m}"
+        for item in _get_items(session, url, logger):
+            for country in item.get("countries") or []:
+                rows.append(
+                    {
+                        "project": item.get("project"),
+                        "access": item.get("access"),
+                        "year": item.get("year"),
+                        "month": item.get("month"),
+                        "date": datetime(month.year, month.month, 1, tzinfo=UTC),
+                        "country": country.get("country"),
+                        "views": country.get("views"),
+                        "views_ceil": country.get("views_ceil"),
+                        "rank": country.get("rank"),
+                    }
+                )
+        month = _next_month(month)
+    return rows
+
+
+def _country_top_rows(
+    session: requests.Session,
+    country: str,
+    access: str,
+    day: date,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    url = f"{BASE_URL}/pageviews/top-per-country/{quote(country, safe='')}/{access}/{day:%Y}/{day:%m}/{day:%d}"
+    rows: list[dict[str, Any]] = []
+    for item in _get_items(session, url, logger):
+        for article in item.get("articles") or []:
+            rows.append(
+                {
+                    "country": item.get("country"),
+                    "access": item.get("access"),
+                    "year": item.get("year"),
+                    "month": item.get("month"),
+                    "day": item.get("day"),
+                    "date": datetime(day.year, day.month, day.day, tzinfo=UTC),
+                    "project": article.get("project"),
+                    "article": article.get("article"),
+                    "views_ceil": article.get("views_ceil"),
+                    "rank": article.get("rank"),
+                }
+            )
+    return rows
+
+
+def _unique_device_rows(
+    session: requests.Session,
+    project: str,
+    window_start: date,
+    window_end: date,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for access_site in UNIQUE_DEVICES_ACCESS_SITES:
+        url = (
+            f"{BASE_URL}/unique-devices/{quote(project, safe='')}/{access_site}"
+            f"/daily/{window_start:%Y%m%d}/{window_end:%Y%m%d}"
+        )
+        for item in _get_items(session, url, logger):
+            # The API's hyphenated key would not match the primary key after column normalization.
+            item["access_site"] = item.pop("access-site", access_site)
+            item_date = _coerce_date(item.get("timestamp"))
+            if item_date is not None:
+                item["date"] = datetime(item_date.year, item_date.month, item_date.day, tzinfo=UTC)
+            rows.append(item)
+    return rows
+
+
+def _media_request_rows(
+    session: requests.Session,
+    project: str,
+    agent: str,
+    window_start: date,
+    window_end: date,
+    logger: FilteringBoundLogger,
+) -> list[dict[str, Any]]:
+    media_agent = agent if agent in MEDIA_REQUEST_AGENTS else "all-agents"
+    rows: list[dict[str, Any]] = []
+    for media_type in MEDIA_TYPES:
+        url = (
+            f"{BASE_URL}/mediarequests/aggregate/{quote(project, safe='')}/{media_type}/{media_agent}"
+            f"/daily/{window_start:%Y%m%d}/{window_end:%Y%m%d}"
+        )
+        rows.extend(_with_date(item) for item in _get_items(session, url, logger))
+    return rows
+
+
 def _get_rows(
     project: str,
     access: str,
     agent: str,
     article_names: Optional[str],
+    countries: Optional[str],
     start_date: Optional[str],
     endpoint: str,
     logger: FilteringBoundLogger,
@@ -201,6 +339,17 @@ def _get_rows(
             )
             articles = articles[:MAX_ARTICLES]
 
+    country_codes: list[str] = []
+    if endpoint == COUNTRY_TOP_ARTICLES_ENDPOINT:
+        country_codes = _parse_countries(countries)
+        if not country_codes:
+            raise ValueError(NO_COUNTRIES_ERROR)
+        if len(country_codes) > MAX_COUNTRIES:
+            logger.warning(
+                f"Wikipedia Pageviews: {len(country_codes)} country codes configured, syncing only the first {MAX_COUNTRIES}"
+            )
+            country_codes = country_codes[:MAX_COUNTRIES]
+
     # The API truncates ranges at the newest loaded day and 404s fully-empty windows (treated
     # as empty above), so today is a safe end boundary despite the ~1-day ingestion lag.
     end_boundary = datetime.now(UTC).date()
@@ -209,6 +358,8 @@ def _get_rows(
     # would otherwise fan out into hundreds of thousands of empty daily requests (the top
     # endpoint serves one day per request).
     start = max(_coerce_date(start_date) or DATA_START_DATE, DATA_START_DATE)
+    if endpoint == COUNTRY_TOP_ARTICLES_ENDPOINT:
+        start = max(start, COUNTRY_TOP_ARTICLES_START_DATE)
     if should_use_incremental_field:
         last_value = _coerce_date(db_incremental_field_last_value)
         if last_value is not None:
@@ -225,7 +376,12 @@ def _get_rows(
             start = resumed
             logger.debug(f"Wikipedia Pageviews: resuming {endpoint} from {start.isoformat()}")
 
-    window_days = TOP_WINDOW_DAYS if endpoint == TOP_ARTICLES_ENDPOINT else WINDOW_DAYS
+    if endpoint == COUNTRY_PAGEVIEWS_ENDPOINT:
+        # Monthly data: start at the month that holds the start day, which also refetches the
+        # watermark month on incremental runs.
+        start = date(start.year, start.month, 1)
+
+    window_days = TOP_WINDOW_DAYS if endpoint in DAILY_REQUEST_ENDPOINTS else WINDOW_DAYS
 
     cursor = start
     while cursor <= end_boundary:
@@ -237,6 +393,19 @@ def _get_rows(
             while day <= window_end:
                 rows.extend(_top_rows(session, normalized_project, access, day, logger))
                 day += timedelta(days=1)
+        elif endpoint == COUNTRY_TOP_ARTICLES_ENDPOINT:
+            rows = []
+            day = cursor
+            while day <= window_end:
+                for country in country_codes:
+                    rows.extend(_country_top_rows(session, country, access, day, logger))
+                day += timedelta(days=1)
+        elif endpoint == COUNTRY_PAGEVIEWS_ENDPOINT:
+            rows = _country_pageview_rows(session, normalized_project, access, cursor, window_end, logger)
+        elif endpoint == UNIQUE_DEVICES_ENDPOINT:
+            rows = _unique_device_rows(session, normalized_project, cursor, window_end, logger)
+        elif endpoint == MEDIA_REQUESTS_ENDPOINT:
+            rows = _media_request_rows(session, normalized_project, agent, cursor, window_end, logger)
         elif endpoint == ARTICLE_PAGEVIEWS_ENDPOINT:
             rows = _article_rows(session, normalized_project, access, agent, articles, cursor, window_end, logger)
         else:
@@ -260,6 +429,7 @@ def wikipedia_pageviews_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[WikipediaPageviewsResumeConfig],
+    countries: Optional[str] = None,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -272,6 +442,7 @@ def wikipedia_pageviews_source(
             access=access,
             agent=agent,
             article_names=article_names,
+            countries=countries,
             start_date=start_date,
             endpoint=endpoint,
             logger=logger,

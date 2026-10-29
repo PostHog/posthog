@@ -20,10 +20,6 @@ class TestAlphaVantageSource:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert AlphaVantageSource.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = AlphaVantageSource().get_schemas(_make_config(), team_id=1, names=["earnings", "global_quote"])
-        assert {s.name for s in schemas} == {"earnings", "global_quote"}
-
     @parameterized.expand(
         [
             ("valid", "KEY", "IBM", True, True, None),

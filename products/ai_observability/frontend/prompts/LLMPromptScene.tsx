@@ -8,6 +8,7 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -31,6 +32,7 @@ import {
     PublishReviewModal,
     cleanPromptSearchParams,
 } from './promptSceneComponents'
+import { QuillLLMPromptActions } from './QuillLLMPromptActions'
 import { openArchivePromptDialog, openDuplicatePromptDialog } from './utils'
 
 export const scene: SceneExport<PromptLogicProps> = {
@@ -78,6 +80,7 @@ export function LLMPromptScene(): JSX.Element {
         cancelEditing,
     } = useActions(llmPromptLogic)
     const { duplicatePrompt } = useAsyncActions(llmPromptLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
     const sourcePromptVersion = isHistoricalVersion && isPrompt(prompt) ? prompt.version : null
     const openInPlaygroundUrl = sourcePromptName
@@ -108,82 +111,88 @@ export function LLMPromptScene(): JSX.Element {
                 resourceType={{ type: 'llm_analytics' }}
                 isLoading={promptLoading}
                 actions={
-                    <>
-                        {openInPlaygroundUrl ? (
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconPlay />}
-                                to={openInPlaygroundUrl}
-                                data-attr="llma-playground-open-from-prompt"
+                    todayRailNav ? (
+                        <QuillLLMPromptActions openInPlaygroundUrl={openInPlaygroundUrl} />
+                    ) : (
+                        <>
+                            {openInPlaygroundUrl ? (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconPlay />}
+                                    to={openInPlaygroundUrl}
+                                    data-attr="llma-playground-open-from-prompt"
+                                >
+                                    Open in Playground
+                                </LemonButton>
+                            ) : null}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.LlmAnalytics}
+                                minAccessLevel={AccessControlLevel.Editor}
                             >
-                                Open in Playground
-                            </LemonButton>
-                        ) : null}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.LlmAnalytics}
-                            minAccessLevel={AccessControlLevel.Editor}
-                        >
-                            <LemonButton
-                                type="primary"
-                                icon={<IconPencil />}
-                                onClick={() => {
-                                    if (isPrompt(prompt)) {
-                                        setPromptFormValues({ name: prompt.name, prompt: prompt.prompt })
-                                        setMode(PromptMode.Edit)
+                                <LemonButton
+                                    type="primary"
+                                    icon={<IconPencil />}
+                                    onClick={() => {
+                                        if (isPrompt(prompt)) {
+                                            setPromptFormValues({ name: prompt.name, prompt: prompt.prompt })
+                                            setMode(PromptMode.Edit)
+                                        }
+                                    }}
+                                    size="small"
+                                    tooltip={
+                                        isHistoricalVersion
+                                            ? 'Start a new version from this historical version'
+                                            : undefined
                                     }
-                                }}
+                                    data-attr="llma-prompt-new-version-button"
+                                >
+                                    New version
+                                </LemonButton>
+                            </AccessControlAction>
+
+                            <More
                                 size="small"
-                                tooltip={
-                                    isHistoricalVersion ? 'Start a new version from this historical version' : undefined
+                                overlay={
+                                    <>
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.LlmAnalytics}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                        >
+                                            <LemonButton
+                                                onClick={() => {
+                                                    if (isPrompt(prompt)) {
+                                                        const sourceName = prompt.name
+                                                        openDuplicatePromptDialog(sourceName, (newName) =>
+                                                            duplicatePrompt(sourceName, newName)
+                                                        )
+                                                    }
+                                                }}
+                                                data-attr="llma-prompt-detail-duplicate"
+                                                fullWidth
+                                            >
+                                                Duplicate
+                                            </LemonButton>
+                                        </AccessControlAction>
+
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.LlmAnalytics}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                        >
+                                            <LemonButton
+                                                status="danger"
+                                                onClick={() => openArchivePromptDialog(deletePrompt)}
+                                                data-attr="llma-prompt-delete-button"
+                                                fullWidth
+                                            >
+                                                Archive
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                    </>
                                 }
-                                data-attr="llma-prompt-new-version-button"
-                            >
-                                New version
-                            </LemonButton>
-                        </AccessControlAction>
-
-                        <More
-                            size="small"
-                            overlay={
-                                <>
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.LlmAnalytics}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                    >
-                                        <LemonButton
-                                            onClick={() => {
-                                                if (isPrompt(prompt)) {
-                                                    const sourceName = prompt.name
-                                                    openDuplicatePromptDialog(sourceName, (newName) =>
-                                                        duplicatePrompt(sourceName, newName)
-                                                    )
-                                                }
-                                            }}
-                                            data-attr="llma-prompt-detail-duplicate"
-                                            fullWidth
-                                        >
-                                            Duplicate
-                                        </LemonButton>
-                                    </AccessControlAction>
-
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.LlmAnalytics}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                    >
-                                        <LemonButton
-                                            status="danger"
-                                            onClick={() => openArchivePromptDialog(deletePrompt)}
-                                            data-attr="llma-prompt-delete-button"
-                                            fullWidth
-                                        >
-                                            Archive
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                </>
-                            }
-                        />
-                    </>
+                            />
+                        </>
+                    )
                 }
             />
 
@@ -267,59 +276,63 @@ export function LLMPromptScene(): JSX.Element {
                     resourceType={{ type: 'llm_analytics' }}
                     isLoading={promptLoading}
                     actions={
-                        <>
-                            {openInPlaygroundUrl ? (
+                        todayRailNav ? (
+                            <QuillLLMPromptActions openInPlaygroundUrl={openInPlaygroundUrl} />
+                        ) : (
+                            <>
+                                {openInPlaygroundUrl ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        icon={<IconPlay />}
+                                        to={openInPlaygroundUrl}
+                                        disabledReason={
+                                            isPromptFormSubmitting
+                                                ? 'Saving…'
+                                                : isPromptFormDirty
+                                                  ? 'You have unsaved edits — publish or cancel first'
+                                                  : undefined
+                                        }
+                                        size="small"
+                                        data-attr="llma-playground-open-from-prompt"
+                                    >
+                                        Open in Playground
+                                    </LemonButton>
+                                ) : null}
                                 <LemonButton
                                     type="secondary"
-                                    icon={<IconPlay />}
-                                    to={openInPlaygroundUrl}
-                                    disabledReason={
-                                        isPromptFormSubmitting
-                                            ? 'Saving…'
-                                            : isPromptFormDirty
-                                              ? 'You have unsaved edits — publish or cancel first'
-                                              : undefined
-                                    }
+                                    onClick={() => cancelEditing()}
+                                    disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
                                     size="small"
-                                    data-attr="llma-playground-open-from-prompt"
+                                    data-attr="llma-prompt-cancel-button"
                                 >
-                                    Open in Playground
+                                    Cancel
                                 </LemonButton>
-                            ) : null}
-                            <LemonButton
-                                type="secondary"
-                                onClick={() => cancelEditing()}
-                                disabledReason={isPromptFormSubmitting ? 'Saving…' : undefined}
-                                size="small"
-                                data-attr="llma-prompt-cancel-button"
-                            >
-                                Cancel
-                            </LemonButton>
 
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.LlmAnalytics}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    onClick={isNewPrompt ? submitPromptForm : requestPublish}
-                                    loading={isPromptFormSubmitting}
-                                    disabledReason={
-                                        !isNewPrompt && !isHistoricalVersion && !isPromptFormDirty
-                                            ? 'No changes to publish'
-                                            : undefined
-                                    }
-                                    size="small"
-                                    data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.LlmAnalytics}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    {isNewPrompt
-                                        ? 'Create prompt'
-                                        : nextVersion
-                                          ? `Publish v${nextVersion}`
-                                          : 'Publish version'}
-                                </LemonButton>
-                            </AccessControlAction>
-                        </>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={isNewPrompt ? submitPromptForm : requestPublish}
+                                        loading={isPromptFormSubmitting}
+                                        disabledReason={
+                                            !isNewPrompt && !isHistoricalVersion && !isPromptFormDirty
+                                                ? 'No changes to publish'
+                                                : undefined
+                                        }
+                                        size="small"
+                                        data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
+                                    >
+                                        {isNewPrompt
+                                            ? 'Create prompt'
+                                            : nextVersion
+                                              ? `Publish v${nextVersion}`
+                                              : 'Publish version'}
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </>
+                        )
                     }
                 />
 

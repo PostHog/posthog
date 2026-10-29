@@ -57,7 +57,7 @@ class PrefectCloudSource(ResumableSource[PrefectCloudSourceConfig, PrefectCloudR
             name=ExternalDataSourceType.PREFECTCLOUD,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Prefect Cloud",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Prefect Cloud account ID, workspace ID, and an API key to pull your flow and task run history into the PostHog Data warehouse.
 
 Both IDs are in your workspace URL: `https://app.prefect.cloud/account/<account ID>/workspace/<workspace ID>`.

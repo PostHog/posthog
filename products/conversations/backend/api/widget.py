@@ -72,7 +72,7 @@ TicketOwnershipMatch = Literal["distinct_id", "email"]
 
 @frozen
 class _IdentitySecret:
-    source: Literal["signing_secret", "legacy_token", "legacy_backup"]
+    source: Literal["signing_secret", "signing_secret_previous", "legacy_token", "legacy_backup"]
     secret: str = dataclass_field(repr=False)
 
 
@@ -109,13 +109,17 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     The conversations signing secret is where this credential is moving; the legacy
     Team.secret_api_token stays a fallback so teams that predate the backfill keep
     verifying. The rotation backup is accepted too, so hashes signed with the previous
-    secret survive a rotation.
+    secret survive a rotation. A signing-secret rotation likewise keeps the replaced
+    value verifying for SigningSecret.PREVIOUS_SECRET_GRACE, then it expires on its own.
 
     While the legacy column exists it remains the revocation authority: rotating and then
     deleting the backup has to actually revoke the old key. The row is compared against the
     current secret API token only — a row still holding the previous key matches the rotation
     backup, so counting that as agreement would report a team whose sync failed as fully
     migrated. Verification is unaffected: such a row still verifies via `legacy_backup`.
+
+    A row rotated independently via the conversations endpoint no longer mirrors the
+    legacy column, so it is trusted as-is and the staleness guard does not apply.
     """
     legacy_secrets: list[_IdentitySecret] = []
     if team.secret_api_token:
@@ -126,8 +130,12 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     secrets: list[_IdentitySecret] = []
     signing_secret = SigningSecret.objects.for_team(team.id).first()
     if signing_secret and signing_secret.secret:
-        if not legacy_secrets or signing_secret.secret == team.secret_api_token:
+        if signing_secret.rotated_independently or not legacy_secrets or signing_secret.secret == team.secret_api_token:
             secrets.append(_IdentitySecret(source="signing_secret", secret=signing_secret.secret))
+            # Rotation grace: hashes signed with the replaced secret keep verifying until
+            # the window closes. Tied to the trusted branch so a stale row contributes nothing.
+            if signing_secret.previous_secret_active and signing_secret.previous_secret:
+                secrets.append(_IdentitySecret(source="signing_secret_previous", secret=signing_secret.previous_secret))
         else:
             SIGNING_SECRET_STALE_COUNTER.inc()
             logger.warning("Conversations signing secret is stale, skipping it", extra={"team_id": team.id})
@@ -135,6 +143,9 @@ def _identity_secrets(team: Team) -> list[_IdentitySecret]:
     # Kill switch (#66179): legacy tokens stop being verification candidates, but the
     # staleness guard above already ran, so a row holding a retired key stays excluded.
     if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+        return secrets
+    # An independent rotation revokes the legacy credentials for identity verification.
+    if signing_secret and signing_secret.rotated_independently:
         return secrets
     return secrets + legacy_secrets
 
@@ -463,7 +474,12 @@ class WidgetMessageView(APIView):
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=message_content,
-            item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
+            item_context={
+                "author_type": "customer",
+                "distinct_id": distinct_id,
+                "distinct_id_verified": verified_distinct_id is not None,
+                "is_private": False,
+            },
         )
 
         # tickets + messages caches are invalidated by the post_save signal

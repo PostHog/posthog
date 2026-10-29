@@ -96,5 +96,5 @@ class UsTreasuryFiscalDataSource(ResumableSource[UsTreasuryFiscalDataSourceConfi
             caption="Import public US Treasury data. No API key or account is required.",
             iconPath="/static/services/us_treasury_fiscal_data.png",
             fields=[],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
         )

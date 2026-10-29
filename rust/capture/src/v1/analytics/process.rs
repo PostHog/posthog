@@ -31,6 +31,7 @@ use crate::config::CaptureMode;
 use crate::ingestion_warnings::{bounded_detail, emit_rate_limit_warning};
 use crate::router;
 use crate::sinks::sink::{Outcome, SinkResult};
+use crate::v1::constants::CAPTURE_V1_WARNING_METRIC;
 use crate::v1::context::RequestContext;
 use crate::v1::prepare::{serialize_batch, SerializationFailure};
 use crate::v1::types::{Destination, Publishable};
@@ -68,9 +69,63 @@ pub async fn process_batch(
     context: &mut Context,
     batch: Batch,
 ) -> Result<BatchResponse, Error> {
+    let (batch, duplicates_dropped) = drop_duplicate_uuids(batch);
+    if !duplicates_dropped.is_empty() {
+        observe_duplicate_drops(state, context, &duplicates_dropped);
+    }
     let events = run_pipeline(state, context, batch).await?;
     emit_drop_warnings(state, context, &events);
-    Ok(BatchResponse::build(context, &events))
+    Ok(BatchResponse::build(context, &events).with_duplicates_dropped(&duplicates_dropped))
+}
+
+/// Keeps the first event for each uuid and drops later copies, so one reused uuid
+/// costs only its extra copies instead of rejecting the whole request.
+fn drop_duplicate_uuids(mut batch: Batch) -> (Batch, HashMap<Uuid, u32>) {
+    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch.batch.len());
+    let mut dropped: HashMap<Uuid, u32> = HashMap::new();
+    batch.batch.retain(|event| {
+        // `validate_events` rejects an empty or unparseable uuid, so keep it for that check.
+        let Ok(uuid) = Uuid::parse_str(&event.uuid) else {
+            return true;
+        };
+        if seen.insert(uuid) {
+            return true;
+        }
+        *dropped.entry(uuid).or_insert(0) += 1;
+        false
+    });
+    (batch, dropped)
+}
+
+fn observe_duplicate_drops(state: &router::State, context: &Context, dropped: &HashMap<Uuid, u32>) {
+    let count: u64 = dropped.values().map(|&n| u64::from(n)).sum();
+    metrics::counter!(
+        CAPTURE_V1_EVENTS_DROPPED,
+        "reason" => "duplicate_event_uuid",
+        "stage" => "deduplication",
+    )
+    .increment(count);
+    metrics::counter!(
+        CAPTURE_V1_WARNING_METRIC,
+        "reason" => "duplicate_event_uuid",
+        "path" => context.path,
+    )
+    .increment(1);
+    crate::ctx_log!(
+        Level::INFO,
+        context,
+        dropped_events = count,
+        uuids = dropped.len(),
+        "dropped later copies of duplicate event uuids"
+    );
+    emit_request_warning(
+        state.ingestion_warning_emitter.as_deref(),
+        &context.warning_context(),
+        CAPTURE_V1_ANALYTICS,
+        WarningType::DuplicateEventUuid,
+        serde_json::Map::new(),
+        count,
+    );
 }
 
 /// Every stage of the v1 pipeline, from validation to publishing. Returns the
@@ -145,7 +200,7 @@ async fn run_pipeline(
             service,
             &context.api_token,
             context.server_received_at.timestamp(),
-            state.ai_events_overflow_enabled,
+            state.capture_mode.has_ai_overflow_lane(),
             &mut events,
         )
         .await;
@@ -480,7 +535,6 @@ fn validate_batch(batch: &Batch) -> Result<(), Error> {
 fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<ValidatedEvent>, Error> {
     let batch_len = batch.batch.len();
     let mut events: Vec<ValidatedEvent> = Vec::with_capacity(batch_len);
-    let mut seen: HashSet<Uuid> = HashSet::with_capacity(batch_len);
     let mut illegal_distinct_id_count: u64 = 0;
 
     for event in batch.batch.into_iter() {
@@ -490,12 +544,6 @@ fn validate_events(context: &RequestContext, batch: Batch) -> Result<Vec<Validat
         let uuid = Uuid::parse_str(&event.uuid).map_err(|_| {
             count_validation_abort(Error::InvalidEventUuid(event.uuid.clone()), batch_len)
         })?;
-        if !seen.insert(uuid) {
-            return Err(count_validation_abort(
-                Error::DuplicateEventUuid(event.uuid.clone()),
-                batch_len,
-            ));
-        }
 
         match validate_event(&event) {
             Ok(raw_ts) => {
@@ -763,10 +811,7 @@ fn apply_overflow_stamping(
         // Each overflowing lane keeps its own overflow destination AND its
         // own limiter instance, so an overflowing AI event lands on AI
         // overflow (never analytics overflow) and the per-key budgets are
-        // isolated between the lanes. The AI lane only participates when its
-        // limiter exists — setup builds it exactly when the AI overflow valve
-        // (CAPTURE_OUTPUT_AI_OVERFLOW_TOPIC) is armed, so limiter
-        // presence encodes the valve here.
+        // isolated between the lanes.
         let (overflow_destination, lane_limiter) = match event.destination {
             Destination::AnalyticsMain => (Destination::AnalyticsOverflow, analytics_limiter),
             Destination::AiMain => (Destination::AiOverflow, ai_limiter),
@@ -815,7 +860,7 @@ async fn apply_restrictions(
     service: &EventRestrictionService,
     token: &str,
     now_ts: i64,
-    ai_events_overflow_enabled: bool,
+    has_ai_overflow_lane: bool,
     events: &mut [WrappedEvent],
 ) {
     for event in events.iter_mut() {
@@ -853,7 +898,7 @@ async fn apply_restrictions(
         // Priority: overflow < custom topic < DLQ (DLQ wins, applied last)
         let force_overflow_destination = match event.destination {
             Destination::AnalyticsMain => Some(Destination::AnalyticsOverflow),
-            Destination::AiMain if ai_events_overflow_enabled => Some(Destination::AiOverflow),
+            Destination::AiMain if has_ai_overflow_lane => Some(Destination::AiOverflow),
             _ => None,
         };
         if applied.force_overflow() {
@@ -1190,6 +1235,7 @@ mod tests {
         Pipeline, Restriction, RestrictionManager, RestrictionScope, RestrictionType,
     };
     use crate::v1::analytics::constants::{CAPTURE_V1_PATH, DETAIL_INVALID_OPTIONS};
+    use crate::v1::analytics::response::BatchEntryStatus;
     use crate::v1::analytics::types::{Batch, Event};
     use crate::v1::prepare::DEFAULT_SCATTER_GATHER_MIN_BATCH;
     use crate::v1::test_utils::{
@@ -1197,6 +1243,7 @@ mod tests {
     };
     use crate::v1::types::Destination;
     use crate::v1::Error;
+    use rstest::rstest;
 
     fn valid_batch(events: Vec<Event>) -> Batch {
         Batch {
@@ -1579,26 +1626,32 @@ mod tests {
     // --- validate_events ---
 
     #[test]
-    fn validate_events_duplicate_uuid_bails_batch() {
-        let ctx = test_utils::test_context();
-        let shared_uuid = Uuid::new_v4().to_string();
-        let batch = Batch {
-            created_at: "2026-03-19T14:30:00.000Z".to_string(),
-            historical_migration: false,
-            capture_internal: None,
-            batch: vec![
-                Event {
-                    uuid: shared_uuid.clone(),
-                    ..valid_event()
-                },
-                Event {
-                    uuid: shared_uuid,
-                    ..valid_event()
-                },
-            ],
+    fn drop_duplicate_uuids_keeps_first_copy_and_counts_the_rest() {
+        let shared = Uuid::new_v4();
+        let other = Uuid::new_v4().to_string();
+        let event = |uuid: String, distinct_id: &str| Event {
+            uuid,
+            distinct_id: distinct_id.to_string(),
+            ..valid_event()
         };
-        let err = validate_events(&ctx, batch).unwrap_err();
-        assert!(matches!(err, Error::DuplicateEventUuid(_)));
+        let batch = valid_batch(vec![
+            event(shared.to_string(), "first"),
+            event(other, "unique"),
+            // Another spelling of the same uuid is still a duplicate.
+            event(
+                format!("{{{}}}", shared.to_string().to_uppercase()),
+                "second",
+            ),
+            event(String::new(), "empty-uuid"),
+            event(shared.to_string(), "third"),
+            event("not-a-uuid".to_string(), "invalid-uuid"),
+        ]);
+
+        let (batch, dropped) = drop_duplicate_uuids(batch);
+
+        let kept: Vec<&str> = batch.batch.iter().map(|e| e.distinct_id.as_str()).collect();
+        assert_eq!(kept, vec!["first", "unique", "empty-uuid", "invalid-uuid"]);
+        assert_eq!(dropped, HashMap::from([(shared, 2)]));
     }
 
     #[test]
@@ -1639,33 +1692,22 @@ mod tests {
     // the bad one) — that is the per-event loss the single request-level
     // capture_v1_analytics_error tick can't show.
 
-    #[test]
-    fn duplicate_uuid_abort_counts_whole_batch() {
-        let ctx = test_utils::test_context();
-        let shared = Uuid::new_v4().to_string();
-        // dup is only detected at index 2, but all 3 events are lost.
-        let batch = valid_batch(vec![
-            Event {
-                uuid: shared.clone(),
-                ..valid_event()
-            },
-            Event {
-                uuid: Uuid::new_v4().to_string(),
-                ..valid_event()
-            },
-            Event {
-                uuid: shared,
-                ..valid_event()
-            },
-        ]);
+    #[tokio::test]
+    async fn duplicate_drops_count_each_dropped_copy() {
+        let state = crate::v1::test_utils::TestStateBuilder::new().build().state;
+        let ctx = test_utils::test_analytics_context();
+        let dropped = HashMap::from([(Uuid::new_v4(), 2), (Uuid::new_v4(), 1)]);
 
-        let count = dropped_count("duplicate_event_uuid", "validation_abort", || {
-            assert!(matches!(
-                validate_events(&ctx, batch).unwrap_err(),
-                Error::DuplicateEventUuid(_)
-            ));
+        let count = dropped_count("duplicate_event_uuid", "deduplication", || {
+            observe_duplicate_drops(&state, &ctx, &dropped);
         });
         assert_eq!(count, Some(3));
+        let requests = counter_value(
+            CAPTURE_V1_WARNING_METRIC,
+            &[("reason", "duplicate_event_uuid"), ("path", ctx.path)],
+            || observe_duplicate_drops(&state, &ctx, &dropped),
+        );
+        assert_eq!(requests, Some(1), "one request-level count per request");
     }
 
     #[test]
@@ -2111,18 +2153,14 @@ mod tests {
         assert_eq!(ev.destination, Destination::AnalyticsOverflow);
     }
 
-    /// A diverted AI event consults ai-scoped restrictions: an ai-scoped
-    /// ForceOverflow reroutes it to the AI overflow destination when the
-    /// valve is armed and leaves it untouched when not, while an
-    /// analytics-scoped ForceOverflow never crosses into the AI lane.
     #[rstest::rstest]
-    #[case::armed(Pipeline::Ai, true, Destination::AiOverflow)]
-    #[case::unarmed(Pipeline::Ai, false, Destination::AiMain)]
+    #[case::with_lane(Pipeline::Ai, true, Destination::AiOverflow)]
+    #[case::without_lane(Pipeline::Ai, false, Destination::AiMain)]
     #[case::analytics_scoped_does_not_cross(Pipeline::Analytics, true, Destination::AiMain)]
     #[tokio::test]
-    async fn restrictions_force_overflow_ai_events_gated_on_valve(
+    async fn restrictions_force_overflow_ai_events_need_an_overflow_lane(
         #[case] restriction_pipeline: Pipeline,
-        #[case] ai_events_overflow_enabled: bool,
+        #[case] has_ai_overflow_lane: bool,
         #[case] expected_destination: Destination,
     ) {
         let service = restriction_service_for_pipeline(
@@ -2144,7 +2182,7 @@ mod tests {
             &service,
             "phc_token",
             now_ts,
-            ai_events_overflow_enabled,
+            has_ai_overflow_lane,
             &mut events,
         )
         .await;
@@ -2184,8 +2222,6 @@ mod tests {
         );
     }
 
-    /// A ceiling of `0` disables the check, so a deployment that never sets
-    /// `AI_MAX_EVENT_BYTES` keeps publishing whatever its producer accepts.
     #[tokio::test]
     async fn a_zero_ai_size_ceiling_disables_the_check() {
         let mut oversized = wrapped_event("$ai_generation", "user-big");
@@ -3208,14 +3244,50 @@ mod tests {
         );
     }
 
-    #[test]
-    fn validate_events_duplicate_uuid_via_realistic_pair() {
-        // Two distinct events (name / distinct_id / props) colliding on uuid.
-        let ctx = test_utils::test_context();
-        let (first, second) = test_utils::realistic_dup_uuid_pair();
-        let batch = valid_batch(vec![first, second]);
-        let err = validate_events(&ctx, batch).unwrap_err();
-        assert!(matches!(err, Error::DuplicateEventUuid(_)));
+    #[rstest]
+    #[case::analytics(CaptureMode::Events)]
+    #[case::ai(CaptureMode::Ai)]
+    #[tokio::test]
+    async fn process_batch_keeps_first_duplicate_with_its_own_result(#[case] mode: CaptureMode) {
+        let state = crate::v1::test_utils::TestStateBuilder::new()
+            .with_capture_mode(mode)
+            .build()
+            .state;
+        let mut ctx = test_utils::test_analytics_context();
+        // The first copy is invalid, so its own drop must survive alongside the count.
+        let (mut first, second) = test_utils::realistic_dup_uuid_pair();
+        first.event = String::new();
+        let shared = Uuid::parse_str(&first.uuid).unwrap();
+        let third = Event {
+            uuid: first.uuid.clone(),
+            ..valid_event()
+        };
+        let unique = valid_event();
+        let unique_uuid = Uuid::parse_str(&unique.uuid).unwrap();
+
+        let resp = process_batch(
+            &state,
+            &mut ctx,
+            valid_batch(vec![first, second, unique, third]),
+        )
+        .await
+        .unwrap();
+
+        let entries: HashMap<Uuid, &BatchEntryStatus> = resp
+            .entries()
+            .iter()
+            .map(|(uuid, status)| (*uuid, status))
+            .collect();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(
+            *entries[&shared],
+            BatchEntryStatus {
+                result: EventResult::Drop,
+                details: Some("missing_event_name"),
+                duplicates_dropped: 2,
+            }
+        );
+        assert_eq!(entries[&unique_uuid].duplicates_dropped, 0);
     }
 
     #[tokio::test]
@@ -3470,10 +3542,6 @@ mod tests {
         assert_eq!(events[0].destination, Destination::AnalyticsMain);
     }
 
-    /// The AI lane converts to its own overflow destination under the same
-    /// conditions as AnalyticsMain, but only when its limiter is present
-    /// (setup builds it exactly when the AI overflow valve is armed); absent
-    /// it is never touched.
     #[rstest::rstest]
     #[case::limiter_present(true, Destination::AiOverflow, true)]
     #[case::limiter_absent(false, Destination::AiMain, false)]
@@ -3894,14 +3962,8 @@ mod tests {
         assert_eq!(&*records[0].topic, "ai_events");
     }
 
-    /// process_batch wiring: overflow stamping must run when only the AI-lane
-    /// limiter is armed (analytics limiter unset), with the state's AI limiter
-    /// governing the AI lane — a bursting key's second AI event lands on
-    /// the AI overflow topic while an analytics event on the same key stays on
-    /// the main topic (it would overflow instead if the limiter arguments were
-    /// ever swapped).
     #[tokio::test]
-    async fn process_batch_routes_ai_overflow_with_only_ai_limiter_armed() {
+    async fn process_batch_routes_ai_overflow_with_only_ai_limiter() {
         let ts = TestStateBuilder::new()
             .with_ai_events_overflow_limiter(1, 1)
             .build();
@@ -4269,10 +4331,6 @@ mod tests {
             .with_overflow_limiter(1, 1)
             .with_restriction_service(restrictions)
             .build();
-        assert!(
-            !ts.state.ai_events_overflow_enabled,
-            "capture-import leaves the AI valve unarmed"
-        );
         let mut ctx = test_utils::test_analytics_context();
         let batch = historical_batch(vec![
             Event {
@@ -4306,12 +4364,7 @@ mod tests {
 
     #[tokio::test]
     async fn import_mode_routes_ai_events_to_ai_lane() {
-        // A historical batch's AI event diverts to the AI lane, winning
-        // over historical: only the AI lane has AI processing (cost
-        // enrichment, the ai_events double-write), so leaving it on the
-        // historical lane would import it incorrectly. Import's no-overflow
-        // guarantee holds by config: capture-import leaves the AI overflow
-        // valve unset, and an unarmed valve never stamps overflow.
+        // AI wins over historical: only the AI lane has AI processing.
         let ts = TestStateBuilder::new()
             .with_capture_mode(crate::config::CaptureMode::Import)
             .build();
@@ -4964,27 +5017,43 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn warnings_batch_abort_emits_once_with_full_batch_count() {
+    async fn warnings_duplicate_copies_emit_once_with_dropped_count() {
         let (state, collector) = state_with_warning_collector();
         let mut ctx = test_utils::test_analytics_context();
-        let shared_uuid = Uuid::new_v4().to_string();
-        let dup_a = Event {
-            uuid: shared_uuid.clone(),
+        let first = valid_event();
+        let copy = |distinct_id: &str| Event {
+            uuid: first.uuid.clone(),
+            distinct_id: distinct_id.to_string(),
             ..valid_event()
         };
-        let dup_b = Event {
-            uuid: shared_uuid,
-            distinct_id: "someone-else".to_string(),
-            ..valid_event()
-        };
-        let batch = valid_batch(vec![dup_a, dup_b, valid_event()]);
+        let (copy_b, copy_c) = (copy("b"), copy("c"));
+        let batch = valid_batch(vec![first, copy_b, valid_event(), copy_c]);
 
-        let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
-        assert!(matches!(err, Error::DuplicateEventUuid(_)));
+        let resp = process_batch(&state, &mut ctx, batch).await.unwrap();
 
+        assert_eq!(resp.entries().len(), 2);
         let emitted = collector.emitted();
         assert_eq!(emitted.len(), 1);
         assert_eq!(emitted[0].warning, WarningType::DuplicateEventUuid);
+        assert_eq!(emitted[0].count, 2, "only the dropped copies are charged");
+    }
+
+    #[tokio::test]
+    async fn warnings_batch_abort_emits_once_with_full_batch_count() {
+        let (state, collector) = state_with_warning_collector();
+        let mut ctx = test_utils::test_analytics_context();
+        let bad_uuid = Event {
+            uuid: "not-a-uuid".to_string(),
+            ..valid_event()
+        };
+        let batch = valid_batch(vec![valid_event(), bad_uuid, valid_event()]);
+
+        let err = process_batch(&state, &mut ctx, batch).await.unwrap_err();
+        assert!(matches!(err, Error::InvalidEventUuid(_)));
+
+        let emitted = collector.emitted();
+        assert_eq!(emitted.len(), 1);
+        assert_eq!(emitted[0].warning, WarningType::InvalidEventUuid);
         assert_eq!(
             emitted[0].count, 3,
             "a batch abort charges the whole batch length"

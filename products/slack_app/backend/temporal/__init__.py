@@ -1,7 +1,7 @@
 """Temporal activities for the PostHog Slack App.
 
 Activities living here run on ``settings.TASKS_TASK_QUEUE`` and are imported by
-``posthog_code_slack_mention.py`` and ``posthog_code_slack_mention_command.py``
+``slack_app_mention_processing.py`` and ``posthog_code_slack_mention_command.py``
 in this package at module load time.
 """
 
@@ -17,6 +17,7 @@ from products.slack_app.backend.temporal.activities import (
     classify_slack_app_model_router_activity,
     classify_slack_app_project_route_activity,
     classify_untagged_followup_activity,
+    classify_untagged_question_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_routing_rule_activity,
     create_posthog_code_task_for_repo_activity,
@@ -32,9 +33,11 @@ from products.slack_app.backend.temporal.activities import (
     post_posthog_code_picker_timeout_activity,
     post_posthog_code_repo_picker_activity,
     post_slack_unfurl_charts_activity,
+    posthog_code_thread_has_task_activity,
     prepare_slack_unfurl_charts_activity,
     process_slack_app_fork_thread_activity,
     request_untagged_followup_confirmation_activity,
+    request_untagged_question_confirmation_activity,
     resolve_posthog_code_slack_command_user_activity,
     run_posthog_slack_inbox_onboarding_activity,
 )
@@ -60,6 +63,8 @@ SLACK_APP_ACTIVITIES = [
     process_slack_app_fork_thread_activity,
     classify_untagged_followup_activity,
     request_untagged_followup_confirmation_activity,
+    classify_untagged_question_activity,
+    request_untagged_question_confirmation_activity,
     resolve_posthog_code_slack_command_user_activity,
     collect_posthog_code_thread_messages_activity,
     cascade_posthog_code_repository_activity,
@@ -76,6 +81,7 @@ SLACK_APP_ACTIVITIES = [
     post_posthog_code_internal_error_activity,
     create_posthog_code_task_for_repo_activity,
     forward_posthog_code_followup_activity,
+    posthog_code_thread_has_task_activity,
     create_posthog_code_routing_rule_activity,
     handle_posthog_code_slack_mention_command_activity,
     mark_slack_app_message_processing_activity,
@@ -112,6 +118,7 @@ __all__ = [
     "classify_posthog_code_task_needs_repo_activity",
     "classify_slack_app_model_override_activity",
     "classify_slack_app_project_route_activity",
+    "classify_untagged_question_activity",
     "classify_untagged_followup_activity",
     "collect_posthog_code_thread_messages_activity",
     "create_posthog_code_routing_rule_activity",
@@ -120,6 +127,7 @@ __all__ = [
     "discover_posthog_code_repository_via_agent_activity",
     "enforce_posthog_code_billing_quota_activity",
     "forward_posthog_code_followup_activity",
+    "posthog_code_thread_has_task_activity",
     "handle_posthog_code_slack_mention_command_activity",
     "mark_slack_app_message_processing_activity",
     "mark_slack_app_message_queued_activity",
@@ -127,6 +135,7 @@ __all__ = [
     "post_posthog_code_no_repos_activity",
     "post_posthog_code_picker_timeout_activity",
     "post_posthog_code_repo_picker_activity",
+    "request_untagged_question_confirmation_activity",
     "request_untagged_followup_confirmation_activity",
     "resolve_posthog_code_slack_command_user_activity",
     "classify_slack_app_model_router_activity",

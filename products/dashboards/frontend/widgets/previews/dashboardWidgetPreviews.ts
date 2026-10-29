@@ -6,6 +6,7 @@ import { ConversationsWidgetPreview } from './ConversationsWidgetPreview'
 import { ErrorTrackingWidgetPreview } from './ErrorTrackingWidgetPreview'
 import { ExperimentResultsWidgetPreview, ExperimentsListWidgetPreview } from './ExperimentsWidgetPreviews'
 import { LogsWidgetPreview } from './LogsWidgetPreview'
+import { MetricsTableWidgetPreview } from './MetricsTableWidgetPreview'
 import { SessionReplayWidgetPreview } from './SessionReplayWidgetPreview'
 import { SurveyResultsWidgetPreview } from './SurveysWidgetPreviews'
 
@@ -24,4 +25,5 @@ export const DASHBOARD_WIDGET_PREVIEWS: Record<DashboardWidgetCatalogKey, () => 
     experiment_results: ExperimentResultsWidgetPreview,
     survey_results: SurveyResultsWidgetPreview,
     logs_list: LogsWidgetPreview,
+    metrics_table: MetricsTableWidgetPreview,
 }

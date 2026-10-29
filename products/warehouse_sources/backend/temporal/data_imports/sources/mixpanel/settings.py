@@ -36,14 +36,27 @@ class MixpanelRegion(StrEnum):
 class RegionHosts:
     query_base: str  # query/app API base
     export_base: str  # raw export API base
+    ingestion_base: str  # ingestion API base, which also serves lookup tables
 
 
 # Mixpanel splits the heavy raw export traffic onto a separate `data*` host per
 # data-residency region.
 REGION_HOSTS: dict[str, RegionHosts] = {
-    MixpanelRegion.US: RegionHosts(query_base="https://mixpanel.com", export_base="https://data.mixpanel.com"),
-    MixpanelRegion.EU: RegionHosts(query_base="https://eu.mixpanel.com", export_base="https://data-eu.mixpanel.com"),
-    MixpanelRegion.IN: RegionHosts(query_base="https://in.mixpanel.com", export_base="https://data-in.mixpanel.com"),
+    MixpanelRegion.US: RegionHosts(
+        query_base="https://mixpanel.com",
+        export_base="https://data.mixpanel.com",
+        ingestion_base="https://api.mixpanel.com",
+    ),
+    MixpanelRegion.EU: RegionHosts(
+        query_base="https://eu.mixpanel.com",
+        export_base="https://data-eu.mixpanel.com",
+        ingestion_base="https://api-eu.mixpanel.com",
+    ),
+    MixpanelRegion.IN: RegionHosts(
+        query_base="https://in.mixpanel.com",
+        export_base="https://data-in.mixpanel.com",
+        ingestion_base="https://api-in.mixpanel.com",
+    ),
 }
 
 # First sync of the raw export endpoint only pulls this far back to avoid replaying
@@ -126,6 +139,17 @@ MIXPANEL_ENDPOINTS: dict[str, MixpanelEndpointConfig] = {
         description="Recomputes the last 90 days on every sync",
         primary_keys=["date", "interval_index"],
         partition_key="date",
+    ),
+    # App API: Lexicon data dictionary, one row per event or profile schema. Full refresh.
+    "lexicon_schemas": MixpanelEndpointConfig(
+        name="lexicon_schemas",
+        primary_keys=["entityType", "name"],
+    ),
+    # Ingestion API: lookup table ids and names. Mixpanel has no endpoint that reads the rows of a
+    # lookup table, so only the list is synced. Full refresh.
+    "lookup_tables": MixpanelEndpointConfig(
+        name="lookup_tables",
+        primary_keys=["id"],
     ),
 }
 

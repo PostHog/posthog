@@ -75,10 +75,10 @@ class RipplingSource(ResumableSource[RipplingSourceConfig, RipplingResumeConfig]
             label="Rippling",
             caption="""Enter your Rippling API token to pull your Rippling workforce data into the PostHog Data warehouse.
 
-A Rippling admin can create a scoped API token under Settings > Company Settings > API Access. Enable the read scope for each dataset you want to sync (e.g. `companies.read`, `users.read`, `workers.read`, `departments.read`, `teams.read`, `levels.read`, `work-locations.read`, `employment-types.read`, `compensations.read`). Note that tokens expire after 30 days of inactivity.""",
+A Rippling admin can create a scoped API token under Settings > Company Settings > API Access. Enable the read scope for each dataset you want to sync (e.g. `companies.read`, `users.read`, `workers.read`, `departments.read`, `teams.read`, `levels.read`, `work-locations.read`, `employment-types.read`, `compensations.read`, `time-entries.read`, `leave-requests.read`, `payroll-runs.read`, `worker-payroll-records.read`). Payroll tables need Rippling Global Payroll. Note that tokens expire after 30 days of inactivity.""",
             iconPath="/static/services/rippling.png",
             docsUrl="https://posthog.com/docs/cdp/sources/rippling",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

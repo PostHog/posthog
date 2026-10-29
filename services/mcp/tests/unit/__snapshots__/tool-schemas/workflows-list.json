@@ -21,6 +21,10 @@
         "id": {
             "type": "string"
         },
+        "latest_send_first": {
+            "description": "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.",
+            "type": "boolean"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -35,16 +39,24 @@
         },
         "origin_product": {
             "description": "Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.",
-            "enum": ["broadcasts", "loops"],
+            "enum": ["broadcasts", "loops", "transactional_emails"],
             "type": "string"
         },
         "search": {
-            "description": "Case-insensitive search. Matches workflow name and description first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+            "description": "Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
+            "type": "string"
+        },
+        "source_record": {
+            "description": "Filter to workflows started from this record, as '<kind>:<id>', e.g. `early_access:<id>`.",
             "type": "string"
         },
         "status": {
             "description": "* `draft` - Draft\n* `active` - Active\n* `archived` - Archived",
             "enum": ["active", "archived", "draft"],
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON-encoded list of tag names, e.g. [\"growth\", \"onboarding\"]. Returns workflows that carry at least one of these tags.",
             "type": "string"
         },
         "trigger": {

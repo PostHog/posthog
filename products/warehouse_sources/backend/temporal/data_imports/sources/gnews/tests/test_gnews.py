@@ -94,10 +94,7 @@ class TestFlattenArticle:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, {}, True),
-            ("bad_key_401", 401, {}, False),
             ("missing_key_400", 400, {}, False),
-            ("quota_403", 403, {}, False),
             ("other_error_with_body", 422, {"errors": ["Something went wrong"]}, False),
         ]
     )

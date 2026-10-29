@@ -1,6 +1,7 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AxisLinesConfig,
     ChartLegendConfig,
@@ -42,6 +43,8 @@ export interface TimeSeriesComboChartConfig {
     divergingStack?: boolean
     /** Stacked bars only round the topmost segment. */
     barCornerRadius?: number
+    /** Inner gap between bar bands as a fraction of their slot. */
+    bandPadding?: number
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
@@ -53,7 +56,7 @@ export interface TimeSeriesComboChartConfig {
     showTickMarks?: boolean
     /** Line interpolation for line/area series: `linear` (default) or `monotone` (smooth curve). */
     curve?: 'linear' | 'monotone'
-    /** Tooltip behaviour (pinning, placement). Tooltip *content* is the `tooltip` render prop. */
+    /** Tooltip behaviour and built-in content options. A `tooltip` render prop replaces the content. */
     tooltip?: TooltipConfig
     /** Built-in legend with click-to-toggle series visibility. Hidden by default. */
     legend?: ChartLegendConfig
@@ -64,7 +67,8 @@ export interface TimeSeriesComboChartConfig {
 export interface TimeSeriesComboChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: TimeSeriesComboChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
@@ -80,7 +84,7 @@ export interface TimeSeriesComboChartProps<Meta = unknown> {
 export function TimeSeriesComboChart<Meta = unknown>({
     series,
     labels,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
@@ -89,6 +93,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     children,
     onError,
 }: TimeSeriesComboChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis,
         yAxis,
@@ -99,6 +104,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barLayout,
         divergingStack,
         barCornerRadius,
+        bandPadding,
         showCrosshair,
         showGrid,
         showAxisLines,
@@ -121,7 +127,11 @@ export function TimeSeriesComboChart<Meta = unknown>({
     } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
-    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
+    const { referenceLines, valueDomain: goalLineDomain } = useGoalLines(goalLines, chartSeries)
+    const valueDomain = useMemo(
+        () => mergeValueDomains(config?.valueDomain, goalLineDomain),
+        [config?.valueDomain, goalLineDomain]
+    )
 
     const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
@@ -144,8 +154,9 @@ export function TimeSeriesComboChart<Meta = unknown>({
         barLayout,
         divergingStack,
         barCornerRadius,
+        bandPadding,
         tooltip: timeSeriesTooltipConfig,
-        valueDomain: mergeValueDomains(config?.valueDomain, valueDomain),
+        valueDomain,
         yAxes,
     }
 
@@ -164,7 +175,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
             >
                 {referenceLines.length > 0 && <ReferenceLines lines={referenceLines} />}
                 {trendSeries.length > 0 && <TrendLineOverlay trendSeries={trendSeries} />}
-                {valueLabelsConfig && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {valueLabelsConfig && <ValueLabels {...valueLabelsConfig} valueFormatter={valueLabelFormatter} />}
                 {children}
             </ComboChart>
         </ChartLegend>

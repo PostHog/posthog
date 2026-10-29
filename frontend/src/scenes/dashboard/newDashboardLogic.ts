@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
@@ -268,6 +269,15 @@ export type newDashboardLogicType = MakeLogicType<
     newDashboardLogicMeta
 >
 
+export function openHomeDashboardAIChat(dashboardId: number): void {
+    sidePanelStateLogic.actions.openSidePanel(
+        SidePanelTab.Max,
+        autoRunMaxPrompt(
+            `Help me build my product analytics dashboard (dashboard ID ${dashboardId}). Ask me what I want to track, then add relevant insights to this dashboard.`
+        )
+    )
+}
+
 export const newDashboardLogic = kea<newDashboardLogicType>([
     props({} as NewDashboardLogicProps),
     key(({ featureFlagId }) => featureFlagId ?? 'new'),
@@ -401,7 +411,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     }
                     if (show && redirectAfterCreation) {
                         breakpoint()
-                        router.actions.push(urls.dashboard(result.id))
+                        router.actions.push(withBackLink(urls.dashboard(result.id)))
                     }
                 } catch (e: any) {
                     if (!isBreakpoint(e)) {
@@ -438,21 +448,16 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     await teamLogic.asyncActions.updateCurrentTeam({ home_tab_dashboard: result.id })
                     // Loader failures finish asyncActions without throwing, so confirm the saved selection.
                     if (teamLogic.values.currentTeam?.home_tab_dashboard !== result.id) {
-                        lemonToast.error('Could not set this dashboard as Home. Please try again.')
+                        lemonToast.error("Couldn't show this dashboard in product analytics. Try again.")
                         return
                     }
                 } catch {
-                    lemonToast.error('Could not set this dashboard as Home. Please try again.')
+                    lemonToast.error("Couldn't show this dashboard in product analytics. Try again.")
                     return
                 }
             }
             if (openAI) {
-                sidePanelStateLogic.actions.openSidePanel(
-                    SidePanelTab.Max,
-                    autoRunMaxPrompt(
-                        `Help me build my product analytics Home dashboard (dashboard ID ${result.id}). Ask me what I want to track, then add relevant insights to this dashboard.`
-                    )
-                )
+                openHomeDashboardAIChat(result.id)
             }
         },
     })),
@@ -507,7 +512,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     })
 
                     if (redirectAfterCreation) {
-                        router.actions.push(urls.dashboard(result.id))
+                        router.actions.push(withBackLink(urls.dashboard(result.id)))
                     }
                 } catch (e: any) {
                     if (!isBreakpoint(e)) {

@@ -80,6 +80,14 @@ class DbtRunFanoutConfig:
 
 
 @frozen
+class DbtProjectFanoutConfig:
+    """A list resource scoped to a project, walked once per project in the account."""
+
+    # Path template under {base_url}/api, with {account_id} and {project_id} placeholders.
+    path: str
+
+
+@frozen
 class DbtDiscoveryConfig:
     """An endpoint served by the Discovery API (GraphQL) instead of the Admin API."""
 
@@ -95,8 +103,8 @@ class DbtDiscoveryConfig:
 class DbtEndpointConfig:
     name: str
     # Path template under {base_url}/api, with an {account_id} placeholder. The API version is part
-    # of the path because coverage is split: jobs/runs live on v2, the rest on v3. None for
-    # endpoints that are not a top-level Admin API list (run fan-outs and Discovery API tables).
+    # of the path because coverage is split: jobs/runs/licenses live on v2, the rest on v3. None
+    # for endpoints that are not a top-level Admin API list (fan-outs and Discovery API tables).
     path: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
@@ -112,6 +120,11 @@ class DbtEndpointConfig:
     incremental_lookback: Optional[timedelta] = None
     # Set when rows come from a child resource fetched once per run instead of a list endpoint.
     run_fanout: Optional[DbtRunFanoutConfig] = None
+    # Set when rows come from a list resource fetched once per project instead of an account list.
+    project_fanout: Optional[DbtProjectFanoutConfig] = None
+    # Set when the response holds one object keyed by a type name rather than one row per item;
+    # names the column each key lands in, and the key's object becomes that row.
+    keyed_row_field: Optional[str] = None
     # Set when rows come from the Discovery API instead of the Admin API.
     discovery: Optional[DbtDiscoveryConfig] = None
     description: Optional[str] = None
@@ -208,6 +221,32 @@ DBT_ENDPOINTS: dict[str, DbtEndpointConfig] = {
         # a walk early, so this table is full refresh only.
         should_sync_default=False,
         description="Account audit events: who changed jobs, environments and permissions, and when. Requires an Enterprise plan",
+    ),
+    "repositories": DbtEndpointConfig(
+        name="repositories",
+        # The account-level v2 list is deprecated; v3 only lists repositories per project.
+        project_fanout=DbtProjectFanoutConfig(path="/v3/accounts/{account_id}/projects/{project_id}/repositories/"),
+        description="The git repository behind each project, with its provider and clone strategy. Costs one extra request per project",
+    ),
+    "connections": DbtEndpointConfig(
+        name="connections",
+        path="/v3/accounts/{account_id}/connections/",
+        description="Data platform connections in the account, with the adapter each one uses",
+    ),
+    "groups": DbtEndpointConfig(
+        name="groups",
+        path="/v3/accounts/{account_id}/groups/",
+        # Like users, listing groups needs account-level permissions many read-only tokens lack.
+        should_sync_default=False,
+        description="Permission groups in the account, with their member count, SSO mappings and the permission sets they grant",
+    ),
+    "license_allocations": DbtEndpointConfig(
+        name="license_allocations",
+        path="/v2/accounts/{account_id}/licenses/",
+        keyed_row_field="license_type",
+        primary_keys=["license_type"],
+        should_sync_default=False,
+        description="Seat totals and usage for each license type in the account. Requires a token that can read the account's licenses",
     ),
     "models": DbtEndpointConfig(
         name="models",

@@ -113,7 +113,7 @@ class BigeyeSource(ResumableSource[BigeyeSourceConfig, BigeyeResumeConfig]):
             name=ExternalDataSourceType.BIGEYE,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Bigeye",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter a Bigeye API key to pull your data observability metadata into the PostHog Data warehouse.
 
 Generate a Personal or Agent API key from **Advanced Settings** in your Bigeye workspace. The key inherits your Bigeye role's access (view, edit, or manage).""",

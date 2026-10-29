@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test import override_settings
 
 from posthoganalytics import Posthog
 
@@ -39,7 +40,6 @@ class _StubReporter:
         self.done: list[tuple[str, str]] = []
         self.started: list[tuple[str, int]] = []
         self.summaries: list[tuple[str, Any, int]] = []
-        self.posthog_urls: list[tuple[str, str]] = []
 
     async def case_started(self, experiment: str, name: str, trial_id: str, trial_index: int) -> dict[str, float]:
         return {}
@@ -68,21 +68,24 @@ class _StubReporter:
     ) -> None:
         self.done.append((case_name, status))
 
-    async def experiment_started(self, experiment_name: str, planned_cases: int, log_dir: Path) -> None:
+    async def experiment_started(
+        self, experiment_name: str, planned_cases: int, log_dir: Path, *, case_names: Sequence[str] = ()
+    ) -> None:
         self.started.append((experiment_name, planned_cases))
 
     async def record_summary(
-        self, experiment_name: str, summary: Any, error_count: int, trial_stats: Sequence[ScorerTrialStats] = ()
+        self,
+        experiment_name: str,
+        summary: Any,
+        error_count: int,
+        trial_stats: Sequence[ScorerTrialStats] = (),
+        case_results: Sequence[Any] = (),
     ) -> None:
         self.summaries.append((experiment_name, summary, error_count))
-
-    async def record_posthog_evaluations_url(self, experiment_name: str, experiment_id: str) -> None:
-        self.posthog_urls.append((experiment_name, experiment_id))
 
 
 class _StubEngine:
     name: ClassVar[str] = "stub"
-    supports_public_experiments: ClassVar[bool] = False
 
     def __init__(self, result: ExperimentResult) -> None:
         self.result = result
@@ -108,7 +111,6 @@ def _build_ctx(timeout_seconds: int = 30, one_shot_slots: int = 2, case_filter: 
         case_filter=case_filter,
         demo_data=None,
         posthog_client=None,
-        posthog_evaluation_client=None,
         sandbox_slots=None,
         team_setup_slots=asyncio.Semaphore(1),
         one_shot_slots=asyncio.Semaphore(one_shot_slots),
@@ -130,8 +132,6 @@ def _build_run(
         cases=[BaseEvalCase(name=case_name, prompt="the prompt"), BaseEvalCase(name="c2", prompt="other")],
         scorers=[],
         ctx=ctx,
-        is_public=False,
-        no_send_logs=True,
         task_fn=task_fn,
     )
 
@@ -235,10 +235,7 @@ def test_case_filter_narrows_eval_cases(tmp_path: Path, monkeypatch: pytest.Monk
 
 
 @pytest.mark.parametrize("opt_out_capture", ["", "1"])
-@pytest.mark.parametrize("no_send_logs", [False, True])
-def test_run_routes_through_the_engine(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str, no_send_logs: bool
-) -> None:
+def test_run_routes_through_the_engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, opt_out_capture: str) -> None:
     async def task(case: BaseEvalCase, ctx: EvalContext) -> dict[str, Any]:
         raise AssertionError("the engine is stubbed, so the task must not run")
 
@@ -283,38 +280,24 @@ def test_run_routes_through_the_engine(
         ),
     ):
         harness = SandboxedEvalHarness(parse_args(["--agent-model", "claude-test"]))
-        with harness._stack:
+        with override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6381/5"), harness._stack:
             harness._bootstrap(frozenset(), ProgressReporter(total_suites=0))
             ctx = harness._build_context(frozenset(), reporter)  # type: ignore[arg-type]
             runs = [_build_run(tmp_path, monkeypatch, ctx, task) for _ in range(2)]
             for run in runs:
                 run.engine = engine
-                run.no_send_logs = no_send_logs
-                run.is_public = not no_send_logs
                 run.agent_trace_id_lookup["c1"] = "trace-1"
                 run.case_trace_meta["c1"] = {"prompt": "the prompt", "duration": 1.0, "first_timestamp": ""}
                 asyncio.run(run_suite(run))
             assert settings.TEST
+            assert settings.AI_GATEWAY_REDIS_URL is None
             assert ctx.posthog_client is not None
             assert ctx.posthog_client.disabled
             ctx.posthog_client.capture(event="ordinary_test_event", distinct_id="test")
 
-        assert create_client.call_count == 2
-        assert ctx.posthog_evaluation_client is not None
-        assert ctx.posthog_evaluation_client.capture(event="$ai_evaluation", distinct_id="after-shutdown") is None
+        assert create_client.call_count == 1
 
-    if no_send_logs:
-        batch_post.assert_not_called()
-        assert reporter.posthog_urls == []
-    else:
-        assert batch_post.call_count == 2
-        for run, upload_call in zip(runs, batch_post.call_args_list):
-            event = upload_call.kwargs["batch"][0]
-            assert event["event"] == "$ai_evaluation"
-            assert event["properties"]["$ai_metric_name"] == "correctness"
-            assert event["properties"]["$ai_score"] == 1.0
-            assert event["properties"]["$ai_experiment_id"] == run.experiment_id
-        assert reporter.posthog_urls == [("one-shot-test", run.experiment_id) for run in runs]
+    batch_post.assert_not_called()
 
     assert len(engine.calls) == 2
     for experiment in engine.calls:
@@ -326,7 +309,6 @@ def test_run_routes_through_the_engine(
             "git_sha": "abc123",
             "git_dirty": False,
         }
-        assert experiment.no_send_logs == no_send_logs
     assert reporter.started == [("one-shot-test", 2)] * 2
     assert reporter.summaries == [("one-shot-test", canned.summary, 0)] * 2
 

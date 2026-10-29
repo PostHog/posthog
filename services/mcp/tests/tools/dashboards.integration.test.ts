@@ -270,8 +270,6 @@ describe('Dashboards', { concurrent: false }, () => {
             'filters_hash',
             'dashboards',
             'dashboard_tiles',
-            'effective_restriction_level',
-            'effective_privilege_level',
             'user_access_level',
             'filters',
             'is_sample',
@@ -280,6 +278,7 @@ describe('Dashboards', { concurrent: false }, () => {
             'alerts',
             'timezone',
             'resolved_date_range',
+            'resolved_compare_date_range',
         ] as const
 
         async function createDashboardWithInsight(namePrefix: string): Promise<{ dashboardId: number }> {

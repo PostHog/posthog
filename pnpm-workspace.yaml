@@ -13,6 +13,7 @@ packages:
     - packages/quill/apps/*
     - packages/quill/packages/*
     - frontend
+    - hog
     - playwright
     - nodejs
     - nodejs/src/scripts
@@ -20,6 +21,9 @@ packages:
     # products/desktop is a nested standalone workspace (own lockfile, catalog,
     # overrides, Node version); the root install must not absorb it.
     - '!products/desktop'
+    # products/mobile is the standalone Expo app: its own lockfile and React 19,
+    # so the root install must not absorb it either.
+    - '!products/mobile'
     - docs/onboarding
     - services/agent-proxy
     - services/credentials-service
@@ -30,9 +34,21 @@ packages:
     - '!tools/hedgebox-dummy'
     - rust/common/hogvm/node
     - rust/replay-anonymizer-node
+    - rust/ai-research/replay-core-v4-node
 
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
+# Maintenance releases published without the provenance of an earlier release.
+trustPolicyExclude:
+    - semver@5.7.2 || 6.3.1
+    - undici-types@6.21.0
+# `pnpm run` must not start an install, because Docker builds install a filtered subset.
+verifyDepsBeforeRun: false
+# Installs without a terminal (flox activation, agent hooks, CI) abort when pnpm asks before
+# it rebuilds node_modules after a store or layout change, so rebuild without asking.
+confirmModulesPurge: false
+# A cold install fetches every package, so retry past brief registry errors.
+fetchRetries: 3
 
 # Fix React versions across the monorepo.
 overrides:
@@ -103,6 +119,11 @@ overrides:
     '@tiptap/extension-underline': 3.20.6
 
 patchedDependencies:
+    # The drag library changes a body-wide selection style, which stalls dense dashboards.
+    # Remove this patch after an upstream release avoids that style change, or after the grid
+    # passes enableUserSelectHack=false to both drag and resize.
+    # Track https://github.com/react-grid-layout/react-draggable/issues/709.
+    react-draggable@4.5.0: patches/react-draggable@4.5.0.patch
     # Browser process shims must not select v86's Node-only scheduler.
     v86@0.5.458: patches/v86@0.5.458.patch
     jest-junit@16.0.0: patches/jest-junit@16.0.0.patch
@@ -111,30 +132,42 @@ patchedDependencies:
     dayjs@1.11.11: patches/dayjs@1.11.11.patch
     html-to-image@1.11.13: patches/html-to-image@1.11.13.patch
     kea@4.0.0-pre.6: patches/kea@4.0.0-pre.6.patch
+    # A mounted tooltip root must not keep its closed popup's detached DOM alive.
+    '@base-ui/react@1.9.0': patches/@base-ui__react@1.9.0.patch
+    # A fixed visually hidden element must sit outside the viewport, or Chrome gives each one its own GPU layer.
+    # Upstream set margin 0 to fix RTL overflow (mui/base-ui#5661), which brought them back inside.
+    '@base-ui/utils@0.5.0': patches/@base-ui__utils@0.5.0.patch
 
 # Dependencies that require preinstall scripts. Add entries with caution.
-onlyBuiltDependencies:
-    - '@modelcontextprotocol/ext-apps'
-    - '@mongodb-js/zstd'
-    - '@parcel/watcher'
-    - chartjs-plugin-stacked100
-    - '@swc/core'
-    - core-js
-    - core-js-pure
-    - cpu-features
-    - esbuild
-    - lmdb
-    - lz4
-    - msgpackr-extract
-    - msw
-    - node-gyp
-    - node-rdkafka
-    - protobufjs
-    - re2
-    - sharp
-    - ssh2
-    - unrs-resolver
-    - workerd
+allowBuilds:
+    '@modelcontextprotocol/ext-apps': true
+    '@mongodb-js/zstd': true
+    '@parcel/watcher': true
+    chartjs-plugin-stacked100: true
+    '@swc/core': true
+    core-js: true
+    core-js-pure: true
+    cpu-features: true
+    esbuild: true
+    lmdb: true
+    lz4: true
+    msgpackr-extract: true
+    msw: true
+    node-gyp: true
+    node-rdkafka: true
+    protobufjs: true
+    re2: true
+    sharp: true
+    ssh2: true
+    unrs-resolver: true
+    workerd: true
+    # These install without their build scripts.
+    '@datadog/pprof': false
+    ffmpeg-static: false
+    free-email-domains: false
+    # Optional dependency of code-inspector-plugin, used only by its AI terminal, which we do not enable.
+    node-pty: false
+    puppeteer: false
 
 catalog:
     # Kea ecosystem - state management
@@ -143,16 +176,16 @@ catalog:
     kea-forms: ^3.2.0
     kea-loaders: ^3.1.1
     kea-localstorage: ^3.1.0
-    kea-router: ^3.4.1
+    kea-router: ^3.4.2
     kea-subscriptions: ^3.0.1
     kea-test-utils: ^0.2.4
     kea-waitfor: ^0.2.1
     kea-window-values: ^3.0.1
     # PostHog packages
-    '@posthog/icons': ^0.38.0
-    '@posthog/brand': 0.12.3
+    '@posthog/icons': ^0.39.0
+    '@posthog/brand': 0.16.0
     '@posthog/react': ^1.11.3
-    posthog-js: ^1.438.8
+    posthog-js: ^1.439.0
     # Build tools
     '@parcel/packager-ts': 2.16.4
     '@parcel/transformer-typescript-types': 2.16.4
@@ -180,7 +213,7 @@ catalog:
     # React types
     '@types/react': ^18.3.27
     '@types/react-dom': ^18.3.7
-    '@base-ui/react': 1.8.0
+    '@base-ui/react': 1.9.0
     # Other shared
     husky: ^7.0.4
     lint-staged: ~15.4.3
@@ -197,6 +230,7 @@ minimumReleaseAgeExclude:
     - posthog-node
     - '@posthog/*'
     - kea@4.0.0-pre.6
+    - kea-router@3.4.2
     - kea-typegen@3.8.3
     - '@earendil-works/*'
     - typebox

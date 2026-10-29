@@ -6,7 +6,7 @@ import base64
 import logging
 import dataclasses
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Sequence
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, TypedDict, Union
 
@@ -63,6 +63,7 @@ from posthog.usage_counters import (
 )
 from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
@@ -95,6 +96,7 @@ from products.warehouse_sources.backend.facade.billing import (
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
+from products.workflows.backend.facade.contracts import TRANSACTIONAL_EMAIL_ACTION_ID
 
 logger = structlog.get_logger(__name__)
 logging.getLogger(__name__).setLevel(logging.INFO)
@@ -132,6 +134,9 @@ BILLABLE_EVENT_EXCLUDED_EVENTS = [
     # artifact of using the product rather than customer instrumentation.
     LLM_PROMPT_FETCHED_EVENT,
     *CONVERSATIONS_EVENTS,
+    # Written by self-driving anomaly scoring, not sent by the customer.
+    "$anomaly_score",
+    "$anomaly_score_shadow",
 ]
 
 
@@ -293,6 +298,8 @@ class UsageReportCounters:
 
     # AI observability
     ai_event_count_in_period: int
+    ai_ingested_event_count_in_period: int = dataclasses.field(default=0, kw_only=True)
+    ai_offline_eval_metric_count_in_period: int = dataclasses.field(default=0, kw_only=True)
 
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
@@ -324,6 +331,9 @@ class UsageReportCounters:
     node_events_count_in_period: int
     node_mcp_events_count_in_period: int
     python_mcp_events_count_in_period: int
+    rust_mcp_events_count_in_period: int
+    go_mcp_events_count_in_period: int
+    ruby_mcp_events_count_in_period: int
 
     # MCP usage overlaps billable event and per-SDK totals.
     mcp_tool_call_events_count_in_period: int
@@ -357,6 +367,8 @@ class UsageReportCounters:
     dotnet_events_count_in_period: int
     elixir_events_count_in_period: int
     unity_events_count_in_period: int
+    godot_events_count_in_period: int
+    unreal_events_count_in_period: int
     roblox_events_count_in_period: int
     rust_events_count_in_period: int
     active_hog_destinations_in_period: int
@@ -364,6 +376,8 @@ class UsageReportCounters:
 
     # Workflow metrics
     workflow_emails_sent_in_period: int
+    # Report-only: the part of workflow_emails_sent_in_period sent through the transactional email API.
+    workflow_transactional_emails_sent_in_period: int
     workflow_push_sent_in_period: int
     workflow_sms_sent_in_period: int
     workflow_billable_invocations_in_period: int
@@ -385,8 +399,8 @@ class UsageReportCounters:
     logs_retention_30d_mb_in_period: int
     logs_retention_90d_mb_in_period: int
     # Byte-days of retention floored to whole MB-days (retention_byte_days // 1_000_000): ingested bytes
-    # weighted by the full retention day count, so it scales to any retention day count. Zero for teams
-    # on the default retention; they are covered by logs_mb_in_period alone. Report-only.
+    # weighted by the days of storage that start in the period, so it scales to any retention day count.
+    # Zero for teams on the default retention; they are covered by logs_mb_in_period alone. Report-only.
     logs_retention_mb_days_in_period: int
     # Per-SDK split of logs_records_in_period, which on its own has no SDK dimension. Keyed off the
     # telemetry.sdk.name resource attribute each SDK sets on every record. See SDK_TELEMETRY_NAMES.
@@ -396,6 +410,9 @@ class UsageReportCounters:
     android_logs_records_in_period: int
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
+    # Distinct log patterns, a measure of how varied a team's logs are. Report-only: it tells real
+    # usage apart from a test ping and does not feed any billed field.
+    logs_distinct_patterns_in_period: int
 
     # Distributed Tracing (APM). apm_tracing_mb_in_period is report-only, like logs_mb_in_period.
     apm_tracing_bytes_in_period: int
@@ -1014,6 +1031,9 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-node", None, "node_events"),
         ("posthog-node-mcp", None, "node_mcp_events"),
         ("posthog-python-mcp", None, "python_mcp_events"),
+        ("posthog-rs-mcp", None, "rust_mcp_events"),
+        ("posthog-go-mcp", None, "go_mcp_events"),
+        ("posthog-ruby-mcp", None, "ruby_mcp_events"),
         ("posthog-edge", None, "edge_events"),
         ("posthog-convex", None, "convex_events"),
         ("posthog-android", None, "android_events"),
@@ -1035,6 +1055,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-aspnetcore", None, "dotnet_events"),
         ("posthog-elixir", None, "elixir_events"),
         ("posthog-unity", None, "unity_events"),
+        ("posthog-godot", None, "godot_events"),
+        ("posthog-unreal", None, "unreal_events"),
         ("posthog-roblox", None, "roblox_events"),
         ("posthog-rs", None, "rust_events"),
     )
@@ -1084,6 +1106,9 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "node_events": {},
             "node_mcp_events": {},
             "python_mcp_events": {},
+            "rust_mcp_events": {},
+            "go_mcp_events": {},
+            "ruby_mcp_events": {},
             "openclaw_events": {},
             "opencode_events": {},
             "posthog_pi_events": {},
@@ -1105,6 +1130,8 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "dotnet_events": {},
             "elixir_events": {},
             "unity_events": {},
+            "godot_events": {},
+            "unreal_events": {},
             "roblox_events": {},
             "rust_events": {},
         }
@@ -2084,6 +2111,23 @@ def get_signals_credited_refund_credits_for_org(
     return credited_refund_credits_for_org(organization_id, begin, end)
 
 
+def get_self_driving_credits_used_in_period_for_orgs(
+    organization_ids: Collection[str], begin: datetime, end: datetime
+) -> dict[str, int]:
+    """Live self-driving credits used in `[begin, end)` for each org, from one read. Orgs with no usage are absent."""
+    if not organization_ids:
+        return {}
+    rows = get_signals_billing_credits_by_team(begin, end, organization_ids=list(organization_ids))
+    if not rows:
+        return {}
+    team_orgs = dict(Team.objects.filter(id__in=[team_id for team_id, _ in rows]).values_list("id", "organization_id"))
+    totals: dict[str, int] = defaultdict(int)
+    for team_id, credits in rows:
+        if (organization_id := team_orgs.get(team_id)) is not None:
+            totals[str(organization_id)] += credits
+    return dict(totals)
+
+
 def get_self_driving_credits_used_in_period_for_org(
     organization_id: str | uuid.UUID, begin: datetime, end: datetime
 ) -> int:
@@ -2466,6 +2510,28 @@ def get_teams_with_workflow_emails_sent_in_period(
 
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_transactional_emails_sent_in_period(
+    begin: datetime,
+    end: datetime,
+) -> TeamUsageRows:
+    # Every transactional workflow bills its email under the same step id, which outlives a deleted workflow.
+    with tags_context(product=Product.WORKFLOWS, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, SUM(count) as count
+            FROM app_metrics2
+            WHERE app_source='hog_flow' AND instance_id = %(email_action_id)s AND metric_name IN ('billable_invocation') AND metric_kind IN ('email') AND timestamp >= %(begin)s AND timestamp < %(end)s
+            GROUP BY team_id
+        """,
+            {"begin": begin, "end": end, "email_action_id": TRANSACTIONAL_EMAIL_ACTION_ID},
+            workload=Workload.OFFLINE,
+            settings=CH_BILLING_SETTINGS,
+            ch_user=ClickHouseUser.BILLING,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_workflow_push_sent_in_period(
     begin: datetime,
     end: datetime,
@@ -2597,12 +2663,13 @@ def get_teams_with_logs_retention_byte_days_in_period(
     """
     Returns byte-days of log retention grouped by team: ingested bytes weighted by retention days.
 
-    The consumer emits one `retention_byte_days` metric into `app_metrics2`
-    (`retention_byte_days = bytes_ingested * retention_days`, summed per flush) only for teams on a
-    non-default retention; default-retention teams emit nothing, so their storage is billed through
-    `bytes_ingested` alone. Summed over the period it is the storage-duration of the logs kept beyond
-    the default, not of all logs, and it scales to any retention day count. Each `(team_id, count)`
-    tuple is ready for `convert_team_usage_rows_to_dict`.
+    The consumer emits `retention_byte_days` into `app_metrics2` only for teams on a non-default
+    retention; default-retention teams emit nothing, so their storage is billed through
+    `bytes_ingested` alone. Each flush writes one row per 30-day month of retention
+    (`bytes_ingested * 30`), dated at the start of that month, so future rows land in the period
+    their month starts in and each month of storage bills when it starts. Summed over the period it
+    is the storage-duration of the logs kept beyond the default, not of all logs. Each
+    `(team_id, count)` tuple is ready for `convert_team_usage_rows_to_dict`.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
@@ -2637,6 +2704,41 @@ def get_teams_with_logs_records_in_period(
             workload=Workload.OFFLINE,
             settings=CH_BILLING_SETTINGS,
             ch_user=ClickHouseUser.BILLING,
+        )
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_logs_distinct_patterns_in_period(
+    begin: datetime,
+    end: datetime,
+) -> TeamUsageRows:
+    """
+    Returns the number of distinct log patterns each team sent in the period.
+
+    Reads the `logs_pattern_buckets` rollup, never raw logs. A pattern only means the same shape
+    within one masker version, so each team counts the patterns of the latest `pattern_version` it
+    sent in the period. A period that spans a masker change counts only the newer version's
+    patterns, which undercounts that one day instead of counting each shape twice.
+
+    `uniq` keeps memory bounded for a team that emits a very large number of shapes. It is exact
+    for small counts, which is where a test ping and real usage differ.
+    """
+    with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
+        return sync_execute(
+            """
+            SELECT team_id, argMax(patterns, pattern_version) AS count
+            FROM (
+                SELECT team_id, pattern_version, uniq(pattern) AS patterns
+                FROM logs_pattern_buckets_distributed
+                WHERE time_bucket >= %(begin)s AND time_bucket < %(end)s
+                GROUP BY team_id, pattern_version
+            )
+            GROUP BY team_id
+            """,
+            {"begin": begin, "end": end},
+            workload=Workload.LOGS,
+            settings=CH_BILLING_SETTINGS,
         )
 
 
@@ -2918,6 +3020,7 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.posthog_code_credits_used_in_period > 0
         or report.task_sandbox_seconds_in_period > 0
         or report.logs_bytes_in_period > 0
+        or report.logs_retention_mb_days_in_period > 0
         or report.apm_tracing_bytes_in_period > 0
         or report.metrics_records_in_period > 0
         or report.workflow_emails_sent_in_period > 0
@@ -3033,6 +3136,9 @@ def _get_all_usage_data(
         "teams_with_node_events_count_in_period": all_metrics["node_events"],
         "teams_with_node_mcp_events_count_in_period": all_metrics["node_mcp_events"],
         "teams_with_python_mcp_events_count_in_period": all_metrics["python_mcp_events"],
+        "teams_with_rust_mcp_events_count_in_period": all_metrics["rust_mcp_events"],
+        "teams_with_go_mcp_events_count_in_period": all_metrics["go_mcp_events"],
+        "teams_with_ruby_mcp_events_count_in_period": all_metrics["ruby_mcp_events"],
         "teams_with_mcp_tool_call_events_count_in_period": all_metrics["mcp_tool_call_events"],
         "teams_with_mcp_missing_capability_events_count_in_period": all_metrics["mcp_missing_capability_events"],
         "teams_with_mcp_initialize_events_count_in_period": all_metrics["mcp_initialize_events"],
@@ -3062,6 +3168,8 @@ def _get_all_usage_data(
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
         "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_unity_events_count_in_period": all_metrics["unity_events"],
+        "teams_with_godot_events_count_in_period": all_metrics["godot_events"],
+        "teams_with_unreal_events_count_in_period": all_metrics["unreal_events"],
         "teams_with_roblox_events_count_in_period": all_metrics["roblox_events"],
         "teams_with_rust_events_count_in_period": all_metrics["rust_events"],
         "teams_with_heatmap_count_in_period": get_teams_with_heatmap_count_in_period(period_start, period_end),
@@ -3219,6 +3327,9 @@ def _get_all_usage_data(
         "teams_with_task_sandbox_seconds_in_period": task_sandbox_usage.seconds,
         "teams_with_task_sandbox_cpu_core_seconds_in_period": task_sandbox_usage.cpu_core_seconds,
         "teams_with_task_sandbox_memory_gib_seconds_in_period": task_sandbox_usage.memory_gib_seconds,
+        "teams_with_workflow_transactional_emails_sent_in_period": get_teams_with_workflow_transactional_emails_sent_in_period(
+            period_start, period_end
+        ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
         "teams_with_logs_records_in_period": logs_records_rows,
@@ -3228,6 +3339,9 @@ def _get_all_usage_data(
         "teams_with_android_logs_records_in_period": sdk_logs_by_suffix["android"],
         "teams_with_flutter_logs_records_in_period": sdk_logs_by_suffix["flutter"],
         "teams_with_ruby_logs_records_in_period": sdk_logs_by_suffix["ruby"],
+        "teams_with_logs_distinct_patterns_in_period": get_teams_with_logs_distinct_patterns_in_period(
+            period_start, period_end
+        ),
         "teams_with_apm_tracing_bytes_in_period": apm_tracing_usage["bytes"],
         "teams_with_apm_tracing_spans_in_period": apm_tracing_usage["spans"],
         "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
@@ -3254,6 +3368,7 @@ def iter_billable_teams(
     team_fields: Sequence[str],
     organization_fields: Sequence[str],
     organization_ids: Sequence[str] | None = None,
+    buffer_teams: bool = False,
 ) -> Iterator[Team]:
     # Page organizations to avoid repeating their wide columns on every team or retaining them all.
     # Keyset pagination bounds the organization query even when PgBouncer disables server-side cursors.
@@ -3274,7 +3389,9 @@ def iter_billable_teams(
             .only(*team_fields, "organization_id")
             .order_by("organization_id", "id")
         )
-        for team in teams.iterator(chunk_size=2_000):
+        # Callers that reconnect between writes must not leave a read cursor open across yields.
+        team_iterator = iter(teams) if buffer_teams else teams.iterator(chunk_size=2_000)
+        for team in team_iterator:
             if team.id in yielded_team_ids:
                 continue
             yielded_team_ids.add(team.id)
@@ -3408,6 +3525,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         node_events_count_in_period=all_data["teams_with_node_events_count_in_period"].get(team.id, 0),
         node_mcp_events_count_in_period=all_data["teams_with_node_mcp_events_count_in_period"].get(team.id, 0),
         python_mcp_events_count_in_period=all_data["teams_with_python_mcp_events_count_in_period"].get(team.id, 0),
+        rust_mcp_events_count_in_period=all_data["teams_with_rust_mcp_events_count_in_period"].get(team.id, 0),
+        go_mcp_events_count_in_period=all_data["teams_with_go_mcp_events_count_in_period"].get(team.id, 0),
+        ruby_mcp_events_count_in_period=all_data["teams_with_ruby_mcp_events_count_in_period"].get(team.id, 0),
         mcp_tool_call_events_count_in_period=all_data["teams_with_mcp_tool_call_events_count_in_period"].get(
             team.id, 0
         ),
@@ -3457,9 +3577,12 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         unity_events_count_in_period=all_data["teams_with_unity_events_count_in_period"].get(team.id, 0),
+        godot_events_count_in_period=all_data["teams_with_godot_events_count_in_period"].get(team.id, 0),
+        unreal_events_count_in_period=all_data["teams_with_unreal_events_count_in_period"].get(team.id, 0),
         roblox_events_count_in_period=all_data["teams_with_roblox_events_count_in_period"].get(team.id, 0),
         rust_events_count_in_period=all_data["teams_with_rust_events_count_in_period"].get(team.id, 0),
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+        ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(
@@ -3490,6 +3613,9 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
             team.id, 0
         ),
         workflow_emails_sent_in_period=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
+        workflow_transactional_emails_sent_in_period=all_data[
+            "teams_with_workflow_transactional_emails_sent_in_period"
+        ].get(team.id, 0),
         workflow_push_sent_in_period=all_data["teams_with_workflow_push_sent_in_period"].get(team.id, 0),
         workflow_sms_sent_in_period=all_data["teams_with_workflow_sms_sent_in_period"].get(team.id, 0),
         workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(
@@ -3517,6 +3643,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         android_logs_records_in_period=all_data["teams_with_android_logs_records_in_period"].get(team.id, 0),
         flutter_logs_records_in_period=all_data["teams_with_flutter_logs_records_in_period"].get(team.id, 0),
         ruby_logs_records_in_period=all_data["teams_with_ruby_logs_records_in_period"].get(team.id, 0),
+        logs_distinct_patterns_in_period=all_data["teams_with_logs_distinct_patterns_in_period"].get(team.id, 0),
         apm_tracing_bytes_in_period=apm_tracing_bytes_in_period,
         apm_tracing_spans_in_period=all_data["teams_with_apm_tracing_spans_in_period"].get(team.id, 0),
         apm_tracing_mb_in_period=int(apm_tracing_bytes_in_period // 1_000_000),
@@ -3559,9 +3686,63 @@ def _add_team_report_to_org_reports(
                 )
 
 
+def iter_reports_with_offline_evaluation_usage(
+    reports: Iterable[OrgReport],
+    offline_usage: dict[str, dict[int, int]],
+    period_start: datetime,
+    *,
+    organization_ids: Sequence[str] | None = None,
+) -> Iterator[OrgReport]:
+    def add_usage(report: OrgReport) -> OrgReport:
+        for team_id, quantity in offline_usage.get(report.organization_id, {}).items():
+            team_key = str(team_id)
+            if team_key not in report.teams:
+                report.teams[team_key] = UsageReportCounters(
+                    **{field.name: 0 for field in dataclasses.fields(UsageReportCounters)}
+                )
+            team_report = report.teams[team_key]
+            team_report.ai_offline_eval_metric_count_in_period = quantity
+            team_report.ai_event_count_in_period = team_report.ai_ingested_event_count_in_period + quantity
+        report.ai_offline_eval_metric_count_in_period = sum(offline_usage.get(report.organization_id, {}).values())
+        report.ai_event_count_in_period = (
+            report.ai_ingested_event_count_in_period + report.ai_offline_eval_metric_count_in_period
+        )
+        return report
+
+    seen: set[str] = set()
+    for report in reports:
+        seen.add(report.organization_id)
+        yield add_usage(report)
+    missing = offline_usage.keys() - seen
+    if organization_ids:
+        missing &= set(organization_ids)
+    user_counts = dict(
+        OrganizationMembership.objects.filter(organization_id__in=missing)
+        .values("organization_id")
+        .annotate(count=Count("id"))
+        .values_list("organization_id", "count")
+    )
+    for organization in Organization.objects.filter(id__in=missing).only("id", "name", "created_at").iterator():
+        yield add_usage(
+            OrgReport(
+                date=period_start.strftime("%Y-%m-%d"),
+                organization_id=str(organization.id),
+                organization_name=organization.name,
+                organization_created_at=organization.created_at.isoformat(),
+                organization_user_count=user_counts.get(organization.id, 0),
+                team_count=0,
+                teams={},
+                **dataclasses.asdict(
+                    UsageReportCounters(**{field.name: 0 for field in dataclasses.fields(UsageReportCounters)})
+                ),
+            )
+        )
+
+
 def _get_all_org_reports(*, period: DayRange, counter_report: UsageCounterReport | None = None) -> dict[str, OrgReport]:
     logger.info("Querying all org reports", period_start=period.start, period_end=period.end)
 
+    offline_usage = get_offline_evaluation_usage(period.start, period.start + timedelta(days=1))
     all_data = _get_all_usage_data_as_team_rows(period.start, period.end, counter_report)
 
     org_reports: dict[str, OrgReport] = {}
@@ -3576,7 +3757,10 @@ def _get_all_org_reports(*, period: DayRange, counter_report: UsageCounterReport
 
     logger.info("Generating org reports complete", teams_count=teams_count, org_reports_count=len(org_reports))
 
-    return org_reports
+    return {
+        report.organization_id: report
+        for report in iter_reports_with_offline_evaluation_usage(org_reports.values(), offline_usage, period.start)
+    }
 
 
 def _get_full_org_usage_report(org_report: OrgReport, instance_metadata: InstanceMetadata) -> FullUsageReport:
@@ -3649,12 +3833,24 @@ def iter_reports_with_usage_counter_metadata(
     report_teams: set[int] = set()
     missing: dict[str, dict[str, UsageCounterComparison]] = {}
     wanted = set(organization_ids) if organization_ids else None
+    comparison_team_owners: dict[int, str] | None = None
     for report in org_reports:
         report.usage_sources = counter_report.usage_sources
         report.counter_comparisons = {} if counter_report.counter_comparisons is not None else None
         if counter_report.counter_comparisons is not None:
             org_id = report.organization_id
-            teams = [int(team_id) for team_id in report.teams]
+            if report.ai_offline_eval_metric_count_in_period and comparison_team_owners is None:
+                comparison_team_owners = {
+                    team_id: str(owner)
+                    for team_id, owner in Team.objects.filter(
+                        is_demo=False, organization__for_internal_metrics=False
+                    ).values_list("id", "organization_id")
+                }
+            teams = [
+                int(team_id)
+                for team_id in report.teams
+                if comparison_team_owners is None or comparison_team_owners.get(int(team_id)) == org_id
+            ]
             report_orgs.add(org_id)
             report_teams.update(teams)
             reported = has_non_zero_usage(report)

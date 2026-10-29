@@ -9,6 +9,21 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Sets how long every project without its own window keeps events. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the organization's events retention window
+ */
+
+export const OrganizationEventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
+    retention_months: zod
+        .number()
+        .min(1)
+        .nullable()
+        .describe(
+            "The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window."
+        ),
+})
+
 export const columnConfigurationsCreateBodyContextKeyMax = 255
 
 export const columnConfigurationsCreateBodyNameMax = 255
@@ -191,6 +206,21 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
     order: zod.number().min(elementsPartialUpdateBodyOrderMin).max(elementsPartialUpdateBodyOrderMax).nullish(),
 })
 
+/**
+ * Sets how long this project keeps events, overriding the organization's window. Events older than the window are deleted on the next monthly cleanup and can't be restored. Organization admins only.
+ * @summary Set the events retention window for a project
+ */
+
+export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
+    retention_months: zod
+        .number()
+        .min(1)
+        .nullable()
+        .describe(
+            "The window in months. Events older than this are deleted on the next monthly cleanup and can't be restored. Null removes the window."
+        ),
+})
+
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
@@ -287,7 +317,7 @@ export const InsightsCancelCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Check the events behind an insight for the common ways they mislead: local development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose series are events. The checks apply the insight's own filters, and read the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. Nothing is stored. This route runs the query it is sent, so it needs query access as well as insight access. To check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`.
+ * Check the events behind an insight for the common ways they mislead: internal and test users, local development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose series are events. The checks apply the insight's own filters, and read the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. For a token, the internal users check matches the emails of the organization's members only with the `organization_member:read` scope, and its verified domains only with `organization:read`. It names the emails it finds only with `person:read`. Nothing is stored. This route runs the query it is sent, so it needs query access as well as insight access. To check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`.
  */
 export const InsightsDataChecksCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())

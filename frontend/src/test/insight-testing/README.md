@@ -5,7 +5,7 @@ A test wrapper for rendering insight components (or any component that depends o
 ## Quick start
 
 ```tsx
-import { renderInsight, waitForChart, buildTrendsQuery } from './index'
+import { buildTrendsQuery, chart, getChart, renderInsight } from '~/test/insight-testing'
 
 renderInsight({
   query: buildTrendsQuery({
@@ -13,8 +13,9 @@ renderInsight({
   }),
 })
 
-const chart = await waitForChart()
-expect(chart.series('$pageview').data).toEqual([45, 82, 134, 210, 95])
+const tooltip = await chart.hoverTooltip(2)
+expect(tooltip.row('Pageview')).toContain('134')
+expect(getChart().seriesCount).toBe(1)
 ```
 
 ## `renderInsight(props?)`
@@ -55,46 +56,21 @@ renderWithInsights({
 
 ## Chart API
 
-`waitForChart()` waits for a new chart to render since the last call, then returns it.
-Back-to-back calls after interactions always return fresh data.
+`getChart()` comes from `@posthog/quill-charts/testing`.
+It reads the rendered chart through its stable DOM hooks: series count, axis ticks and titles, legend, reference lines and value labels.
+`annotationBadges()` reads the PostHog annotation badges on the chart.
+See the [quill-charts testing guide](../../../../packages/quill/packages/charts/src/docs/TESTING.md).
 
-`getChart(index?)` returns the most recently rendered chart (or a specific one by index)
-without waiting.
+`chart` wraps the gestures for insight charts, which render the InsightTooltip table:
 
-### Chart
+| API                        | Description                                         |
+| -------------------------- | --------------------------------------------------- |
+| `chart.hoverTooltip(i)`    | Hover the point at index `i` and return the tooltip |
+| `chart.clickAtIndex(i)`    | Hover, then click the point at index `i`            |
+| `chart.clickTooltipRow(l)` | Click the row labelled `l` in a pinned tooltip      |
+| `chart.getTooltip()`       | The current tooltip element, or `null`              |
 
-| API                    | Description                                                                                 |
-| ---------------------- | ------------------------------------------------------------------------------------------- |
-| `series(nameOrIndex)`  | Get a series by label or index                                                              |
-| `seriesCount`          | Number of datasets                                                                          |
-| `seriesNames`          | Array of series labels                                                                      |
-| `value(series, point)` | Single data point — series by name/index, point by index or label (`value('Spike', 'Thu')`) |
-| `labels`               | X-axis label array                                                                          |
-| `label(index)`         | Single label by index                                                                       |
-| `type`                 | Chart type (`'line'`, `'bar'`, etc.)                                                        |
-| `axes`                 | Axis accessors (`axes.x`, `axes.y`, or any custom axis)                                     |
-| `config`               | Raw `ChartConfig` escape hatch                                                              |
-
-### Series
-
-| API               | Description                            |
-| ----------------- | -------------------------------------- |
-| `label`           | Series name                            |
-| `data`            | Number array                           |
-| `at(index)`       | Single data point with bounds checking |
-| `hidden`          | Whether the series is hidden           |
-| `borderColor`     | Line/border color                      |
-| `backgroundColor` | Fill color                             |
-
-### Axis
-
-| API                | Description                                 |
-| ------------------ | ------------------------------------------- |
-| `display`          | Whether the axis is visible                 |
-| `type`             | Scale type (`'linear'`, `'category'`, etc.) |
-| `stacked`          | Whether stacking is enabled                 |
-| `position`         | Axis position (`'left'`, `'bottom'`, etc.)  |
-| `tickLabel(value)` | Runs the tick formatter callback            |
+`sqlChart` does the same for SQL charts, which render the quill `DefaultTooltip`.
 
 ## Interactions
 
@@ -110,7 +86,7 @@ await display.set('Bar chart') // change chart display type
 await compare.enable() // enable compare to previous period
 ```
 
-After any interaction, call `await waitForChart()` to get the updated chart.
+After any interaction, wrap the assertions in `waitFor`.
 
 ## Test data
 

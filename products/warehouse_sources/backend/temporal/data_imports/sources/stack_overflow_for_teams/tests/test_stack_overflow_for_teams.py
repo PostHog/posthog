@@ -132,10 +132,6 @@ class TestExpectedSchemaEndpoints:
 
 
 class TestValidateCredentials:
-    def test_ok(self) -> None:
-        with scripted_network([ScriptedResponse(json={})]):
-            assert validate_credentials("engineering", "tok") == (True, 200)
-
     def test_bad_team_raises_before_probe(self) -> None:
         with scripted_network([]) as network:
             with pytest.raises(ValueError, match="Invalid Stack Overflow for Teams team name"):

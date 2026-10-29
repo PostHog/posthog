@@ -53,10 +53,14 @@ class AccountRelationshipDefinition:
     is_controlled: bool = False
 
 
+PinnedAccountPropertyKind = Literal["custom_property", "relationship", "account_field"]
+
+
 @dataclass(frozen=True)
 class PinnedAccountProperty:
-    kind: Literal["custom_property", "relationship"]
-    id: UUID
+    kind: PinnedAccountPropertyKind
+    # A definition UUID for custom properties and relationships, or a field name for account fields.
+    id: str
 
 
 class InvalidPinnedAccountProperties(ValueError):
@@ -1416,6 +1420,10 @@ class CustomerTaskAccessDenied(Exception):
     pass
 
 
+class CustomerTaskBulkUpdateConflict(Exception):
+    pass
+
+
 @stdlib_dataclass(frozen=True)
 class CustomerTaskUserView:
     id: int
@@ -1513,3 +1521,4 @@ class KeyMetric:
     daily: list[tuple[date, float]]
     this_week: float
     last_week: float
+    node: dict[str, Any]

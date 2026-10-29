@@ -368,9 +368,6 @@ class TestConversionGoalWrites(APIBaseTest):
     def test_another_teams_goals_are_not_reachable(self):
         goal = self.create_goal("Sign ups").json()["goal"]
         other_team = Team.objects.create(organization=self.organization, name="Other")
-        # Without an existing row, the 404 rolls back the row that the first request creates.
-        # Team.marketing_analytics_config then returns the rolled-back row from its process-wide cache.
-        get_or_create_team_extension(other_team, TeamMarketingAnalyticsConfig)
 
         other_url = f"/api/projects/{other_team.pk}/marketing_analytics/conversion_goals"
         update = self.client.patch(

@@ -10,11 +10,14 @@ from urllib.parse import quote, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -332,6 +335,24 @@ def _coerce_float_fields(items: list[dict[str, Any]], float_fields: frozenset[st
                 item[field_name] = float(value)
 
 
+def _split_score_values(items: list[dict[str, Any]]) -> None:
+    """Keep score `value` numeric and move text values to `stringValue`, in place.
+
+    The type is read from the value and not from dataType, so a row without dataType still loads.
+    Booleans become 1.0 or 0.0 with "True" or "False" in `stringValue`, as in the legacy scores API.
+    """
+    for item in items:
+        value = item.get("value")
+        if isinstance(value, bool):
+            item["value"] = float(value)
+            item["stringValue"] = str(value)
+        elif isinstance(value, int | float):
+            item["value"] = float(value)
+        elif isinstance(value, str):
+            item["value"] = None
+            item["stringValue"] = value
+
+
 def _list_parent_ids(
     fetch_page: Callable[[str, dict[str, Any]], dict[str, Any]],
     url: str,
@@ -408,7 +429,7 @@ def get_rows(
     # MAX_RETRY_AFTER_SECONDS) is the only retry layer.
     session = make_tracked_session(retry=Retry(total=0))
 
-    @retry(
+    @retry_with_deadline(
         retry=retry_if_exception_type((LangfuseRetryableError, requests.ReadTimeout, requests.ConnectionError)),
         stop=stop_after_attempt(MAX_RETRIES),
         wait=_retry_wait,
@@ -485,6 +506,8 @@ def get_rows(
         pages_fetched += 1
         items = data.get("data") or []
         _coerce_float_fields(items, config.float_fields)
+        if config.split_score_values:
+            _split_score_values(items)
         meta = data.get("meta") or {}
 
         if config.pagination == "page":

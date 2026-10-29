@@ -67,6 +67,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -4053,7 +4054,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 event="$pageview",
                 distinct_id=f"person_{value}",
                 timestamp="2020-01-11T12:00:00Z",
-                properties={"breakdown_value": f"{value}"},
+                properties={"breakdown_value": f"{value}", "amount": 7},
             )
 
         # line graph
@@ -4083,6 +4084,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 1
         # 10% of 30 is 3, so check we're adjusting the results back up
         assert response.results[0]["aggregated_value"] > 5 and response.results[0]["aggregated_value"] < 30
+
+        # property math is not scaled up
+        runner = self._create_query_runner(
+            "2020-01-01",
+            "2020-01-31",
+            IntervalType.MONTH,
+            [EventsNode(event="$pageview", math=PropertyMathType.MAX, math_property="amount")],
+            TrendsFilter(display=ChartDisplayType.BOLD_NUMBER),
+        )
+        runner.query.samplingFactor = 0.1
+        response = runner.calculate()
+        assert len(response.results) == 1
+        assert response.results[0]["aggregated_value"] == 7
 
     def test_trends_multiple_event_breakdowns(self):
         self._create_test_events()
@@ -8047,6 +8061,11 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(11, len(result["data"]), "Should have 11 days of data")
             self.assertEqual(result["count"], sum(result["data"]), "Count should equal sum of data points")
 
+        # A series saved without a name displays the action's name from here, also inside a group.
+        self.assertEqual(
+            {str(page_action.id): "Page Action", str(pageview_action.id): "Pageview Action"}, response.action_names
+        )
+
     @parameterized.expand(
         [
             (
@@ -8239,9 +8258,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 class TestTrendsQueryRunnerParallelExecution(ClickhouseTestMixin, APIBaseTest):
     """Runs without override_settings(IN_UNIT_TESTING=True) so the queries go through the executor."""
 
-    def _run(self, series: list[EventsNode], breakdown: Optional[BreakdownFilter] = None):
+    def _run(
+        self,
+        series: list[EventsNode],
+        breakdown: Optional[BreakdownFilter] = None,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    ) -> TrendsQueryResponse:
         return TrendsQueryRunner(
             team=self.team,
+            ch_user=ch_user,
             query=TrendsQuery(
                 dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
                 interval=IntervalType.DAY,
@@ -8250,13 +8275,20 @@ class TestTrendsQueryRunnerParallelExecution(ClickhouseTestMixin, APIBaseTest):
             ),
         ).calculate()
 
-    def test_every_series_comes_back_when_the_queries_run_through_the_executor(self):
+    @parameterized.expand([(ClickHouseUser.DEFAULT,), (ClickHouseUser.SIGNALS,)])
+    def test_every_series_comes_back_when_the_queries_run_through_the_executor(self, ch_user: ClickHouseUser) -> None:
         _create_person(distinct_ids=["p1"], team=self.team)
         for event in ("a", "b", "c"):
             _create_event(team=self.team, event=event, distinct_id="p1", timestamp="2020-01-11T12:00:00Z")
         flush_persons_and_events()
 
-        response = self._run([EventsNode(event=event) for event in ("a", "b", "c")])
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query",
+            wraps=execute_hogql_query,
+        ) as query:
+            response = self._run([EventsNode(event=event) for event in ("a", "b", "c")], ch_user=ch_user)
+        assert len(query.call_args_list) == 3
+        assert all(call.kwargs["ch_user"] == ch_user for call in query.call_args_list)
 
         self.assertEqual([result["label"] for result in response.results], ["a", "b", "c"])
         self.assertEqual([sum(result["data"]) for result in response.results], [1, 1, 1])

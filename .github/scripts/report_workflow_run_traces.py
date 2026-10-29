@@ -580,16 +580,19 @@ def _depot_workflows_since(
 ) -> tuple[list[depot_backend_runs.ListedWorkflow], bool]:
     """The workflows created since the floor, and whether the listing reached the floor at all."""
     kept: list[depot_backend_runs.ListedWorkflow] = []
-    listed = depot_backend_runs.master_workflows(
+    # The cap check needs the listing before branch runs are dropped from it.
+    listed = depot_backend_runs.listed_workflows(
         sorted(depot_backend_runs.ENDED), depot_backend_runs.MAX_LISTED, repo=repo, trigger=trigger
     )
+    reached_floor = len(listed) < depot_backend_runs.MAX_LISTED
     for workflow in listed:
         created = parse_iso_utc(workflow["created_at"])
         if created is not None and created < created_floor:
-            return kept, True
+            reached_floor = True
+            break
         kept.append(workflow)
     # The CLI caps a listing, so a window that fills it may continue past what was listed.
-    return kept, len(listed) < depot_backend_runs.MAX_LISTED
+    return depot_backend_runs.master_only(kept, trigger=trigger, repo=repo), reached_floor
 
 
 def _read_depot_run(workflow: depot_backend_runs.ListedWorkflow, since: datetime) -> WorkflowRun | None:
@@ -597,8 +600,6 @@ def _read_depot_run(workflow: depot_backend_runs.ListedWorkflow, since: datetime
         DepotShownWorkflow,
         json.loads(depot_backend_runs.depot("workflow", "show", workflow["workflow_id"], "--output", "json")),
     )
-    if not depot_backend_runs.ran_on_master(cast(depot_backend_runs.ShownWorkflow, shown)):
-        return None
     finished = parse_iso_utc(shown["workflow"]["finished_at"])
     if finished is None:
         raise ValueError("Completed Depot workflow has no finish timestamp")

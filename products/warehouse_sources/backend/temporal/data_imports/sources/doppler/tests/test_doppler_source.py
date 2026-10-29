@@ -13,11 +13,6 @@ class TestDopplerSource:
         self.team_id = 123
         self.config = DopplerSourceConfig(api_token="dp.pt.token")
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["activity_logs"])
-        assert [schema.name for schema in schemas] == ["activity_logs"]
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

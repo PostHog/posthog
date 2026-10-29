@@ -108,7 +108,7 @@ class SelectStarSource(ResumableSource[SelectStarSourceConfig, SelectStarResumeC
             name=ExternalDataSourceType.SELECTSTAR,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="Select Star",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption=(
                 "Enter your Select Star API token to pull your data catalog into the PostHog Data warehouse.\n\n"
                 "Create a token in Select Star under **Account Settings > Client API Token > Manage API Tokens "

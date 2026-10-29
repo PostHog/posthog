@@ -573,3 +573,34 @@ class TestUrlValidation:
     )
     def test_rejects_non_teams_webhook_url(self, url):
         assert uv.is_microsoft_teams_webhook_url(url) is False
+
+
+class TestOOBDomainDetection:
+    @pytest.fixture
+    def seen(self, monkeypatch):
+        events: list[tuple[str, dict]] = []
+        monkeypatch.setattr(uv.logger, "info", lambda event, **fields: events.append((event, fields)))
+        return events
+
+    def test_logs_a_listed_host_and_still_allows_it(self, monkeypatch, seen):
+        monkeypatch.setattr(uv, "is_cloud", lambda: True)
+
+        assert uv._blocked_host_name("abc.oast.live") is None
+
+        assert [event for event, _ in seen] == ["security.oob_domain_seen"]
+        assert seen[0][1]["domain"] == "oast.live"
+        assert seen[0][1]["guard"] == "url_validation"
+
+    def test_does_not_log_an_unlisted_host(self, monkeypatch, seen):
+        monkeypatch.setattr(uv, "is_cloud", lambda: True)
+
+        assert uv._blocked_host_name("notoast.me") is None
+
+        assert seen == []
+
+    def test_does_not_log_off_cloud(self, monkeypatch, seen):
+        monkeypatch.setattr(uv, "is_cloud", lambda: False)
+
+        assert uv._blocked_host_name("abc.oast.live") is None
+
+        assert seen == []

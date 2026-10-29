@@ -25,6 +25,9 @@ import { BIToolbar } from 'products/business_intelligence/frontend/components/BI
 import { BIAnalysisControls } from './BIAnalysisControls'
 import { BILocalFieldModal } from './BILocalFieldModal'
 import { BIMeasureSettingsModal } from './BIMeasureSettingsModal'
+import { biMetricParametersLogic, metricParameterDrafts } from './biMetricParametersLogic'
+import { BIMetricParametersModal } from './BIMetricParametersModal'
+import { BIMetricSnapshotContext } from './BIMetricSnapshotContext'
 
 export function BIEditor({
     tabId,
@@ -39,6 +42,8 @@ export function BIEditor({
     const { removeFieldFromShelf, setActiveDropShelf, setActivePanel, toggleFieldsPane } = useActions(
         biEditorLogic({ tabId })
     )
+    const { open: openMetricParameters } = useActions(biMetricParametersLogic({ tabId }))
+    const hasMetricParameters = metricParameterDrafts(config.querySnapshot).length > 0
     const containerRef = useRef<HTMLDivElement>(null)
     const biEditorResizerProps: ResizerLogicProps = {
         logicKey: 'bi-editor-side-pane',
@@ -48,6 +53,62 @@ export function BIEditor({
     }
     const { desiredSize } = useValues(resizerLogic(biEditorResizerProps))
     const biSidePaneWidth = Math.min(400, Math.max(180, desiredSize ?? 240))
+
+    const contextPanel = activePanel && (!config.querySnapshot || activePanel === 'display') && (
+        <aside
+            className="absolute inset-y-0 right-0 z-10 flex w-72 max-w-full flex-col border-l bg-surface-primary shadow-md @5xl/bi-editor:static @5xl/bi-editor:max-w-[25%] @5xl/bi-editor:shrink-0 @5xl/bi-editor:shadow-none"
+            aria-label={
+                activePanel === 'charts' ? 'Charts' : activePanel === 'analysis' ? 'Analysis' : 'Chart settings'
+            }
+            data-attr="bi-editor-context-panel"
+        >
+            <div className="flex items-center justify-between border-b px-2 py-1">
+                <span className="text-sm font-semibold">
+                    {activePanel === 'charts' ? 'Charts' : activePanel === 'analysis' ? 'Analysis' : 'Chart settings'}
+                </span>
+                <LemonButton
+                    icon={<IconX />}
+                    size="xsmall"
+                    type="tertiary"
+                    aria-label="Close panel"
+                    onClick={() => setActivePanel(null)}
+                    data-attr="bi-editor-close-panel"
+                />
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" ref={settingsPanelRef}>
+                {activePanel === 'charts' && (
+                    <>
+                        <BIChartTypes />
+                        <BIMarksCard />
+                    </>
+                )}
+                {activePanel === 'analysis' && <BIAnalysisControls />}
+            </div>
+        </aside>
+    )
+
+    if (config.querySnapshot) {
+        return (
+            <BindLogic logic={biEditorLogic} props={{ tabId }}>
+                <div className="@container/bi-editor flex min-h-0 flex-1 flex-col" data-attr="bi-catalog-snapshot">
+                    <BIMetricSnapshotContext config={config} />
+                    {hasMetricParameters && (
+                        <div className="p-2">
+                            <LemonButton type="secondary" onClick={openMetricParameters}>
+                                Edit parameters
+                            </LemonButton>
+                        </div>
+                    )}
+                    <BIMetricParametersModal tabId={tabId} />
+                    <BIToolbar />
+                    <div className="relative flex min-h-0 flex-1">
+                        <div className="flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+                        {contextPanel}
+                    </div>
+                </div>
+            </BindLogic>
+        )
+    }
 
     return (
         <BindLogic logic={biEditorLogic} props={{ tabId }}>
@@ -81,12 +142,12 @@ export function BIEditor({
                             data-attr="bi-editor-fields-pane"
                         >
                             <div className="flex items-center justify-between px-2 pt-1">
-                                <span className="text-sm font-semibold">Data</span>
+                                <span className="text-sm font-semibold">Fields</span>
                                 <LemonButton
                                     icon={<IconX />}
                                     size="xsmall"
                                     type="tertiary"
-                                    aria-label="Hide fields"
+                                    aria-label="Hide fields panel"
                                     onClick={toggleFieldsPane}
                                     data-attr="bi-editor-close-fields"
                                 />
@@ -156,46 +217,7 @@ export function BIEditor({
                         <BIFiltersCard />
                         <div className="flex min-h-0 flex-1 flex-col">{children}</div>
                     </div>
-                    {activePanel && (
-                        <aside
-                            className="absolute inset-y-0 right-0 z-10 flex w-72 max-w-full flex-col border-l bg-surface-primary shadow-md @5xl/bi-editor:static @5xl/bi-editor:max-w-[25%] @5xl/bi-editor:shrink-0 @5xl/bi-editor:shadow-none"
-                            aria-label={
-                                activePanel === 'charts'
-                                    ? 'Charts'
-                                    : activePanel === 'analysis'
-                                      ? 'Analysis'
-                                      : 'Chart settings'
-                            }
-                            data-attr="bi-editor-context-panel"
-                        >
-                            <div className="flex items-center justify-between border-b px-2 py-1">
-                                <span className="text-sm font-semibold">
-                                    {activePanel === 'charts'
-                                        ? 'Charts'
-                                        : activePanel === 'analysis'
-                                          ? 'Analysis'
-                                          : 'Chart settings'}
-                                </span>
-                                <LemonButton
-                                    icon={<IconX />}
-                                    size="xsmall"
-                                    type="tertiary"
-                                    aria-label="Close panel"
-                                    onClick={() => setActivePanel(null)}
-                                    data-attr="bi-editor-close-panel"
-                                />
-                            </div>
-                            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" ref={settingsPanelRef}>
-                                {activePanel === 'charts' && (
-                                    <>
-                                        <BIChartTypes />
-                                        <BIMarksCard />
-                                    </>
-                                )}
-                                {activePanel === 'analysis' && <BIAnalysisControls />}
-                            </div>
-                        </aside>
-                    )}
+                    {contextPanel}
                 </div>
             </div>
         </BindLogic>

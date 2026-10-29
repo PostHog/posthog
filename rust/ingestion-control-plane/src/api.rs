@@ -6,19 +6,22 @@ use anyhow::Context;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{delete, get, post};
 use axum::{Json, Router};
+use personhog_coordination::types::{ChangelogConfig, MigrationRequest, MigrationState};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
 use k8s_awareness::DiscoveredPod;
 
+use crate::changelog::{self, RestoreError};
 use crate::etcd;
 use crate::jobs::{AnalysisRequest, JobView};
 use crate::kafka::browse::{self, BrowseParams, BrowseStop, MessageFilter, MessageRecord};
 use crate::kafka::client;
 use crate::kafka::lag::{self, ConsumerTarget, GroupLag, LagOverview};
+use crate::parity;
 use crate::personhog;
 use crate::proxy;
 use crate::state::AppState;
@@ -430,6 +433,191 @@ async fn personhog_topology(
     Ok(Json(view))
 }
 
+async fn personhog_changelog(
+    State(state): State<AppState>,
+) -> Result<Json<changelog::ChangelogView>, ApiError> {
+    let client = etcd_client(&state).await?;
+    let view = changelog::view(&state.config, &client, &state.config.personhog_etcd_prefix)
+        .await
+        .map_err(|e| ApiError::upstream(format!("changelog view failed: {e:#}")))?;
+    Ok(Json(view))
+}
+
+#[derive(Deserialize)]
+struct SeedChangelogRequest {
+    topic: String,
+    /// The writer's consumer group, as its `KAFKA_CONSUMER_GROUP` names it.
+    writer_group: String,
+}
+
+async fn personhog_seed_changelog(
+    State(state): State<AppState>,
+    Json(request): Json<SeedChangelogRequest>,
+) -> Result<Json<ChangelogConfig>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let topic = request.topic.trim();
+    if topic.is_empty() {
+        return Err(ApiError::bad_request("topic must not be empty"));
+    }
+    let writer_group = request.writer_group.trim();
+    if writer_group.is_empty() {
+        return Err(ApiError::bad_request("writer_group must not be empty"));
+    }
+    let client = etcd_client(&state).await?;
+    let seeded = changelog::seed(&state.config, &client, &prefix, topic, writer_group)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("seed failed: {e:#}")))?;
+    Ok(Json(seeded))
+}
+
+fn backup_store(state: &AppState) -> Result<Arc<dyn crate::backup::BackupStore>, ApiError> {
+    state.backups.clone().ok_or_else(|| {
+        ApiError::unavailable("changelog backups are disabled (CHANGELOG_BACKUP_BUCKET not set)")
+    })
+}
+
+async fn personhog_changelog_backups(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<crate::backup::BackupVersion>>, ApiError> {
+    let backups = backup_store(&state)?;
+    let versions = changelog::backups(backups.as_ref(), &state.config.personhog_etcd_prefix)
+        .await
+        .map_err(|e| ApiError::upstream(format!("listing backups failed: {e:#}")))?;
+    Ok(Json(versions))
+}
+
+#[derive(Deserialize)]
+struct RestoreChangelogRequest {
+    version_id: Option<String>,
+}
+
+async fn personhog_restore_changelog(
+    State(state): State<AppState>,
+    Json(request): Json<RestoreChangelogRequest>,
+) -> Result<Json<ChangelogConfig>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let backups = backup_store(&state)?;
+    let client = etcd_client(&state).await?;
+    let version_id = request
+        .version_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|v| !v.is_empty());
+    let restored = changelog::restore(
+        &state.config,
+        &client,
+        &prefix,
+        backups.as_ref(),
+        version_id,
+    )
+    .await
+    .map_err(|e| match e {
+        RestoreError::NotFound(message) => ApiError::not_found(message),
+        RestoreError::Refused(message) => {
+            ApiError::bad_request(format!("restore refused: {message}"))
+        }
+        RestoreError::Upstream(e) => ApiError::upstream(format!("restore failed: {e:#}")),
+    })?;
+    Ok(Json(restored))
+}
+
+#[derive(Deserialize)]
+struct StartMigrationRequest {
+    topic: String,
+}
+
+async fn personhog_start_migration(
+    State(state): State<AppState>,
+    Json(request): Json<StartMigrationRequest>,
+) -> Result<Json<MigrationRequest>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let topic = request.topic.trim();
+    if topic.is_empty() {
+        return Err(ApiError::bad_request("topic must not be empty"));
+    }
+    let client = etcd_client(&state).await?;
+    let migration = changelog::start_migration(&state.config, &client, &prefix, topic)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("migration refused: {e:#}")))?;
+    Ok(Json(migration))
+}
+
+#[derive(Deserialize)]
+struct RetireTopicRequest {
+    topic: String,
+}
+
+async fn personhog_retire_topic(
+    State(state): State<AppState>,
+    Json(request): Json<RetireTopicRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let client = etcd_client(&state).await?;
+    changelog::retire(&state.config, &client, &prefix, request.topic.trim())
+        .await
+        .map_err(|e| ApiError::bad_request(format!("retire refused: {e:#}")))?;
+    Ok(Json(json!({ "retired": request.topic.trim() })))
+}
+
+#[derive(Deserialize)]
+struct RetireGroupRequest {
+    group: String,
+}
+
+async fn personhog_add_retire_group(
+    State(state): State<AppState>,
+    Json(request): Json<RetireGroupRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let group = request.group.trim();
+    if group.is_empty() {
+        return Err(ApiError::bad_request("group must not be empty"));
+    }
+    let client = etcd_client(&state).await?;
+    changelog::add_retire_group(&client, &prefix, group)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("add retire group refused: {e:#}")))?;
+    Ok(Json(json!({ "group": group })))
+}
+
+async fn personhog_remove_retire_group(
+    State(state): State<AppState>,
+    Json(request): Json<RetireGroupRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let group = request.group.trim();
+    let client = etcd_client(&state).await?;
+    changelog::remove_retire_group(&client, &prefix, group)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("remove retire group refused: {e:#}")))?;
+    Ok(Json(json!({ "removed": group })))
+}
+
+#[derive(Deserialize)]
+struct StopMigrationRequest {
+    /// The request or saga the operator saw; anything else is left alone.
+    id: String,
+}
+
+async fn personhog_cancel_migration(
+    State(state): State<AppState>,
+    Json(request): Json<StopMigrationRequest>,
+) -> Result<Json<MigrationState>, ApiError> {
+    let prefix = state.config.personhog_etcd_prefix.clone();
+    validated_etcd_key(&state, &prefix)?;
+    let client = etcd_client(&state).await?;
+    let migration = changelog::cancel_migration(&client, &prefix, &request.id)
+        .await
+        .map_err(|e| ApiError::bad_request(format!("cancel refused: {e:#}")))?;
+    Ok(Json(migration))
+}
+
 #[derive(Serialize)]
 struct PodsResponse {
     pods: Vec<DiscoveredPod>,
@@ -462,6 +650,33 @@ pub fn router(state: AppState) -> Router {
             get(etcd_get_key).put(etcd_put_key).delete(etcd_delete_key),
         )
         .route("/api/personhog/topology", get(personhog_topology))
+        .route("/api/personhog/parity/mismatches", get(parity::mismatches))
+        .route("/api/personhog/changelog", get(personhog_changelog))
+        .route(
+            "/api/personhog/changelog/seed",
+            post(personhog_seed_changelog),
+        )
+        .route(
+            "/api/personhog/changelog/backups",
+            get(personhog_changelog_backups),
+        )
+        .route(
+            "/api/personhog/changelog/restore",
+            post(personhog_restore_changelog),
+        )
+        .route("/api/personhog/migrations", post(personhog_start_migration))
+        .route(
+            "/api/personhog/migrations/current",
+            delete(personhog_cancel_migration),
+        )
+        .route(
+            "/api/personhog/changelog/retire",
+            post(personhog_retire_topic),
+        )
+        .route(
+            "/api/personhog/changelog/retire-groups",
+            post(personhog_add_retire_group).delete(personhog_remove_retire_group),
+        )
         // The consumer debug UI is served per pod; its relative `debug/...`
         // fetches resolve to the proxy route below. Pods are addressed by
         // namespace + name so identical names across lanes cannot collide.

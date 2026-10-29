@@ -3,6 +3,7 @@ import React, { useEffect, useMemo } from 'react'
 import { useChartHover } from '../../core/chart-context'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { useLatest } from '../../core/hooks/useLatest'
+import { useResolvedChartTheme } from '../../core/theme'
 import type { BarChartConfig, ChartTheme, LineChartConfig, Series, TooltipContext, ValueDomain } from '../../core/types'
 import { BarChart } from '../BarChart/BarChart'
 import { LineChart } from '../LineChart/LineChart'
@@ -17,7 +18,8 @@ export interface SparklineProps {
     /** Optional x-axis labels — when omitted, indices stand in. Consumers can look up
      *  the hovered index against their own labels. */
     labels?: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     color?: string
     /** `line` (default) draws a gradient-filled trend line; `bar` draws stacked bars. */
     type?: 'line' | 'bar'
@@ -56,10 +58,9 @@ const LINE_MARGINS = { top: 6, right: 0, bottom: 6, left: 0 }
 const BAR_MARGINS = { top: 2, right: 0, bottom: 0, left: 0 }
 
 export function Sparkline(props: SparklineProps): React.ReactElement {
-    const { onError, ...rest } = props
     return (
-        <ChartErrorBoundary onError={onError}>
-            <SparklineInner {...rest} />
+        <ChartErrorBoundary onError={props.onError}>
+            <SparklineInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -68,7 +69,7 @@ function SparklineInner({
     data,
     series,
     labels,
-    theme,
+    theme: themeProp,
     color,
     type = 'line',
     height = 120,
@@ -80,7 +81,9 @@ function SparklineInner({
     tooltip,
     className,
     dataAttr,
-}: Omit<SparklineProps, 'onError'>): React.ReactElement {
+    onError,
+}: SparklineProps): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const resolvedColor = color ?? theme.colors[0]
     const chartSeries = useMemo<Series[]>(() => {
         if (series) {
@@ -129,11 +132,25 @@ function SparklineInner({
             data-attr={dataAttr}
         >
             {type === 'bar' ? (
-                <BarChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
+                <BarChart
+                    series={chartSeries}
+                    labels={resolvedLabels}
+                    theme={theme}
+                    config={config}
+                    tooltip={tooltip}
+                    onError={onError}
+                >
                     {watcher}
                 </BarChart>
             ) : (
-                <LineChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
+                <LineChart
+                    series={chartSeries}
+                    labels={resolvedLabels}
+                    theme={theme}
+                    config={config}
+                    tooltip={tooltip}
+                    onError={onError}
+                >
                     {watcher}
                 </LineChart>
             )}

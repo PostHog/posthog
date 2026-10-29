@@ -76,6 +76,36 @@ class AgentTaskRunDTO:
 
 
 @dataclass(frozen=True, kw_only=True)
+class AgentStartupFailure:
+    provider: Literal["claude", "codex", "pi"]
+    phase: Literal["session_setup", "sdk_initialization", "setup_hooks"]
+    reason: (
+        Literal[
+            "credential_unavailable",
+            "credential_service_unavailable",
+            "org_pin_api_key_conflict",
+            "org_verify_failed",
+            "org_pin_mismatch",
+            "managed_settings_invalid",
+            "remote_settings_required_unavailable",
+            "gateway_signin_required",
+            "gateway_access_denied",
+            "proxy_invalid",
+            "temp_dir_unusable",
+            "cwd_unavailable",
+            "shell_tool_missing",
+            "session_held_by_background",
+            "worktree_resume_refused",
+            "worktree_unverified",
+            "cli_version_too_old",
+            "bypass_root",
+        ]
+        | None
+    )
+    retryability: Literal["requires_action", "transient", "unknown"]
+
+
+@dataclass(frozen=True, kw_only=True)
 class SessionFile:
     """A text file a custom-prompt session puts in the sandbox before its first turn.
 
@@ -136,6 +166,17 @@ class TaskRunTokenUsage:
 
     cost_microusd: int | None
     complete: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class TaskRunSpend:
+    created_at: datetime
+    run_id: UUID
+    task_id: UUID
+    cost_microusd: int | None
+    complete: bool
+    is_terminal: bool
+    stage: str
 
 
 @dataclass(frozen=True)
@@ -230,6 +271,21 @@ class TaskSlackUnfurlDTO:
     title: str
     created_by_id: int | None
     latest_run_status: str | None
+
+
+@dataclass(frozen=True)
+class TaskArtifactSlackUnfurlDTO:
+    """The task run artifact metadata needed to build a Slack unfurl."""
+
+    name: str
+    content_type: str
+    size: int | None
+    uploaded_at: datetime | None
+    task_id: UUID
+    task_title: str
+    run_id: UUID
+    artifact_id: str
+    download_path: str
 
 
 @dataclass(frozen=True)
@@ -735,6 +791,27 @@ class TaskRunCreateResult:
 
 
 @dataclass(frozen=True)
+class TaskRunLogSliceDTO:
+    """Part of a run's conversation log.
+
+    ``content`` is JSONL. ``offset`` is the index in the full log of the first entry after the
+    ``preamble`` entries, ``count`` is the number of entries in the full log, and ``turns_before`` is the
+    number of user turns that start before ``offset``. ``origin`` is the id of the first run in the chain: the
+    chain keeps a limited number of runs, so indexes hold only while the origin stays the same. ``sliced`` is
+    false when the run's log cannot be read in parts, so ``content`` is the full log and the other fields carry
+    no index.
+    """
+
+    content: str
+    offset: int
+    count: int
+    preamble: int = 0
+    turns_before: int = 0
+    origin: str = ""
+    sliced: bool = True
+
+
+@dataclass(frozen=True)
 class TaskRunStreamInfoDTO:
     """The minimal run facts the SSE stream view needs without holding a model.
 
@@ -1011,38 +1088,6 @@ class WarmTaskDTO:
 
 
 @dataclass(frozen=True)
-class TaskRunPeerDTO:
-    """One peer agent run visible to a sender run (agent peer messaging discovery)."""
-
-    run_id: str
-    task_id: str
-    task_title: str
-    created_by_email: str | None
-    runtime: str
-    model: str | None
-    repository: str | None
-    stage: str | None
-    status: str
-    sendable: bool
-    updated_at: str | None
-
-
-PeerSendResultKind = Literal["accepted", "target_finished", "rejected"]
-
-
-@dataclass(frozen=True)
-class PeerMessageSendResultDTO:
-    """Synchronous result of a peer-message send. ``result`` is the public contract:
-    ``accepted`` means queued for delivery (never "delivered" — the sandbox handoff
-    happens later inside the workflow), ``target_finished`` means the target's
-    workflow is gone, ``rejected`` covers throttles and validation failures."""
-
-    result: PeerSendResultKind
-    detail: str
-    message_id: str | None = None
-
-
-@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
@@ -1094,3 +1139,26 @@ class LivingArtifactVersionPreview:
 class LivingArtifactVersionDownload:
     url: str | None
     error: Literal["not_found", "not_stored", "unavailable"] | None
+
+
+class SandboxRunStartDenial(StrEnum):
+    """Why a task sandbox cannot start a run."""
+
+    NO_ACTOR = "no_actor"
+    NESTED = "nested"
+
+
+@dataclass(frozen=True)
+class SandboxRunStarter:
+    """The task and run whose sandbox starts a run for the task's owner."""
+
+    parent_task_id: UUID
+    parent_run_id: UUID
+
+
+@dataclass(frozen=True, kw_only=True)
+class RunPlan:
+    """The user plan a run bills to in place of PostHog credits."""
+
+    plan_name: str
+    owner_user_id: int | None

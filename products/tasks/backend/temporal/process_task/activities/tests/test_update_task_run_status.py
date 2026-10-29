@@ -119,11 +119,13 @@ class TestUpdateTaskRunStatusActivity:
             run_id=str(test_task_run.id),
             status=TaskRun.Status.FAILED,
             error_message=error_msg,
+            error_type="RepositoryAccessError",
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         test_task_run.refresh_from_db()
         assert test_task_run.error_message == error_msg
+        assert test_task_run.state["failure_error_type"] == "RepositoryAccessError"
 
     @pytest.mark.django_db(transaction=True)
     def test_timed_out_inactivity_sets_state_marker_without_error_message(self, activity_environment, test_task_run):
@@ -460,6 +462,8 @@ class TestUpdateTaskRunStatusActivity:
         assert len(props["error_message"]) == 500
         assert props["error_message"].endswith("TypeError: cannot read boot manifest")
         assert props.get("sandbox_backend") == expected_backend
+        test_task_run.refresh_from_db()
+        assert test_task_run.state.get("failure_error_type") == (expected_error_type if error_type else None)
 
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")
@@ -620,6 +624,33 @@ class TestUpdateTaskRunStatusActivity:
 
         after = REGISTRY.get_sample_value("posthog_tasks_wizard_run_unbound_total", labels) or 0.0
         assert after == before + expected_delta
+
+    @pytest.mark.django_db(transaction=True)
+    def test_terminal_transition_is_counted_once_with_its_failure_reason(self, activity_environment, test_task_run):
+        from prometheus_client import REGISTRY
+
+        test_task_run.task.origin_product = Task.OriginProduct.WORKFLOW
+        test_task_run.task.save(update_fields=["origin_product"])
+        labels = {
+            "origin_product": "workflow",
+            "run_environment": test_task_run.environment,
+            "status": "failed",
+            "error_type": "unknown",
+            "termination_reason": "timed_out_inactivity",
+        }
+        before = REGISTRY.get_sample_value("posthog_tasks_task_run_terminal_total", labels) or 0.0
+
+        input_data = UpdateTaskRunStatusInput(
+            run_id=str(test_task_run.id),
+            status=TaskRun.Status.FAILED,
+            error_message="The agent stopped before finishing its turn",
+            timed_out_inactivity=True,
+        )
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+        async_to_sync(activity_environment.run)(update_task_run_status, input_data)
+
+        after = REGISTRY.get_sample_value("posthog_tasks_task_run_terminal_total", labels) or 0.0
+        assert after == before + 1
 
 
 class TestRecordRunTokenUsageMetrics:

@@ -53,4 +53,53 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "background_url": "URL of the podcast background image.",
         },
     },
+    "downloads": {
+        "description": "Daily download totals per episode for the configured podcast. Only episodes with at least one download that day have a row.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/stats.md",
+        "columns": {
+            "date": "Podcast-local calendar date (YYYY-MM-DD) the downloads are counted for.",
+            "episode_id": "Identifier of the episode that was downloaded.",
+            "total": "Number of downloads of the episode on that date.",
+        },
+    },
+    "contributors": {
+        "description": "On-show credits for the configured podcast. Contributors appear on episodes but have no Buzzsprout login.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/contributors.md",
+        "columns": {
+            "id": "Unique identifier for the contributor.",
+            "name": "Contributor name.",
+            "role": "Contributor role: Host, Co-Host, Producer, Editor or Guest.",
+            "bio": "Contributor bio as an HTML string.",
+            "url": "Contributor website URL.",
+        },
+    },
+    "fan_mail": {
+        "description": "Inbound listener messages (text or voice) for the configured podcast. Blocked messages are not included.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/fan_mail.md",
+        "columns": {
+            "id": "Unique identifier for the message.",
+            "status": "Read status: unread or read.",
+            "published": "Whether the message is published and not blocked.",
+            "blocked": "Whether the sender is blocked.",
+            "text": "Message body, or the transcript of a voice message.",
+            "sender_info": "Short sender label, for example the last four digits of a phone number.",
+            "city": "Sender city, if known.",
+            "state": "Sender state or region, if known.",
+            "country": "Sender country, if known.",
+            "created_at": "ISO 8601 timestamp the message was received.",
+            "published_at": "ISO 8601 timestamp the message was published, or null.",
+            "message_type": "Message type: TextMessage or VoiceMessage.",
+        },
+    },
+    "listings": {
+        "description": "Podcast directory listings for the configured podcast, one row per directory.",
+        "docs_url": "https://github.com/Buzzsprout/buzzsprout-api/blob/master/sections/listings.md",
+        "columns": {
+            "id": "Listing identifier, or null for a directory the podcast was never submitted to.",
+            "directory": "Directory key, for example Apple or Spotify.",
+            "name": "Directory display name.",
+            "status": "Listing status: listed, submitted, unlisted or failed.",
+            "url": "URL of the podcast in the directory, or null.",
+        },
+    },
 }

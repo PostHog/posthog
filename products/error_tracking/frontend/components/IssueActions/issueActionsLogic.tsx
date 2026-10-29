@@ -4,14 +4,9 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
-import { createCohortFormData } from 'scenes/cohorts/cohortUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
-import { BehavioralEventType, CohortType, FilterLogicalOperator, PropertyFilterType } from '~/types'
 
 import type {
     ErrorTrackingIssueAssignee,
@@ -46,15 +41,6 @@ export interface issueActionsLogicActions {
     }
     clearNeedsReload: () => {
         value: true
-    }
-    createIssueCohort: (
-        id: string,
-        name: string,
-        description: string
-    ) => {
-        description: string
-        id: string
-        name: string
     }
     finishIssueSeverityUpdate: (id: string) => {
         id: string
@@ -168,7 +154,6 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         finishIssueSeverityUpdate: (id: string) => ({ id }),
         updateIssueName: (id: string, name: string) => ({ id, name }),
         updateIssueDescription: (id: string, description: string) => ({ id, description }),
-        createIssueCohort: (id: string, name: string, description: string) => ({ id, name, description }),
 
         splitIssueSuccess: (id: ErrorTrackingIssue['id'], newIssueIds: string[]) => ({ id, newIssueIds }),
         mutationSuccess: (mutationName: string, issueId?: string) => ({ mutationName, issueId }),
@@ -277,14 +262,19 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 })
             },
             updateIssueStatus: async ({ id, status }) => {
-                await runMutation('updateIssueStatus', async () => {
-                    posthog.capture('error_tracking_issue_update_status', {
-                        status,
-                        issue_id: id,
-                        ui_source: 'issue_actions',
-                    })
-                    await api.errorTracking.updateIssue(id, { status })
-                })
+                await runMutation(
+                    'updateIssueStatus',
+                    async () => {
+                        posthog.capture('error_tracking_issue_update_status', {
+                            status,
+                            issue_id: id,
+                            ui_source: 'issue_actions',
+                        })
+                        await api.errorTracking.updateIssue(id, { status })
+                    },
+                    undefined,
+                    id
+                )
             },
             updateIssueSeverity: async ({ id, severity }) => {
                 await runMutation(
@@ -316,23 +306,6 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                     await api.errorTracking.updateIssue(id, { description })
                 })
             },
-            createIssueCohort: async ({ id, name, description }) => {
-                await runMutation(
-                    'createIssueCohort',
-                    async () => {
-                        let cohortParams = createCohortParams(name, description, id)
-                        let formData = createCohortFormData(cohortParams)
-                        let cohort = await api.cohorts.create(formData as Partial<CohortType>)
-                        posthog.capture('error_tracking_issue_create_cohort', {
-                            issueId: id,
-                            cohortId: cohort.id,
-                        })
-                        await api.errorTracking.assignCohort(id, cohort.id)
-                    },
-                    undefined,
-                    id
-                )
-            },
             mutationSuccess: ({ mutationName }) => {
                 if (mutationName === 'updateIssueAssignee' || mutationName === 'assignIssues') {
                     tryShowMCPHint('error_tracking.assign')
@@ -341,38 +314,3 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
         }
     }),
 ])
-
-function createCohortParams(name: string, description: string, issueId: string): CohortType {
-    return {
-        id: 'new',
-        name,
-        description,
-        groups: [],
-        filters: {
-            properties: {
-                type: FilterLogicalOperator.Or,
-                values: [
-                    {
-                        type: FilterLogicalOperator.Or,
-                        values: [
-                            {
-                                key: '$exception',
-                                type: BehavioralFilterKey.Behavioral,
-                                value: BehavioralEventType.PerformEvent,
-                                negation: false,
-                                event_type: TaxonomicFilterGroupType.Events,
-                                event_filters: [
-                                    {
-                                        key: `issue_id = ${escapeHogQLString(issueId)}`,
-                                        type: PropertyFilterType.HogQL,
-                                    },
-                                ],
-                                explicit_datetime: '-30d',
-                            },
-                        ],
-                    },
-                ],
-            },
-        },
-    }
-}

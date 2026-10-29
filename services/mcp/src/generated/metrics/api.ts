@@ -10,7 +10,8 @@ import * as zod from 'zod'
 
 /**
  * Observed values for one metric attribute key, most frequent first.
- * Backs the filter bar's value autocomplete.
+ * Backs the filter bar's value autocomplete. `metricName` limits choices
+ * to one metric.
  */
 export const MetricsAttributeValuesRetrieveParams = () => zod.object({
     project_id: zod
@@ -24,6 +25,9 @@ export const metricsAttributeValuesRetrieveQueryKeyMax = 255
 
 export const metricsAttributeValuesRetrieveQueryLimitDefault = 100
 export const metricsAttributeValuesRetrieveQueryLimitMax = 1000
+
+export const metricsAttributeValuesRetrieveQueryMetricNameDefault = ``
+export const metricsAttributeValuesRetrieveQueryMetricNameMax = 255
 
 export const metricsAttributeValuesRetrieveQueryValueDefault = ``
 export const metricsAttributeValuesRetrieveQueryValueMax = 1024
@@ -50,6 +54,11 @@ export const MetricsAttributeValuesRetrieveQueryParams = () => zod.object({
         .max(metricsAttributeValuesRetrieveQueryLimitMax)
         .default(metricsAttributeValuesRetrieveQueryLimitDefault)
         .describe('Max number of values to return. Defaults to 100; maximum 1000.'),
+    metricName: zod
+        .string()
+        .max(metricsAttributeValuesRetrieveQueryMetricNameMax)
+        .default(metricsAttributeValuesRetrieveQueryMetricNameDefault)
+        .describe('Exact metric name to limit values to. Omit to list values across all metrics.'),
     value: zod
         .string()
         .max(metricsAttributeValuesRetrieveQueryValueMax)
