@@ -224,6 +224,7 @@ def pinecone_source(
             partition_mode=settings.partition_mode,
             partition_format=partition_format,
             sort_mode=None,
+            supports_resume=False,
         )
 
     config: RESTAPIConfig = {
