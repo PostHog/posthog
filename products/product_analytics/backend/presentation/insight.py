@@ -121,6 +121,8 @@ from posthog.rate_limit import (
     AIObservabilitySummarizationSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    InsightExplainBurstThrottle,
+    InsightExplainDailyThrottle,
 )
 from posthog.renderers import SafeJSONRenderer
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -1706,6 +1708,12 @@ class InsightExplainChapterSerializer(serializers.Serializer):
     confidence = serializers.FloatField(help_text="How sure the model is of the cause, from 0 to 1.")
 
 
+class InsightExplainUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The decision model is not available right now. Try again in a moment."
+    default_code = "insight_explain_unavailable"
+
+
 class InsightExplainSerializer(serializers.Serializer):
     chapters = InsightExplainChapterSerializer(
         many=True,
@@ -2177,12 +2185,14 @@ class InsightViewSet(
 
     def get_throttles(self):
         """Apply LLM-specific throttles to the endpoints that call a model."""
-        if self.action in ("generate_metadata", "explain"):
+        if self.action == "generate_metadata":
             return [
                 AIObservabilitySummarizationBurstThrottle(),
                 AIObservabilitySummarizationSustainedThrottle(),
                 AIObservabilitySummarizationDailyThrottle(),
             ]
+        if self.action == "explain":
+            return [InsightExplainBurstThrottle(), InsightExplainDailyThrottle()]
         return super().get_throttles()
 
     def _validate_ai_feature_access(self) -> None:
@@ -2698,7 +2708,8 @@ When set, the specified dashboard's filters and date range override will be appl
     @validated_request(
         request_serializer=InsightExplainRequestSerializer,
         responses={
-            200: OpenApiResponse(response=InsightExplainSerializer, description="The explanation of the chart.")
+            200: OpenApiResponse(response=InsightExplainSerializer, description="The explanation of the chart."),
+            503: OpenApiResponse(description="The decision model failed or timed out."),
         },
         description=(
             "Classify what most likely caused each moment on a chart. The caller sends chapters of facts that it "
@@ -2716,9 +2727,10 @@ When set, the specified dashboard's filters and date range override will be appl
             causes = explain_chart(ExplainFacts.model_validate(request.validated_data), team_id=self.team.pk)
         except SystemOneNotConfigured:
             causes = []
-        except SystemOneRequestFailed:
-            logger.warning("insight_explain_failed", team_id=self.team.pk, exc_info=True)
-            raise APIException("Could not explain the chart. Please try again.")
+        except SystemOneRequestFailed as error:
+            # The page shows its own text without the causes, so a slow or failed model is a "not now", not an error.
+            logger.warning("insight_explain_unavailable", team_id=self.team.pk, reason=type(error).__name__)
+            raise InsightExplainUnavailable() from error
 
         chapters = [{"id": c.id, "cause": c.cause.value, "confidence": c.confidence} for c in causes]
         return Response(InsightExplainSerializer({"chapters": chapters}).data)

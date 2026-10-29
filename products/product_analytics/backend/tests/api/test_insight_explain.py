@@ -67,7 +67,7 @@ class TestInsightExplain(APIBaseTest):
                 [],
             ),
             ("no_decision_model_on_the_instance", SystemOneNotConfigured(), status.HTTP_200_OK, []),
-            ("decision_model_failed", SystemOneRequestFailed("down"), status.HTTP_500_INTERNAL_SERVER_ERROR, None),
+            ("decision_model_failed", SystemOneRequestFailed("down"), status.HTTP_503_SERVICE_UNAVAILABLE, None),
         ]
     )
     def test_explain_returns_a_cause_per_answered_chapter(self, _name, outcome, expected_status, expected_causes):

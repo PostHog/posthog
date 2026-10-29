@@ -1,8 +1,4 @@
-"""Classifies what most likely caused each moment on a chart, from facts that the insight screen has already computed.
-
-The decision model picks one cause from a fixed list for each chapter. It writes no text, so every word the person
-reads comes from the page's own templates, and a wrong number cannot come from here.
-"""
+"""Asks the decision model which cause from a fixed list fits each moment on a chart."""
 
 from django.db import models
 
@@ -115,7 +111,7 @@ def explain_chart(facts: ExplainFacts, *, team_id: int) -> list[ChapterCause]:
     for key, chapter in zip(keys, facts.chapters):
         answer = result.answers.get(key)
         if not isinstance(answer, ChoiceAnswer) or answer.choice not in CAUSE_CRITERIA:
-            logger.info("insight_explain_unanswered", team_id=team_id)
+            logger.info("insight_explain_unanswered", team_id=team_id, chapter=key, reason=type(answer).__name__)
             continue
         causes.append(ChapterCause(id=chapter.id, cause=ChartCause(answer.choice), confidence=answer.confidence))
     return causes
