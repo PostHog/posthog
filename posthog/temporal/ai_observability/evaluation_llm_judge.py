@@ -698,7 +698,6 @@ def call_llm_judge(
 
     probability: float | None = None
     decision_result = None
-    attachments = 0
     try:
         judge_method = evaluation["evaluation_config"].get("judge_method")
         # Explicit selection takes precedence for models that support both methods.
@@ -868,7 +867,7 @@ def call_llm_judge(
             )
         else:
             content = image_prompt.images.content(image_prompt.text, provider, model) if image_prompt else user_prompt
-            attachments = sum(isinstance(part, ImagePart) for part in content) if isinstance(content, list) else 0
+            sent_images = isinstance(content, list) and any(isinstance(part, ImagePart) for part in content)
             request = CompletionRequest(
                 model=model,
                 system=system_prompt,
@@ -879,7 +878,7 @@ def call_llm_judge(
             try:
                 response = client.complete(request)
             except Exception as e:
-                if not attachments or not _provider_rejected(e):
+                if not sent_images or not _provider_rejected(e):
                     raise
                 # A model without image input, or an image link the provider could not download.
                 # Grade the plain transcript rather than skip the run.
@@ -888,7 +887,6 @@ def call_llm_judge(
                     # On a PostHog key this can mean broken presigned links, so keep it visible.
                     capture_exception(e)
                 response = client.complete(replace(request, messages=[{"role": "user", "content": user_prompt}]))
-                attachments = 0
     except (DecisionEndpointBlockedError, ProviderConfigurationError) as e:
         increment_user_errors("endpoint_blocked", provider=provider)
         return terminal_user_error_result(
@@ -1190,8 +1188,6 @@ def call_llm_judge(
     if decision_result is not None:
         result_dict["input_tokens"] = decision_result.input_tokens
         result_dict["output_tokens"] = decision_result.output_tokens
-    if attachments:
-        result_dict["attachments"] = attachments
 
     if isinstance(parsed_result, CategoricalEvalResult | CategoricalWithNAEvalResult):
         result_dict["result_type"] = "categorical"
