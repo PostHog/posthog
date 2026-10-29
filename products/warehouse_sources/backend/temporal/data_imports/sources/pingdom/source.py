@@ -130,4 +130,5 @@ You can create an API token in [My Pingdom](https://my.pingdom.com/app/api-token
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            incremental_field=inputs.incremental_field,
         )

@@ -9431,10 +9431,10 @@ Today (4): `alerts`, `checks`, `maintenance`, `probes`
 
 Diffed against: <https://docs.pingdom.com/api/API_3.1.yaml>
 
-- [ ] `GET /results/{checkid}` — raw per-probe check results (status, response time, probe) - the underlying monitoring data, none of which is synced today (high)
-- [ ] `GET /summary.outage/{checkid}` — up/down state-transition history per check; the only way to compute uptime or incident duration (high)
-- [ ] `GET /summary.performance/{checkid}` — bucketed response-time series - Pingdom's headline metric (high)
-- [ ] `GET /tms/check` — transaction (synthetic scripted) checks are a separate check type entirely and are invisible in the synced checks table (high)
+- [x] `GET /results/{checkid}` — raw per-probe check results (status, response time, probe) - the underlying monitoring data, none of which is synced today (high)
+- [x] `GET /summary.outage/{checkid}` — up/down state-transition history per check; the only way to compute uptime or incident duration (high)
+- [x] `GET /summary.performance/{checkid}` — bucketed response-time series - Pingdom's headline metric (high)
+- [x] `GET /tms/check` — transaction (synthetic scripted) checks are a separate check type entirely and are invisible in the synced checks table (high)
 - [ ] `GET /summary.average/{checkid}` — average response time over a period, optionally broken down by country/probe (medium)
 - [ ] `GET /tms/check/{check_id}/report/status` — status/uptime history for transaction checks (medium)
 - [ ] `GET /tms/check/{check_id}/report/performance` — response-time history for transaction checks (medium)
