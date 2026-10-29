@@ -34,7 +34,6 @@ class TeamInline(TabularInlinePaginated):
         "path_cleaning_filters",
         "timezone",
         "data_attributes",
-        "correlation_config",
         "modifiers",
         "plugins_opt_in",
         "opt_out_capture",

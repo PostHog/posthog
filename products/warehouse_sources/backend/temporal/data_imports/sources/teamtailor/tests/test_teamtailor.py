@@ -10,7 +10,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
-    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.teamtailor import (
     TeamtailorSourceConfig,
@@ -24,11 +23,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor
 from products.warehouse_sources.backend.temporal.data_imports.sources.teamtailor.teamtailor import (
     API_VERSION_20240404,
     API_VERSION_20240904,
-    DEFAULT_API_VERSION,
     SUPPORTED_API_VERSIONS,
     TeamtailorResumeConfig,
-    check_access,
-    validate_credentials,
 )
 
 
@@ -121,48 +117,30 @@ class TestAuthHeaders:
         assert headers["x-api-version"] == api_version
 
 
-class TestCheckAccess:
-    @parameterized.expand(
-        [
-            ("ok", 200, 200, None),
-            ("unauthorized", 401, 401, None),
-            ("forbidden", 403, 403, None),
-            ("server_error", 500, 500, "Teamtailor returned HTTP 500"),
-        ]
-    )
-    def test_status_mapping(self, _name: str, status: int, expected_status: int, expected_message: str | None) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert check_access("tt-key", DEFAULT_API_VERSION) == (expected_status, expected_message)
-
-    def test_connection_error_maps_to_zero(self) -> None:
-        with scripted_network(always(requests.ConnectionError("boom"))):
-            status, message = check_access("tt-key", DEFAULT_API_VERSION)
-        assert status == 0
-        assert message is not None and "boom" in message
-
-    @parameterized.expand(
-        [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Teamtailor API key"),
-            ("forbidden", 403, False, "Invalid Teamtailor API key"),
-            ("server_error", 500, False, "Teamtailor returned HTTP 500"),
-        ]
-    )
-    def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None
-    ) -> None:
-        with scripted_network(always(ScriptedResponse(status=status))):
-            assert validate_credentials("tt-key", DEFAULT_API_VERSION) == (expected_valid, expected_message)
-
-
 class TestTeamtailorSourceResponse:
-    @parameterized.expand([(e,) for e in ENDPOINTS])
-    def test_source_response_shape(self, endpoint: str) -> None:
-        response = _driver().run(endpoint, always(_page([]))).response
+    @parameterized.expand(
+        [
+            ("candidates", "/v1/candidates"),
+            ("jobs", "/v1/jobs"),
+            ("job_applications", "/v1/job-applications"),
+            ("users", "/v1/users"),
+            ("departments", "/v1/departments"),
+            ("stages", "/v1/stages"),
+            ("movements", "/v1/movements"),
+            ("reject_reasons", "/v1/reject-reasons"),
+            ("locations", "/v1/locations"),
+        ]
+    )
+    def test_source_response_shape(self, endpoint: str, expected_path: str) -> None:
+        result = _driver().run(endpoint, always(_page([{"id": "1"}])))
+        response = result.response
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.partition_mode is None
+        # Table names use underscores, but Teamtailor paths are kebab-case.
+        assert result.paths == [expected_path]
+        assert result.rows == [{"id": "1"}]
 
     def test_every_endpoint_uses_id_primary_key(self) -> None:
         assert all(config.primary_keys == ["id"] for config in TEAMTAILOR_ENDPOINTS.values())

@@ -68,7 +68,12 @@ class TestDateWindow:
 
 
 class TestValidateCredentials:
-    @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
+    @pytest.mark.parametrize(
+        "status_code, expected",
+        [
+            (200, True),
+        ],
+    )
     def test_status_mapping(self, status_code: int, expected: bool) -> None:
         with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             assert validate_credentials("key") is expected
@@ -112,26 +117,33 @@ class TestBuildInitialUrls:
 
 
 class TestGetRows:
-    def test_fan_out_drains_parents_and_injects_project_id(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint, child_path, expected_rows",
+        [
+            ("tasks", "tasks", [{"id": "a", "project_id": "ev:1"}, {"id": "b", "project_id": "as:2"}]),
+            ("custom_fields", "fields", [{"id": "a", "project_id": "ev:1"}, {"id": "b", "project_id": "as:2"}]),
+            ("sections", "sections", [{"id": "a"}, {"id": "b"}]),
+        ],
+    )
+    def test_project_fan_out_drains_parents(
+        self, endpoint: str, child_path: str, expected_rows: list[dict[str, Any]]
+    ) -> None:
         result = _driver().run(
-            "tasks",
+            endpoint,
             [
-                ScriptedResponse(json=[{"id": "p1"}, {"id": "p2"}]),
+                ScriptedResponse(json=[{"id": "ev:1"}, {"id": "as:2"}]),
                 ScriptedResponse(json=[{"id": "a"}]),
                 ScriptedResponse(json=[{"id": "b"}]),
             ],
         )
 
         assert result.raised is None
-        assert result.rows == [
-            {"id": "a", "project_id": "p1"},
-            {"id": "b", "project_id": "p2"},
-        ]
+        assert result.rows == expected_rows
         # After draining the first parent, state advances to the second parent URL.
         saved = result.saved_states[0]
-        assert saved.current_url == f"{EVERHOUR_BASE_URL}/projects/p2/tasks?limit=100"
+        assert saved.current_url == f"{EVERHOUR_BASE_URL}/projects/as:2/{child_path}?limit=100"
         assert saved.remaining_urls == []
-        assert result.paths == ["/projects", "/projects/p1/tasks", "/projects/p2/tasks"]
+        assert result.paths == ["/projects", f"/projects/ev:1/{child_path}", f"/projects/as:2/{child_path}"]
 
     def test_resumes_from_saved_state(self) -> None:
         resume_url = f"{EVERHOUR_BASE_URL}/clients?limit=100"

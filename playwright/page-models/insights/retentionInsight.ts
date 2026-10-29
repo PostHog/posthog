@@ -21,18 +21,16 @@ export class RetentionInsight extends ChartInsightBase {
         super(page, page.getByTestId('trend-line-graph'))
 
         this.table = page.getByTestId('retention-table')
-        this.tableHeaders = this.table.locator('th')
-        this.tableRows = this.table.locator('tr')
+        this.tableHeaders = this.table.getByTestId('retention-interval-header')
+        this.tableRows = this.table.locator('[data-attr="retention-mean-row"], [data-attr="retention-cohort-row"]')
         this.conditionPanel = page.locator('[data-attr="retention-condition"]')
         this.optionsPanel = page.locator('[data-attr="retention-options"]')
         this.breakdownButton = page.getByTestId('add-breakdown-button')
         this.alertsButton = page.getByTestId('insight-alerts-dropdown-menu-item')
         this.chartFilter = page.getByTestId('chart-filter')
-        this.personsModal = page
-            .locator('.LemonModal')
-            .filter({ has: page.locator('.RetentionTable--non-interactive') })
+        this.personsModal = page.locator('.LemonModal').filter({ has: page.locator('.RetentionPeopleTable') })
         this.customBracketsCheckbox = page.locator('.LemonCheckbox', { hasText: 'Use custom return ranges' })
-        this.sectionHeaders = this.table.locator('tr.cursor-pointer')
+        this.sectionHeaders = this.table.getByTestId('retention-mean-row')
         this.taxonomicFilter = new TaxonomicFilter(page)
     }
 
@@ -101,29 +99,36 @@ export class RetentionInsight extends ChartInsightBase {
     }
 
     get detailRows(): Locator {
-        return this.table.locator('tr:not(.cursor-pointer)').filter({ hasNot: this.page.locator('th') })
+        return this.table.getByTestId('retention-cohort-row')
     }
 
     async getCohortSizes(): Promise<number[]> {
         // Detail rows are only rendered after the breakdown section auto-expands,
         // which happens asynchronously in afterMount. Wait for at least one detail
         // row with a cohort size cell before reading.
-        await this.detailRows.first().locator('.RetentionTable__TextTab').waitFor({ timeout: 10000 })
-
-        const rows = this.detailRows
-        const count = await rows.count()
-        const sizes: number[] = []
-        for (let i = 0; i < count; i++) {
-            const text = await rows.nth(i).locator('.RetentionTable__TextTab').textContent()
-            sizes.push(Number(text))
-        }
-        return sizes
+        await this.detailRows.first().locator('.RetentionHeatmap__size').waitFor({ timeout: 10000 })
+        const texts = await this.detailRows.locator('.RetentionHeatmap__size').allTextContents()
+        return texts.map(Number)
     }
 
     async getCellPercentages(rowIndex: number): Promise<string[]> {
-        const row = this.detailRows.nth(rowIndex)
-        await row.locator('.RetentionTable__Tab').first().waitFor({ timeout: 10000 })
-        return row.locator('.RetentionTable__Tab').allTextContents()
+        await this.table.getByTestId('hog-chart-heatmap-cell-label').first().waitFor({ timeout: 10000 })
+        // The cell values are chart overlays, not children of the cohort row, so match them to the
+        // row by its vertical band and read them left to right.
+        return this.detailRows.nth(rowIndex).evaluate((rowElement) => {
+            const band = rowElement.getBoundingClientRect()
+            const labels = rowElement
+                .closest('[data-attr="retention-table"]')
+                ?.querySelectorAll('[data-attr="hog-chart-heatmap-cell-label"]')
+            return Array.from(labels ?? [])
+                .map((label) => ({ rect: label.getBoundingClientRect(), text: label.textContent ?? '' }))
+                .filter(({ rect }) => {
+                    const middle = rect.top + rect.height / 2
+                    return middle > band.top && middle < band.bottom
+                })
+                .sort((a, b) => a.rect.left - b.rect.left)
+                .map(({ text }) => text)
+        })
     }
 
     async getColumnHeaderTexts(): Promise<string[]> {

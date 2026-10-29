@@ -44,7 +44,8 @@ export function InstallationProgressView({
     )
     const { claimInlinePanel, releaseInlinePanel, openHandoffDoc } = useActions(wizardSyncUiLogic)
     const { dismissLocalRun } = useActions(finishedLocalRunLogic)
-    const { reportWizardSyncHandoffShown, reportWizardSyncHandoffDocOpened } = useActions(onboardingEventUsageLogic)
+    const { reportWizardSyncHandoffShown, reportWizardSyncHandoffDocOpened, reportWizardSyncUsageLimitAgentOpened } =
+        useActions(onboardingEventUsageLogic)
 
     // While shown inline on the install step, hide the floating FAB so the same run isn't in two places.
     useEffect(() => {
@@ -92,6 +93,9 @@ export function InstallationProgressView({
             onViewReport={handleViewReport}
             onDismiss={onDismiss ?? defaultLocalDismiss}
             onRetryLocally={onRetryLocally}
+            onAgentPromptRun={
+                runKey ? (agent) => reportWizardSyncUsageLimitAgentOpened({ runKey, mode, agent }) : undefined
+            }
         />
     )
 }

@@ -29,6 +29,9 @@ ENDPOINTS = {
     "check_statuses": ChecklyEndpoint(path="/v1/check-statuses", primary_keys=("checkId",), paginated=False),
     # v3 has no check-results route, so every version reads results from /v2.
     "check_results": ChecklyEndpoint(path="/v2/check-results/{checkId}", primary_keys=("checkId", "id")),
+    "locations": ChecklyEndpoint(path="/v1/locations", primary_keys=("region",), paginated=False),
+    "private_locations": ChecklyEndpoint(path="/v1/private-locations", paginated=False),
+    "error_groups": ChecklyEndpoint(path="/v1/error-groups"),
 }
 INCREMENTAL_FIELDS = {"check_results": [incremental_field("created_at")]}
 

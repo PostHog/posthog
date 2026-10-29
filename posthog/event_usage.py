@@ -44,6 +44,7 @@ def report_user_signed_up(
     role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
     referral_source_ai_prompt: str = "",  # prompt they used when discovering PostHog via AI
+    referral_source_influencer: str = "",  # account or person that referred them via a social or creator channel
     oauth_connection: Optional[PendingOAuthConnection] = None,  # the app whose OAuth request sent them to sign up
 ) -> None:
     """
@@ -66,6 +67,7 @@ def report_user_signed_up(
         "role_at_organization": role_at_organization,
         "referral_source": referral_source,
         "referral_source_ai_prompt": referral_source_ai_prompt,
+        "referral_source_influencer": referral_source_influencer,
         "is_email_verified": user.is_email_verified,
     }
     if oauth_connection is not None:
@@ -88,6 +90,16 @@ def report_user_signed_up(
 
     if is_organization_first_user and user.organization is not None:
         exclude_internal_organization_from_crm(user.organization, user)
+
+    if oauth_connection is not None and is_organization_first_user and user.team is not None:
+        posthoganalytics.group_identify(
+            "project",
+            str(user.team.uuid),
+            properties={
+                "created_via_oauth_client": oauth_connection.client_name,
+                "created_via_oauth_client_id": oauth_connection.client_id,
+            },
+        )
 
 
 def report_user_verified_email(current_user: User) -> None:
@@ -421,12 +433,15 @@ AnalyticsProps = TypedDict(
         "$session_id": NotRequired[str | None],
         "was_impersonated": NotRequired[bool],
         "access_method": NotRequired[str | None],
+        "http_request_id": NotRequired[str],
         "user_agent": NotRequired[str | None],
         "mcp_user_agent": NotRequired[str | None],
         "mcp_client_name": NotRequired[str | None],
         "mcp_client_version": NotRequired[str | None],
         "mcp_protocol_version": NotRequired[str | None],
         "mcp_oauth_client_name": NotRequired[str | None],
+        "upload_attempt_id": NotRequired[str],
+        "upload_run_id": NotRequired[str],
     },
     total=False,
 )
@@ -519,7 +534,12 @@ def get_event_source(request) -> EventSource:
     # it authenticates with a personal API key, so there is no application to vouch for it.
     # Mis-declaring as the CLI only mislabels analytics — `cli` is already in
     # AGENT_EVENT_SOURCES, so it buys no extra write latitude.
-    if user_agent == "posthog-cli" or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli":
+    # `hog`, the TypeScript successor to posthog-cli, sends `hog/<version>`.
+    if (
+        user_agent == "posthog-cli"
+        or user_agent.startswith("hog/")
+        or request.headers.get("X-Posthog-Mcp-Consumer") == "posthog-cli"
+    ):
         return EventSource.CLI
     if "posthog/mcp-server" in user_agent or request.headers.get("X-Posthog-Client") == "mcp":
         return _resolve_mcp_surface(request)
@@ -642,7 +662,7 @@ def report_user_action(
     if not isinstance(user, User) or not user.distinct_id:
         return
     if user.email:
-        properties["$set_once"] = {"email": user.email}
+        properties["$set_once"] = {**properties.get("$set_once", {}), "email": user.email}
     with _tracer.start_as_current_span("report_user_action"):
         posthoganalytics.capture(
             distinct_id=user.distinct_id,

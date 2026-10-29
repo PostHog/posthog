@@ -8,6 +8,12 @@
 /// matches messages produced with the same key by any standard Kafka client.
 pub fn partition_for_person(team_id: i64, person_id: i64, num_partitions: u32) -> u32 {
     assert!(num_partitions > 0, "num_partitions must be > 0");
+    person_hash(team_id, person_id) % num_partitions
+}
+
+/// The non-negative hash `partition_for_person` reduces modulo the partition
+/// count, for callers that ask the same key's partition under several counts.
+pub fn person_hash(team_id: i64, person_id: i64) -> u32 {
     // i64 max string length is 20 chars. Two i64s + ':' = 41 bytes max.
     let mut buf = [0u8; 41];
     let len = {
@@ -16,10 +22,19 @@ pub fn partition_for_person(team_id: i64, person_id: i64, num_partitions: u32) -
         write!(cursor, "{team_id}:{person_id}").unwrap();
         cursor.position() as usize
     };
-    let hash = kafka_murmur2(&buf[..len]);
+    key_hash(&buf[..len])
+}
+
+/// Kafka's default partitioner for a keyed record, which Node's
+/// `murmur2Partition` and librdkafka's `murmur2_random` both reproduce.
+pub fn partition_for_key(key: &[u8], num_partitions: u32) -> u32 {
+    assert!(num_partitions > 0, "num_partitions must be > 0");
+    key_hash(key) % num_partitions
+}
+
+fn key_hash(key: &[u8]) -> u32 {
     // Kafka's toPositive: hash & 0x7fffffff
-    let positive = (hash & 0x7fffffff) as u32;
-    positive % num_partitions
+    (kafka_murmur2(key) & 0x7fffffff) as u32
 }
 
 /// Kafka-compatible murmur2 hash.
@@ -103,6 +118,17 @@ mod tests {
         assert_eq!(kafka_murmur2(b"1:42"), -1141388408);
         assert_eq!(kafka_murmur2(b"hello"), 2132663229);
         assert_eq!(kafka_murmur2(b"test-key"), -1341026247);
+    }
+
+    // The fixture `nodejs/src/common/kafka/murmur2.test.ts` pins.
+    #[test]
+    fn partition_for_key_matches_nodes_partitioner() {
+        let key = b"2:01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+        assert_eq!(kafka_murmur2(key), 989609914);
+        assert_eq!(partition_for_key(key, 64), 58);
+        // A negative hash: the mask, not the absolute value, picks the partition.
+        assert_eq!(kafka_murmur2(b"21"), -973932308);
+        assert_eq!(partition_for_key(b"21", 10), 0);
     }
 
     #[test]

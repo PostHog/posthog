@@ -3,9 +3,13 @@ import { expectLogic } from 'kea-test-utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 
 import { propertyDefinitionsList } from '~/generated/core/api'
+import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { DatabaseSchemaField } from '~/queries/schema/schema-general'
@@ -98,6 +102,103 @@ describe('queryDatabaseLogic', () => {
         ])('%s map to the stored definition type', (_name, tableName, columnPath, field, expected) => {
             expect(getSidebarPropertyDefinitionTarget(tableName, columnPath, field)).toEqual(expected)
         })
+    })
+
+    it('stores and resets rename view state in the logic', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+
+        logic.actions.openRenameView({ id: 'view-1', name: 'orders_by_day' })
+        expect(logic.values.renameView).toEqual({
+            id: 'view-1',
+            originalName: 'orders_by_day',
+            name: 'orders_by_day',
+            isSaving: false,
+        })
+
+        logic.actions.setRenameViewName('orders_by_week')
+        logic.actions.setRenameViewNameError('Invalid name')
+        logic.actions.setRenameViewSubmitError('Rename failed')
+        logic.actions.setRenameViewSaving(true)
+        expect(logic.values.renameView).toMatchObject({
+            name: 'orders_by_week',
+            nameError: 'Invalid name',
+            submitError: 'Rename failed',
+            isSaving: true,
+        })
+
+        logic.actions.closeRenameView()
+        expect(logic.values.renameView).toBeNull()
+
+        logic.unmount()
+    })
+
+    it('rejects a rename that matches a warehouse table', () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+            tables: {
+                orders: {
+                    id: 'table-1',
+                    name: 'orders',
+                    type: 'data_warehouse',
+                    fields: {},
+                },
+            },
+            joins: [],
+        } as any)
+
+        logic.actions.openRenameView({ id: 'view-1', name: 'orders_by_day' })
+        dataWarehouseViewsLogic
+            .findMounted()
+            ?.actions.loadDataWarehouseSavedQueryDownstreamReferencesSuccess('view-1', [])
+        logic.actions.setRenameViewName('orders')
+        logic.actions.submitRenameView()
+
+        expect(logic.values.renameView?.nameError).toBe(
+            'A table or view with this name already exists. Choose a different name.'
+        )
+        logic.unmount()
+    })
+
+    it('shows a structured name validation error on the rename field', async () => {
+        const nameError = 'This name is already in use.'
+        useMocks({
+            get: {
+                '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
+                '/api/projects/:team_id/data_modeling_nodes/lineage/': { nodes: [], edges: [] },
+            },
+            patch: {
+                '/api/projects/:team_id/warehouse_saved_queries/:id/': [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'invalid_input',
+                        detail: 'Invalid input.',
+                        attr: null,
+                        errors: [{ code: 'invalid', detail: nameError, attr: 'name' }],
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+
+        await expectLogic(viewsLogic, () => {
+            logic.actions.openRenameView({ id: 'view-1', name: 'orders_by_day' })
+        }).toDispatchActions(['loadDataWarehouseSavedQueryDownstreamReferencesSuccess'])
+
+        logic.actions.setRenameViewName('orders_by_week')
+        await expectLogic(logic, () => {
+            logic.actions.submitRenameView()
+        }).toFinishAllListeners()
+
+        expect(logic.values.renameView).toMatchObject({ nameError, submitError: undefined })
+        logic.unmount()
     })
 
     it('loads pre-expanded properties, paginates, and filters them', async () => {
@@ -577,6 +678,68 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
+    it('combines status search tokens with names and clears them when locating a table', async () => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const viewsLogic = dataWarehouseViewsLogic.findMounted()!
+        await expectLogic(viewsLogic).toFinishAllListeners()
+        viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
+            [
+                ['orders_daily', 'Failed'],
+                ['orders_weekly', 'Completed'],
+                ['revenue_daily', 'Failed'],
+            ].map(([name, status]) => ({
+                id: name,
+                name,
+                status,
+                is_materialized: true,
+                columns: [],
+                managed_viewset_kind: null,
+            })) as unknown as DataWarehouseSavedQuery[]
+        )
+
+        await expectLogic(logic, () => logic.actions.setSearchTerm('status:f')).toNotHaveDispatchedActions([
+            'ensureAllTableFields',
+        ])
+        logic.actions.clearSearch()
+
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        expect(logic.values.searchTerm).toEqual('status:failed')
+        expect(logic.values.searchText).toEqual('')
+        expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['Views'])
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual([
+            'orders_daily',
+            'revenue_daily',
+        ])
+
+        logic.actions.setSearchTerm('orders status:failed')
+        expect(logic.values.searchText).toEqual('orders')
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual(['orders_daily'])
+        logic.actions.toggleMaterializationStatusFilter('Completed')
+        expect(logic.values.searchTerm).toEqual('orders status:failed status:completed')
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual([
+            'orders_daily',
+            'orders_weekly',
+        ])
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        expect(logic.values.displayedTreeData[0].children!.map((item) => item.name)).toEqual(['orders_weekly'])
+        logic.actions.toggleMaterializationStatusFilter('Completed')
+        expect(logic.values.materializationStatusFilters).toEqual([])
+        expect(logic.values.searchTerm).toEqual('orders')
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        logic.actions.setSearchTerm('orders_weekly status:failed')
+        expect(logic.values.displayedTreeData).toEqual([])
+        logic.actions.clearSearch()
+        expect(logic.values.materializationStatusFilters).toEqual([])
+        expect(logic.values.displayedTreeData.find((item) => item.name === 'Views')!.children).toHaveLength(3)
+
+        logic.actions.toggleMaterializationStatusFilter('Failed')
+        logic.actions.locateTable('events')
+        expect(logic.values.materializationStatusFilters).toEqual([])
+        logic.unmount()
+    })
+
     it('lists only SQL metrics under a metrics section in browsing and search', async () => {
         initKeaTests()
         mockDataCatalogMetricsList.mockResolvedValueOnce({
@@ -981,7 +1144,27 @@ describe('queryDatabaseLogic', () => {
             )
         })
 
-        it('hides drafts, unsaved queries and metrics when showing a direct connection schema', () => {
+        it('treats status syntax as literal search text', () => {
+            databaseTableListLogic.findMounted()?.actions.loadDatabaseSuccess({
+                tables: {
+                    'public.accounts': {
+                        id: 'accounts',
+                        name: 'public.accounts',
+                        type: 'data_warehouse',
+                        fields: {},
+                    },
+                },
+                joins: [],
+            } as any)
+            logic.actions.setSearchTerm('status:failed')
+
+            expect(logic.values.searchText).toEqual('status:failed')
+            expect(logic.values.materializationStatusFilters).toEqual([])
+            expect(logic.values.displayedTreeData).toEqual([])
+        })
+
+        it.each(['source-id', MANAGED_TRINO_SCHEMA_SCOPE])('hides unrelated folders for schema scope %s', (scope) => {
+            databaseTableListLogic.findMounted()?.actions.setConnection(scope)
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EDITOR_DRAFTS], {
                 [FEATURE_FLAGS.EDITOR_DRAFTS]: true,
             })
@@ -1013,6 +1196,13 @@ describe('queryDatabaseLogic', () => {
             } as any)
 
             expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['public'])
+        })
+
+        it('shows an empty native catalog without a source configuration link', () => {
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            databaseLogic.actions.setConnection(MANAGED_TRINO_SCHEMA_SCOPE)
+            databaseLogic.actions.loadDatabaseSuccess({ tables: {}, joins: [] })
+            expect(logic.values.displayedTreeData.map((item) => item.name)).toEqual(['No queryable tables'])
         })
 
         it('hydrates a table restored as expanded in the displayed direct-connection tree', async () => {

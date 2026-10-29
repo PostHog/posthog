@@ -25,6 +25,8 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.quota import is_team_signals_quota_limited
+from products.signals.backend.spend import complete_signal_pipeline
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped_event, signal_dropped_input
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
@@ -99,23 +101,21 @@ async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) ->
     # single-reason drop metric — so the daily-limit event stream stays complete on co-bound days.
     if daily_gate.limited:
         capture_signal_report_daily_limit_paused(team, report_id=None, stage="ingestion", gate=daily_gate)
-    if quota_limited:
+    if quota_limited or daily_gate.limited:
+        reason = "quota_limited" if quota_limited else "daily_report_limit"
+        message = "Signals credits quota exceeded" if quota_limited else "Daily report limit reached"
+        for signal in input.signals:
+            if signal.signal_id:
+                await database_sync_to_async(complete_signal_pipeline)(
+                    team_id=input.team_id,
+                    signal_id=signal.signal_id,
+                    billing_exempt=system_source_exempt(signal.source_product),
+                )
         logger.info(
-            "signals_buffer.dropped_batch_quota_limited",
-            team_id=input.team_id,
-            signal_count=input.signal_count,
+            "signals_buffer.dropped_batch", team_id=input.team_id, signal_count=input.signal_count, reason=reason
         )
-        metrics.increment_dropped(stage="ingestion", reason="quota_limited", count=input.signal_count)
-        _capture_ingestion_drops(team, input.signals, "quota_limited", "Signals credits quota exceeded")
-        return True
-    if daily_gate.limited:
-        logger.info(
-            "signals_buffer.dropped_batch_daily_limit",
-            team_id=input.team_id,
-            signal_count=input.signal_count,
-        )
-        metrics.increment_dropped(stage="ingestion", reason="daily_report_limit", count=input.signal_count)
-        _capture_ingestion_drops(team, input.signals, "daily_report_limit", "Daily report limit reached")
+        metrics.increment_dropped(stage="ingestion", reason=reason, count=input.signal_count)
+        _capture_ingestion_drops(team, input.signals, reason, message)
         return True
     return False
 
@@ -279,6 +279,7 @@ class BufferSignalsWorkflow:
                         workflow.execute_activity(
                             safety_filter_activity,
                             SafetyFilterInput(
+                                signal_id=s.signal_id,
                                 team_id=s.team_id,
                                 description=s.description,
                                 source_product=s.source_product,
@@ -291,7 +292,8 @@ class BufferSignalsWorkflow:
                             retry_policy=RetryPolicy(maximum_attempts=3),
                         )
                         for s in batch
-                    ]
+                    ],
+                    return_exceptions=workflow.patched("signals-retry-failed-safety-only"),
                 )
             except ActivityError:
                 self._signal_buffer[:0] = batch
@@ -303,8 +305,13 @@ class BufferSignalsWorkflow:
                 await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
                 continue
             safe_signals: list[EmitSignalInputs] = []
+            failed_signals: list[EmitSignalInputs] = []
             for signal, result in zip(batch, safety_results):
-                if result.safe:
+                if isinstance(result, ActivityError):
+                    failed_signals.append(signal)
+                elif isinstance(result, BaseException):
+                    raise result
+                elif result.safe:
                     safe_signals.append(signal)
                 else:
                     logger.warning(
@@ -315,6 +322,9 @@ class BufferSignalsWorkflow:
                         source_type=signal.source_type,
                         source_id=signal.source_id,
                     )
+            if failed_signals:
+                self._signal_buffer[:0] = failed_signals
+                await workflow.sleep(timedelta(seconds=SAFETY_FILTER_RETRY_DELAY_SECONDS))
             batch = safe_signals
 
             if not batch:

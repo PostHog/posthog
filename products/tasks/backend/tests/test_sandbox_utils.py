@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -5,6 +7,7 @@ from django.test import override_settings
 
 import requests
 from parameterized import parameterized
+from temporalio.testing import ActivityEnvironment
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationError
@@ -17,13 +20,22 @@ from products.tasks.backend.exceptions import (
     GitHubRateLimitedError,
     ProcessTaskTransientError,
 )
+from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.utils import (
     READONLY_SANDBOX_GITHUB_PERMISSIONS,
     can_mint_readonly_github_token,
+    forget_cached_github_tokens,
     get_readonly_github_token,
     get_sandbox_api_url,
 )
+
+
+@pytest.fixture(autouse=True)
+def _isolated_tasks_cache(settings):
+    settings.TASKS_REDIS_URL = ""
+    settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
+    get_tasks_cache().clear()
 
 
 @pytest.mark.parametrize(
@@ -41,6 +53,8 @@ def test_get_sandbox_api_url(sandbox_api_url: str | None, expected: str) -> None
 
 def _team_integration(*, unavailable: bool = False, mint_raises: bool = False) -> MagicMock:
     github = MagicMock(spec=GitHubIntegration)
+    github.github_installation_id = "INSTALL"
+    github.mint_scoped_installation_token.return_value = "ghs_readonly"
     github.installation_unavailable.return_value = unavailable
     github.account_name_needs_heal.return_value = False
     github.organization.return_value = "Acme"
@@ -134,19 +148,23 @@ def test_repository_snapshot_reuse_is_refused_for_read_only_runs(
 
 @parameterized.expand(
     [
-        ("repo_less", None, False),
-        ("repo_backed", "acme/repo", True),
+        ("repo_less", None, False, True),
+        ("repo_backed", "acme/repo", True, True),
+        ("mint_unavailable", None, False, False),
     ]
 )
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
+@patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.TaskRun.update_state_atomic")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_readonly_github_token")
 def test_readonly_request_takes_priority_over_full_credential_path(
     _name: str,
     repository: str | None,
     has_repo: bool,
+    token_available: bool,
     mock_readonly: MagicMock,
     mock_full: MagicMock,
+    mock_state: MagicMock,
     _mock_log: MagicMock,
 ) -> None:
     # Task creation attaches the team's GitHub integration to every task, so a run on a
@@ -161,7 +179,7 @@ def test_readonly_request_takes_priority_over_full_credential_path(
         _resolve_sandbox_github_token,
     )
 
-    mock_readonly.return_value = "READONLY_TOKEN"
+    mock_readonly.return_value = "READONLY_TOKEN" if token_available else None
     ctx = TaskProcessingContext(
         task_id="t",
         run_id="r",
@@ -179,7 +197,8 @@ def test_readonly_request_takes_priority_over_full_credential_path(
     )
 
     mock_readonly.assert_called_once_with(ctx.team_id, repositories=ctx.repositories)
-    assert token == "READONLY_TOKEN"
+    assert token == ("READONLY_TOKEN" if token_available else "")
+    mock_state.assert_called_once_with(ctx.run_id, updates={"github_read_access_available": token_available})
     mock_full.assert_not_called()
 
 
@@ -221,30 +240,71 @@ def test_repo_less_report_run_follows_the_integration_the_create_path_attached(
     assert token == expected
 
 
+@pytest.mark.parametrize("resume", [False, True])
 @pytest.mark.parametrize(
-    "error, expected_error",
+    "error, cause, expected_error",
     [
-        (ReauthorizationRequired("relink GitHub"), CredentialUnavailableError),
-        (GitHubRateLimitError("limited", retry_after=30), GitHubRateLimitedError),
-        (requests.ConnectionError("reset"), ProcessTaskTransientError),
-        (GitHubIntegrationError("bad gateway", status_code=502), ProcessTaskTransientError),
-        (GitHubIntegrationError("not accessible", status_code=422), GitHubAuthenticationError),
+        (ReauthorizationRequired("relink GitHub"), None, CredentialUnavailableError),
+        (
+            CredentialUnavailableError("missing repository", {"repositories": ["acme/repo"]}),
+            None,
+            CredentialUnavailableError,
+        ),
+        (GitHubRateLimitError("limited", retry_after=30), None, GitHubRateLimitedError),
+        (requests.ConnectionError("reset"), None, ProcessTaskTransientError),
+        (GitHubIntegrationError("network error"), requests.ConnectionError("reset"), ProcessTaskTransientError),
+        (GitHubIntegrationError("bad gateway", status_code=502), None, ProcessTaskTransientError),
+        (
+            GitHubIntegrationError("token refresh failed"),
+            GitHubIntegrationError("service unavailable", status_code=503),
+            ProcessTaskTransientError,
+        ),
+        (
+            GitHubIntegrationError("token refresh failed"),
+            GitHubRateLimitError("limited", retry_after=30),
+            GitHubRateLimitedError,
+        ),
+        (
+            GitHubIntegrationError("token refresh failed"),
+            GitHubIntegrationError("unauthorized", status_code=401),
+            GitHubAuthenticationError,
+        ),
+        (GitHubIntegrationError("not accessible", status_code=422), None, GitHubAuthenticationError),
     ],
-    ids=["reauthorization", "rate_limited", "connection_error", "server_error", "rejected_mint"],
+    ids=[
+        "reauthorization",
+        "unavailable_credential",
+        "rate_limited",
+        "connection_error",
+        "wrapped_connection_error",
+        "server_error",
+        "wrapped_server_error",
+        "wrapped_rate_limit",
+        "wrapped_authentication_error",
+        "rejected_mint",
+    ],
 )
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.emit_agent_log")
 @patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_github_token")
-def test_github_token_failure_maps_to_run_error(
-    mock_full: MagicMock, _mock_log: MagicMock, error: Exception, expected_error: type[Exception]
+async def test_github_token_failure_maps_to_run_error(
+    mock_full: MagicMock,
+    _mock_log: MagicMock,
+    error: Exception,
+    cause: Exception | None,
+    expected_error: type[Exception],
+    resume: bool,
 ) -> None:
     # ReauthorizationRequired is a user-actionable "re-link your GitHub account" signal, not a
     # system fault. Provisioning must surface it as CredentialUnavailableError (fatal, non-retryable,
     # not captured to error tracking) rather than wrapping it in GitHubAuthenticationError, which
     # captures the raw exception and floods error tracking with noise.
     from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (  # noqa: PLC0415 — activities import the workflow stack; keep it off this module's import path
+        InjectFreshTokensOnResumeInput,
         _resolve_sandbox_github_token,
+        inject_fresh_tokens_on_resume,
     )
 
+    error.__cause__ = cause
     mock_full.side_effect = error
     ctx = TaskProcessingContext(
         task_id="t",
@@ -258,9 +318,57 @@ def test_github_token_failure_maps_to_run_error(
         state={},
     )
 
-    with pytest.raises(expected_error) as raised:
-        _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
+    with (
+        patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox._load_task"),
+        patch("products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_task_run_credential_user"),
+        pytest.raises(expected_error) as raised,
+    ):
+        if resume:
+            await ActivityEnvironment().run(
+                inject_fresh_tokens_on_resume,
+                InjectFreshTokensOnResumeInput(context=ctx, sandbox_id="sandbox-id", repository="acme/repo"),
+            )
+        else:
+            _resolve_sandbox_github_token(ctx, task=MagicMock(), actor_user=None, repository="acme/repo", has_repo=True)
     assert type(raised.value) is expected_error
+    if isinstance(error, CredentialUnavailableError):
+        assert raised.value is error
+    if isinstance(raised.value, GitHubRateLimitedError):
+        assert raised.value.next_retry_delay == timedelta(seconds=30)
+
+
+def test_readonly_token_is_still_minted_when_the_cache_fails():
+    integration = _team_integration()
+    broken_cache = MagicMock()
+    broken_cache.get.side_effect = ConnectionError("redis down")
+    broken_cache.set.side_effect = ConnectionError("redis down")
+    with (
+        patch(
+            "products.tasks.backend.temporal.process_task.utils.resolve_readonly_github_integration",
+            return_value=integration,
+        ),
+        patch("products.tasks.backend.temporal.process_task.utils.get_tasks_cache", return_value=broken_cache),
+    ):
+        token = get_readonly_github_token(1, repositories=["acme/api"])
+
+    assert token == "ghs_readonly"
+    integration.mint_scoped_installation_token.assert_called_once()
+
+
+def test_readonly_token_is_reused_until_forgotten():
+    integration = _team_integration()
+    integration.mint_scoped_installation_token.side_effect = ["ghs_ro_1", "ghs_ro_2"]
+    with patch(
+        "products.tasks.backend.temporal.process_task.utils.resolve_readonly_github_integration",
+        return_value=integration,
+    ):
+        first = [get_readonly_github_token(1, repositories=["acme/api"]) for _ in range(2)]
+        forget_cached_github_tokens(integration, ["acme/api"])
+        second = get_readonly_github_token(1, repositories=["acme/api"])
+
+    assert first == ["ghs_ro_1", "ghs_ro_1"]
+    assert second == "ghs_ro_2"
+    assert integration.mint_scoped_installation_token.call_count == 2
 
 
 @pytest.mark.parametrize(

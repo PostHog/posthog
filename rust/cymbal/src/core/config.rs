@@ -1,3 +1,5 @@
+use std::num::NonZeroUsize;
+
 use aws_config::{BehaviorVersion, Region};
 use common_database::{get_pool_with_config, PoolConfig};
 use envconfig::Envconfig;
@@ -102,14 +104,23 @@ pub struct ResolverConfig {
     #[envconfig(default = "64")]
     pub symbol_resolution_concurrency: usize,
 
-    // Parsing a symbol set can need many times its fetched size in memory, and the symbol
-    // store cache does not count that memory. Parses of fetched blobs at least this large
-    // share a small concurrency limit, so a few of them cannot run the pod out of memory.
+    // Parsing a symbol set can need many times its decompressed size in memory, and the symbol
+    // store cache does not count that memory. Parses of symbol sets at least this large
+    // (decompressed) reserve their estimated peak memory from a shared budget, so together
+    // they cannot run the pod out of memory.
     #[envconfig(default = "10000000")]
-    pub symbol_set_large_parse_bytes: usize,
+    pub symbol_set_large_parse_bytes: NonZeroUsize,
 
     #[envconfig(default = "2")]
-    pub symbol_set_max_concurrent_large_parses: usize,
+    pub symbol_set_max_concurrent_large_parses: NonZeroUsize,
+
+    // Set this below the memory limit minus the symbol store cache budget and the steady-state usage.
+    #[envconfig(default = "1000000000")]
+    pub symbol_set_parse_memory_budget_bytes: NonZeroUsize,
+
+    // Estimated peak parse memory, as a multiple of the decompressed symbol set size.
+    #[envconfig(default = "8")]
+    pub symbol_set_parse_memory_multiplier: NonZeroUsize,
 
     // Shared secret authenticating the cymbal <-> cymbal-resolution gRPC seam.
     #[envconfig(default = "")]
@@ -174,5 +185,28 @@ pub async fn get_aws_config(config: &ResolverConfig) -> aws_sdk_s3::Config {
             .behavior_version(BehaviorVersion::latest())
             .force_path_style(config.object_storage_force_path_style)
             .build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    #[test]
+    fn parse_limiter_settings_must_be_positive() {
+        for name in [
+            "SYMBOL_SET_LARGE_PARSE_BYTES",
+            "SYMBOL_SET_MAX_CONCURRENT_LARGE_PARSES",
+            "SYMBOL_SET_PARSE_MEMORY_BUDGET_BYTES",
+            "SYMBOL_SET_PARSE_MEMORY_MULTIPLIER",
+        ] {
+            let values = HashMap::from([(name.to_owned(), "0".to_owned())]);
+            assert!(matches!(
+                ResolverConfig::init_from_hashmap(&values),
+                Err(envconfig::Error::ParseError { name: field }) if field == name
+            ));
+        }
     }
 }

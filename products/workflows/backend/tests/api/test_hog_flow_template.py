@@ -265,6 +265,20 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                 201,
             ),
             (
+                "support_reply",
+                {
+                    "type": "internal-event",
+                    "filters": {
+                        "source": "internal-events",
+                        "events": [{"id": "$conversation_message_sent", "type": "events"}],
+                        "properties": [
+                            {"key": "customer_email_verified", "value": ["true"], "operator": "exact", "type": "event"}
+                        ],
+                    },
+                },
+                201,
+            ),
+            (
                 "disallowed_internal_event",
                 {
                     "type": "internal-event",

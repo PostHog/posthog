@@ -7,16 +7,28 @@ The harness builds product skills from the current checkout and uses native bund
 `--skill-delivery exec` instead packages those skills for MCP distribution, enables the exec skill prompt, and removes native skills from every sandbox so the two paths cannot satisfy the same case.
 
 This is the eval harness for PostHog AI 2.0. It does **not** run under pytest.
-It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, LLM gateway, MCP server, Temporal) and then runs every selected suite concurrently.
+It runs on a standalone harness that boots the shared infrastructure once (test database, Django live server, AI gateway, MCP server, Temporal) and then runs every selected suite concurrently.
 See [`harness/README.md`](harness/README.md) for how that works internally.
 
 The harness also hosts non-sandboxed suite kinds — see [Suite kinds](#suite-kinds).
-A run boots only the infrastructure its selected suites need, so a one-shot-only run starts no sandbox provider, Temporal, live server, LLM gateway, or MCP server.
+A run boots only the infrastructure its selected suites need, so a one-shot-only run starts no sandbox provider, Temporal, live server, AI gateway, or MCP server.
 
 Two other docs sit next to this one:
 
 - [`../evals/AGENTS.md`](../evals/AGENTS.md) is the Hedgebox dataset reference. Read it before writing eval cases: your `expected` values and scorers must match that taxonomy exactly.
 - [`harness/AGENTS.md`](harness/AGENTS.md) lists the invariants to preserve when changing the harness itself.
+
+## Scout evals
+
+`hogli evals signals/eval_first_report --trials 5 --max-sandboxes 1` runs the production first-report scout against three isolated projects: a Hedgebox project with a seeded upload regression, a matched control, and a project containing only a few signups. Use `--eval upload_regression` for the first smoke run. Scout suites use bundled skills and the normal scout context, permissions, report tools, structured closeout, and ten-minute investigation limit. They do not run through the generic chat prompt or the private scout-trial report overlay.
+
+The upload cases add synthetic, mature signup-to-upload cohorts, split by browser and release, and verify their counts through HogQL before launching the scout. Cohorts include browsing and identify events, opaque identities, the demo's normal URLs, and varied daily volumes and timestamps so fixture artifacts do not become the finding. The regression adds upload exceptions in the affected sessions; the control keeps conversion stable. These cases remove their copied warehouse table registrations because the shared immutable CSV snapshots do not describe the added event history. The sparse case starts without inherited Hedgebox data. Seed identities and oracle counts go to scorers, never into the scout prompt.
+
+Local artifacts include persisted reports, the structured outcome, context preparation time, first logged agent text time, and first visible report time. First progress uses the earliest saved agent text; streaming deltas that are not persisted are not measured. Report timing starts before context preparation and excludes fixture setup, harness boot, and the onboarding job queue. It therefore measures scout execution, not total onboarding latency. Quality and the five-minute qualified-report rate use separate binary LLM judgments grounded in successful tool results and the queried oracle. Planted-issue recall is a separate diagnostic, so another verified useful finding can pass quality. The matched control checks false positives; sparse data must produce an explicit explanation without a report. Inspect these metrics separately rather than treating their arithmetic mean as first value. Agent failures and timeouts score zero; infrastructure failures remain separately reported by the shared harness. Repeat trials before drawing conclusions about quality or latency.
+
+Product suites can supply `case_runner=` to `SandboxedEval` with the `SandboxedCaseRunner` protocol. The shared harness retains isolation, setup hooks, concurrency slots, timeout handling, logs, and scoring; the runner owns its task workflow cleanup and provider registration. Returning an `AgentArtifacts` subclass preserves product-specific fields in local artifacts and scorer input. Scout runners collect structured closeout fields from persisted run metadata, including when a visible report takes precedence over the agent's claimed outcome. The `scout_closeout` artifact preserves the final conclusion independently of the shared harness's text-only `last_message`.
+
+Test cases should keep the default `SandboxedEvalCase.inherit_demo_data=True` to inherit Hedgebox data. Setting it to `False` is an explicit opt-in only for cases that intentionally need an empty isolated project, such as testing abstention with insufficient data. The setup hook must seed any data the case needs. The sparse scout case uses this option to add just four signups: inheriting the populated Hedgebox dataset would invalidate that test. Regression and control cases keep the default.
 
 ## Running
 
@@ -37,7 +49,8 @@ python -m products.posthog_ai.eval_harness.harness [SELECTOR ...] [flags]
 No manual env sourcing is needed on either path.
 The harness loads the repo-root `.env` itself (shell values win), and `hogli evals` additionally layers in `.env.local` / `.env.development` / `.env.services` through hogli's standard env loading — including 1Password resolution when `.env.local` holds `op://` references.
 Before any infrastructure boots, a preflight validates that the required variables are set and fails with a one-line fix per missing variable.
-Which variables are required depends on the eval engine and the selected suites' kinds: the braintrust engine (the default, and only one today) requires `BRAINTRUST_API_KEY` on every run — it is the engine's own `required_env()`, not a core harness variable; sandboxed suites add `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`; one-shot suites add `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Required variables depend on the selected suite kinds. Braintrust runs locally and needs no reporting credential. Sandboxed suites require `SANDBOX_JWT_PRIVATE_KEY` and `LLM_GATEWAY_ANTHROPIC_API_KEY`, and need a [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway) clone plus `go` on `PATH` (see [AI gateway](#ai-gateway)); one-shot suites require `LLM_GATEWAY_ANTHROPIC_API_KEY` (used directly, no gateway).
+Autoevals judges use a direct OpenAI client with `OPENAI_API_KEY`, including when PostHog trace capture is unavailable. `OPENAI_BASE_URL` can select an explicit provider endpoint. No judge falls back to Braintrust's model proxy or API key.
 
 Selectors are substrings matched against a suite id of the form `<domain>/<module>::<fn>`, for example `experiments`, `sql`, or `eval_lifecycle_skills`.
 Omit them to run every suite.
@@ -77,6 +90,8 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
 | `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                                |
 | `--verbose`                       | Show detailed logs and tracebacks in the console. The transcript always keeps the detailed logs.         |
+| `--tui`                           | Force the interactive view using the session's terminal, including when standard streams are redirected. |
+| `--no-tui`                        | Use plain text output, including in an interactive terminal.                                             |
 | `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                           |
 | `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
@@ -109,10 +124,64 @@ A timeout summary contains the failure reason. Its raw log file can be empty; th
 
 `EXPORT_EVAL_RESULTS=1` additionally appends one structured JSON summary per experiment to `eval_results.jsonl`.
 The full plain-text run transcript is always written without this setting.
-Normal console output shows runner progress, summaries, and short error messages.
+Interactive terminals show a live view by default. CI and redirected standard input or output use plain text.
+Plain text output shows runner progress, summaries, and short error messages.
 Dependency warnings, SDK progress bars, and direct setup prints stay in the transcript.
 `--verbose` also shows Python warnings, SDK output, and detailed logs in the console.
 Native subprocess output always goes to the transcript.
+
+### AI gateway
+
+Sandboxed agents call their model through the Go [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway), as PostHog AI runs do in production.
+The harness builds and starts it from a local clone at `~/Development/ai-gateway`, the same path `bin/start-ai-gateway` uses. Set `AI_GATEWAY_REPO` to use a clone at a different path.
+
+```bash
+git clone git@github.com:PostHog/ai-gateway.git ~/Development/ai-gateway
+```
+
+The gateway runs on `:18080` with its own Postgres database and Valkey DB index in the clone's compose containers, so it does not touch a dev-stack gateway's ledger or blobs.
+Sandboxed agents and server-side tool judges, including the scout report safety judge, both use this isolated gateway.
+It uses `LLM_GATEWAY_ANTHROPIC_API_KEY` and `LLM_GATEWAY_OPENAI_API_KEY` as its provider keys.
+The harness adds test credits to the master demo team in this separate ledger. Scoped tokens require a positive balance and cannot use an overspend allowance.
+Each run gets a capped `phe_` token minted with a key on that team, so spend is per run and never reaches a real wallet. The harness refreshes the mint key during long runs. It retries temporary database or Redis errors until the credential expires. Retry delays increase to at most one minute.
+If token minting fails, the fallback URL stays on the eval gateway, which rejects requests without a run token.
+
+### Interactive view
+
+The view is `phrocs evals`, the same Bubble Tea program that renders `hogli start`.
+It runs in its own process, so a busy eval run does not delay key presses or redraws.
+The harness builds the in-repo phrocs (`tools/phrocs/dist/phrocs`) when Go is available, otherwise it uses `phrocs` on `PATH`.
+If phrocs is missing or too old to have the `evals` command, the run continues with plain text output.
+
+The sidebar shows the run and one row per trial, grouped by experiment, with status and elapsed time.
+A failed trial shows its full error and traceback. Select **Run** for setup status, trial counts, and warnings. Press `l` to switch to the full run transcript.
+During agent execution, use this transcript for live logs. Per-trial log files become available after execution.
+Click a row or use the mouse wheel over the sidebar to change the selection. The wheel over the output pane scrolls it.
+Drag over the output pane to select text. The view copies the selection when you release the button, through OSC 52 and `pbcopy` on macOS.
+
+| Key                      | Action                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------ |
+| Up/Down, `j`/`k`         | Select a trial or the run, or scroll when the output pane has focus                  |
+| Tab, Enter               | Move focus between the sidebar and the output pane                                   |
+| `l`                      | Switch between the summary and logs                                                  |
+| `/`, Up/Down, Escape     | Search the output, move between matches, or clear the search                         |
+| PgUp/PgDn, Home          | Scroll the output                                                                    |
+| End                      | Jump to the end and follow new output                                                |
+| `q`, then `y`            | Cancel a running eval and wait for cleanup; `n` continues the run                    |
+| Ctrl-C                   | Cancel once and wait for cleanup                                                     |
+| `q` after completion     | Close the view                                                                       |
+| Mouse drag in the output | Select text; releasing the button copies it to the clipboard                         |
+| `c`, then `c` twice      | Select lines with Up/Down and copy them; the mouse can also drag-select in this mode |
+| `?`                      | Show all keys                                                                        |
+
+The final results stay visible until you close the view. The terminal then prints the final summary and transcript path.
+Use `--no-tui` for the existing text output. `--verbose` adds detailed messages to the view or text output.
+`--tui` overrides automatic detection, including `TERM=dumb` and CI. It uses `/dev/tty` when a launcher redirects standard input or output.
+Redirecting stderr alone does not disable the view. A session without an attached terminal still requires `--no-tui`.
+`hogli evals` opens the view by default in a terminal, even though its secrets wrapper pipes stdout. Redirect the output of `hogli evals` to get text output.
+With `--tui`, setup starts only after the first screen is drawn. A startup failure stops the command and reports its cause.
+If the view exits during a run, the runner stops through its cleanup path and saves the view error in the transcript.
+The view does not change scores, retries, timeouts, or sandbox cleanup. Its screen controls are not written to the transcript.
 
 ### Comparing skill delivery
 
@@ -124,16 +193,50 @@ hogli evals eval_skill_distribution --skill-delivery bundled --agent-runtime cla
 hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude --agent-model claude-opus-4-8 --trials 3
 ```
 
-Both runs use the same prompts and Braintrust history key.
+Both runs use the same prompts and experiment name.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
 ### Codex runtime
 
-`--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-5.5`.
-It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's LLM gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime or skill delivery. Each Braintrust experiment and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
+`--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
+It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's AI gateway uses to proxy the agent's OpenAI calls.
+Experiment names don't change with the runtime or skill delivery. Each local evaluation and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
 
 ### Claude and Codex smoke comparison
+
+Run both default models and print one comparison with `--compare`:
+
+```bash
+hogli evals cli_mcp/eval_skill_distribution::eval_skill_distribution \
+  --eval historical_traffic_share_by_type \
+  --provider modal --skill-delivery exec \
+  --trials 3 --max-sandboxes 2 --compare
+```
+
+Both configurations are checked before either agent run starts. The models run in order, in separate processes,
+with the same suite selectors, case filter, provider, skill delivery, trial count, timeout, and concurrency.
+Comparisons use plain text output so each model can finish without waiting for the interactive view to close.
+Ctrl-C stops the comparison after the current child finishes cleanup.
+
+Use repeated `--compare-model claude:MODEL` and `--compare-model codex:MODEL` options to replace the default pair.
+At least two distinct runtime/model pairs and one suite selector are required. Only sandboxed suites are supported;
+one-shot suites select their models internally. Do not combine comparison options with `--agent-model` or `--agent-runtime`.
+
+The command saves `comparison.json`, `comparison.txt`, and each child's run report under `logs/comparisons/<run>/`.
+Use `--comparison-dir PATH` to choose a new directory. Existing directories are rejected to protect previous results.
+Each model retains its own full transcript, and the comparison has a combined transcript whose path prints last.
+Reports retain completed models if a later model fails or the comparison is interrupted.
+
+The table shows named scorer means with scored-trial counts, completed execution coverage, errors, timeouts, and wall time.
+Missing and skipped scores show `n/a`; a real zero shows `0.0%`. Costs show `unavailable` because these results do not contain cost data.
+Case-set, scorer-set, or checkout differences produce a warning and a nonzero exit status.
+Errors, timeouts, incomplete results, and failed score gates also make the comparison exit nonzero.
+The comparison measures model plus runtime. A small smoke case is not a model ranking.
+
+Use `--check` without comparison options to validate a single run without starting services or agents.
+Use `--results-file PATH` on a single run to save its structured scores, coverage, settings, and log locations.
+
+The manual command pair remains available:
 
 Start with one fixed MCP case. It checks skill discovery and tool use for a historical traffic query.
 Both commands below use the same case, provider, skill delivery, concurrency, and scorers.
@@ -151,8 +254,8 @@ eval_comparison_args=(
     --skill-delivery exec
     --trials 1
 )
-EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime claude --agent-model claude-opus-5
-EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime codex --agent-model gpt-5.5
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime claude --agent-model claude-opus-5-5
+EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime codex --agent-model gpt-6.1-sol
 ```
 
 Compare the named scorer results, completed cases, timeouts, infrastructure errors, and total duration in both final summaries.
@@ -179,13 +282,14 @@ An unchanged image passes the check in under a second, and even a rebuild is mos
 
 **modal** runs sandboxes remotely.
 Modal's network cannot reach `localhost`, so the harness exposes the host services via Tailscale Funnel itself and points the sandbox at the public URLs.
+A new Funnel takes up to a few minutes before all of its public relays serve it, so Modal setup waits for them before the first case starts.
 Eval sandboxes run in the dedicated `posthog-sandbox-evals` Modal app, separate from production and local development sandboxes.
 The manual tunnel setup in [`docs/internal/sandboxes-setup-guide.md`](../../../../docs/internal/sandboxes-setup-guide.md) is therefore not needed for evals.
 The first modal run pays a one-time remote image build; later runs reuse the cached image until the skills or build context change.
 
 Modal prerequisites, all checked by preflight before anything boots:
 
-- `tailscale` on `PATH`, with tailscaled running and this node logged in (`tailscale up`). Funnel must be enabled for the tailnet and this node in the admin console's ACLs, with HTTPS certificates enabled. The harness serves Django, the LLM gateway, and MCP on Funnel's three public ports (443, 8443, 10000).
+- `tailscale` on `PATH`, with tailscaled running and this node logged in (`tailscale up`). Funnel must be enabled for the tailnet and this node in the admin console's ACLs, with HTTPS certificates enabled. The harness serves Django, the AI gateway, and MCP on Funnel's three public ports (443, 8443, 10000).
 - Modal credentials: `MODAL_TOKEN_ID` and `MODAL_TOKEN_SECRET`, or a `~/.modal.toml` from `modal token new`.
 - `SANDBOX_JWT_PRIVATE_KEY` in the environment. The dev key ships in `.env.example`; the harness auto-loads it from `.env`.
 
@@ -227,7 +331,7 @@ When object storage is enabled, setup also validates the master warehouse and cl
 When a setup completes, its slot becomes available to the next case while the prepared case runs its agent.
 
 A case holds a sandbox slot only for the window it actually needs one: team setup and the agent run.
-Log parsing, Braintrust span building, trace emission, and scoring all happen after the slot is released.
+Log parsing, trace emission, and scoring all happen after the slot is released.
 The per-case timeout starts after team setup, so neither sandbox nor setup queueing consumes the agent's budget.
 
 ## Suite kinds
@@ -255,16 +359,16 @@ New product-owned evals belong under `products/<product>/evals/`; that directory
 
 1. Create `products/posthog_ai/evals/<domain>/eval_<name>.py` (or `products/<product>/evals/eval_<name>.py`). The directory becomes the suite's domain.
 2. Write one or more coroutines named `eval_*` taking a single `ctx: EvalContext`.
-3. Build a list of `SandboxedEvalCase` and hand it to `SandboxedPrivateEval` or `SandboxedPublicEval` along with your scorers and `ctx=ctx`.
+3. Build a list of `SandboxedEvalCase` and hand it to `SandboxedEval` along with your scorers and `ctx=ctx`.
 
 ```python
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 
 
 async def eval_my_thing(ctx: EvalContext) -> None:
-    await SandboxedPrivateEval(
+    await SandboxedEval(
         experiment_name="sandboxed-my-thing-cli",
         cases=[SandboxedEvalCase(name="my_case", prompt="...")],
         scorers=[],
@@ -275,13 +379,13 @@ async def eval_my_thing(ctx: EvalContext) -> None:
 The harness automatically adds the `ExitCodeZero` scorer to every sandboxed experiment.
 Do not add it to a suite's `scorers` list; the harness rejects duplicates.
 
-For a one-shot suite, declare the kind, build `BaseEvalCase`s, and pass a task function to `OneShotPrivateEval` / `OneShotPublicEval` — the task runs once per case under the global one-shot limiter and returns the scorer `output` dict directly:
+For a one-shot suite, declare the kind, build `BaseEvalCase`s, and pass a task function to `OneShotEval` — the task runs once per case under the global one-shot limiter and returns the scorer `output` dict directly:
 
 ```python
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPrivateEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
@@ -290,7 +394,7 @@ async def eval_my_generation(ctx: EvalContext) -> None:
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         return {"answer": ...}  # one model invocation; JSON-serializable
 
-    await OneShotPrivateEval(
+    await OneShotEval(
         experiment_name="my-generation",
         cases=[BaseEvalCase(name="my_case", prompt="...")],
         scorers=[...],
@@ -300,9 +404,9 @@ async def eval_my_generation(ctx: EvalContext) -> None:
 ```
 
 Bundle related cases into one suite function rather than splitting them across many.
-One suite is one Braintrust experiment, which is what makes cross-case comparison and `--eval` filtering useful.
+One suite is one experiment, which is what makes cross-case comparison and `--eval` filtering useful.
 
-`experiment_name` is the Braintrust experiment key, so changing it starts a fresh history.
+`experiment_name` identifies the run in local output and PostHog; keep it stable across runs.
 Existing suites end in `-cli` because the MCP server serves the `cli` surface; that suffix is kept so history lines up with earlier runs.
 
 Confirm discovery picked your suite up:
@@ -313,7 +417,7 @@ python -m products.posthog_ai.eval_harness.harness --list | grep my_thing
 
 ## Output
 
-Progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE START`, `CASE PHASE`, `CASE READY`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
+In plain text output and the transcript, progress lines use stable labels as cases and suites start or finish: `SUITE START`, `EXPERIMENT START`, `CASE START`, `CASE PHASE`, `CASE READY`, `CASE DONE`, `EXPERIMENT DONE`, and `SUITE DONE`.
 Only the overall run uses `PASS` or `FAIL`, so a suite with a low behavioral score still reads as completed rather than passed.
 The console shows case starts and phase changes for each trial.
 A status line every 30 seconds shows execution totals, phase counts, elapsed time, and the oldest active trial.
@@ -321,9 +425,10 @@ A status line every 30 seconds shows execution totals, phase counts, elapsed tim
 `CASE DONE` and `EXPERIMENT DONE` mean the scores are ready.
 The `scoring` phase includes time waiting for all results in that experiment, so it is not an isolated scorer duration.
 Use `--verbose` to show detailed service and agent logs in the console. The transcript retains these logs in both modes.
-Warnings and errors use short console messages. Open the transcript for full tracebacks.
+Warnings and errors use short console messages, including the exception type and message when available.
+Open the transcript for full tracebacks.
 
-The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog and Braintrust URLs, and the agent-log directory.
+The final summary gives labeled suite and case totals, the score gate, total duration, and one block per experiment with scorer averages, PostHog URLs, and the agent-log directory.
 Each scorer line shows its score with a 95% confidence interval clustered by case. With `--trials N` a second line adds pass^N (every trial passed), pass@N (any trial passed) and the number of flaky cases, counting only cases scored on all N trials, so a noisy suite is distinguishable from a real score change.
 A crashed suite is labeled `CRASH` and makes the run exit nonzero without taking down the other suites.
 Its full traceback stays in the transcript. `--verbose` also shows the traceback in the final summary.
@@ -344,7 +449,42 @@ The harness shortens long case names in filenames to stay within 255 bytes. It k
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.
 Case names and `--eval` filters stay the same.
 
-`SandboxedPublicEval` sets `no_send_logs=False` and reports results to both Braintrust and PostHog.
-`SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
-PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
+`SandboxedEval` and `OneShotEval` always execute locally through Braintrust without reporting to its service.
+Configure `offline_suite` and `POSTHOG_OFFLINE_EVAL_API_KEY` to publish completed results to PostHog.
+`send_to_posthog` defaults to `True`; set it to `False` for local-only results.
+PostHog result uploads are independent of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
+
+### SQL offline experiment pilot
+
+The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
+It publishes the same completed case results through the Python SDK.
+PostHog AI and product-owned suites also opt into offline publishing with their own tagged scorer versions.
+Agent and judge trace capture remains available. `send_to_posthog=False` suppresses offline result uploads.
+
+Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal key with `offline_evaluation_ingestion:write`, `evaluation:write`, and access to project `2` to upload and tag results. An ingestion-only personal or project secret key can upload results, but tagging will warn and leave the run untagged.
+The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
+`POSTHOG_OFFLINE_EVAL_HOST` defaults to `https://us.posthog.com`.
+For development, use `http://localhost:8010` with a local API key and set `POSTHOG_OFFLINE_EVAL_LOCAL_CONFIG`
+to a gitignored JSON file containing the local project ID and scorer-version mappings.
+See [local upload setup](../../../docs/internal/ai-offline-evaluation-reporting.md#testing-uploads-against-local-posthog).
+The [suite configuration](../../../docs/internal/ai-offline-evaluation-reporting.md#configured-offline-experiment-suites) lists the metrics and explains local and CI key configuration.
+Delivery runs in a bounded background queue after local results are saved. Prepared uploads stay in memory, with up to two uploads running concurrently, at most 32 queued or active uploads, and a 60-second deadline per active upload.
+A completed upload records its results link before tagging begins. Tagging has a separate five-second deadline; failures, timeouts, and shutdown interruptions only warn and preserve the successful upload status.
+Unfinished uploads pause before infrastructure teardown. After teardown, the harness retries the same prepared objects and identities with fresh deadlines, waiting up to the full 60-second upload deadline for delivery to finish.
+Requests use a 5-second timeout and up to two retries within that overall deadline. Terminal API failures trigger a best-effort attempt to mark the experiment failed, limited to 5 seconds; pauses and interruptions leave it resumable.
+Both sandboxed and one-shot suites can opt in through `offline_suite`. Rich scorer recording runs only when offline publishing is configured and uploads are allowed.
+The [reporting guide](../../../docs/internal/ai-offline-evaluation-reporting.md#enrolling-other-suites-and-richer-results) covers rich scorer outcomes, external dataset references, version fields, and suite configuration. Hosted datasets are not supported by the harness publisher.
+
+```bash
+hogli evals sql/eval_sql::eval_sql
+```
+
+With no API key, the SQL run reports that offline uploads are disabled.
+Invalid configuration and upload failures produce warnings while local reporting continues.
+Successful uploads use separate items for each case and trial; skipped scores and execution errors remain distinct from scores of zero.
+Raw agent logs stay in the existing local outputs. The SDK validates payloads; invalid or oversized optional fields are omitted as a whole, with their names recorded in metadata.
+
+Failed or interrupted uploads and uploads rejected by a full queue are not saved for later retry.
+To try publishing again, correct the configuration or connectivity problem and rerun the suite.
+Existing local logs and enabled case exports remain available; upload failures do not change the score gate.

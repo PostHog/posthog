@@ -68,9 +68,11 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
                 >
                     <LemonButton
                         type="secondary"
+                        data-attr="save-to-dataset-open"
                         size="xsmall"
                         icon={<IconDatabase />}
                         sideAction={{
+                            'data-attr': 'save-to-dataset-edit',
                             icon: <IconPencil />,
                             onClick: () => {
                                 if (!dropdownVisible) {
@@ -117,7 +119,7 @@ function OverlayMenu(): JSX.Element {
     return (
         <Form logic={saveToDatasetButtonLogic} formKey="searchForm" className="w-xs" enableFormOnSubmit>
             <LemonField name="search" label="Search" labelClassName="sr-only">
-                <LemonInput placeholder="Find a dataset" autoFocus />
+                <LemonInput placeholder="Find a dataset" autoFocus data-attr="save-to-dataset-search" />
             </LemonField>
             <LemonDivider className="my-0 mt-2" />
             <div
@@ -206,6 +208,7 @@ function OverlayMenu(): JSX.Element {
                 fullWidth
                 size="small"
                 to={urls.aiObservabilityDataset('new')}
+                data-attr="save-to-dataset-create"
                 sideIcon={<IconExternal />}
                 targetBlank
                 onClick={() => {

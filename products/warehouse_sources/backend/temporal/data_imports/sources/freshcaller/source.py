@@ -29,8 +29,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-# This first cut covers Freshcaller's top-level v1 list endpoints (Users, Teams, Calls, Call
-# Metrics). Account-level data export is an asynchronous request/poll job rather than a list
+# This first cut covers Freshcaller's top-level v1 list endpoints (Users, Teams, User Statuses,
+# Calls, Call Metrics). Account-level data export is an asynchronous request/poll job rather than a list
 # endpoint, and recording download/delete are per-call side endpoints — both are intentionally
 # left out of this first cut. There is no webhook management API.
 
@@ -87,7 +87,7 @@ Your **account name** is the subdomain in your Freshcaller URL — e.g. `acme` f
 Your **API key** is on your Freshcaller profile settings page (click your profile picture → **Profile settings**; the API key is shown in the right sidebar).""",
             iconPath="/static/services/freshcaller.png",
             docsUrl="https://posthog.com/docs/cdp/sources/freshcaller",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             fields=cast(
                 list[FieldType],
                 [

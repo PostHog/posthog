@@ -358,6 +358,9 @@ Where the two read different env vars, both are listed.
 
 Capture connects each limiter to `GLOBAL_RATE_LIMIT_REDIS_URL`, with reads going to `GLOBAL_RATE_LIMIT_REDIS_READER_URL` when that is set.
 Without `GLOBAL_RATE_LIMIT_REDIS_URL`, both limiters share capture's main Redis client, and the `GLOBAL_RATE_LIMIT_REDIS_*_TIMEOUT_MS` settings do nothing.
+The per-(token, distinct_id) limiter can shard its keys across two clusters. `GLOBAL_RATE_LIMIT_REDIS_SHARDS=2` adds `GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL` and its optional `GLOBAL_RATE_LIMIT_REDIS_SHARD_1_READER_URL` as the second instance.
+Capture connects to the second cluster only when the shard count is 2, so the URLs can ship before the switch. A shard count of 2 without both writer URLs fails startup.
+The AI byte limiter always uses the first cluster.
 
 #### Clamps and tuning
 
@@ -463,6 +466,11 @@ hashes. Two things to know before that changes.
    agrees and the current epoch keys expire. Modulo sharding moves N/(N+1) of
    the keys when the count goes from N to N+1; a consistent-hashing scheme would
    move about 1/(N+1) of them and shrink this window, but it cannot remove it.
+3. **In capture, change only `GLOBAL_RATE_LIMIT_REDIS_SHARDS`, and in one
+   rollout.** Every pod must list the clusters in the same order, which the
+   numbered URL variables fix. Ship the shard 1 URLs first with the count at 1,
+   then change the count. Changing it back moves the keys back with the same
+   transient.
 
 ## Redis load
 

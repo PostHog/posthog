@@ -230,7 +230,7 @@ describe("objectWebUrl", () => {
       "SELECT 1 & 2",
       "https://us.posthog.com/project/2/sql?open_query=SELECT%201%20%26%202",
     ],
-    ["flag", "42", "https://us.posthog.com/project/2/feature_flags/42"],
+    ["flag", "42", "https://us.posthog.com/project/2/feature-flags/42"],
     ["flag", "my-flag", null],
     ["gizmo", "1", null],
   ])("%s %s", (kind, id, expected) => {

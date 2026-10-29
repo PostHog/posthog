@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads
     TIKTOK_AUTH_ERROR_CODES,
     TIKTOK_CREATIVE_PERMISSION_DENIED_FRAGMENTS,
     TIKTOK_CREATIVE_PERMISSION_DENIED_MESSAGE,
+    TIKTOK_INVALID_TOKEN_MESSAGE,
     TIKTOK_MISSING_SCOPE_FRAGMENT,
     TIKTOK_MISSING_SCOPE_MESSAGE,
     TIKTOK_NON_RETRYABLE_ERROR_PREFIX,
@@ -84,6 +85,10 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TIKTOKADS
+
+    @property
+    def credential_kind(self) -> str | None:
+        return "tiktok-ads"
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.backend.temporal.data_imports.sources.tiktok_ads.canonical_descriptions import (
@@ -201,7 +206,8 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             raise IntegrationAccountListingError(TIKTOK_TRANSIENT_ERROR_MESSAGE) from e
         except TikTokAdsAPIError as e:
             if e.api_code in TIKTOK_AUTH_ERROR_CODES or (
-                e.api_code == 40000 and TIKTOK_APP_TOKEN_MISMATCH_MESSAGE in str(e)
+                e.api_code == 40000
+                and (TIKTOK_APP_TOKEN_MISMATCH_MESSAGE in str(e) or TIKTOK_INVALID_TOKEN_MESSAGE in str(e))
             ):
                 raise IntegrationAccountListingError(
                     "TikTok rejected the credentials for this integration. Please reconnect your TikTok Ads "

@@ -1,5 +1,7 @@
 from django.db import models
 
+AUTOMATED_UPDATE_SLACK_CHANNEL_IDS = "automated_update_slack_channel_ids"
+
 
 class Channel(models.TextChoices):
     WIDGET = "widget", "Widget"

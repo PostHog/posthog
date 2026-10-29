@@ -34,7 +34,7 @@ from products.review_hog.backend.reviewer.constants import (
     priority_rank,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
     DroppedIssue,
@@ -65,6 +65,10 @@ _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 # A full SHA-1 or SHA-256 commit id. The prompt puts the merge base into a shell command the session
 # runs, so only a value of this shape may reach it.
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def _commit_sha(value: str | None) -> str | None:
+    return value if value is not None and _COMMIT_SHA.fullmatch(value) else None
 
 
 def load_prompt_file(path: Path) -> str:
@@ -100,8 +104,10 @@ class SingleAgentPrompt:
         merge_base_sha: str | None = None,
         scope_files: list[str] | None = None,
         for_lens: bool = False,
+        delta_since: str | None = None,
     ) -> None:
         self.repository = repository
+        self.delta_since = delta_since
         self.guidelines = guidelines
         self.pr_metadata = pr_metadata
         self.merge_base_sha = merge_base_sha
@@ -174,8 +180,7 @@ class SingleAgentPrompt:
 
     def _base_sha(self) -> str | None:
         """The merge base when it is a commit id, else None: the prompt then gives no git command."""
-        sha = self.merge_base_sha
-        return sha if sha is not None and _COMMIT_SHA.fullmatch(sha) else None
+        return _commit_sha(self.merge_base_sha)
 
     def render(self) -> str:
         template, output_schema = load_template_and_schema(SINGLE_AGENT_PROMPT_DIR)
@@ -190,6 +195,8 @@ class SingleAgentPrompt:
             REPOSITORY=self.repository,
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
             BASE_SHA=self._base_sha(),
+            # A commit id only, so no text from the repository reaches the session's shell.
+            DELTA_SINCE=_commit_sha(self.delta_since),
             PR_TITLE=without_cache_marker(self.pr_metadata.title),
             PR_DESCRIPTION=without_cache_marker(self.pr_metadata.body.strip() or "(no description provided)"),
             FILE_LIST=without_cache_marker(self._file_list(not_shown)),
@@ -345,13 +352,26 @@ class FlashTurnStats:
     # A dedup call failed and fell back to the positional pre-filter alone.
     dedup_fell_back: bool
     budget_left: int | None = None
+    # A shadow measure for diff-only follow-ups, None without an earlier reviewed head: the lines that
+    # changed since that head, and the kept must-fix findings on and off them. A review that sees only the
+    # change would put the findings off it at risk.
+    changed_lines: int | None = None
+    must_fix_on_change: int | None = None
+    must_fix_off_change: int | None = None
 
 
-def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, reviewable_lines: int) -> FlashTurnStats:
+def flash_turn_stats(
+    candidates: list[Issue],
+    selection: FlashSelection,
+    *,
+    reviewable_lines: int,
+    changed_since: "ChangedSinceReview | None" = None,
+) -> FlashTurnStats:
     """Count a turn's findings per session and per drop reason.
 
     Must-fix counts read `reported_priority`, because a dedup survivor can be raised above what its
-    session reported.
+    session reported. The on and off change split reads the stored priority instead, because it counts
+    what the turn posts.
     """
     per_session = dict.fromkeys(_SESSION_NAMES.values(), 0)
     must_fix = dict(per_session)
@@ -361,6 +381,14 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         if issue.reported_priority in ("P0", "P1"):
             must_fix[session] = must_fix.get(session, 0) + 1
     cut = sum(1 for drop in selection.dropped if drop.disposition in ("cap", "budget"))
+    changed_lines: int | None = None
+    must_fix_on_change: int | None = None
+    must_fix_off_change: int | None = None
+    if changed_since is not None:
+        kept_must_fix = [issue for issue in selection.kept if issue.priority == IssuePriority.MUST_FIX]
+        changed_lines = changed_since.reviewable_line_count()
+        must_fix_on_change = sum(1 for issue in kept_must_fix if changed_since.touches(issue))
+        must_fix_off_change = len(kept_must_fix) - must_fix_on_change
     return FlashTurnStats(
         cap=selection.cap,
         lens_part_count=selection.lens_part_count,
@@ -372,6 +400,9 @@ def flash_turn_stats(candidates: list[Issue], selection: FlashSelection, *, revi
         kept=len(selection.kept),
         dedup_fell_back=selection.dedup_fell_back,
         budget_left=selection.budget_left,
+        changed_lines=changed_lines,
+        must_fix_on_change=must_fix_on_change,
+        must_fix_off_change=must_fix_off_change,
     )
 
 
@@ -546,11 +577,13 @@ def _diff_sequence(pr_file: PRFile) -> list[_DiffLine]:
     return sequence
 
 
-def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
-    """The head lines of the file's changes that the earlier diff did not have.
+def _diff_since(pr_file: PRFile, earlier: PRFile | None) -> tuple[set[int], int]:
+    """The head lines of the file's changes that the earlier diff did not have, and the changed diff line count.
 
     The two diffs are matched as sequences of lines with their context, so code that a base merge or a rebase
-    only moved stays old, and a repeated line matches the occurrence in the same place.
+    only moved stays old, and a repeated line matches the occurrence in the same place. The count takes the
+    added and removed diff lines on both sides of each mismatch, in the units of `PRFile.additions` plus
+    `PRFile.deletions`.
     """
     current = _diff_sequence(pr_file)
     before = _diff_sequence(earlier) if earlier is not None else []
@@ -560,15 +593,34 @@ def _lines_new_since(pr_file: PRFile, earlier: PRFile | None) -> set[int]:
         None, [(line.kind, line.code) for line in before], [(line.kind, line.code) for line in current]
     )
     new_lines: set[int] = set()
+    changed_count = 0
     for tag, before_start, before_end, current_start, current_end in matcher.get_opcodes():
         if tag == "equal":
             continue
+        changed_count += sum(1 for line in before[before_start:before_end] if line.kind != "context")
+        changed_count += sum(1 for line in current[current_start:current_end] if line.kind != "context")
         # Context lines count too, so a statement moved into new surroundings is changed code.
         new_lines.update(line.head_line for line in current[current_start:current_end])
         # A change the earlier diff had and this one lost, such as a removed guard, changes the code around it.
         if any(line.kind != "context" for line in before[before_start:before_end]):
             new_lines.update(line.head_line for line in current[max(current_start - 1, 0) : current_start + 1])
-    return new_lines
+    return new_lines, changed_count
+
+
+def _count_delta(pr_file: PRFile | None, earlier: PRFile | None) -> int:
+    """The changed line count of a file whose patch is missing, from its addition and deletion counts."""
+    additions = pr_file.additions if pr_file is not None else 0
+    deletions = pr_file.deletions if pr_file is not None else 0
+    earlier_additions = earlier.additions if earlier is not None else 0
+    earlier_deletions = earlier.deletions if earlier is not None else 0
+    return abs(additions - earlier_additions) + abs(deletions - earlier_deletions)
+
+
+def _within_margin(start: int, end: int | None, lines: set[int]) -> bool:
+    """Whether any of `lines` falls in `start`..`end`, widened by the follow-up change margin."""
+    margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
+    # The range can come from the model, so it is compared, never expanded line by line.
+    return any(start - margin <= line <= (end or start) + margin for line in lines)
 
 
 @frozen
@@ -577,32 +629,72 @@ class ChangedSinceReview:
 
     lines: dict[str, set[int]]
     files_without_patch: set[str]
+    # Per file, the diff lines added or removed since the earlier head, including files that left the PR.
+    changed_line_counts: dict[str, int]
 
     @classmethod
     def between(cls, earlier_files: list[PRFile], current_files: list[PRFile]) -> "ChangedSinceReview":
         earlier_by_name = {pr_file.filename: pr_file for pr_file in earlier_files}
         lines: dict[str, set[int]] = {}
         files_without_patch: set[str] = set()
+        changed_line_counts: dict[str, int] = {}
         for pr_file in current_files:
             earlier = earlier_by_name.get(pr_file.filename)
             if _patch_missing(pr_file) or (earlier is not None and _patch_missing(earlier)):
                 files_without_patch.add(pr_file.filename)
+                changed_line_counts[pr_file.filename] = _count_delta(pr_file, earlier)
             else:
-                lines[pr_file.filename] = _lines_new_since(pr_file, earlier)
-        return cls(lines=lines, files_without_patch=files_without_patch)
+                lines[pr_file.filename], changed_line_counts[pr_file.filename] = _diff_since(pr_file, earlier)
+        current_names = {pr_file.filename for pr_file in current_files}
+        for earlier in earlier_files:
+            if earlier.filename not in current_names:
+                changed_line_counts[earlier.filename] = _count_delta(None, earlier)
+        return cls(lines=lines, files_without_patch=files_without_patch, changed_line_counts=changed_line_counts)
+
+    def reviewable_line_count(self) -> int:
+        """How many diff lines of reviewable files changed, in the units of `flash_reviewable_lines`."""
+        return sum(count for filename, count in self.changed_line_counts.items() if is_reviewable_path(filename))
 
     def touches(self, issue: Issue) -> bool:
         """Whether the finding sits on or near a changed line, or in a file whose lines cannot be compared."""
         if not issue.lines or issue.file in self.files_without_patch:
             return True
         changed = self.lines.get(issue.file, set())
-        margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
-        # The range comes from the model, so it is compared, never expanded line by line.
-        return any(
-            line_range.start - margin <= line <= (line_range.end or line_range.start) + margin
-            for line_range in issue.lines
-            for line in changed
-        )
+        return any(_within_margin(line_range.start, line_range.end, changed) for line_range in issue.lines)
+
+
+def _near_changed(update: PRFileUpdate, changed: set[int]) -> bool:
+    return update.new_start_line is not None and _within_margin(update.new_start_line, update.new_end_line, changed)
+
+
+def _borders_near(near: list[bool], index: int) -> bool:
+    return (index > 0 and near[index - 1]) or (index + 1 < len(near) and near[index + 1])
+
+
+def delta_files(pr_files: list[PRFile], change: ChangedSinceReview) -> list[PRFile]:
+    """The PR's files that changed since the earlier head, each with only the diff blocks around the changed lines.
+
+    A removal block stays when it borders a kept block, so a removed guard shows next to the code it guarded. A file
+    without a patch stays whole when its counts changed. Files the push did not touch drop out.
+    """
+    result: list[PRFile] = []
+    for pr_file in pr_files:
+        if pr_file.filename in change.files_without_patch:
+            if change.changed_line_counts.get(pr_file.filename):
+                result.append(pr_file)
+            continue
+        changed = change.lines.get(pr_file.filename)
+        if not changed:
+            continue
+        near = [_near_changed(update, changed) for update in pr_file.changes]
+        kept = [
+            update
+            for index, update in enumerate(pr_file.changes)
+            if near[index] or (update.type == "deletion" and _borders_near(near, index))
+        ]
+        # A change with only removals, such as a deleted file, has no head line to be near, so the file stays whole.
+        result.append(pr_file.model_copy(update={"changes": kept}) if kept else pr_file)
+    return result
 
 
 def _old_code_findings(

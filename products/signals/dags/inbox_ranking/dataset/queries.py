@@ -20,7 +20,7 @@ from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
-from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
@@ -101,6 +101,7 @@ def hogql_rows(sql: str, *, team: Team, query_type: str, snapshot_end: datetime.
         settings=HogQLGlobalSettings(max_execution_time=600),
         # The dag runs without a user; the read is a trusted internal ETL over the dogfood project.
         bypass_warehouse_access_control=True,
+        ch_user=ClickHouseUser.SIGNALS,
     )
     return [tuple(row) for row in response.results or []]
 
@@ -272,6 +273,38 @@ WHERE product = %(product)s
   AND team_id IN %(team_ids)s
   AND inserted_at >= %(window_start)s
   AND inserted_at < %(window_end)s
+"""
+
+# Activity summary documents: one vector per (team, user, generated day), with document_id
+# "{user_id}:{date}" and timestamp = the summary's generated_at. The window is on timestamp, not on
+# inserted_at, so a partition holds the vectors generated during D whatever the embedding lag. The
+# sort key leads with (team_id, toDate(timestamp)), so this reads one day of the consenting teams.
+# A rebuild of the same day re-emits under the same document_id, and argMax keeps the newest version
+# when a merge has not removed the older one yet. The summary text (`content`) is never selected.
+ACTIVITY_SUMMARY_VECTORS_QUERY_SETTINGS: dict[str, int] = {
+    "max_execution_time": 600,
+    "max_memory_usage": 10 * 1024**3,
+}
+
+ACTIVITY_SUMMARY_VECTORS_SQL = f"""
+SELECT
+    team_id,
+    document_id,
+    argMax(timestamp, inserted_at) AS generated_at,
+    argMax(embedding, inserted_at) AS embedding,
+    max(inserted_at) AS embedding_inserted_at,
+    nullIf(argMax(JSONExtractInt(metadata, 'prompt_version'), inserted_at), 0) AS prompt_version,
+    nullIf(argMax(JSONExtractInt(metadata, 'render_version'), inserted_at), 0) AS render_version,
+    nullIf(argMax(JSONExtractString(metadata, 'model'), inserted_at), '') AS model,
+    argMax(if(JSONExtractString(metadata, 'source') = 'backfill', 'backfill', 'live'), inserted_at) AS source
+FROM {EMBEDDINGS_TABLE}
+WHERE product = %(product)s
+  AND document_type IN %(document_types)s
+  AND rendering = %(rendering)s
+  AND team_id IN %(team_ids)s
+  AND timestamp >= %(window_start)s
+  AND timestamp < %(window_end)s
+GROUP BY team_id, document_id
 """
 
 IMPRESSIONS_COLUMNS = (

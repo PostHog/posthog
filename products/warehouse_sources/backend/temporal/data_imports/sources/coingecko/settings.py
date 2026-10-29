@@ -223,6 +223,26 @@ COINGECKO_ENDPOINTS: dict[str, CoinGeckoEndpointConfig] = {
         paginated=True,
         pro_only=True,
     ),
+    # Tokenized real-world assets (stocks, commodities, ETFs) with aggregated onchain price, market
+    # cap and volume in USD under a nested `tokenized_market_data` object. Paginated.
+    "rwas_markets": CoinGeckoEndpointConfig(
+        name="rwas_markets",
+        path="/rwas/markets",
+        paginated=True,
+        # The default market_cap_desc order shifts while a sync pages through it, which can skip or
+        # repeat rows at page boundaries. Sorting on the id keeps every page stable.
+        extra_params={"order": "id_asc"},
+    ),
+    # Reference list of RWA id/symbol/name/asset_type rows. Single response.
+    "rwas_list": CoinGeckoEndpointConfig(
+        name="rwas_list",
+        path="/rwas/list",
+    ),
+    # Reference list of RWA issuer id/name pairs. Single response.
+    "rwas_issuers_list": CoinGeckoEndpointConfig(
+        name="rwas_issuers_list",
+        path="/rwas/issuers/list",
+    ),
 }
 
 ENDPOINTS = tuple(COINGECKO_ENDPOINTS.keys())

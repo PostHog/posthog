@@ -1,6 +1,8 @@
 import uuid
+import threading
 from datetime import UTC, datetime
-from typing import cast
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 from posthog.test.base import BaseTest
@@ -9,6 +11,9 @@ from unittest.mock import MagicMock, patch
 from django.db import OperationalError
 from django.test import override_settings
 
+import httpx
+from anthropic import APIConnectionError
+from parameterized import parameterized
 from temporalio.exceptions import CancelledError
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -38,9 +43,12 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
 )
+from products.error_tracking.backend.temporal.grouping_judge.config import JudgeConfig
 from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
     merge_issue_created_fingerprint_activity,
 )
+
+JUDGE_MODULE = "products.error_tracking.backend.temporal.grouping_judge.inline"
 
 
 def _inputs() -> FingerprintEmbeddingResultInputs:
@@ -139,6 +147,7 @@ class TestFingerprintEmbeddingResultActivity:
                 closest_fingerprints=closest_fingerprints,
                 model_name="text-embedding-3-large-3072",
                 query_duration_ms=12.3,
+                judge_properties={"live_decision": "merge"},
             )
 
         properties = capture.call_args.kwargs["properties"]
@@ -148,6 +157,7 @@ class TestFingerprintEmbeddingResultActivity:
         assert properties["rank_1_distance"] == 0.01
         assert properties["rank_2_fingerprint"] == "fingerprint-2"
         assert properties["rank_3_fingerprint"] == "fingerprint-3"
+        assert properties["live_decision"] == "merge"
 
     def test_merge_activity_reports_distances(self) -> None:
         closest_fingerprints = [
@@ -217,6 +227,44 @@ class TestFingerprintEmbeddingResultActivity:
             merge_issue_created_fingerprint_activity(_inputs())
 
         assert capture_activity_exception.called is expect_captured
+
+    def test_merge_activity_reports_an_error_decision_and_reraises_when_the_merge_raises(self) -> None:
+        error = StaleAutoMergeStateError("ownership changed")
+        capture = MagicMock()
+
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                return_value=MagicMock(id=1, uuid=uuid.uuid4()),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._query_closest_fingerprints",
+                return_value=[SimilarFingerprintDistance(fingerprint="fingerprint-1", distance=0.01)],
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._merge_fingerprint_into_closest_issue",
+                side_effect=error,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=capture,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.groups",
+                return_value={},
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
+            ),
+            pytest.raises(StaleAutoMergeStateError) as raised,
+        ):
+            merge_issue_created_fingerprint_activity(_inputs())
+
+        assert raised.value is error
+        (call,) = capture.call_args_list
+        assert call.kwargs["event"] == "error_tracking_fingerprint_embedding_result_metrics"
+        assert call.kwargs["properties"]["live_decision"] == "error"
+        assert call.kwargs["properties"]["live_target_fingerprint"] is None
 
     def test_merge_fingerprint_skips_when_auto_merge_disabled(self) -> None:
         with override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=False):
@@ -566,3 +614,105 @@ class TestAutoMergeReopensTarget(BaseTest):
         assert outcome.merged_count == 1
         assert outcome.reopened_target is not None
         assert outcome.reopened_target.issue_id == str(target.id)
+
+
+@override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True)
+class TestGroupingJudgeNeverChangesTheMerge(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        for fingerprint in ("fp-source", "fp-target"):
+            issue = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError")
+            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint=fingerprint)
+        self.target_issue_id = ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fp-target").issue_id
+
+    def _run(self, client: MagicMock | None = None, build_error: Exception | None = None) -> tuple[Any, list[Any]]:
+        inputs = FingerprintEmbeddingResultInputs(
+            team_id=self.team.id,
+            fingerprint="fp-source",
+            rendering="type_message_and_stack",
+            timestamp="2026-06-08T00:00:00Z",
+            model_name="text-embedding-3-large-3072",
+            embedding=[0.1],
+        )
+        texts = MagicMock(results=[("fp-source", "TypeError: a"), ("fp-target", "TypeError: b")])
+        capture = MagicMock()
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._query_closest_fingerprints",
+                return_value=[SimilarFingerprintDistance(fingerprint="fp-target", distance=0.01)],
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
+                return_value=capture,
+            ),
+            patch(f"{JUDGE_MODULE}.execute_hogql_query", return_value=texts),
+            patch(f"{JUDGE_MODULE}.build_ai_gateway_anthropic_client", return_value=client, side_effect=build_error),
+            patch(f"{JUDGE_MODULE}.TOTAL_BUDGET_SECONDS", 0.5),
+            patch(f"{JUDGE_MODULE}.current_judge_config", return_value=JudgeConfig(sample_rate=1.0)),
+        ):
+            result = merge_issue_created_fingerprint_activity(inputs)
+        events = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "error_tracking_fingerprint_embedding_result_metrics"
+        ]
+        return result, events
+
+    @parameterized.expand(
+        [
+            ("judged", "judged"),
+            ("judge_raises", "unavailable"),
+            ("gateway_not_configured", "unavailable"),
+            ("gateway_down", "unavailable"),
+            ("judge_hangs", "timeout"),
+            ("worker_drains_during_the_judge", "cancelled"),
+        ]
+    )
+    def test_merge_and_event_survive_any_judge_failure(self, case: str, outcome: str) -> None:
+        release = threading.Event()
+        client = MagicMock()
+        create = client.with_options.return_value.messages.create
+        build_error: Exception | None = None
+        if case == "judged":
+            create.return_value = SimpleNamespace(
+                content=[SimpleNamespace(type="tool_use", name="record_verdict", input={"same_issue": True})]
+            )
+        elif case == "judge_raises":
+            build_error = RuntimeError("judge bug")
+        elif case == "gateway_not_configured":
+            build_error = ValueError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+        elif case == "gateway_down":
+            create.side_effect = APIConnectionError(request=httpx.Request("POST", "http://gateway.example.com"))
+        elif case == "worker_drains_during_the_judge":
+            create.side_effect = CancelledError("Cancelled")
+        else:
+            create.side_effect = lambda **_: release.wait(timeout=5)
+
+        try:
+            result, events = self._run(client, build_error)
+        finally:
+            release.set()
+
+        assert (result.merged_count, result.reopened_target, result.closest_fingerprints) == (
+            1,
+            None,
+            [SimilarFingerprintDistance(fingerprint="fp-target", distance=0.01)],
+        )
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fp-source").issue_id == self.target_issue_id
+        (event,) = events
+        assert (
+            event["live_decision"],
+            event["live_target_fingerprint"],
+            event["live_merge_decision"],
+            event["judge_outcome"],
+        ) == ("merge", "fp-target", "distance", outcome)
+
+    def test_merge_and_event_survive_a_failure_outside_the_judge_call(self) -> None:
+        with patch(f"{JUDGE_MODULE}.band_for", side_effect=RuntimeError("judge bug")):
+            result, events = self._run()
+
+        assert result.merged_count == 1
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fp-source").issue_id == self.target_issue_id
+        assert [event["live_decision"] for event in events] == ["merge"]

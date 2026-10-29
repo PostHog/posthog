@@ -36,6 +36,7 @@ from posthog.hogql.database.models import (
     VirtualTable,
 )
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.filters import replace_filters
@@ -732,7 +733,7 @@ def _suggest_unshadowed_globals(*, query_globals: dict, response: HogQLAutocompl
 
 
 def _property_definition_type(table: Table, field: StringJSONDatabaseField) -> Optional[PropertyDefinition.Type]:
-    if isinstance(table, EventsPersonSubTable):
+    if isinstance(table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
         return PropertyDefinition.Type.PERSON
     if isinstance(table, EventsGroupSubTable):
         return PropertyDefinition.Type.GROUP

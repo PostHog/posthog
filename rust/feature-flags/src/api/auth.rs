@@ -48,6 +48,11 @@ pub enum TokenAuthData {
         /// this field (they resolve as `None` until the entry refreshes).
         #[serde(default)]
         current_team_id: Option<i32>,
+        /// When the key stops working; `None` means it never expires. Checked on every use,
+        /// including cache hits, so an entry cannot outlive the key. `#[serde(default)]` keeps
+        /// backwards compatibility with cached entries that predate this field.
+        #[serde(default)]
+        expires_at: Option<chrono::DateTime<chrono::Utc>>,
     },
     #[serde(rename = "project_secret")]
     ProjectSecret {
@@ -424,6 +429,7 @@ async fn load_personal_key_from_pg(
             pak.scopes,
             pak.scoped_teams,
             pak.scoped_organizations,
+            pak.expires_at,
             u.id as user_id,
             u.current_team_id,
             ARRAY(
@@ -451,6 +457,7 @@ async fn load_personal_key_from_pg(
             let scopes: Option<Vec<String>> = row.try_get("scopes")?;
             let org_ids: Vec<String> = row.try_get("org_ids")?;
             let current_team_id: Option<i32> = row.try_get("current_team_id")?;
+            let expires_at: Option<chrono::DateTime<chrono::Utc>> = row.try_get("expires_at")?;
 
             Ok(Some(TokenAuthData::Personal {
                 user_id,
@@ -460,6 +467,7 @@ async fn load_personal_key_from_pg(
                 scoped_orgs: scoped_organizations,
                 scopes,
                 current_team_id,
+                expires_at,
             }))
         }
         None => {
@@ -523,8 +531,15 @@ fn validate_personal_key_metadata(data: &TokenAuthData, team: &Team) -> Result<(
             scoped_teams,
             scoped_orgs,
             scopes,
+            expires_at,
             ..
         } => {
+            // Same rule as Django's PersonalAPIKey.is_expired: the expiry instant itself is expired
+            if expires_at.is_some_and(|expiry| expiry <= chrono::Utc::now()) {
+                debug!("Personal API key has expired");
+                return Err(FlagError::PersonalApiKeyInvalid);
+            }
+
             // Check scoped_teams restriction
             if let Some(teams) = scoped_teams {
                 if !teams.is_empty() && !teams.contains(&team.id) {
@@ -891,6 +906,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
         let json = serde_json::to_string(&data).unwrap();
         assert!(json.contains("\"type\":\"personal\""));
@@ -976,6 +992,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -999,6 +1016,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:read".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -1022,9 +1040,45 @@ mod tests {
             scoped_orgs: None,
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
+    }
+
+    /// An expired key must fail even when every other check passes, including from a cached
+    /// entry that was written before the key expired.
+    #[rstest::rstest]
+    #[case::expired_a_minute_ago(Some(chrono::Utc::now() - chrono::Duration::minutes(1)), false)]
+    #[case::expires_in_a_day(Some(chrono::Utc::now() + chrono::Duration::days(1)), true)]
+    #[case::never_expires(None, true)]
+    fn test_validate_personal_key_metadata_checks_expiry(
+        #[case] expires_at: Option<chrono::DateTime<chrono::Utc>>,
+        #[case] expected_ok: bool,
+    ) {
+        let team = Team {
+            id: 1,
+            organization_id: Some(
+                uuid::Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            ),
+            ..Default::default()
+        };
+
+        let data = TokenAuthData::Personal {
+            user_id: 42,
+            key_id: None,
+            org_ids: vec!["550e8400-e29b-41d4-a716-446655440000".to_string()],
+            scoped_teams: None,
+            scoped_orgs: None,
+            scopes: Some(vec!["feature_flag:read".to_string()]),
+            current_team_id: None,
+            expires_at,
+        };
+
+        assert_eq!(
+            validate_personal_key_metadata(&data, &team).is_ok(),
+            expected_ok
+        );
     }
 
     #[test]
@@ -1045,6 +1099,7 @@ mod tests {
             scoped_orgs: None,
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -1068,6 +1123,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["*".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -1091,6 +1147,7 @@ mod tests {
             scoped_orgs: Some(vec!["550e8400-e29b-41d4-a716-446655440000".to_string()]),
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -1114,6 +1171,7 @@ mod tests {
             scoped_orgs: Some(vec!["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string()]),
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -1137,6 +1195,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["session_recording:read".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_err());
@@ -1198,6 +1257,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec!["feature_flag:write".to_string()]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -1224,6 +1284,7 @@ mod tests {
                 "feature_flag:read".to_string(),
             ]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -1249,6 +1310,7 @@ mod tests {
             scoped_orgs: Some(vec![]),  // empty = no restriction
             scopes: None,               // None = no restriction
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());
@@ -1274,6 +1336,7 @@ mod tests {
             scoped_orgs: None,
             scopes: Some(vec![]),
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(matches!(
@@ -1298,6 +1361,7 @@ mod tests {
             scoped_orgs: None,
             scopes: None,
             current_team_id: None,
+            expires_at: None,
         };
 
         assert!(validate_personal_key_metadata(&data, &team).is_ok());

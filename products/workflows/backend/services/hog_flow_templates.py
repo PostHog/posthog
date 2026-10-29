@@ -171,6 +171,7 @@ _BUILT_IN_STEP_TEMPLATE_IDS = frozenset(
         "template-posthog-create-task",
         "template-posthog-run-scout",
         "template-posthog-classify",
+        "template-posthog-replay-vision",
         "template-posthog-capture",
         "template-posthog-update-person-properties",
         "template-posthog-group-identify",

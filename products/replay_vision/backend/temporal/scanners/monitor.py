@@ -11,8 +11,6 @@ from products.replay_vision.backend.temporal.scanners.base import (
     Segment,
     confidence_field,
     key_moment_field,
-    notability_field,
-    notability_reason_field,
     thumbnail_field,
 )
 
@@ -34,8 +32,6 @@ class MonitorLlmResponse(BaseModel, frozen=True):
 
     reasoning: str = Field(description=_REASONING_DESCRIPTION)
     verdict: MonitorVerdict = Field(description=_VERDICT_DESCRIPTION)
-    notability_reason: str | None = notability_reason_field()
-    notability: float | None = notability_field()
     confidence: float = confidence_field()
     key_moment_t: int | None = key_moment_field()
     thumbnail_t: int | None = thumbnail_field()

@@ -90,6 +90,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -103,6 +104,7 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
         files: Sequence[SessionFile] = (),
@@ -137,6 +139,7 @@ class MultiTurnSession:
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -148,6 +151,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
             output_schema=output_schema,
             analytics_query_context=analytics_query_context,
             files=files,
@@ -217,6 +221,7 @@ class MultiTurnSession:
         output_fn: OutputFn = None,
         origin_product: Task.OriginProduct | None = None,
         signal_report_id: str | None = None,
+        spend_signal_id: str | None = None,
         ai_stage: str | None = None,
         ai_agent_name: str | None = None,
         internal: bool = False,
@@ -229,6 +234,7 @@ class MultiTurnSession:
         mcp_builtin_agent_key: MCPBuiltInAgentKey | None = None,
         mcp_credential_owner_id: int | None = None,
         mcp_gateway_server_ids: list[str] | None = None,
+        mcp_tool_allowlist: list[str] | None = None,
         output_schema: dict[str, Any] | None = None,
         analytics_query_context: list[dict[str, object]] | None = None,
         files: Sequence[SessionFile] = (),
@@ -248,6 +254,9 @@ class MultiTurnSession:
         regardless of grant scope (a scout's per-scout selection). None leaves them
         unfiltered; an empty list mounts nothing.
 
+        `mcp_tool_allowlist` stamps the PostHog MCP tools the run picked. The API refuses a
+        write that no held tool calls. None leaves the run on its token scopes alone.
+
         `files` go into the sandbox before the first turn, and the first prompt lists
         their paths. Use them for text too long for the agent to pass on itself, such as
         the task of a sub-agent.
@@ -261,6 +270,7 @@ class MultiTurnSession:
             step_name=step_name,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage=ai_stage,
             ai_agent_name=ai_agent_name,
             internal=internal,
@@ -268,6 +278,7 @@ class MultiTurnSession:
             mcp_builtin_agent_key=mcp_builtin_agent_key,
             mcp_credential_owner_id=mcp_credential_owner_id,
             mcp_gateway_server_ids=mcp_gateway_server_ids,
+            mcp_tool_allowlist=mcp_tool_allowlist,
             before_task_dispatch=before_task_dispatch,
             origin_key=origin_key,
             output_schema=output_schema,
@@ -337,13 +348,27 @@ class MultiTurnSession:
         *,
         label: str = "",
         validation_context: dict[str, object] | None = None,
+        json_retry_prompt: str | None = None,
     ) -> _ModelT:
-        """Send a follow-up message and wait for the agent's next structured response."""
+        """Send a structured follow-up, optionally asking once for corrected JSON on parse or validation failure."""
         last_message = await self.send_followup_raw(message, label=label)
-        parsed = self._parse_and_validate(
-            last_message, model, label=label or "followup", validation_context=validation_context
-        )
-        return parsed
+        try:
+            return self._parse_and_validate(
+                last_message, model, label=label or "followup", validation_context=validation_context
+            )
+        except ValueError as error:
+            if json_retry_prompt is None:
+                raise
+            logger.warning(
+                "multi_turn: followup did not validate against %s for run=%s label=%s, asking for JSON once (%s)",
+                model.__name__,
+                self.task_run.id,
+                label,
+                type(error).__name__,
+            )
+        retry_label = f"{label or 'followup'} json retry"
+        retry_message = await self.send_followup_raw(json_retry_prompt, label=retry_label)
+        return self._parse_and_validate(retry_message, model, label=retry_label, validation_context=validation_context)
 
     async def send_followup_raw(
         self,

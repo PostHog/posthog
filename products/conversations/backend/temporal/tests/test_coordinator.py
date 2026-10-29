@@ -145,7 +145,7 @@ class TestCollectEligible:
 
         # One query per team: .filter().values_list("item_id", author_type, created_at) rows.
         now = timezone.now()
-        rows: list[tuple[str, str, object]] = []
+        rows: list[tuple[str, str, object]] = [(ticket_id, "customer", now - timedelta(minutes=10))]
         if has_ai:
             rows.append((ticket_id, "AI", now))
         if has_team_reply:
@@ -222,7 +222,11 @@ class TestCollectEligible:
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
         # AI note exists → engaged → skipped.
-        mock_comment_model.objects.filter.return_value.values_list.return_value = [(ticket_id, "AI", timezone.now())]
+        now = timezone.now()
+        mock_comment_model.objects.filter.return_value.values_list.return_value = [
+            (ticket_id, "customer", now - timedelta(minutes=10)),
+            (ticket_id, "AI", now),
+        ]
 
         result = _collect_eligible()
         assert result == []
@@ -406,7 +410,7 @@ class TestCollectEligibleAwaitingClarification:
         ticket.refresh_from_db()
         return team, ticket
 
-    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int):
+    def _comment(self, team, ticket, *, author_type: str, minutes_ago: int, automated_update_key: str | None = None):
         from posthog.models.comment import Comment
 
         created = timezone.now() - timedelta(minutes=minutes_ago)
@@ -415,7 +419,12 @@ class TestCollectEligibleAwaitingClarification:
             scope="conversations_ticket",
             item_id=str(ticket.id),
             content=author_type,
-            item_context={"author_type": author_type, "is_private": False, "persist_as": "clarification"},
+            item_context={
+                "author_type": author_type,
+                "is_private": False,
+                "persist_as": "clarification",
+                **({"automated_update_key": automated_update_key} if automated_update_key else {}),
+            },
         )
         Comment.objects.filter(id=comment.id).update(created_at=created)
         from products.conversations.backend.models.ticket import Ticket as TicketModel
@@ -423,6 +432,23 @@ class TestCollectEligibleAwaitingClarification:
         TicketModel.objects.filter(id=ticket.id).update(last_message_at=max(ticket.last_message_at or created, created))
         ticket.refresh_from_db()
         return comment
+
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_automated_pr_update_does_not_answer_a_customer_followup(self, mock_master_flag):
+        team, ticket = self._team_and_ticket()
+        self._comment(team, ticket, author_type="customer", minutes_ago=10)
+        self._comment(team, ticket, author_type="AI", minutes_ago=5)
+        self._comment(team, ticket, author_type="customer", minutes_ago=3)
+        self._comment(
+            team,
+            ticket,
+            author_type="AI",
+            minutes_ago=1,
+            automated_update_key="signals_pr:report:pr",
+        )
+
+        assert [item.ticket_id for item in _collect_eligible()] == [str(ticket.id)]
 
     @parameterized.expand(
         [
@@ -473,6 +499,40 @@ class TestCollectEligibleAwaitingClarification:
         else:
             assert result == []
 
+    @parameterized.expand(
+        [
+            ("opener_without_customer_reply", [("human", 4)], False, None),
+            ("settled_customer_reply_after_opener", [("human", 4), ("customer", 3)], True, None),
+            ("customer_reply_still_settling", [("human", 4), ("customer", 0)], False, None),
+            (
+                "team_replied_after_customer",
+                [("human", 4), ("customer", 3), ("human", 2)],
+                False,
+                "skipped_team_replied",
+            ),
+            ("ai_note_after_customer", [("human", 4), ("customer", 3), ("AI", 2)], False, None),
+            ("inbound_team_reply", [("customer", 4), ("human", 3)], False, "skipped_team_replied"),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_first_draft_eligibility_by_comment_order(
+        self,
+        _name,
+        comments,
+        expected_eligible,
+        expected_result,
+        mock_master_flag,
+    ):
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        for author_type, minutes_ago in comments:
+            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago)
+
+        result = _collect_eligible()
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
+        ticket.refresh_from_db()
+        assert ticket.ai_triage.get("result") == expected_result
+
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
     def test_second_clarification_round_is_not_eligible(self, mock_master_flag):
@@ -489,6 +549,48 @@ class TestCollectEligibleAwaitingClarification:
 
         result = _collect_eligible()
         assert result == []
+
+    @parameterized.expand(
+        [
+            ("ai_note_only", {}, True, None, "AI", None),
+            (
+                "channel_excluded",
+                {"ai_resolution_channels": ["email"]},
+                True,
+                None,
+                "human",
+                "skipped_channel_excluded",
+            ),
+            ("ai_data_processing_not_approved", {}, False, None, "human", None),
+            ("already_triaged", {}, True, {"status": "done", "result": "suggested"}, "human", "suggested"),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_skipped_ticket_records_reason_on_ai_triage(
+        self,
+        _name,
+        extra_settings,
+        ai_data_processing_approved,
+        existing_triage,
+        comment_author_type,
+        expected_result,
+        mock_master_flag,
+    ):
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        team.conversations_settings = {**team.conversations_settings, **extra_settings}
+        team.save()
+        team.organization.is_ai_data_processing_approved = ai_data_processing_approved
+        team.organization.save()
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        if existing_triage is not None:
+            TicketModel.objects.filter(id=ticket.id).update(ai_triage=existing_triage)
+        self._comment(team, ticket, author_type=comment_author_type, minutes_ago=3)
+
+        assert _collect_eligible() == []
+        ticket.refresh_from_db()
+        assert ticket.ai_triage.get("result") == expected_result
 
 
 class TestCoordinatorWorkflow:

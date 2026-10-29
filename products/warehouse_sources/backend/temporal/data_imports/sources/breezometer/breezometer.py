@@ -338,6 +338,4 @@ def breezometer_source(
         partition_mode="datetime",
         partition_format="week",
         partition_keys=[config.partition_key],
-        # Forecast/history rows arrive in ascending time order; single-snapshot endpoints have one row.
-        sort_mode="asc",
     )

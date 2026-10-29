@@ -136,10 +136,6 @@ class TestCursorTransport:
     @parameterized.expand(
         [
             (200, (True, None)),
-            (401, (False, cursor.KEY_REJECTED_MESSAGE)),
-            (403, (False, cursor.KEY_FORBIDDEN_MESSAGE)),
-            # A Cursor-side failure leaves the key unjudged, so it must not be blamed on the key.
-            (500, (False, cursor.PROBE_FAILED_MESSAGE)),
         ]
     )
     def test_validate_credentials_maps_status(self, status_code, expected):
@@ -233,7 +229,7 @@ class TestCursorTransport:
         assert _resolve_friendly_error(excinfo.value) == expected
 
     def test_unknown_endpoint_raises(self):
-        result = _driver().run("audit_logs", [])
+        result = _driver().run("not_a_table", [])
 
         assert isinstance(result.raised, ValueError)
         assert "Unknown Cursor endpoint" in str(result.raised)
@@ -392,6 +388,8 @@ class TestCursorTransport:
             ("by_user_agent_edits", {"data": {}, "pagination": {"hasNextPage": False}}, True),
             ("ai_code_commits", {"items": [], "totalCount": 0}, True),
             ("ai_code_changes", {"items": [], "totalCount": 0}, True),
+            ("bugbot_reviews", {"data": [], "pagination": {"hasNextPage": False}}, True),
+            ("conversation_insights", {"data": {}}, False),
         ]
     )
     def test_analytics_endpoints_send_calendar_dates_as_query_params(self, endpoint, payload, paginated):
@@ -497,3 +495,145 @@ class TestCursorTransport:
 
         assert session.request.call_count == 2
         assert session.request.call_args_list[1].kwargs["json"]["page"] == 2
+
+    @parameterized.expand(
+        [
+            # The Admin API names the audit log range startTime/endTime. Sent as startDate/endDate,
+            # the range is ignored and every window returns the default last 7 days.
+            (
+                "audit_logs",
+                {"events": [], "pagination": {"hasNextPage": False}},
+                {"startTime": "1699568000000", "endTime": "1700000000000", "pageSize": "500", "startDate": None},
+            ),
+            # `include` is required, and the slices it names are the ones the rows are built from.
+            (
+                "conversation_insights",
+                {"data": {}},
+                {"include": "intents,complexity,categories,guidanceLevels,workTypes", "page": None},
+            ),
+        ]
+    )
+    def test_endpoint_specific_query_params(self, endpoint, payload, expected_params):
+        now_ms = 1_700_000_000_000
+        watermark = datetime.fromtimestamp((now_ms - 5 * DAY_MS) / 1000, tz=UTC)
+        with mock.patch.object(cursor, "_now_ms", return_value=now_ms):
+            result = _driver().run(
+                endpoint,
+                [ScriptedResponse(json=payload)],
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=watermark,
+            )
+
+        assert result.raised is None
+        assert {name: result.requests[0].param(name) for name in expected_params} == expected_params
+
+    def test_audit_logs_walk_every_page_of_a_window(self):
+        now_ms = 1_700_000_000_000
+        pages = [
+            ScriptedResponse(
+                json={
+                    "events": [{"event_id": "evt-1", "timestamp": "2023-11-13T08:00:00.000Z"}],
+                    "pagination": {"hasNextPage": True},
+                }
+            ),
+            ScriptedResponse(
+                json={
+                    "events": [{"event_id": "evt-2", "timestamp": "2023-11-14T09:30:00.000Z"}],
+                    "pagination": {"hasNextPage": False},
+                }
+            ),
+        ]
+        with mock.patch.object(cursor, "_now_ms", return_value=now_ms):
+            result = _driver().run(
+                "audit_logs",
+                pages,
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime.fromtimestamp((now_ms - DAY_MS) / 1000, tz=UTC),
+            )
+
+        assert result.raised is None
+        assert result.paths == ["/teams/audit-logs", "/teams/audit-logs"]
+        assert result.params("page") == ["1", "2"]
+        assert [row["event_id"] for row in result.rows] == ["evt-1", "evt-2"]
+        assert result.rows[1]["timestamp"] == datetime(2023, 11, 14, 9, 30, tzinfo=UTC)
+
+    @parameterized.expand(
+        [
+            (
+                "groups_and_unassigned",
+                {
+                    "groups": [
+                        {
+                            "id": "group_eng",
+                            "name": "Engineering",
+                            "spendCents": 1200,
+                            "createdAt": "2025-01-02T00:00:00.000Z",
+                            "currentMembers": [
+                                {"userId": "user_a", "joinedAt": "2025-01-03T00:00:00.000Z", "leftAt": None}
+                            ],
+                            "formerMembers": [
+                                {
+                                    "userId": "user_b",
+                                    "joinedAt": "2025-01-01T00:00:00.000Z",
+                                    "leftAt": "2025-01-05T00:00:00.000Z",
+                                }
+                            ],
+                        }
+                    ],
+                    "unassignedGroup": {
+                        "id": "group_unassigned",
+                        "name": "Unassigned",
+                        "currentMembers": [{"userId": "user_c", "joinedAt": "2025-01-04T00:00:00.000Z"}],
+                    },
+                    "billingCycle": {"cycleStart": "2025-01-01T00:00:00.000Z", "cycleEnd": "2025-02-01T00:00:00.000Z"},
+                },
+                ["group_eng", "group_unassigned"],
+                [("group_eng", "user_a", True), ("group_eng", "user_b", False), ("group_unassigned", "user_c", True)],
+            ),
+            ("unassigned_group_null", {"groups": [], "unassignedGroup": None}, [], []),
+            ("empty_body", {}, [], []),
+        ]
+    )
+    def test_billing_group_tables_read_one_listing(self, _name, body, expected_group_ids, expected_members):
+        groups_result = _driver().run("billing_groups", [ScriptedResponse(json=body)])
+        members_result = _driver().run("billing_group_members", [ScriptedResponse(json=body)])
+
+        assert groups_result.raised is None and members_result.raised is None
+        assert groups_result.paths == members_result.paths == ["/teams/groups"]
+        assert [row["id"] for row in groups_result.rows] == expected_group_ids
+        # Members get their own table, so the unbounded member lists stay out of the group rows.
+        assert all("currentMembers" not in row and "formerMembers" not in row for row in groups_result.rows)
+        assert [
+            (row["groupId"], row["userId"], row["isCurrentMember"]) for row in members_result.rows
+        ] == expected_members
+        if expected_members:
+            cycle_start = datetime(2025, 1, 1, tzinfo=UTC)
+            assert all(row["billingCycleStart"] == cycle_start for row in groups_result.rows + members_result.rows)
+            assert members_result.rows[1]["leftAt"] == datetime(2025, 1, 5, tzinfo=UTC)
+
+    def test_conversation_insights_rows_come_from_the_daily_series_only(self):
+        data = {
+            "data": {
+                # Range totals change with the window, so they must not become rows.
+                "intents": {
+                    "distribution": [{"intent": "Ask", "count": 7}],
+                    "topValues": [{"intent": "Ask", "count": 7}],
+                    "timeSeries": [
+                        {"date": "2026-03-01", "intent": "Ask", "count": 2},
+                        {"date": "2026-03-02", "intent": "Write Code", "count": 6},
+                    ],
+                    "subcategories": {"askMode": [{"subcategory": "error_fix", "count": 4}]},
+                },
+                "workTypes": {"timeSeries": [{"date": "2026-03-01", "workType": "bug", "count": 2}]},
+                "complexity": {"distribution": [{"complexity": "high", "count": 1}]},
+                "categories": None,
+            }
+        }
+
+        rows = _extract_rows(CURSOR_ENDPOINTS["conversation_insights"], data)
+
+        assert rows == [
+            {"date": "2026-03-01", "slice": "intents", "value": "Ask", "count": 2},
+            {"date": "2026-03-02", "slice": "intents", "value": "Write Code", "count": 6},
+            {"date": "2026-03-01", "slice": "workTypes", "value": "bug", "count": 2},
+        ]

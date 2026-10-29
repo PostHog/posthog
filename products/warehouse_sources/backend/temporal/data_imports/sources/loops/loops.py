@@ -1,10 +1,15 @@
 import dataclasses
+from collections.abc import Iterator
 from typing import Any, Optional
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import BearerTokenAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
     DependentEndpointConfig,
@@ -14,10 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
     Endpoint,
     EndpointResource,
+    ResponseAction,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -28,6 +35,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.loops.sett
 )
 
 BASE_URL = "https://app.loops.so/api"
+
+SEND_EMAIL_NODE_TYPE = "SendEmailAction"
+
+# Loops answers 400 for a node with no email message, and 404 for a workflow or node deleted after
+# the parent listing. Neither has metrics.
+_WORKFLOW_NODE_RESPONSE_ACTIONS: list[ResponseAction] = [
+    {"status_code": 400, "action": "ignore"},
+    {"status_code": 404, "action": "ignore"},
+]
 
 
 @dataclasses.dataclass
@@ -110,10 +126,53 @@ def _fanout_source_response(
     return SourceResponse(
         name=endpoint_config.name,
         items=lambda: resource,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=list(endpoint_config.primary_keys),
         partition_count=1,
         partition_size=1,
     )
+
+
+def _iter_workflow_node_metrics(
+    client: RESTClient,
+    endpoint_config: LoopsEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[LoopsResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    hooks = create_response_hooks(_WORKFLOW_NODE_RESPONSE_ACTIONS, resource_name=endpoint_config.name)
+
+    for workflows in client.paginate(
+        path=LOOPS_ENDPOINTS["workflows"].path,
+        params={"perPage": PAGE_SIZE},
+        paginator=JSONResponseCursorPaginator(cursor_path="pagination.nextCursor", cursor_param="cursor"),
+        data_selector="data",
+    ):
+        for summary in workflows:
+            workflow_id = summary["id"]
+            for details in client.paginate(
+                path=f"/v1/workflows/{workflow_id}", paginator=SinglePagePaginator(), data_selector="$", hooks=hooks
+            ):
+                for workflow in details:
+                    for node_id, node in (workflow.get("nodes") or {}).items():
+                        if node.get("typeName") != SEND_EMAIL_NODE_TYPE:
+                            continue
+                        for metrics in client.paginate(
+                            path=endpoint_config.path.format(workflowId=workflow_id, nodeId=node_id),
+                            paginator=SinglePagePaginator(),
+                            data_selector="$",
+                            hooks=hooks,
+                        ):
+                            yield [
+                                {
+                                    **row,
+                                    "workflowId": workflow_id,
+                                    "nodeId": node_id,
+                                    "emailMessageId": node.get("emailMessageId"),
+                                    "subject": node.get("subject"),
+                                }
+                                for row in metrics
+                            ]
+                        # Many nodes return no metrics, so a long run of requests can pass without a yield.
+                        resumable_source_manager.safe_point()
+            resumable_source_manager.safe_point()
 
 
 def loops_source(
@@ -127,6 +186,21 @@ def loops_source(
 
     if endpoint_config.fanout is not None:
         return _fanout_source_response(api_key, endpoint_config, endpoint_config.fanout, team_id, job_id)
+
+    if endpoint_config.per_workflow_node:
+        client = RESTClient(
+            base_url=BASE_URL,
+            headers={"Accept": "application/json"},
+            auth=BearerTokenAuth(token=api_key),
+            request_timeout=(10, 60),
+        )
+        return SourceResponse(
+            name=endpoint_config.name,
+            items=lambda: _iter_workflow_node_metrics(client, endpoint_config, resumable_source_manager),
+            primary_keys=list(endpoint_config.primary_keys),
+            partition_count=1,
+            partition_size=1,
+        )
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key),
@@ -161,7 +235,7 @@ def loops_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=[endpoint_config.primary_key],
+        primary_keys=list(endpoint_config.primary_keys),
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

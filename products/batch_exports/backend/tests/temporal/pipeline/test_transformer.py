@@ -1,13 +1,17 @@
 import io
 import csv
 import json
+import random
 import typing
+import hashlib
 import datetime as dt
 import functools
+import collections.abc
 
 import pytest
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from products.batch_exports.backend.temporal.pipeline.table import (
     Field,
@@ -18,6 +22,7 @@ from products.batch_exports.backend.temporal.pipeline.table import (
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     CSVStreamTransformer,
     JSONLStreamTransformer,
+    ParquetStreamTransformer,
     PipelineTransformer,
     SchemaTransformer,
     _ensure_curly_brackets_array,
@@ -147,6 +152,125 @@ async def test_csv_stream_transformer_writes_record_batches():
         assert "_inserted_at" not in row
         expected_row = [str(v) for k, v in TEST_RECORDS[index].items() if k != "_inserted_at"]
         assert row == expected_row
+
+
+async def iterate_record_batches(
+    record_batches: list[pa.RecordBatch],
+) -> collections.abc.AsyncIterator[pa.RecordBatch]:
+    for record_batch in record_batches:
+        yield record_batch
+
+
+async def collect_parquet_files(
+    transformer: ParquetStreamTransformer, record_batches: list[pa.RecordBatch]
+) -> list[bytes]:
+    files: list[bytes] = []
+    current_file = b""
+    async for chunk in transformer.iter(iterate_record_batches(record_batches)):
+        current_file += chunk.data
+        if chunk.is_eof:
+            files.append(current_file)
+            current_file = b""
+    return files
+
+
+@pytest.mark.parametrize(
+    "max_file_size_bytes,compression",
+    [(0, None), (256 * 1024, None), (256 * 1024, "zstd")],
+)
+@pytest.mark.asyncio
+async def test_parquet_stream_transformer_writes_small_record_batches_as_large_row_groups(
+    max_file_size_bytes, compression
+):
+    records = [
+        {
+            "uuid": f"uuid-{index}",
+            "properties": json.dumps(
+                {
+                    "index": index,
+                    "padding": "".join(hashlib.sha256(f"{index}-{n}".encode()).hexdigest() for n in range(16)),
+                }
+            ),
+        }
+        for index in range(1000)
+    ]
+    record_batches = pa.Table.from_pylist(records).to_batches(max_chunksize=10)
+
+    transformer = ParquetStreamTransformer(
+        compression=compression, max_file_size_bytes=max_file_size_bytes, max_buffered_arrow_bytes=64 * 1024
+    )
+    files = await collect_parquet_files(transformer, record_batches)
+
+    parquet_files = [pq.ParquetFile(io.BytesIO(file)) for file in files]
+    assert all(parquet_file.metadata.num_rows > 0 for parquet_file in parquet_files)
+    # Writing each record batch as its own row group would give one row group per batch. The exact count
+    # depends on where files split and on the learned compression ratio, so only check that batches are combined.
+    assert sum(parquet_file.metadata.num_row_groups for parquet_file in parquet_files) < len(record_batches) / 2
+    assert [row for parquet_file in parquet_files for row in parquet_file.read().to_pylist()] == records
+    # A file closes when less than 5% of its max size is left, and can go over by the error in the compression
+    # ratio, so full files land near the max but not on it. The last file holds the remaining rows, so it can be small.
+    if max_file_size_bytes:
+        assert len(files) > 1
+        assert all(0.9 * max_file_size_bytes <= len(file) <= 1.1 * max_file_size_bytes for file in files[:-1])
+
+
+@pytest.mark.asyncio
+async def test_parquet_stream_transformer_bounds_file_size_when_compression_gets_worse():
+    max_file_size_bytes = 1024 * 1024
+    rng = random.Random(0)
+    compressible = [
+        pa.RecordBatch.from_pydict({"properties": ['{"a": "' + "x" * 10_000 + '"}'] * 20}) for _ in range(30)
+    ]
+    incompressible = [
+        pa.RecordBatch.from_pydict({"properties": [rng.randbytes(5_000).hex() for _ in range(20)]}) for _ in range(40)
+    ]
+
+    transformer = ParquetStreamTransformer(compression="zstd", max_file_size_bytes=max_file_size_bytes)
+    files = await collect_parquet_files(transformer, compressible + incompressible)
+
+    assert max(len(file) for file in files) <= 2 * max_file_size_bytes
+
+
+@pytest.mark.asyncio
+async def test_parquet_stream_transformer_skips_statistics_and_dictionaries_only_for_json_columns():
+    record_batch = pa.RecordBatch.from_pylist(
+        [
+            {"uuid": "a", "tags": ["x", "y"], "person": {"name": "a"}, "properties": '{"a": 1}'},
+            {"uuid": "b", "tags": ["z"], "person": {"name": "b"}, "properties": '{"b": 2}'},
+        ]
+    )
+
+    transformer = ParquetStreamTransformer()
+    (data,) = await collect_parquet_files(transformer, [record_batch])
+
+    row_group = pq.ParquetFile(io.BytesIO(data)).metadata.row_group(0)
+    columns = [row_group.column(index) for index in range(row_group.num_columns)]
+    assert {
+        column.path_in_schema: column.statistics is not None and column.statistics.has_min_max for column in columns
+    } == {
+        "uuid": True,
+        "tags.list.element": True,
+        "person.name": True,
+        "properties": False,
+    }
+    assert {column.path_in_schema: "RLE_DICTIONARY" in column.encodings for column in columns} == {
+        "uuid": True,
+        "tags.list.element": True,
+        "person.name": True,
+        "properties": False,
+    }
+
+
+@pytest.mark.asyncio
+async def test_parquet_stream_transformer_without_metrics_runs_outside_temporal(settings):
+    # get_metric_meter only raises outside Temporal when DEBUG and TEST are both off.
+    settings.DEBUG = False
+    settings.TEST = False
+
+    transformer = ParquetStreamTransformer(record_metrics=False, max_buffered_arrow_bytes=1)
+    (data,) = await collect_parquet_files(transformer, [pa.RecordBatch.from_pylist([{"uuid": "a"}])])
+
+    assert pq.ParquetFile(io.BytesIO(data)).metadata.num_rows == 1
 
 
 class FakeField(Field):

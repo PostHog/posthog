@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
     DAY_INCREMENTAL_FIELDS,
+    FULL_REFRESH_PRIMARY_KEYS,
     REQUIRED_SCOPES,
     REVISION_LOOKBACK_SECONDS,
     YOUTUBE_ANALYTICS_REPORTS,
@@ -63,6 +64,10 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.YOUTUBEANALYTICS
+
+    @property
+    def credential_kind(self) -> str | None:
+        return "youtube-analytics"
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
@@ -175,8 +180,18 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
                 # every incremental run instead of freezing a day at its first-imported value.
                 default_incremental_lookback_seconds=REVISION_LOOKBACK_SECONDS,
                 detected_primary_keys=report.primary_keys,
+                should_sync_default=report.should_sync_default,
             )
             for report in YOUTUBE_ANALYTICS_REPORTS.values()
+        ] + [
+            SourceSchema(
+                name=name,
+                supports_incremental=False,
+                supports_append=False,
+                incremental_fields=[],
+                detected_primary_keys=primary_keys,
+            )
+            for name, primary_keys in FULL_REFRESH_PRIMARY_KEYS.items()
         ]
 
         if names is not None:
@@ -253,7 +268,7 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
             docsUrl="https://posthog.com/docs/cdp/sources/youtube-analytics",
             iconPath="/static/services/youtube_analytics.png",
             featureFlag="dwh_youtube_analytics",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["youtube", "yt"],
             fields=cast(
                 list[FieldType],
@@ -275,6 +290,7 @@ class YouTubeAnalyticsSource(ResumableSource[YouTubeAnalyticsSourceConfig, YouTu
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

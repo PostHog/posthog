@@ -20,8 +20,10 @@ class InsightResult:
     query_status: Optional[Any] = None
     hogql: Optional[str] = None
     types: Optional[list] = None
-    # A ResolvedDateRangeResponse-shaped dict — the field carries model_dump output
+    # ResolvedDateRangeResponse-shaped dicts — the fields carry model_dump output
     resolved_date_range: Optional[dict] = None
+    resolved_compare_date_range: Optional[dict] = None
+    action_names: Optional[dict[str, str]] = None
     # A QueryScanSummary dict. The insight serializer puts the stored analysis on it.
     query_scan: Optional[dict] = None
     warnings: Optional[list] = None

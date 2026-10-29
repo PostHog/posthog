@@ -3,6 +3,12 @@ import type { ReactElement } from 'react'
 import { DescriptionList, formatDate } from '@posthog/mcp-ui'
 import { Badge, Button, Card, CardContent } from '@posthog/quill'
 
+import type {
+    ErrorTrackingIssueSummaryApi,
+    IssueSummaryCategoryEnumApi,
+    IssueSummaryStatusEnumApi,
+} from '../../frontend/generated/api.schemas'
+
 export interface ExternalIssue {
     external_url: string
     integration?: { display_name?: string }
@@ -47,6 +53,15 @@ export function formatBreakdownValues(values: ErrorIssueBreakdownValue[] | undef
     return (values ?? []).map(({ value, count }) => `${value} (${count})`).join(', ')
 }
 
+const summaryCategoryLabels: Record<IssueSummaryCategoryEnumApi, string> = {
+    own_code: 'Own code',
+    third_party: 'Third party',
+    network: 'Network',
+    bots: 'Bots',
+    expected: 'Expected',
+    unclear: 'Unclear',
+}
+
 export interface ErrorIssueData {
     id: string
     name: string
@@ -56,6 +71,8 @@ export interface ErrorIssueData {
     assignee?: { id: string; type: string } | null
     external_issues?: ExternalIssue[]
     breakdown?: ErrorIssueBreakdown
+    summary?: ErrorTrackingIssueSummaryApi
+    summary_status?: IssueSummaryStatusEnumApi
     _posthogUrl?: string
 }
 
@@ -87,6 +104,32 @@ export function ErrorIssueView({ issue }: ErrorIssueViewProps): ReactElement {
                     </div>
                     {issue.description && <span className="text-sm text-muted-foreground">{issue.description}</span>}
                 </div>
+
+                {issue.summary && (
+                    <Card>
+                        <CardContent>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-sm font-semibold">Summary</span>
+                                    {issue.summary.category && (
+                                        <Badge>{summaryCategoryLabels[issue.summary.category]}</Badge>
+                                    )}
+                                </div>
+                                <span className="text-xs text-muted-foreground">
+                                    Written by AI. Check it against the details below.
+                                </span>
+                                <DescriptionList
+                                    items={[
+                                        { label: 'What happened', value: issue.summary.what_happened },
+                                        { label: 'Likely cause (hypothesis)', value: issue.summary.likely_cause },
+                                        { label: 'Who is affected', value: issue.summary.who_is_affected },
+                                        { label: 'Next step', value: issue.summary.suggested_next_step },
+                                    ]}
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
+                )}
 
                 <Card>
                     <CardContent>

@@ -2,12 +2,14 @@
 
 use std::time::Duration;
 
+use anyhow::Context;
 use common_database::PoolConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use common_types::cohort::TeamAllowlist;
 use envconfig::Envconfig;
 
 use crate::consumer::ShufflerSettings;
+use crate::event::SourcePartitionRange;
 
 const POOL_NAME: &str = "posthog_cohort";
 
@@ -119,12 +121,20 @@ impl Config {
         format!("{}:{}", self.bind_host, self.bind_port)
     }
 
-    pub fn shuffler_settings(&self) -> ShufflerSettings {
-        ShufflerSettings {
+    pub fn shuffler_settings(&self) -> anyhow::Result<ShufflerSettings> {
+        let source_partitions = SourcePartitionRange::for_input_topic(&self.input_topic)
+            .with_context(|| {
+                format!(
+                    "INPUT_TOPIC {:?} has no slot in the shuffler's input topic table",
+                    self.input_topic
+                )
+            })?;
+        Ok(ShufflerSettings {
+            source_partitions,
             max_inflight_forwards: self.max_inflight_forwards,
             commit_interval: Duration::from_millis(self.commit_interval_ms),
             queue_full_backoff: Duration::from_millis(self.queue_full_backoff_ms),
-        }
+        })
     }
 
     pub fn team_index_refresh_interval(&self) -> Duration {
@@ -260,6 +270,13 @@ mod tests {
         let consumer = config.build_consumer_config();
         assert!(!consumer.kafka_consumer_auto_commit);
         assert_eq!(consumer.kafka_consumer_topic, "clickhouse_events_json");
+    }
+
+    #[test]
+    fn shuffler_settings_refuse_an_input_topic_without_a_slot() {
+        let mut config = test_config();
+        config.input_topic = "clickhouse_events_json_v2".to_string();
+        assert!(config.shuffler_settings().is_err());
     }
 
     #[test]

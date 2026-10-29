@@ -8,7 +8,7 @@ infrastructure (in-memory embedding store replaces ClickHouse + Kafka).
 
 After grouping, each report is judged for safety (prompt injection detection).
 
-Captures four levels of metrics:
+Records four levels of metrics:
 - Per-signal matching: correct_match (binary), correct_match_pre_specificity
   (binary, LLM matcher decision before specificity judge),
   failure_mode (categorical: NONE, UNDERGROUP, OVERGROUP),
@@ -30,8 +30,6 @@ import uuid
 import asyncio
 import logging
 from itertools import combinations
-from time import time
-from typing import Any
 
 import pytest
 
@@ -59,7 +57,6 @@ from products.signals.backend.temporal.types import (
     SignalCandidate,
     SpecificityMetadata,
 )
-from products.signals.eval.capture import EvalMetric, capture_evaluation, deterministic_uuid
 from products.signals.eval.common import (
     MAX_CONCURRENT_RUNS,
     EvalProgress,
@@ -70,6 +67,8 @@ from products.signals.eval.common import (
 from products.signals.eval.conftest import EVAL_TEAM_ID
 from products.signals.eval.fixtures.grouping_data import GROUP_DATA
 from products.signals.eval.mock import EmbeddingStore, ReportStore
+from products.signals.eval.offline import EvalMetric, SignalsEvalRecorder
+from products.signals.eval.offline_config import GROUPING_SUITE
 
 TRANSPORT_RETRIES = 3
 
@@ -82,17 +81,18 @@ class EvalGroupingPipeline:
         return MagicMock(id=EVAL_TEAM_ID)
 
     @pytest.fixture(autouse=True)
-    def _setup(self, posthog_client, openai_client, gateway_client, mock_temporal, limit, no_capture, online):
-        self.posthog_client = posthog_client
+    def _setup(self, openai_client, gateway_client, mock_temporal, limit, no_capture, eval_metadata):
+        self.results = SignalsEvalRecorder(
+            GROUPING_SUITE,
+            disabled=no_capture,
+            metadata=eval_metadata,
+        )
         self.gateway_client = gateway_client
         self.openai_client = openai_client
         self.store = EmbeddingStore(openai_client)
         self.report_store = ReportStore()
         self.limit = limit
-        self.no_capture = no_capture
-        self.online = online
         self._match_lock = asyncio.Lock()
-        self.start_time = time()
 
         # Suppress structlog noise from downstream modules during the eval
         root_logger = logging.getLogger()
@@ -121,8 +121,9 @@ class EvalGroupingPipeline:
         await self._judge_reports()
         self.progress.done()
 
-        self._capture_grouping_quality()
-        self._capture_aggregate_metrics(stream)
+        self._record_grouping_quality()
+        self._record_aggregate_metrics(stream)
+        await self.results.publish()
 
     async def run_signal_pipeline_concurrently(self, sem: asyncio.Semaphore, record_id: int, case: EvalSignalCase):
         async with sem:
@@ -143,7 +144,7 @@ class EvalGroupingPipeline:
             safety_result = await safety_filter(
                 EVAL_TEAM_ID, description, source_product=case.signal.content.source_product
             )
-            await self._capture_safety_filter(case, safety_result)
+            await self._record_safety_filter(case, safety_result)
 
             if not safety_result.safe:
                 self.progress.signal_dropped()
@@ -157,7 +158,7 @@ class EvalGroupingPipeline:
                 match_result, specificity_result, candidates = await self._match(
                     description, case, queries, query_embeddings
                 )
-                self._capture_match_quality(
+                self._record_match_quality(
                     case, match_result, specificity_result, queries, query_embeddings, candidates
                 )
                 self._persist_signal(record_id, description, case, specificity_result, signal_embedding)
@@ -308,15 +309,15 @@ class EvalGroupingPipeline:
                 config.actionability_prompt,
                 context_fields=config.actionability_context_fields,
             )
-            await self._capture_pre_emit_actionability(case, None, is_actionable)
+            await self._record_pre_emit_actionability(case, None, is_actionable)
             if not is_actionable:
                 return None
 
         return output.description or None
 
-    async def _capture_safety_filter(self, case: EvalSignalCase, result):
+    async def _record_safety_filter(self, case: EvalSignalCase, result):
         passed = result.safe == case.safe
-        self._capture(
+        self.results.record(
             eval_name="signal-safety-filter",
             item_name=f"filter-{case.group_index}-{case.signal_index}",
             input=case.signal.content.description,
@@ -325,19 +326,16 @@ class EvalGroupingPipeline:
             metrics=[
                 EvalMetric(
                     name="correct_classification",
-                    result_type="binary",
                     score=1.0 if passed else 0.0,
-                    score_min=0,
-                    score_max=1,
                     reasoning=result.explanation,
                 ),
             ],
             passed=passed,
         )
 
-    async def _capture_pre_emit_actionability(self, case: EvalSignalCase, thoughts: str | None, outcome: bool):
+    async def _record_pre_emit_actionability(self, case: EvalSignalCase, thoughts: str | None, outcome: bool):
         passed = outcome == case.actionable
-        self._capture(
+        self.results.record(
             eval_name=f"{case.signal.config.source_product.lower()}-actionability-check",
             item_name=f"case-{case.group_index}-{case.signal_index}",
             input=case.signal.content.description,
@@ -346,17 +344,14 @@ class EvalGroupingPipeline:
             metrics=[
                 EvalMetric(
                     name="correct_classification",
-                    result_type="binary",
                     score=1.0 if passed else 0.0,
-                    score_min=0,
-                    score_max=1,
                     reasoning=thoughts,
                 )
             ],
             passed=passed,
         )
 
-    def _capture_match_quality(
+    def _record_match_quality(
         self,
         case: EvalSignalCase,
         match_result: MatchResult,
@@ -365,7 +360,7 @@ class EvalGroupingPipeline:
         query_embeddings: list[list[float]],
         candidates: list[list[SignalCandidate]],
     ):
-        """Captures whether the matching decision was correct and classifies the failure mode."""
+        """Records whether the matching decision was correct and classifies the failure mode."""
         expected_report = self.report_store.find_report_by_group_index(case.group_index)
         expected_id = expected_report.context.report_id if expected_report else None
         expected = "NEW_REPORT" if expected_report is None else "EXISTING_REPORT"
@@ -430,7 +425,7 @@ class EvalGroupingPipeline:
             else None,
         }
 
-        self._capture(
+        self.results.record(
             eval_name="match-quality",
             item_name=f"match-{case.group_index}-{case.signal_index}",
             input=case.signal.content.description,
@@ -439,30 +434,20 @@ class EvalGroupingPipeline:
             metrics=[
                 EvalMetric(
                     name="correct_match",
-                    result_type="binary",
                     score=1.0 if correct else 0.0,
-                    score_min=0,
-                    score_max=1,
                     reasoning=None if correct else f"Failure mode: {specificity_failure_mode.value}",
                 ),
                 EvalMetric(
                     name="correct_match_pre_specificity",
-                    result_type="binary",
                     score=1.0 if pre_specificity_correct else 0.0,
-                    score_min=0,
-                    score_max=1,
                     reasoning=None if pre_specificity_correct else f"Failure mode: {match_failure_mode.value}",
                 ),
                 EvalMetric(
                     name="query_diversity",
-                    description="Average pairwise cosine distance between query embeddings (0 = identical, 1 = orthogonal)",
-                    result_type="numeric",
                     score=query_diversity,
                 ),
                 EvalMetric(
                     name="candidate_diversity",
-                    description="Average (1 - Jaccard similarity) across query pairs' candidate sets (0 = identical, 1 = disjoint)",
-                    result_type="numeric",
                     score=candidate_diversity,
                 ),
             ],
@@ -486,7 +471,7 @@ class EvalGroupingPipeline:
             report.safety_choice = safety_result.choice
             passed = safety_result.choice == expected_safe
 
-            self._capture(
+            self.results.record(
                 eval_name="report-safety-check",
                 item_name=f"report-{report_id[:12]}",
                 input=f"report-{report_id[:12]} ({len(signals)} signals)",
@@ -495,7 +480,6 @@ class EvalGroupingPipeline:
                 metrics=[
                     EvalMetric(
                         name="correct_classification",
-                        result_type="binary",
                         score=1.0 if passed else 0.0,
                         reasoning=safety_result.explanation,
                     ),
@@ -507,7 +491,7 @@ class EvalGroupingPipeline:
             logging.getLogger(__name__).exception("Judging report %s failed", report_id[:12])
             self.progress.report_judged()
 
-    def _capture_grouping_quality(self):
+    def _record_grouping_quality(self):
         """Per-report metrics: purity, is_pure, group_recall."""
         for report in self.report_store.all_reports():
             groups = report.true_signal_groups
@@ -526,20 +510,20 @@ class EvalGroupingPipeline:
             group_recall = dominant_count / total_in_group
             input = [sig.content for sig in self.store.get_signals_for_report(report.context.report_id)]
 
-            self._capture(
+            self.results.record(
                 eval_name="grouping-quality",
                 item_name=f"report-{report.context.report_id[:12]}",
                 input=input,
                 output=report.context.title,
                 expected=f"group-{dominant_group}",
                 metrics=[
-                    EvalMetric(name="purity", result_type="numeric", score=purity),
-                    EvalMetric(name="is_pure", result_type="binary", score=1.0 if is_pure else 0.0),
-                    EvalMetric(name="group_recall", result_type="numeric", score=group_recall),
+                    EvalMetric(name="purity", score=purity),
+                    EvalMetric(name="is_pure", score=1.0 if is_pure else 0.0),
+                    EvalMetric(name="group_recall", score=group_recall),
                 ],
             )
 
-    def _capture_aggregate_metrics(self, stream: list[EvalSignalCase]):
+    def _record_aggregate_metrics(self, stream: list[EvalSignalCase]):
         """Global clustering metrics: ARI, homogeneity, completeness, mean_purity, mean_group_recall, malicious_leaked_rate."""
 
         true_labels: list[int] = []
@@ -594,7 +578,7 @@ class EvalGroupingPipeline:
             file=sys.stderr,
         )
 
-        self._capture(
+        self.results.record(
             eval_name="grouping-aggregate",
             item_name="aggregate statistics",
             input=f"{len(stream)} signals, {n_groups_expected} true groups",
@@ -603,71 +587,28 @@ class EvalGroupingPipeline:
             metrics=[
                 EvalMetric(
                     name="ari",
-                    description="Adjusted rand index — chance-corrected clustering similarity, -1 (worst) to 1 (perfect)",
-                    result_type="numeric",
                     score=ari,
-                    score_min=0,
-                    score_max=1,
                 ),
                 EvalMetric(
                     name="homogeneity",
-                    description="Each report contains only signals from a single true group (1.0 = no overgrouping)",
-                    result_type="numeric",
                     score=homogeneity,
                 ),
                 EvalMetric(
                     name="completeness",
-                    description="All signals from a true group are assigned to the same report (1.0 = no undergrouping)",
-                    result_type="numeric",
                     score=completeness,
                 ),
                 EvalMetric(
                     name="mean_purity",
-                    description="Average fraction of signals from the dominant group per report",
-                    result_type="numeric",
                     score=mean_purity,
                 ),
                 EvalMetric(
                     name="group_recall",
-                    description="Average fraction of a true group's signals captured by its best report",
-                    result_type="numeric",
                     score=mean_group_recall,
                 ),
                 EvalMetric(
                     name="malicious_leaked_rate",
-                    description="Fraction of unsafe signals that leaked through the pipeline (not dropped at pre-emit or caught by safety judge)",
-                    result_type="numeric",
                     score=unsafe_leaked_rate,
                     reasoning=f"{unsafe_leaked}/{total_unsafe} malicious signals leaked through",
                 ),
             ],
-        )
-
-    def _capture(
-        self,
-        eval_name: str,
-        item_name: str,
-        input: Any,
-        output: Any,
-        expected: Any,
-        metrics: list[EvalMetric],
-        passed: bool = True,
-    ):
-        if self.no_capture:
-            return
-        experiment_id = deterministic_uuid(eval_name)
-        item_id = deterministic_uuid(f"{eval_name}:{item_name}:{self.start_time}")
-        capture_evaluation(
-            client=self.posthog_client,
-            dataset_id=None,
-            experiment_id=experiment_id,
-            experiment_name=eval_name,
-            item_id=item_id,
-            item_name=item_name,
-            input=input,
-            output=output,
-            expected=expected,
-            metrics=metrics,
-            eval_type="online" if self.online else "offline",
-            passed=passed,
         )

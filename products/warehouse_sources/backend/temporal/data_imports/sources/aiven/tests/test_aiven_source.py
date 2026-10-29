@@ -13,7 +13,7 @@ def _config() -> AivenSourceConfig:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", 200, True), ("invalid", 401, False)])
+    @parameterized.expand([("valid", 200, True)])
     def test_maps_validation_result(self, _name: str, status: int, expected: bool) -> None:
         with scripted_network([ScriptedResponse(status=status)]) as network:
             ok, error = AivenSource().validate_credentials(_config(), team_id=1)

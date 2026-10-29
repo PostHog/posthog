@@ -221,6 +221,7 @@ class TestInjectFreshTokensOnResumeActivity:
             github_integration_id=None,
             github_user_integration_id="user-integration-id",
             repository=None,
+            origin_product=task.origin_product,
             distinct_id=user.distinct_id or "test-distinct-id",
             task_created_by_id=user.id,
             state=task_run.state,
@@ -278,6 +279,7 @@ class TestInjectFreshTokensOnResumeActivity:
             github_integration_id=github_integration.id,
             github_user_integration_id=None,
             repository=None,
+            origin_product=task.origin_product,
             distinct_id=user.distinct_id or "test-distinct-id",
             task_created_by_id=user.id,
             state=task_run.state,
@@ -307,7 +309,7 @@ class TestInjectFreshTokensOnResumeActivity:
         assert prepared.environment_variables["POSTHOG_PERSONAL_API_KEY"] == "oauth_new"
 
     def test_build_environment_variables_ignores_other_users_private_sandbox_environment(
-        self, task_context, test_task, test_task_run
+        self, task_context, test_task, test_task_run, sandbox_ai_gateway
     ):
         other_user = User.objects.create_user(
             email="victim@example.com",

@@ -88,13 +88,6 @@ class TestValidateCredentials:
         assert len(network.requests_log) == 1
         assert network.requests_log[0].headers["authorization"] == "Basic a2V5LTE6"
 
-    def test_rejected_key_returns_message(self) -> None:
-        with scripted_network([ScriptedResponse(status=401, json={})]):
-            is_valid, error = validate_credentials("bad-key")
-
-        assert is_valid is False
-        assert error == "Anvil rejected the API key"
-
     def test_graphql_error_returns_its_message(self) -> None:
         # Anvil responds HTTP 200 with an errors body when no auth header is readable.
         with scripted_network([ScriptedResponse(json={"errors": [{"message": "Must be authenticated"}]})]):

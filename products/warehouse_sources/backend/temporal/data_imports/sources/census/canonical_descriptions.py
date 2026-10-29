@@ -16,6 +16,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp the sync configuration was last updated.",
             "source_attributes": "The source connection and model/table this sync reads from.",
             "destination_attributes": "The destination connection and object this sync writes to.",
+            "activation_id": "Identifier of the activation this sync writes to. Set on API V2 only.",
             "mappings": "The field mappings between the source model and destination object.",
             "mode": "The sync's trigger mode (e.g. triggered on a schedule, or continuous).",
             "high_water_mark_attribute": "The source column Census uses to detect changed records between runs.",
@@ -67,10 +68,11 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_test_succeeded": "Whether the most recent connectivity test succeeded.",
             "last_test_results": "Detailed results of the most recent connectivity test.",
             "warehouse_writeback_retention_in_days": "How many days of writeback/sync history Census retains for this source.",
+            "group_id": "Identifier of the Fivetran group the source belongs to. Set on API V2 only.",
         },
     },
     "destinations": {
-        "description": "A Census destination: a connected SaaS tool or warehouse Census writes records to.",
+        "description": "A Census destination: a connected SaaS tool or warehouse Census writes records to. On API V2 each row is an activation, which pairs a source connection with the service it writes to.",
         "docs_url": "https://fivetran.com/docs/activations/rest-api/api-reference/workspace-apis/destinations/list-destinations",
         "columns": {
             "id": "Unique identifier for the destination connection.",
@@ -80,6 +82,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_test_succeeded": "Whether the most recent connectivity test succeeded.",
             "last_test_results": "Detailed results of the most recent connectivity test.",
             "is_file_system_destination": "Whether this destination writes to a file system rather than an API.",
+            "group_id": "Identifier of the Fivetran group of the source connection this activation uses. Set on API V2 only.",
         },
     },
     "datasets": {
@@ -90,6 +93,10 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "type": "Type of dataset. Census documents `sql` as the only value on this endpoint.",
             "query": "The SQL query that defines the dataset.",
             "source_id": "Identifier of the source connection the query runs against.",
+            "name": "Name of the dataset.",
+            "description": "Optional description of the dataset.",
+            "created_at": "Timestamp the dataset was created.",
+            "updated_at": "Timestamp the dataset was last updated.",
         },
     },
     "workspaces": {

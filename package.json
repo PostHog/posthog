@@ -95,8 +95,9 @@
             "bin/hogli lint:feature-flags:fix",
             "bin/hogli format:js"
         ],
-        "{playwright,frontend,products,common,ee,services,docs}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
+        "{playwright,frontend,products,common,ee,services,docs,hog}/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:js",
         "products/desktop/**/*.{js,mjs,ts,tsx,json,jsonc,css}": "pnpm --dir products/desktop exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
+        "products/mobile/**/*.{js,mjs,ts,tsx,json,jsonc}": "sh -c 'cd products/mobile && pnpm exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true \"$@\"' _",
         "packages/agent/**/*.{js,mjs,mts,ts,tsx,json,jsonc}": "pnpm --dir packages/agent exec biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
         "nodejs/**/*.{js,jsx,mjs,mts,ts,tsx}": "bin/hogli format:nodejs",
         "funnel-udf/**/*.rs": "bin/hogli format:rust",
@@ -121,5 +122,5 @@
     "engines": {
         "node": ">=24 <25"
     },
-    "packageManager": "pnpm@10.29.3"
+    "packageManager": "pnpm@11.28.5"
 }

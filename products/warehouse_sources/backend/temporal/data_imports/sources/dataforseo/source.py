@@ -53,7 +53,7 @@ class DataForSEOSource(ResumableSource[DataForSEOSourceConfig, DataForSEOResumeC
             name=ExternalDataSourceType.DATAFORSEO,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="DataForSEO",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["seo", "serp", "keyword research", "backlinks", "rank tracking"],
             caption="""Enter your DataForSEO API credentials and the domains you want to track to pull SEO metrics like Google rankings, keywords, competitors, and backlinks into the PostHog Data warehouse.
 
@@ -101,6 +101,7 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
                     ),
                     SourceFieldInputConfig(
                         name="location_name",
+                        sync_setting=True,
                         label="Location",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
@@ -109,6 +110,7 @@ Note: DataForSEO bills per API request, so syncing these tables consumes account
                     ),
                     SourceFieldInputConfig(
                         name="language_name",
+                        sync_setting=True,
                         label="Language",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

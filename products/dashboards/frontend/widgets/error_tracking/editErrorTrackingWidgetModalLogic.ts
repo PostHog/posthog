@@ -40,7 +40,7 @@ export interface editErrorTrackingWidgetModalLogicValues {
     filterTestAccounts: boolean
     limit: number
     onClose: () => void
-    orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+    orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
     orderDirection: 'ASC' | 'DESC'
     saveDisabledReason: string | undefined
     saving: boolean
@@ -82,7 +82,7 @@ export interface editErrorTrackingWidgetModalLogicValues {
                       | undefined
                   filterTestAccounts?: boolean | null | undefined
                   limit: number
-                  orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                  orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                   orderDirection: 'ASC' | 'DESC'
                   status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                   widgetFilters?:
@@ -101,6 +101,7 @@ export interface editErrorTrackingWidgetModalLogicValues {
                                     | 'icontains_multi'
                                     | 'in'
                                     | 'is_cleaned_path_exact'
+                                    | 'is_cleaned_path_not_exact'
                                     | 'is_date_after'
                                     | 'is_date_before'
                                     | 'is_date_exact'
@@ -189,7 +190,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         validation: (
             limit: number,
-            orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users',
+            orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users',
             orderDirection: 'ASC' | 'DESC',
             filterTestAccounts: boolean,
             widgetConfig: {
@@ -219,7 +220,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                     | undefined
                 filterTestAccounts?: boolean | null | undefined
                 limit: number
-                orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                 orderDirection: 'ASC' | 'DESC'
                 status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                 widgetFilters?:
@@ -238,6 +239,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                   | 'icontains_multi'
                                   | 'in'
                                   | 'is_cleaned_path_exact'
+                                  | 'is_cleaned_path_not_exact'
                                   | 'is_date_after'
                                   | 'is_date_before'
                                   | 'is_date_exact'
@@ -312,7 +314,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                           | undefined
                       filterTestAccounts?: boolean | null | undefined
                       limit: number
-                      orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                      orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                       orderDirection: 'ASC' | 'DESC'
                       status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                       widgetFilters?:
@@ -331,6 +333,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                         | 'icontains_multi'
                                         | 'in'
                                         | 'is_cleaned_path_exact'
+                                        | 'is_cleaned_path_not_exact'
                                         | 'is_date_after'
                                         | 'is_date_before'
                                         | 'is_date_exact'
@@ -399,7 +402,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                               | undefined
                           filterTestAccounts?: boolean | null | undefined
                           limit: number
-                          orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                          orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                           orderDirection: 'ASC' | 'DESC'
                           status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                           widgetFilters?:
@@ -418,6 +421,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                             | 'icontains_multi'
                                             | 'in'
                                             | 'is_cleaned_path_exact'
+                                            | 'is_cleaned_path_not_exact'
                                             | 'is_date_after'
                                             | 'is_date_before'
                                             | 'is_date_exact'
@@ -500,7 +504,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                               | undefined
                           filterTestAccounts?: boolean | null | undefined
                           limit: number
-                          orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                          orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                           orderDirection: 'ASC' | 'DESC'
                           status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                           widgetFilters?:
@@ -519,6 +523,7 @@ export interface editErrorTrackingWidgetModalLogicMeta {
                                             | 'icontains_multi'
                                             | 'in'
                                             | 'is_cleaned_path_exact'
+                                            | 'is_cleaned_path_not_exact'
                                             | 'is_date_after'
                                             | 'is_date_before'
                                             | 'is_date_exact'
@@ -714,7 +719,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
             (s) => [s.limit, s.orderBy, s.orderDirection, s.filterTestAccounts, s.widgetConfig],
             (
                 limit: number,
-                orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users',
+                orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users',
                 orderDirection: 'ASC' | 'DESC',
                 filterTestAccounts: boolean,
                 widgetConfig: ErrorTrackingWidgetConfig
@@ -759,7 +764,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                                   | undefined
                               filterTestAccounts?: boolean | null | undefined
                               limit: number
-                              orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                              orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                               orderDirection: 'ASC' | 'DESC'
                               status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                               widgetFilters?:
@@ -778,6 +783,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                                                 | 'icontains_multi'
                                                 | 'in'
                                                 | 'is_cleaned_path_exact'
+                                                | 'is_cleaned_path_not_exact'
                                                 | 'is_date_after'
                                                 | 'is_date_before'
                                                 | 'is_date_exact'
@@ -871,7 +877,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                                   | undefined
                               filterTestAccounts?: boolean | null | undefined
                               limit: number
-                              orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'users'
+                              orderBy: 'first_seen' | 'last_seen' | 'occurrences' | 'sessions' | 'severity' | 'users'
                               orderDirection: 'ASC' | 'DESC'
                               status: 'active' | 'all' | 'archived' | 'pending_release' | 'resolved' | 'suppressed'
                               widgetFilters?:
@@ -890,6 +896,7 @@ export const editErrorTrackingWidgetModalLogic = kea<editErrorTrackingWidgetModa
                                                 | 'icontains_multi'
                                                 | 'in'
                                                 | 'is_cleaned_path_exact'
+                                                | 'is_cleaned_path_not_exact'
                                                 | 'is_date_after'
                                                 | 'is_date_before'
                                                 | 'is_date_exact'

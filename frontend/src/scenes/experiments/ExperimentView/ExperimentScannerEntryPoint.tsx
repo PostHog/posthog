@@ -180,8 +180,9 @@ export function ExperimentScannerEntryPoint({
     const { linkedScanners, linkedScannersLoading, variantKeys, scannerSetUpDismissed } = useValues(logic)
     const { scannerCrossSellClicked, dismissScannerSetUp, linkedScannerOpened } = useActions(logic)
 
+    // Straight into the wizard: the experiment fixes the type, so there is no template to pick.
     const setUpUrl = combineUrl(
-        urls.replayVisionScannerTemplate('new'),
+        urls.replayVisionScannerDetails('new'),
         experimentScannerParams({ experimentId: experiment.id as number, variantKey })
     ).url
 

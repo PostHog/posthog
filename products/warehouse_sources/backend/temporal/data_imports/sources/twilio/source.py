@@ -166,7 +166,7 @@ class TwilioSource(ResumableSource[TwilioSourceConfig, TwilioResumeConfig]):
 
 Your **Account SID** is on the [Twilio Console dashboard](https://console.twilio.com). For credentials we recommend creating a [Standard API key](https://console.twilio.com/us1/account/keys-credentials/api-keys) (SID + Secret) since it can be revoked independently. You can also use your Account SID and Auth Token.
 
-Create the key in the same Twilio account as the Account SID above, in Twilio's default us1 region. A Standard key can read every table except `keys`, which needs your Auth Token or a Main API key.""",
+Create the key in the same Twilio account as the Account SID above, in Twilio's default us1 region. A Standard key can read every table except `keys` and `accounts`, which need your Auth Token or a Main API key.""",
             iconPath="/static/services/twilio.png",
             docsUrl="https://posthog.com/docs/cdp/sources/twilio",
             fields=cast(
@@ -250,8 +250,8 @@ Create the key in the same Twilio account as the Account SID above, in Twilio's 
             # so this message has to cover both rather than asserting the credentials are invalid.
             "Twilio rejected these credentials for this table. Either the Account SID and secret are wrong, "
             "or the credential can't read this resource. A Restricted API key needs read access granted for "
-            "it, and the keys table needs your Auth token or a Main API key. Fix the credential, then "
-            "reconnect the source."
+            "it, and the keys and accounts tables need your Auth token or a Main API key. Fix the credential, "
+            "then reconnect the source."
         )
         forbidden = (
             "Your Twilio credentials lack permission for this resource. Please check the credential's "

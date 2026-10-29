@@ -329,7 +329,6 @@
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
@@ -375,15 +374,19 @@
          "posthog_integration"."integration_id",
          "posthog_integration"."config",
          "posthog_integration"."sensitive_config",
-         "posthog_integration"."repository_cache",
-         "posthog_integration"."repository_cache_updated_at",
          "posthog_integration"."errors",
          "posthog_integration"."created_at",
          "posthog_integration"."created_by_id"
   FROM "posthog_integration"
-  WHERE ("posthog_integration"."kind" = 'vercel'
+  WHERE (("posthog_integration"."kind" = 'vercel'
+          AND (("posthog_integration"."config" -> 'auth_type') IS NULL
+               OR ("posthog_integration"."config" -> 'auth_type') = 'null'::jsonb
+               OR ("posthog_integration"."config" -> 'auth_type') = '"oauth"'::jsonb))
+         AND NOT ("posthog_integration"."config" ? 'warehouse_source_type')
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
+  ORDER BY "posthog_integration"."created_at" ASC,
+           "posthog_integration"."id" ASC
+  LIMIT 1
   '''
 # ---
 # name: TestOrganizationFeatureFlagCopy.test_copy_feature_flag_create_new.2
@@ -810,7 +813,6 @@
          "posthog_dashboard"."breakdown_colors",
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
          "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."customization",
          "posthog_dashboard"."deprecated_tags",
@@ -1155,7 +1157,6 @@
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
@@ -1309,7 +1310,6 @@
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
@@ -1997,7 +1997,6 @@
          "posthog_team"."default_data_theme",
          "posthog_team"."extra_settings",
          "posthog_team"."modifiers",
-         "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",

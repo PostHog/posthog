@@ -118,8 +118,9 @@ fn is_ref_hash(hash: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Default per-image cap. A bigger image is blanked.
-pub const MAX_IMAGE_BYTES: usize = 900 * 1024;
+/// Default per-image cap: the image-scrub consumer and its sidecar refuse decoded images over
+/// 20 MiB, so a bigger image would only dangle as a ref. A bigger image is blanked.
+pub const MAX_IMAGE_BYTES: usize = 20 * 1024 * 1024;
 /// Per-message caps bound what one payload can pin in memory and fan out onto the scrub topic.
 /// Capture refuses messages over 64 MB, so the byte cap only binds on a payload that cv nesting
 /// expanded past that. Collection peaks at about twice the byte cap per in-flight message
@@ -363,7 +364,9 @@ mod tests {
             c.collect(vec![0u8; MAX_IMAGE_BYTES + 1]),
             Err(DROP_TOO_LARGE)
         );
-        assert!(c.into_images().is_empty());
+        // A 1 MiB image is within the default cap.
+        assert!(c.collect(vec![1u8; 1024 * 1024]).is_ok());
+        assert_eq!(c.into_images().len(), 1);
     }
 
     #[test]

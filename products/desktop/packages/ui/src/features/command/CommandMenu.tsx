@@ -46,11 +46,7 @@ import {
   Kbd,
   KbdGroup,
 } from "@posthog/quill";
-import {
-  LOOPS_FLAG,
-  PROJECT_BLUEBIRD_FLAG,
-  singleLineTitle,
-} from "@posthog/shared";
+import { LOOPS_FLAG, singleLineTitle } from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type CommandMenuAction,
@@ -261,12 +257,8 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
   const openSettingsDialog = openSettings;
   const closeSettingsDialog = closeSettings;
   const { folders } = useFolders();
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  const { channels } = useChannels({ enabled: bluebirdEnabled });
+  const { channels } = useChannels();
   const openBrowserTab = useOpenBrowserTab();
   const { theme, setTheme } = useThemeStore();
   const toggleLeftSidebar = useSidebarStore((state) => state.toggle);
@@ -531,26 +523,22 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           openTaskInput();
         },
       },
-      ...(bluebirdEnabled
-        ? [
-            {
-              id: "create-channel",
-              label: spacesLayout ? "New space" : "New channel",
-              keywords: "create add space channel context",
-              icon: spacesLayout ? (
-                <CubeIcon size={12} className="text-muted-foreground" />
-              ) : (
-                <HashIcon size={12} className="text-muted-foreground" />
-              ),
-              action: "create-channel" as CommandMenuAction,
-              onRun: () => {
-                closeSettingsDialog();
-                setCreateChannelUsed(true);
-                setCreateChannelOpen(true);
-              },
-            },
-          ]
-        : []),
+      {
+        id: "create-channel",
+        label: spacesLayout ? "New space" : "New channel",
+        keywords: "create add space channel context",
+        icon: spacesLayout ? (
+          <CubeIcon size={12} className="text-muted-foreground" />
+        ) : (
+          <HashIcon size={12} className="text-muted-foreground" />
+        ),
+        action: "create-channel" as CommandMenuAction,
+        onRun: () => {
+          closeSettingsDialog();
+          setCreateChannelUsed(true);
+          setCreateChannelOpen(true);
+        },
+      },
       {
         id: "toggle-left-sidebar",
         label: "Toggle left sidebar",
@@ -752,7 +740,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     canSearchFiles,
     openFilePicker,
     loopsEnabled,
-    bluebirdEnabled,
     spacesLayout,
   ]);
 
@@ -786,17 +773,16 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
           keywords: channel?.name,
           icon: <TaskCommandIcon task={task} />,
           action: "open-task" as CommandMenuAction,
-          channelId: bluebirdEnabled ? channel?.id : undefined,
-          href: taskHref(task, bluebirdEnabled ? channel?.id : undefined),
+          channelId: channel?.id,
+          href: taskHref(task, channel?.id),
           onRun: () => {
             closeSettingsDialog();
-            // Bluebird: a task filed to a channel opens in the channel-
-            // organized view under /website, keeping the channels chrome.
-            // Otherwise fall back to the /code task detail.
-            const channelTarget =
-              bluebirdEnabled && channel
-                ? { channelId: channel.id }
-                : undefined;
+            // A task filed to a channel opens in the channel-organized view
+            // under /website, keeping the channels chrome. An unfiled task
+            // falls back to the /code task detail.
+            const channelTarget = channel
+              ? { channelId: channel.id }
+              : undefined;
             void openTask(task, channelTarget);
           },
         },
@@ -809,7 +795,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     workspacesFetched,
     provisioningTaskIds,
     channels,
-    bluebirdEnabled,
     closeSettingsDialog,
   ]);
 
@@ -867,7 +852,6 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
     tasks,
     taskSections,
     channels,
-    bluebirdEnabled,
   });
 
   const [feedModalQuery, setFeedModalQuery] = useState<string | null>(null);
@@ -1138,9 +1122,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
                 placeholder={
                   spacesLayout
                     ? "Search commands and tasks, or filter with created-by:"
-                    : bluebirdEnabled
-                      ? "Search commands, channels, and tasks…"
-                      : "Search commands and tasks…"
+                    : "Search commands, channels, and tasks…"
                 }
                 autoFocus
                 showClear
