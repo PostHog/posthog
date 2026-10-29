@@ -52,6 +52,7 @@ function billingFor(state: InboxState): BillingType {
 function StateMocks({ state }: { state: InboxState }): JSX.Element {
     useStorybookMocks({
         get: {
+            '/api/projects/:team_id/signals/trial/': { enabled: false, grant_status: 'not_claimed' },
             '/api/billing/': billingFor(state),
             '/api/projects/:team_id/signals/reports/refund-summary/': {
                 credited_refund_count: state.refundedPrs ?? 0,
