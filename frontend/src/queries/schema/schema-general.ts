@@ -5323,6 +5323,8 @@ export interface TraceSpansQueryResponse extends AnalyticsQueryResponseBase {
 
 export type CachedTraceSpansQueryResponse = CachedQueryResponse<TraceSpansQueryResponse>
 
+export type SpanHealthStatus = 'silent' | 'regressed' | 'degraded' | 'new' | 'recovered' | 'improved' | 'ok'
+
 /** One aggregated span row keyed by `(service_name, name)`. Used by the delta-table view. */
 export interface AggregatedSpanRow {
     service_name: string
@@ -5340,6 +5342,10 @@ export interface AggregatedSpanRow {
     users?: integer
     spans_with_session_id?: integer
     spans_with_distinct_id?: integer
+    /** Set only when the query asked for `includeHealth`. Same statuses as the service health check. */
+    health_status?: SpanHealthStatus
+    /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
+    health_reason?: string
 }
 
 export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregationQueryResponse> {
@@ -5356,6 +5362,11 @@ export interface TraceSpansAggregationQuery extends DataNode<TraceSpansAggregati
      * Spans that are not HTTP server spans are left out.
      */
     groupByEndpoint?: boolean
+    /**
+     * Classify each row against the comparison window, or the previous period when `compareFilter` is off.
+     * Fills `health_status` and `health_reason`. Runs a second window query.
+     */
+    includeHealth?: boolean
 }
 
 export interface TraceSpansAggregationQueryResponse extends AnalyticsQueryResponseBase {
