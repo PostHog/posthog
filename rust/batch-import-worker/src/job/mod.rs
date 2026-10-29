@@ -793,7 +793,8 @@ impl Job {
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
         // Save the advanced offset and a pending-commit marker before the sink commit. After a crash
-        // between the two, the next claim finds the marker and sends the chunk again.
+        // between the two, the next claim finds the marker and sends the chunk again, or pauses the
+        // job for review after `MAX_INTERRUPTED_SENDS` interruptions or an offset mismatch.
         self.shutdown_guard()?;
         info!(job_id = %self.job_id, "Beginning PG part commit");
         if self
@@ -918,10 +919,10 @@ impl Job {
         let from_offset = new_offset.saturating_sub(consumed as u64);
         // A re-send of the chunk recovered at claim keeps its interruption count.
         let interrupted = model
-            .pending_commit
-            .as_ref()
-            .filter(|pending| pending.key == key && pending.from_offset == from_offset)
-            .map_or(0, |pending| pending.interrupted);
+            .recovered_commit
+            .take()
+            .filter(|recovered| recovered.key == key && recovered.from_offset == from_offset)
+            .map_or(0, |recovered| recovered.interrupted);
         model.pending_commit = Some(model::PendingCommit {
             key: key.to_string(),
             from_offset,
@@ -1327,6 +1328,7 @@ mod tests {
                 secrets: std::collections::HashMap::new(),
             },
             was_leased: false,
+            recovered_commit: None,
             backoff_attempt: 5,
             backoff_until: None,
             pending_commit: None,
@@ -1727,14 +1729,24 @@ mod tests {
                 trial: None,
                 events_emitted: 0,
             };
-            let row = test_db::JobRowFixture {
+            let mut row = test_db::JobRowFixture {
                 status: JobStatus::Running,
                 lease_id: "lease-from-claim",
                 state: state.clone(),
                 sink: serde_json::json!({"type": "capture", "send_rate": SEND_RATE}),
-                pending_commit: recovered,
+                pending_commit: None,
             };
+            if recovered.is_some() {
+                // A worker crashed after it saved part-1 as sent and before the sink confirmed it.
+                row.state.parts[0].current_offset = PART_BYTES as u64;
+                row.pending_commit = recovered;
+            }
             let id = test_db::insert_job(&context.db, &row).await;
+            let mut model = test_db::claimed_model(id, &row);
+            assert!(!model
+                .recover_interrupted_commit(context.clone())
+                .await
+                .unwrap());
             let sends = Arc::new(std::sync::Mutex::new(Vec::new()));
             let aborts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let mut next = Some(Job {
@@ -1743,7 +1755,7 @@ mod tests {
                 job_id: id,
                 chunk_size: PART_BYTES,
                 state: Mutex::new(state),
-                model: Mutex::new(test_db::claimed_model(id, &row)),
+                model: Mutex::new(model),
                 source: Box::new(MemorySource { parts }),
                 transform: consume_all(),
                 sink: Mutex::new(Box::new(RecordingEmitter {
@@ -1840,7 +1852,7 @@ mod tests {
             assert_eq!(
                 *markers.lock().unwrap(),
                 vec![
-                    serde_json::json!(1),
+                    serde_json::json!(2),
                     serde_json::json!(0),
                     serde_json::json!(0)
                 ],
@@ -2184,6 +2196,7 @@ mod tests {
                 backoff_until: None,
                 pending_commit: None,
                 was_leased: false,
+                recovered_commit: None,
             }
         }
 

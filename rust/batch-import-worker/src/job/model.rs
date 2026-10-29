@@ -40,6 +40,11 @@ pub struct JobModel {
     // Not actually in the model, but we calculate it on fetch to let us reason about whether
     // we're resuming an interrupted job
     pub was_leased: bool,
+
+    /// The chunk a claim rewound for this worker to send again. Kept in memory only, so that a
+    /// claim that stops before the re-send starts (backoff, shutdown) leaves no marker and does
+    /// not count as another interrupted send.
+    pub recovered_commit: Option<PendingCommit>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -407,14 +412,15 @@ impl JobModel {
                 .await;
         }
 
-        self.pending_commit = Some(PendingCommit {
-            interrupted,
-            ..pending.clone()
-        });
+        self.pending_commit = None;
         if !self.save_recovered_commit(&context.db).await? {
             self.release_lease(&context.db).await?;
             return Ok(true);
         }
+        self.recovered_commit = Some(PendingCommit {
+            interrupted,
+            ..pending.clone()
+        });
         warn!(
             job_id = %self.id,
             key = %pending.key,
@@ -461,8 +467,8 @@ impl JobModel {
         Ok(true)
     }
 
-    /// Save a rewound part and its marker without changing the claim lease, which stays long
-    /// because job init is slow. Returns false when the row is no longer running.
+    /// Save a rewound part and clear its marker without changing the claim lease, which stays
+    /// long because job init is slow. Returns false when the row is no longer running.
     async fn save_recovered_commit(&mut self, pool: &PgPool) -> Result<bool, Error> {
         let Some(lease) = self.lease_id.clone() else {
             anyhow::bail!("Cannot write a job with no lease")
@@ -470,13 +476,12 @@ impl JobModel {
         let result = sqlx::query(
             r#"
             UPDATE posthog_batchimport
-            SET state = $2, pending_commit = $3, updated_at = now()
-            WHERE id = $1 AND lease_id = $4 AND status = 'running'
+            SET state = $2, pending_commit = NULL, updated_at = now()
+            WHERE id = $1 AND lease_id = $3 AND status = 'running'
             "#,
         )
         .bind(self.id)
         .bind(serde_json::to_value(&self.state)?)
-        .bind(serde_json::to_value(&self.pending_commit)?)
         .bind(&lease)
         .execute(pool)
         .await?;
@@ -758,6 +763,7 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
             backoff_until: row.backoff_until,
             pending_commit,
             was_leased: row.previous_lease_id.is_some(),
+            recovered_commit: None,
         })
     }
 }
@@ -808,6 +814,7 @@ mod tests {
             backoff_until: None,
             pending_commit: None,
             was_leased: false,
+            recovered_commit: None,
         }
     }
 
@@ -1147,6 +1154,7 @@ mod tests {
         status: &'static str,
         offset: u64,
         stored_pending: Option<serde_json::Value>,
+        recovered_interrupted: Option<u32>,
         message: Option<&'static str>,
     }
 
@@ -1166,7 +1174,8 @@ mod tests {
             skipped: false,
             status: "running",
             offset: 100,
-            stored_pending: marker("part-1", interrupted + 1),
+            stored_pending: None,
+            recovered_interrupted: Some(interrupted + 1),
             message: None,
         };
         let paused =
@@ -1179,17 +1188,18 @@ mod tests {
                 status: "paused",
                 offset: part_offset,
                 stored_pending: pending,
+                recovered_interrupted: None,
                 message: Some(message),
             };
         let cases = [
             RecoveryCase {
                 pending: None,
                 offset: 250,
-                stored_pending: None,
+                recovered_interrupted: None,
                 ..resent("no marker", 250, 0)
             },
             resent("first crash re-sends", 250, 0),
-            resent("crash before the re-send began", 100, 1),
+            resent("part already at the chunk start", 100, 1),
             paused("cap pauses", 250, marker("part-1", 2), "3 times"),
             paused(
                 "offset mismatch pauses",
@@ -1224,6 +1234,7 @@ mod tests {
             if let Some(operator_status) = case.operator {
                 test_db::operator_sets(&context.db, id, operator_status).await;
             }
+            let claimed = test_db::read_job(&context.db, id).await;
 
             let skipped = model
                 .recover_interrupted_commit(context.clone())
@@ -1237,12 +1248,27 @@ mod tests {
                 stored.state.parts[0].current_offset, case.offset,
                 "case '{name}'"
             );
-            assert_eq!(stored.pending_commit, case.stored_pending, "case '{name}'");
             assert_eq!(
-                stored.lease_id.is_some(),
-                !case.skipped,
-                "case '{name}': a worker that runs the job keeps its claim lease, one that skips it frees the row"
+                stored.pending_commit, case.stored_pending,
+                "case '{name}': a re-send clears the marker, so a stop before it starts adds no interruption"
             );
+            assert_eq!(
+                model.recovered_commit.as_ref().map(|r| r.interrupted),
+                case.recovered_interrupted,
+                "case '{name}'"
+            );
+            if case.skipped {
+                assert_eq!(
+                    stored.lease_id, None,
+                    "case '{name}': a skipped job frees the row"
+                );
+            } else {
+                assert_eq!(
+                    (stored.lease_id, stored.leased_until),
+                    (claimed.lease_id, claimed.leased_until),
+                    "case '{name}': the worker keeps its claim lease while job init runs"
+                );
+            }
             if let Some(message) = case.message {
                 let stored_message = stored.status_message.unwrap();
                 assert!(
