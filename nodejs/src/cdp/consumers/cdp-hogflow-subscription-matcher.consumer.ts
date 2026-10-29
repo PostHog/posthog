@@ -156,6 +156,8 @@ type ParkedCandidate = {
     actionId: string | null
     distinctId: string | null
     personId: string | null
+    // Already due when found, which only event streams look up.
+    due: boolean
 }
 
 // A distinct_id repointed by a merge: the distinct_id and the survivor person it now resolves to.
@@ -207,6 +209,7 @@ type MatchedJob = {
     recheckMatched: boolean
     conversionMatched: boolean
     exitsOnConversion: boolean
+    foundDue: boolean
     // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
     eventName?: string
     eventUuid?: string
@@ -492,6 +495,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     recheckMatched,
                     conversionMatched,
                     exitsOnConversion: exitsOnConversion(hogflow),
+                    foundDue: candidate.due,
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
                     eventTimestamp: stepMatchedEventTimestamp,
@@ -559,24 +563,30 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
         // filter would silently miss it. function_id already scopes to hogflow jobs, and
         // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
+        //
+        // Event streams also see jobs that are already due. A person recheck wake makes a job due
+        // before the worker decides it, and an event the wait listens for can land in that gap. The
+        // worker checks only the condition, so that event would be lost. processMatchedJobs acts on
+        // a due job only while its recheck is still pending.
+        const includeDue = source !== 'person'
         const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
         let result
         try {
             result = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
+                `SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled <= NOW() AS due
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND scheduled > NOW()
+               AND (scheduled > NOW() OR $6::boolean)
                AND function_id = ANY($5::uuid[])
                AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
              UNION
-             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id
+             SELECT id, team_id, function_id, parent_run_id, action_id, distinct_id, person_id, scheduled <= NOW() AS due
              FROM cyclotron_jobs
              WHERE status = 'available'
-               AND scheduled > NOW()
+               AND (scheduled > NOW() OR $6::boolean)
                AND function_id = ANY($5::uuid[])
                AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
-                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds]
+                [distinctTeamIds, distinctIds, personTeamIds, personIds, functionIds, includeDue]
             )
         } finally {
             stopTimer()
@@ -590,6 +600,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             actionId: row.action_id,
             distinctId: row.distinct_id,
             personId: row.person_id,
+            due: row.due === true,
         }))
     }
 
@@ -1560,6 +1571,13 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
     try {
         const parsed = parseJSON(stateBuffer.toString('utf-8'))
         const updatedState: HogFlowInvocationContext = { ...parsed.state }
+
+        // A job that was already due when found is left alone unless a recheck is still pending on
+        // it. Any other due job is due for its own reason, such as a passed deadline, and a late
+        // event must not change its path.
+        if (m.foundDue && updatedState.currentAction?.recheckWake !== true) {
+            return null
+        }
 
         let changed = false
         let wake = false
