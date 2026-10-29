@@ -8,6 +8,7 @@ import threading
 import faulthandler
 import collections.abc
 from collections import defaultdict
+from enum import StrEnum
 
 import structlog
 from temporalio import workflow
@@ -162,6 +163,10 @@ from products.aeo.backend.facade.temporal import (
     ACTIVITIES as AEO_BRAND_SENTIMENT_ACTIVITIES,
     WORKFLOWS as AEO_BRAND_SENTIMENT_WORKFLOWS,
 )
+from products.ai_observability.backend.facade.temporal import (
+    ACTIVITIES as AI_OBSERVABILITY_PRODUCT_ACTIVITIES,
+    WORKFLOWS as AI_OBSERVABILITY_PRODUCT_WORKFLOWS,
+)
 from products.alerts.backend.facade.temporal import (
     PLATFORM_AI_QUEUE_ACTIVITIES as INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     PLATFORM_EVALUATION_ACTIVITIES as INSIGHT_PLATFORM_EVALUATION_ACTIVITIES,
@@ -264,6 +269,10 @@ from products.managed_warehouse.backend.facade.temporal import (
     ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
     WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
 )
+from products.messaging.backend.facade.temporal import (
+    ACTIVITIES as MESSAGING_IMPORT_ACTIVITIES,
+    WORKFLOWS as MESSAGING_IMPORT_WORKFLOWS,
+)
 from products.metrics.backend.facade.temporal import (
     ACTIVITIES as METRICS_ACTIVITIES,
     WORKFLOWS as METRICS_WORKFLOWS,
@@ -357,8 +366,9 @@ from products.wizard.backend.facade.temporal import (
     WORKFLOWS as WIZARD_WORKFLOWS,
 )
 
-# When adding modules to a queue, also add their paths to that fleet's filter in the
-# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml
+# When adding modules to a queue, also add their paths to that fleet's filter: the
+# check_temporal_worker_changes step of .github/workflows/container-images-cd.yml, or
+# .github/shared-image-releases.yaml for fleets published through their own channel
 _task_queue_specs = [
     (
         settings.SYNC_BATCH_EXPORTS_TASK_QUEUE,
@@ -470,6 +480,13 @@ _task_queue_specs = [
         settings.CANVAS_BUILD_TASK_QUEUE,
         CANVAS_BUILD_WORKFLOWS,
         CANVAS_BUILD_ACTIVITIES,
+    ),
+    # Messaging provider imports. MESSAGING_IMPORT_TASK_QUEUE defaults to the general-purpose queue name (so it
+    # merges into that fleet until a dedicated worker exists).
+    (
+        settings.MESSAGING_IMPORT_TASK_QUEUE,
+        MESSAGING_IMPORT_WORKFLOWS,
+        MESSAGING_IMPORT_ACTIVITIES,
     ),
     (
         settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
@@ -593,8 +610,8 @@ _task_queue_specs = [
     ),
     (
         settings.LLMA_TASK_QUEUE,
-        LLM_ANALYTICS_WORKFLOWS,
-        LLM_ANALYTICS_ACTIVITIES,
+        LLM_ANALYTICS_WORKFLOWS + AI_OBSERVABILITY_PRODUCT_WORKFLOWS,
+        LLM_ANALYTICS_ACTIVITIES + AI_OBSERVABILITY_PRODUCT_ACTIVITIES,
     ),
     (
         # MCP analytics clustering. MCPA_TASK_QUEUE defaults to the
@@ -707,6 +724,12 @@ else:
 LOGGER = get_logger(__name__)
 
 
+class WorkerRole(StrEnum):
+    ALL = "all"
+    WORKFLOWS = "workflows"
+    ACTIVITIES = "activities"
+
+
 def apply_hogql_shadow_sample_rate_override() -> None:
     """Sets HogQL's cpp shadow parse rate for this worker from `HOGQL_PARSER_SHADOW_SAMPLE_RATE`.
 
@@ -791,6 +814,12 @@ class Command(BaseCommand):
             help="Maximum number of concurrent activity tasks for this worker",
         )
         parser.add_argument(
+            "--worker-role",
+            choices=[role.value for role in WorkerRole],
+            default=settings.TEMPORAL_WORKER_ROLE,
+            help="Poll only the workflow tasks or only the activity tasks of the task queue, or both",
+        )
+        parser.add_argument(
             "--use-pydantic-converter",
             action="store_true",
             default=settings.TEMPORAL_USE_PYDANTIC_CONVERTER,
@@ -867,6 +896,15 @@ class Command(BaseCommand):
         # import the vendor SDKs, so they keep their fast startup.
         if workflows_include_data_import_syncs(workflows):
             load_all_sources()
+
+        # Temporal keeps workflow tasks and activity tasks apart even on one queue name, so a workflows
+        # worker and an activities worker on the same queue split its work between them. This runs after
+        # the source preload, because an activities-only data-sync worker still runs the syncs.
+        worker_role = WorkerRole(options["worker_role"])
+        if worker_role == WorkerRole.WORKFLOWS:
+            activities = []
+        elif worker_role == WorkerRole.ACTIVITIES:
+            workflows = []
 
         if options["client_key"]:
             options["client_key"] = "--SECRET--"
@@ -971,6 +1009,7 @@ class Command(BaseCommand):
                 port=temporal_port,
                 namespace=namespace,
                 task_queue=task_queue,
+                worker_role=worker_role,
                 graceful_shutdown_timeout_seconds=graceful_shutdown_timeout_seconds,
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,

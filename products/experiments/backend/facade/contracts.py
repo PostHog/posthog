@@ -21,6 +21,27 @@ MAX_METRICS_TO_SUMMARIZE = 50
 
 
 @frozen
+class StoredArmResult:
+    key: str
+    number_of_samples: int
+    mean: float | None
+    change: float | None = None
+    significant: bool | None = None
+
+
+@frozen
+class StoredPrimaryResult:
+    """The current stored result of an experiment's primary metric."""
+
+    metric_name: str
+    metric_type: str | None
+    proportion: bool
+    goal: str | None
+    baseline: StoredArmResult
+    variants: tuple[StoredArmResult, ...]
+
+
+@frozen
 class ExperimentSummaryData:
     """Result of fetching experiment data for the AI results summary."""
 
@@ -107,7 +128,10 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTER_ON_DYNAMIC_COHORT = "exposure_filter_on_dynamic_cohort"
+    EXPOSURE_FILTER_EXCLUDES_EVENTS = "exposure_filter_excludes_events"
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
@@ -210,7 +234,9 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     NO_METRIC = "no_metric"
     METRIC_EVENT_NOT_INGESTED = "metric_event_not_ingested"
     METRIC_CANNOT_COMPILE = "metric_cannot_compile"
+    METRIC_CALCULATION_FAILED = "metric_calculation_failed"
     EXPOSURE_CRITERIA_CANNOT_MATCH = "exposure_criteria_cannot_match"
+    EXPOSURE_FILTERS = "exposure_filters"
     EARLY_SIGNIFICANCE = "early_significance"
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"

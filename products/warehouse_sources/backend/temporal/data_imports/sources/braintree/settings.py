@@ -13,25 +13,94 @@ _CREATED_AT_INCREMENTAL_FIELDS: list[IncrementalField] = [
     },
 ]
 
+_BIN_DATA_FIELDS = """binData {
+                issuingBank
+                countryOfIssuance
+                productId
+                debit
+                prepaid
+                prepaidReloadable
+                commercial
+                consumer
+                business
+                corporate
+                purchase
+                payroll
+                healthcare
+                durbinRegulated
+              }"""
+
+_PROCESSOR_RESPONSE_FIELDS = "processorResponse { legacyCode message additionalInformation }"
+
 # Node field selections per stream — conservative, well-documented fields only.
-_TRANSACTION_FIELDS = """
+# The decline type and the gateway rejection reason only exist on the matching status
+# history event, so `statusHistory` selects them per event type.
+_TRANSACTION_FIELDS = f"""
             id
             legacyId
             createdAt
             status
-            amount { value currencyCode }
+            source
+            amount {{ value currencyCode }}
             orderId
             merchantAccountId
-            customer { id legacyId }
-            paymentMethod { legacyId }
-            disbursementDetails { date }
-            installmentDetails { count }
-            processorAuthorizationResponse { avsPostalCodeResponse avsStreetAddressResponse cvvResponse }
-            paymentMethodSnapshot {
+            customer {{ id legacyId }}
+            paymentMethod {{ legacyId }}
+            disbursementDetails {{ date }}
+            installmentDetails {{ count }}
+            processorAuthorizationResponse {{
+              legacyCode
+              message
+              additionalInformation
+              avsPostalCodeResponse
+              avsStreetAddressResponse
+              cvvResponse
+            }}
+            riskData {{ id decision decisionReasons score fraudServiceProvider deviceDataCaptured }}
+            statusHistory {{
               __typename
-              ... on CreditCardTransactionDetails { creditCard { brandCode last4 bin } }
-              ... on CreditCardDetails { brandCode last4 bin }
-            }
+              status
+              timestamp
+              source
+              amount {{ value currencyCode }}
+              ... on ProcessorDeclinedEvent {{
+                declineType
+                riskDecision
+                {_PROCESSOR_RESPONSE_FIELDS}
+                networkResponse {{ code message }}
+                merchantAdviceCodeResponse {{ code message }}
+              }}
+              ... on GatewayRejectedEvent {{
+                gatewayRejectionReason
+                riskDecision
+                {_PROCESSOR_RESPONSE_FIELDS}
+                networkResponse {{ code message }}
+                merchantAdviceCodeResponse {{ code message }}
+              }}
+              ... on FailedEvent {{
+                riskDecision
+                {_PROCESSOR_RESPONSE_FIELDS}
+                networkResponse {{ code message }}
+              }}
+            }}
+            paymentMethodSnapshot {{
+              __typename
+              ... on CreditCardTransactionDetails {{
+                accountType
+                creditCard {{
+                  brandCode
+                  last4
+                  bin
+                  {_BIN_DATA_FIELDS}
+                }}
+              }}
+              ... on CreditCardDetails {{
+                brandCode
+                last4
+                bin
+                {_BIN_DATA_FIELDS}
+              }}
+            }}
 """
 
 _REFUND_FIELDS = """

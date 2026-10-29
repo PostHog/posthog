@@ -4,6 +4,8 @@ from typing import Annotated, Any, Literal, get_args
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic.alias_generators import to_camel
 
+from posthog.dataclasses import frozen
+
 
 class Contract(BaseModel):
     # Without `json_schema_serialization_defaults_required`, fields with defaults generate as optional in TypeScript.
@@ -53,6 +55,11 @@ class TracePerson(Contract):
     label: str
 
 
+class TraceGit(Contract):
+    branch: str = Field(description="The git branch checked out when the trace ran.")
+    repo: str | None = Field(description="The repository as owner/name, or null when the branch's event has none.")
+
+
 class Trace(Contract):
     id: str
     name: str | None
@@ -68,6 +75,10 @@ class Trace(Contract):
     thread_node_ids: list[str]
     default_node_id: str
     node_ids_by_alias: dict[str, str]
+    git: TraceGit | None = Field(
+        description="The branch the trace's work ran on: the latest stamped branch other than main or master, else "
+        "the first stamp. Null when no event carries a branch."
+    )
 
 
 class TraceNodeIOKeys(Contract):
@@ -118,6 +129,7 @@ EVALUATION_PASSED_MARKER = "aiEvaluationPassed()"
 
 
 EvaluationOutcome = Literal["pass", "fail", "inconclusive", "unrated"]
+EvaluationRollupOutcome = Literal["pass", "fail", "unrated"]
 
 
 class TraceEvaluationResult(Contract):
@@ -129,13 +141,90 @@ class TraceEvaluationResult(Contract):
     )
     outcome: EvaluationOutcome
     label: str = Field(description='What the result says, such as "True", "0.82", "Positive" or "Skipped".')
+    score: float | None = Field(description="The numeric result of a numeric evaluation, null for every other type.")
     reasoning: str | None
     timestamp: datetime
     is_backfill: bool
 
 
+class TraceNodeEvaluationRollup(Contract):
+    node_id: str = Field(description="The tree node the results grade.")
+    outcome: EvaluationRollupOutcome = Field(
+        description="Fail if any evaluation fails on the node, else pass if any passes, else unrated."
+    )
+
+
+class TraceEvaluationSummary(Contract):
+    """Counts the latest run of each evaluation on each node, by when the run started, so re-runs and backfills
+    count once. Inconclusive results count as unrated. Computed over the results returned, at most 250."""
+
+    passed: int
+    failed: int
+    unrated: int
+    nodes: list[TraceNodeEvaluationRollup] = Field(description="One entry per node with results, sorted by node id.")
+
+
 class TraceEvaluationResults(Contract):
     results: list[TraceEvaluationResult]
+    summary: TraceEvaluationSummary
+
+
+TraceSummaryStatus = Literal["pending", "ready", "failed"]
+TraceSummaryFailureReason = Literal[
+    "trace_not_found", "too_large", "timeout", "provider_error", "not_approved", "access_changed", "error"
+]
+
+
+@frozen
+class TraceSummaryJob:
+    """What the trace summary job needs to write one summary. Ids only, so the workflow history stays small.
+    `requested_at` is when the pending entry the job fills was written."""
+
+    team_id: int
+    trace_id: str
+    timestamp_hint: datetime | None
+    fingerprint: str
+    requester_id: int
+    requested_at: datetime
+
+
+class TraceSummaryItem(Contract):
+    text: str
+    node_id: str | None = Field(description="The step the item refers to, or null when it names none.")
+
+
+class TraceSummaryContent(Contract):
+    title: str
+    bullets: list[TraceSummaryItem]
+    notes: list[TraceSummaryItem] = Field(description="Details worth a second look, or empty.")
+    flow: str = Field(description="The main steps of the trace as a small text diagram.")
+    model: str = Field(description="The model that wrote the summary.")
+    generated_at: datetime
+
+
+class TraceSummaryFailure(Contract):
+    reason: TraceSummaryFailureReason
+    message: str = Field(description="Why the summary failed, ready to show to the user.")
+
+
+class TraceSummary(Contract):
+    status: TraceSummaryStatus = Field(description="`pending` while the summary is written, then `ready` or `failed`.")
+    content: TraceSummaryContent | None = Field(description="The summary when `status` is `ready`, else null.")
+    failure: TraceSummaryFailure | None = Field(description="Why it failed when `status` is `failed`, else null.")
+
+
+@frozen
+class TraceSummaryRun:
+    """What one run of the trace summary job did, for usage reporting."""
+
+    status: Literal["ready", "failed"]
+    failure_reason: TraceSummaryFailureReason | None
+    duration_ms: int
+    input_characters: int
+    model: str
+    was_sampled: bool
+    distinct_id: str
+    groups: dict[str, str]
 
 
 AttentionReason = Literal["errored", "silent", "worse"]
