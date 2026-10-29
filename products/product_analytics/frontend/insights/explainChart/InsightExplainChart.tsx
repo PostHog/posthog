@@ -19,6 +19,7 @@ import {
 import { isSeriesNamedIn } from 'products/product_analytics/mcp/apps/explainChart/storyNamedSeries'
 
 import { explainChartLogic } from './explainChartLogic'
+import { ExplainChartLookDeeper } from './ExplainChartLookDeeper'
 
 function seriesNames(result: TrendResult): string[] {
     return [result.label ?? '', ...[result.breakdown_value ?? []].flat().map(String)]
@@ -86,7 +87,9 @@ export interface InsightExplainChartProps {
 
 /** The chart, with the explanation of what stands out on it beside the chart while the explanation is open. */
 export function InsightExplainChart({ insightProps, renderChart }: InsightExplainChartProps): JSX.Element {
-    const { explainOpen, explainChartData, formatValue } = useValues(explainChartLogic(insightProps))
+    const { explainOpen, explainChartData, formatValue, lookDeeperQuestion } = useValues(
+        explainChartLogic(insightProps)
+    )
 
     if (!explainOpen || !explainChartData) {
         return <>{renderChart()}</>
@@ -102,6 +105,7 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
                 openLink={(url) => window.open(url, '_blank', 'noopener')}
                 formatValue={formatValue}
                 evidenceCharts={EVIDENCE_CHARTS}
+                action={lookDeeperQuestion ? <ExplainChartLookDeeper question={lookDeeperQuestion} /> : null}
                 onPageChange={({ index, fromIndex, source }) =>
                     posthog.capture('explain chart page viewed', {
                         page_index: index,

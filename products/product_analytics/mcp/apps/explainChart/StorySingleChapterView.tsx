@@ -1,4 +1,4 @@
-import { type ReactElement } from 'react'
+import { type ReactElement, type ReactNode } from 'react'
 
 import { Text } from '@posthog/quill'
 
@@ -10,12 +10,15 @@ export interface StorySingleChapterViewProps extends StoryChapterViewProps {
     /** Which series the story follows, when the chart has more than one. */
     seriesNote: string | null
     warnings?: string[]
+    /** Shown under the headline, such as a way to look further. */
+    action?: ReactNode
 }
 
 export function StorySingleChapterView({
     headline,
     seriesNote,
     warnings = [],
+    action,
     ...chapterProps
 }: StorySingleChapterViewProps): ReactElement {
     return (
@@ -34,6 +37,7 @@ export function StorySingleChapterView({
                         {warning}
                     </Text>
                 ))}
+                {action}
             </div>
             <StoryChapterView {...chapterProps} />
         </div>

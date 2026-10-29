@@ -1,6 +1,6 @@
 import type { TrendsQuery } from '~/queries/schema/schema-general'
 
-import { chapterCause } from './chartCauses'
+import { chapterCause, isUnclear } from './chartCauses'
 import type { ModelCause } from './chartCauses'
 import { findChartMoments } from './chartMoments'
 import type { ChartMoment } from './chartMoments'
@@ -71,27 +71,40 @@ describe('explain chart moments', () => {
         expect(evidence[0].driverShare).toBeGreaterThan(0.8)
     })
 
-    test.each<[string, MomentEvidence[], ModelCause | null, string]>([
+    test.each<[string, MomentEvidence[], ModelCause | null, string, boolean]>([
         [
             'evidence of one person outranks the model',
             [ONE_PERSON, REFERRER],
             { cause: 'outside_traffic', confidence: 0.95 },
             'most likely one person',
+            false,
         ],
         [
             'an unsure model answer is not shown',
             [PAGE],
             { cause: 'tracking', confidence: 0.3 },
             'most likely linked to ⟦n:/pricing⟧',
+            false,
         ],
         [
             'outside traffic names the referrer, not the page',
             [PAGE, REFERRER],
             { cause: 'outside_traffic', confidence: 0.9 },
             'most likely more people arriving from ⟦n:news.example.com⟧',
+            false,
         ],
-    ])('the likely cause of a step: %s', (_, evidence, model, clause) => {
-        expect(chapterCause(PEAK, evidence, model)?.clause).toContain(clause)
+        [
+            'an unclear answer is not shown as a cause, and asks for a deeper look',
+            [PAGE],
+            { cause: 'unclear', confidence: 0.8 },
+            'most likely linked to ⟦n:/pricing⟧',
+            true,
+        ],
+    ])('the likely cause of a step: %s', (_, evidence, model, clause, unclear) => {
+        const cause = chapterCause(PEAK, evidence, model)
+
+        expect(cause?.clause).toContain(clause)
+        expect(isUnclear(cause, model)).toBe(unclear)
     })
 
     test.each([

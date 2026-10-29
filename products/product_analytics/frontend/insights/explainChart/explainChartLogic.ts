@@ -13,6 +13,7 @@ import type { insightLogicValues } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { insightVizDataLogicValues } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { getResultOrder, getResultSeries, getResultSeriesCustomName } from 'scenes/insights/utils/resultSeries'
 import { teamLogic } from 'scenes/teamLogic'
 import type { teamLogicValues } from 'scenes/teamLogic'
 
@@ -47,7 +48,7 @@ import type {
     WebStatsTableQuery,
 } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { InsightModel } from '../../../../../frontend/src/types'
-import { causeSentence, chapterCause, headlineText } from './chartCauses'
+import { causeSentence, chapterCause, headlineText, isUnclear } from './chartCauses'
 import type { ExplainedMoment, ModelCause } from './chartCauses'
 import { findChartMoments } from './chartMoments'
 import type { ChartMoment } from './chartMoments'
@@ -107,6 +108,7 @@ export interface explainChartLogicValues {
     explainedSeries: ExplainedSeries | null
     formatValue: (value: number) => string
     headline: string
+    lookDeeperQuestion: string | null
     modelCauses: Record<string, ModelCause> | null
     modelCausesLoading: boolean
     momentFacts: MomentFacts[]
@@ -215,7 +217,18 @@ export interface explainChartLogicMeta {
             indexedResults: IndexedTrendResult[],
             getTrendsHidden: (dataset: IndexedTrendResult) => boolean, // trendsDataLogic
             display: ChartDisplayType | null | undefined,
-            isTrends: boolean
+            isTrends: boolean,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
         ) => ExplainedSeries | null
         moments: (
             explainedSeries: ExplainedSeries | null,
@@ -255,6 +268,11 @@ export interface explainChartLogicMeta {
             momentFacts: MomentFacts[],
             modelCauses: Record<string, ModelCause> | null
         ) => ExplainedChapter[]
+        lookDeeperQuestion: (
+            explainedChapters: ExplainedChapter[],
+            modelCausesLoading: boolean,
+            evidenceResultsLoading: boolean
+        ) => string | null
         headline: (explainedChapters: ExplainedChapter[]) => string
         explainChartData: (
             explainedSeries: ExplainedSeries | null,
@@ -424,12 +442,13 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                     formatAggregationAxisValue(trendsFilter, value, baseCurrency),
         ],
         explainedSeries: [
-            (s) => [s.indexedResults, s.getTrendsHidden, s.display, s.isTrends],
+            (s) => [s.indexedResults, s.getTrendsHidden, s.display, s.isTrends, s.querySource],
             (
                 indexedResults: IndexedTrendResult[],
                 getTrendsHidden: trendsDataLogicValues['getTrendsHidden'],
                 display: ChartDisplayType | null | undefined,
-                isTrends: boolean
+                isTrends: boolean,
+                querySource: insightVizDataLogicValues['querySource']
             ): ExplainedSeries | null => {
                 // A cumulative line shows running totals, which the moments would read as growth every day.
                 if (
@@ -450,10 +469,11 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 const sum = (result: IndexedTrendResult): number =>
                     result.data.reduce((total, value) => total + value, 0)
                 const lead = shown.reduce((best, result) => (sum(result) > sum(best) ? result : best))
+                const { node } = getResultSeries(querySource, lead)
                 return {
                     index: lead.id,
-                    label: lead.action?.custom_name || lead.label,
-                    queryIndex: lead.action?.order ?? 0,
+                    label: (node && getResultSeriesCustomName(node)) || lead.label,
+                    queryIndex: getResultOrder(lead),
                     data: lead.data,
                     days: lead.days,
                 }
@@ -542,11 +562,25 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         explainedChapters: [
             (s) => [s.momentFacts, s.modelCauses],
             (momentFacts: MomentFacts[], modelCauses: Record<string, ModelCause> | null): ExplainedChapter[] =>
-                momentFacts.map(({ moment, evidence }) => ({
-                    moment,
-                    evidence,
-                    cause: chapterCause(moment, evidence, modelCauses?.[moment.id] ?? null),
-                })),
+                momentFacts.map(({ moment, evidence }) => {
+                    const model = modelCauses?.[moment.id] ?? null
+                    const cause = chapterCause(moment, evidence, model)
+                    return { moment, evidence, cause, unclear: isUnclear(cause, model) }
+                }),
+        ],
+        // The question for PostHog AI about the first step that no known cause explains.
+        lookDeeperQuestion: [
+            (s) => [s.explainedChapters, s.modelCausesLoading, s.evidenceResultsLoading],
+            (
+                explainedChapters: ExplainedChapter[],
+                modelCausesLoading: boolean,
+                evidenceResultsLoading: boolean
+            ): string | null => {
+                const step = explainedChapters.find((chapter) => chapter.unclear)
+                return step && !modelCausesLoading && !evidenceResultsLoading
+                    ? `Why does this chart show "${step.moment.title}"?`
+                    : null
+            },
         ],
         headline: [
             (s) => [s.explainedChapters],
@@ -576,11 +610,10 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 }
                 return {
                     query: querySource as unknown as StoryTrendsQuery,
-                    results: indexedResults.map(({ label, data, days, action }) => ({
+                    results: indexedResults.map(({ label, data, days }) => ({
                         label: label ?? undefined,
                         data,
                         days,
-                        action: { name: action?.name ?? undefined },
                     })),
                     seriesIndex: explainedSeries.index,
                     insightName: insight.name || insight.derived_name || null,

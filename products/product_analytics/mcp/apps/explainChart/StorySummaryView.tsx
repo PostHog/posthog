@@ -1,4 +1,4 @@
-import { type ReactElement } from 'react'
+import { type ReactElement, type ReactNode } from 'react'
 
 import { Text } from '@posthog/quill'
 
@@ -11,6 +11,8 @@ export interface StorySummaryViewProps {
     /** Which series the story follows, when the chart has more than one. */
     seriesNote: string | null
     warnings?: string[]
+    /** Shown under the headline, such as a way to look further. */
+    action?: ReactNode
     onSelect: (index: number) => void
     onPreview: (index: number | null) => void
 }
@@ -20,6 +22,7 @@ export function StorySummaryView({
     pages,
     seriesNote,
     warnings = [],
+    action,
     onSelect,
     onPreview,
 }: StorySummaryViewProps): ReactElement {
@@ -51,6 +54,7 @@ export function StorySummaryView({
                         {warning}
                     </Text>
                 ))}
+                {action}
             </div>
             {chapters.length > 0 && (
                 <div className="flex flex-col gap-1.5">

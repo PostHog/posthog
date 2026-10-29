@@ -19,6 +19,8 @@ export interface ChapterCause {
 export interface ExplainedMoment {
     moment: ChartMoment
     cause: ChapterCause | null
+    /** None of the causes the page knows fits this step, so it is worth a deeper look. */
+    unclear: boolean
 }
 
 const MIN_MODEL_CONFIDENCE = 0.5
@@ -40,7 +42,11 @@ function shareConfidence(evidence: MomentEvidence[]): StoryConfidence {
     return Math.max(...shares) >= HIGH_CONFIDENCE_SHARE ? 'high' : 'medium'
 }
 
-function clauseFor(cause: ChartCauseEnumApi, moment: ChartMoment, evidence: MomentEvidence[]): string {
+function clauseFor(
+    cause: Exclude<ChartCauseEnumApi, 'unclear'>,
+    moment: ChartMoment,
+    evidence: MomentEvidence[]
+): string {
     switch (cause) {
         case 'outside_traffic': {
             const referrer = strongestDriver(evidence, '$referring_domain')
@@ -56,7 +62,7 @@ function clauseFor(cause: ChartCauseEnumApi, moment: ChartMoment, evidence: Mome
         case 'one_person':
             return 'most likely one person, a bot or a test account, not a change in how people use the product'
         case 'tracking':
-            return 'most likely a tracking change, such as events that stopped or were sent twice, not a change in how people use the product'
+            return 'most likely a change in how the data is collected, such as tracking that broke or an event that changed, not a change in how people use the product'
         case 'weekly_pattern':
             return 'most likely the usual weekly pattern, not a real change'
     }
@@ -71,7 +77,7 @@ export function chapterCause(
     if (evidence.some((item) => item.cause === 'one_person')) {
         return { clause: clauseFor('one_person', moment, evidence), confidence: 'high' }
     }
-    if (model && model.confidence >= MIN_MODEL_CONFIDENCE) {
+    if (model && model.cause !== 'unclear' && model.confidence >= MIN_MODEL_CONFIDENCE) {
         // Without evidence, the model only reads the step's own numbers, so its answer stays a guess.
         const confidence = !evidence.length ? 'low' : model.confidence >= HIGH_MODEL_CONFIDENCE ? 'high' : 'medium'
         return { clause: clauseFor(model.cause, moment, evidence), confidence }
@@ -85,6 +91,10 @@ export function chapterCause(
         : null
 }
 
+export function isUnclear(cause: ChapterCause | null, model: ModelCause | null): boolean {
+    return !cause || model?.cause === 'unclear'
+}
+
 export function causeSentence(cause: ChapterCause): string {
     return `${cause.clause.charAt(0).toUpperCase()}${cause.clause.slice(1)}.`
 }
@@ -94,7 +104,9 @@ export function headlineText(explained: ExplainedMoment[]): string {
         return 'Nothing unusual stands out on this chart.'
     }
     const [lead, ...rest] = explained
-    const main = lead.cause ? `${lead.moment.title}, ${lead.cause.clause}.` : `${lead.moment.title}.`
+    const main = lead.cause
+        ? `${lead.moment.title}, ${lead.cause.clause}.`
+        : `${lead.moment.title}. None of the usual causes explain it.`
     if (!rest.length) {
         return main
     }

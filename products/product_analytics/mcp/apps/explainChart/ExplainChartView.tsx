@@ -47,6 +47,8 @@ export interface ExplainChartViewProps {
     formatValue?: (value: number) => string
     onPageChange?: (change: StoryPageChange) => void
     evidenceCharts?: StoryEvidenceCharts
+    /** Shown under the headline, such as a way to look further than this explanation. */
+    action?: ReactNode
 }
 
 function hasChapter(page: StoryPage): page is StoryPage & { chapter: StoryChapter } {
@@ -76,6 +78,7 @@ export function ExplainChartView({
     formatValue = defaultFormat,
     onPageChange,
     evidenceCharts,
+    action,
 }: ExplainChartViewProps): ReactElement {
     const pages = useMemo(() => buildStoryPages(data, formatValue), [data, formatValue])
     // With one chapter, a summary page and steps add nothing, so the explanation is that chapter alone.
@@ -196,6 +199,7 @@ export function ExplainChartView({
                                     headline={data.headline}
                                     seriesNote={seriesNoteOf(data)}
                                     warnings={warningMessages(data.warnings)}
+                                    action={action}
                                     page={active}
                                     openLink={openLink}
                                     canShowChart={canShowChart}
@@ -216,6 +220,7 @@ export function ExplainChartView({
                                     pages={pages}
                                     seriesNote={seriesNoteOf(data)}
                                     warnings={warningMessages(data.warnings)}
+                                    action={action}
                                     onSelect={(index) => select(index, 'summary_list')}
                                     onPreview={setPreviewIndex}
                                 />
