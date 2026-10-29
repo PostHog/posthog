@@ -787,9 +787,12 @@ tools:
         description: >
             Partially update an existing signal source config by ID — typically to flip its `enabled` flag on or off, or
             to adjust its `config`. Only the fields you pass are changed. To turn the Signals scout source off for a
-            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. `config` is replaced as a
-            whole, so include the existing keys (such as `steering`) when changing one of them, for example the Linear
-            source's `linear_team_ids` allowlist.
+            project, set `enabled=false` on its `signals_scout` / `cross_source_issue` config. Use `config_set` to set
+            individual top-level settings and `config_remove` to delete keys atomically, preserving unrelated settings.
+            For guidance, set `config_set.steering` and remove `default_not_actionable` with `config_remove`. For Linear
+            teams, set `config_set.linear_team_ids`. The resulting full configuration is validated before saving.
+            `config` still replaces the whole object; use it only for an intentional replacement. Do not combine
+            `config` with `config_set` or `config_remove`, or set and remove the same key.
     inbox-source-configs-retrieve:
         operation: signals_source_configs_retrieve
         enabled: true

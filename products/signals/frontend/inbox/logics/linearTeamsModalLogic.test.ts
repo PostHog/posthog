@@ -68,7 +68,7 @@ describe('linearTeamsModalLogic', () => {
             form: { scope: 'selected' as const, teamIds: ['team-1', 'team-2'] },
             expected: {
                 method: 'PATCH',
-                body: { enabled: false, config: { steering: 'Skip chores', linear_team_ids: ['team-1', 'team-2'] } },
+                body: { enabled: false, config_set: { linear_team_ids: ['team-1', 'team-2'] } },
             },
         },
         {
@@ -77,7 +77,7 @@ describe('linearTeamsModalLogic', () => {
             form: { scope: 'all' as const, teamIds: ['team-1'] },
             expected: {
                 method: 'PATCH',
-                body: { enabled: false, config: { steering: 'Skip chores', linear_team_ids: [] } },
+                body: { enabled: false, config_set: { linear_team_ids: [] } },
             },
         },
         {
@@ -86,7 +86,7 @@ describe('linearTeamsModalLogic', () => {
             form: { scope: 'selected' as const, teamIds: ['team-2'] },
             expected: {
                 method: 'PATCH',
-                body: { enabled: true, config: { steering: 'Skip chores', linear_team_ids: ['team-2'] } },
+                body: { enabled: true, config_set: { linear_team_ids: ['team-2'] } },
             },
         },
     ])('$name', async ({ props, form, expected }) => {

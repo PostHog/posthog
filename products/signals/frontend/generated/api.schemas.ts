@@ -10365,6 +10365,11 @@ export const SignalSourceSyncStatusEnumApi = {
  */
 export type SignalSourceConfigApiConfig = { [key: string]: unknown }
 
+/**
+ * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+ */
+export type SignalSourceConfigApiConfigSet = { [key: string]: unknown }
+
 export interface SignalSourceConfigApi {
     readonly id: string
     source_product: SignalSourceProductEnumApi
@@ -10372,6 +10377,10 @@ export interface SignalSourceConfigApi {
     enabled?: boolean
     /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
     config?: SignalSourceConfigApiConfig
+    /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+    config_set?: SignalSourceConfigApiConfigSet
+    /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+    config_remove?: string[]
     readonly created_at: string
     readonly updated_at: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */
@@ -10392,6 +10401,11 @@ export interface PaginatedSignalSourceConfigListApi {
  */
 export type PatchedSignalSourceConfigApiConfig = { [key: string]: unknown }
 
+/**
+ * Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.
+ */
+export type PatchedSignalSourceConfigApiConfigSet = { [key: string]: unknown }
+
 export interface PatchedSignalSourceConfigApi {
     readonly id?: string
     source_product?: SignalSourceProductEnumApi
@@ -10399,6 +10413,10 @@ export interface PatchedSignalSourceConfigApi {
     enabled?: boolean
     /** Per-source settings as a JSON object. Keys read by the emission actionability gate on sources that define one (most data warehouse imports, and Conversations): `steering` (string, max 2000 characters) holds the team's preferences about this source's records in plain language: what matters, what to skip, what's out of scope. The emission actionability gate applies it when deciding which records become signals; rules apply from the next sync and nothing already emitted is retracted. `default_not_actionable` (boolean, default false) flips the gate's default: instead of keeping every record the steering rules don't exclude, only records that clearly match the team's preferences are kept. Other sources store these keys without reading them yet; future pipeline stages will consume the same steering text. Some sources read additional keys, for example `recording_filters` and `sample_rate` for session analysis. The Linear issue source (`source_product=linear`, `source_type=issue`) reads `linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the whole Linear workspace, but only issues from those teams become signals. Omit the key or pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. */
     config?: PatchedSignalSourceConfigApiConfig
+    /** Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config. */
+    config_set?: PatchedSignalSourceConfigApiConfigSet
+    /** Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config. */
+    config_remove?: string[]
     readonly created_at?: string
     readonly updated_at?: string
     /** Sync state of the warehouse import behind this source: `running`, `failed`, or `completed`. Null for a source that imports nothing from the warehouse, for an import that has never synced, and when the sync state could not be read. */

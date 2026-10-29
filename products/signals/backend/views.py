@@ -596,6 +596,12 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except Exception:
             logger.exception(f"Failed to start error tracking backfill workflow for team {self.team_id}")
 
+    def update(self, request: Request, *args: object, **kwargs: object) -> Response:
+        with transaction.atomic():
+            # Read after locking so validation and merging use the last committed configuration.
+            self.queryset = self.queryset.select_for_update()
+            return super().update(request, *args, **kwargs)
+
     def perform_update(self, serializer):
         instance = cast(SignalSourceConfig, serializer.instance)
         was_enabled = instance.enabled
@@ -618,7 +624,7 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         if instance.enabled and not was_enabled:
-            self._trigger_data_import_sync(instance)
+            transaction.on_commit(partial(self._trigger_data_import_sync, instance))
 
     # Maps source_product to ExternalDataSourceType value for data import sources
     _DATA_IMPORT_SOURCE_TYPE_MAP: dict[str, str] = {

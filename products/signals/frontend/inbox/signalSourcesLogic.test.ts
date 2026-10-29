@@ -23,7 +23,8 @@ import {
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
-import type { InboxOnboardingDraftApi, InboxOnboardingStateApi } from '../generated/api.schemas'
+import * as signalsApi from '../generated/api'
+import type { InboxOnboardingDraftApi, InboxOnboardingStateApi, SignalSourceConfigApi } from '../generated/api.schemas'
 import { signalSourcesLogic } from './signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType } from './types'
 
@@ -242,7 +243,7 @@ describe('signalSourcesLogic', () => {
         ['image-only connection', 'search_analytics_by_query_page_image'],
         ['connection without schemas', null],
     ])('does not enable Search Console signals with an %s', async (_name, schemaName) => {
-        const createConfig = jest.spyOn(api.signalSourceConfigs, 'create')
+        const createConfig = jest.spyOn(signalsApi, 'signalsSourceConfigsCreate')
         const toastError = jest.spyOn(lemonToast, 'error')
         warehouseSources = [
             {
@@ -273,7 +274,7 @@ describe('signalSourcesLogic', () => {
             { tab: 'details' }
         )
         const callbackPath = router.values.location.pathname
-        const createConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
+        const createConfig = jest.spyOn(signalsApi, 'signalsSourceConfigsCreate').mockResolvedValue({
             ...githubIssuesConfig,
             source_product: SignalSourceProduct.Intercom,
             source_type: SignalSourceType.Ticket,
@@ -290,7 +291,7 @@ describe('signalSourcesLogic', () => {
 
         await expectLogic(logic, () => logic.actions.onDataSourceSetupComplete()).toFinishAllListeners()
 
-        expect(createConfig).toHaveBeenCalledWith({
+        expect(createConfig).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             source_product: 'intercom',
             source_type: 'ticket',
             enabled: true,
@@ -524,7 +525,9 @@ describe('signalSourcesLogic', () => {
             resolveSources = resolve
         })
         const listSources = jest.spyOn(api.externalDataSources, 'list').mockReturnValue(sourcesPromise)
-        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        const createSourceConfig = jest
+            .spyOn(signalsApi, 'signalsSourceConfigsCreate')
+            .mockResolvedValue(githubIssuesConfig as SignalSourceConfigApi)
         logic.actions.loadSourceConfigsSuccess([])
 
         logic.actions.initiateDataWarehouseSourceToggle('github')
@@ -564,13 +567,18 @@ describe('signalSourcesLogic', () => {
             isToggling: () => false,
         },
     ])('creates no row for $name while the source list has not loaded', async ({ toggle, isToggling }) => {
-        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        const createSourceConfig = jest
+            .spyOn(signalsApi, 'signalsSourceConfigsCreate')
+            .mockResolvedValue(githubIssuesConfig as SignalSourceConfigApi)
+        const legacyCreate = jest.spyOn(api.signalSourceConfigs, 'create')
         expect(logic.values.sourceConfigs).toBeNull()
 
         toggle(logic)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(createSourceConfig).not.toHaveBeenCalled()
+        expect(legacyCreate).not.toHaveBeenCalled()
+        legacyCreate.mockRestore()
         expect(isToggling(logic)).toBe(false)
         createSourceConfig.mockRestore()
     })
@@ -580,8 +588,12 @@ describe('signalSourcesLogic', () => {
         const updatePromise = new Promise<never>((_, reject) => {
             rejectUpdate = reject
         })
-        const updateSourceConfig = jest.spyOn(api.signalSourceConfigs, 'update').mockReturnValue(updatePromise)
-        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue(githubIssuesConfig)
+        const updateSourceConfig = jest
+            .spyOn(signalsApi, 'signalsSourceConfigsPartialUpdate')
+            .mockReturnValue(updatePromise)
+        const createSourceConfig = jest
+            .spyOn(signalsApi, 'signalsSourceConfigsCreate')
+            .mockResolvedValue(githubIssuesConfig as SignalSourceConfigApi)
         const toastError = jest.spyOn(lemonToast, 'error')
         logic.actions.loadSourceConfigsSuccess([
             {
@@ -606,7 +618,7 @@ describe('signalSourcesLogic', () => {
     })
 
     it('uses only eval reports for the AI observability signal source', async () => {
-        const createSourceConfig = jest.spyOn(api.signalSourceConfigs, 'create').mockResolvedValue({
+        const createSourceConfig = jest.spyOn(signalsApi, 'signalsSourceConfigsCreate').mockResolvedValue({
             id: 'config-evaluation-reports',
             source_product: SignalSourceProduct.LlmAnalytics,
             source_type: SignalSourceType.EvaluationReport,
@@ -634,7 +646,7 @@ describe('signalSourcesLogic', () => {
         logic.actions.toggleEvalReports()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(createSourceConfig).toHaveBeenCalledWith({
+        expect(createSourceConfig).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             source_product: SignalSourceProduct.LlmAnalytics,
             source_type: SignalSourceType.EvaluationReport,
             enabled: true,
