@@ -225,6 +225,17 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         ),
     )
     config = _SourceConfigField(required=False, help_text=_SOURCE_CONFIG_HELP_TEXT)
+    config_set = _SourceConfigField(
+        required=False,
+        write_only=True,
+        help_text="Top-level config keys to set atomically on update. Unspecified keys are preserved. Cannot be combined with config.",
+    )
+    config_remove = serializers.ListField(
+        child=serializers.CharField(trim_whitespace=False, allow_blank=False),
+        required=False,
+        write_only=True,
+        help_text="Top-level config keys to remove atomically on update. Missing keys are ignored. Cannot overlap config_set or be combined with config.",
+    )
 
     class Meta:
         model = SignalSourceConfig
@@ -234,6 +245,8 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
             "source_type",
             "enabled",
             "config",
+            "config_set",
+            "config_remove",
             "created_at",
             "updated_at",
             "status",
@@ -289,6 +302,21 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         source_product = attrs.get("source_product", getattr(self.instance, "source_product", None))
         source_type = attrs.get("source_type", getattr(self.instance, "source_type", None))
         enabled = attrs.get("enabled", getattr(self.instance, "enabled", False))
+        if "config_set" in attrs or "config_remove" in attrs:
+            if self.instance is None:
+                raise serializers.ValidationError("config_set and config_remove are only supported on update.")
+            if "config" in attrs:
+                raise serializers.ValidationError("Use either config or config_set/config_remove.")
+            config_set = attrs.pop("config_set", {})
+            config_remove = attrs.pop("config_remove", [])
+            if not isinstance(config_set, dict):
+                raise serializers.ValidationError({"config_set": "config_set must be a JSON object"})
+            if set(config_set).intersection(config_remove):
+                raise serializers.ValidationError("A config key cannot be both set and removed.")
+            merged_config = {**self.instance.config, **config_set}
+            for key in config_remove:
+                merged_config.pop(key, None)
+            attrs["config"] = merged_config
         config = attrs.get("config")
         # `is not None` rather than truthiness: falsy non-dict values ([], "", 0, false) must be
         # rejected, not silently persisted.
