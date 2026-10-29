@@ -77,7 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCSlotNotConfiguredError,
     classify_cdc_error,
 )
-from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import history_naming_unless_taken
+from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import SourceHistoryNamings
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import has_engine_seq
 from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import (
     CDC_EXTRACTION_WORKFLOW_ID_PREFIX,
@@ -620,11 +620,17 @@ class CDCExtractActivity:
             }
         )
 
+        history_namings: SourceHistoryNamings | None = None
         for schema in self.cdc_schemas:
             if is_history_table_mode(schema.cdc_table_mode):
+                if history_namings is None:
+                    assert self.source is not None
+                    history_namings = SourceHistoryNamings(self.source)
                 # A taken name fails this table's own import. Capture then refuses only the names every
                 # history table reserves, so the source's other tables keep syncing.
-                self.history_naming_by_table[schema.name] = history_naming_unless_taken(schema) or HISTORY_NAMING
+                self.history_naming_by_table[schema.name] = (
+                    history_namings.naming_unless_taken(schema) or HISTORY_NAMING
+                )
             enabled = schema.enabled_columns
             # `None` = sync all; `[]` = retain PKs + incremental only. Match the
             # invariant used by build_select_clause / pipeline_sync / filter_dwh_columns.

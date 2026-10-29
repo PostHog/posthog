@@ -59,6 +59,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     CustomSource,
     CustomSourceConfig,
     DocsFetchError,
+    HistoryNaming,
     MySQLSource,
     PostgresSource,
     RowFilterValidationError,
@@ -76,6 +77,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     new_history_names_taken,
     new_history_naming,
     new_source_requires_ssl,
+    pin_history_naming,
     reserved_column_collisions,
     reserved_column_names,
     sql_schema_metadata,
@@ -1422,6 +1424,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
+        new_history: HistoryNaming | None = None
         if cdc_enabled:
             cdc_table_names_by_schema: dict[str, set[str]] = {}
             cdc_schema_name_by_location: dict[tuple[str, str], str] = {}
@@ -1531,7 +1534,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 and is_history_table_mode(schema.get("cdc_table_mode"))
                 and isinstance(schema.get("name"), str)
             ]
-            tables_with_taken_history_name = new_history_names_taken(new_source_model, history_names, synced_names)
+            tables_with_taken_history_name = new_history_names_taken(
+                new_source_model, new_history, history_names, synced_names
+            )
             if tables_with_taken_history_name:
                 new_source_model.delete()
                 return Response(
@@ -1759,6 +1764,9 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "schema_metadata": schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
+                # Capture and the seed read the naming the columns were checked against above.
+                if new_history is not None and is_history_table_mode(cdc_table_mode):
+                    pin_history_naming(sync_type_config, new_history)
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
