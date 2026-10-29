@@ -47,6 +47,7 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                                 content={props.content}
                                 error={props.error}
                                 onViewInThread={props.onViewInThread}
+                                highlightQuery={props.highlightQuery}
                             />
                         ),
                     },
