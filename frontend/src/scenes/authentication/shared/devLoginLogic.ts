@@ -6,8 +6,6 @@ import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { urls } from 'scenes/urls'
 
-import { PENDING_OAUTH_CONNECTION_COOKIE, pendingOAuthConnectionLogic } from './pendingOAuthConnectionLogic'
-
 export interface DevUser {
     email: string
     first_name: string
@@ -183,13 +181,19 @@ export const devLoginLogic = kea<devLoginLogicType>([
         ],
     })),
     listeners(({ actions }) => ({
-        clearPendingOAuthConnection: () => {
+        clearPendingOAuthConnection: async () => {
+            // Dynamic import: loginLogic, which the boot path loads, imports this logic, and the
+            // pending connection logic pulls in an HTML entity decoder that /login does not need
+            const { PENDING_OAUTH_CONNECTION_COOKIE, pendingOAuthConnectionLogic } =
+                await import('./pendingOAuthConnectionLogic')
             // Locally the backend sets the cookie on the request host with no `Domain`, so a
             // host-only deletion on `/` matches it
             document.cookie = `${PENDING_OAUTH_CONNECTION_COOKIE}=; Max-Age=0; path=/`
             pendingOAuthConnectionLogic.findMounted()?.actions.clearPendingConnection()
         },
-        startPendingOAuthConnection: ({ connector }) => {
+        startPendingOAuthConnection: async ({ connector }) => {
+            const { PENDING_OAUTH_CONNECTION_COOKIE, pendingOAuthConnectionLogic } =
+                await import('./pendingOAuthConnectionLogic')
             const payload = {
                 client_name: connector.client_name,
                 client_id: connector.client_id,
