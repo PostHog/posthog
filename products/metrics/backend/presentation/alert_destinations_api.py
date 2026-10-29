@@ -63,6 +63,16 @@ _DEFAULT_EVENT_KINDS: dict[DestinationType, tuple[AlertEventKind, ...]] = {
     DestinationType.PAGERDUTY: (AlertEventKind.FIRING, AlertEventKind.RESOLVED),
 }
 _MESSAGE_EVENT_KINDS = (AlertEventKind.FIRING, AlertEventKind.RESOLVED, AlertEventKind.ERRORED, AlertEventKind.BROKEN)
+_WEBHOOK_FIELDS = ("webhook_url",)
+# The fields each type stores. Redaction knows only its own type's credential, so a field of another
+# type would be stored and then shown in full.
+_FIELDS_BY_TYPE: dict[DestinationType, tuple[str, ...]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id", "slack_channel_name"),
+    DestinationType.WEBHOOK: _WEBHOOK_FIELDS,
+    DestinationType.TEAMS: _WEBHOOK_FIELDS,
+    DestinationType.DISCORD: _WEBHOOK_FIELDS,
+    DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+}
 # Choices classes for the serializers below. Each label is its value, so the OpenAPI enums keep the
 # names their ENUM_NAME_OVERRIDES entries in posthog/settings/web.py give them. TextChoices supports
 # this functional API at runtime, but its type stubs only describe member construction.
@@ -160,15 +170,10 @@ class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = DestinationType(attrs["type"])
-        # The PagerDuty fields have defaults, so they arrive for every type. Only PagerDuty keeps them.
+        # The PagerDuty fields have defaults, so they arrive for every type. Each type keeps only its own.
         data = cast(
             AlertDestinationData,
-            {
-                key: value
-                for key, value in attrs.items()
-                if key != "event_kinds"
-                and (destination_type == DestinationType.PAGERDUTY or not key.startswith("pagerduty_"))
-            },
+            {key: attrs[key] for key in _FIELDS_BY_TYPE[destination_type] if key in attrs},
         )
         data["type"] = destination_type
         try:
@@ -292,12 +297,13 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
-        report_user_action(
-            cast(User, request.user),
-            "metrics alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": [kind.value for kind in event_kinds]},
-            team=self.team,
-            request=request,
+        # Robust, so an analytics failure, such as a malformed Referer, cannot fail a create that committed.
+        transaction.on_commit(
+            lambda: self._track(
+                "created",
+                {"alert_id": str(alert.id), "type": data["type"], "event_kinds": [kind.value for kind in event_kinds]},
+            ),
+            robust=True,
         )
         return Response(MetricsAlertDestinationSerializer(_serialized(created)).data, status=status.HTTP_201_CREATED)
 
@@ -318,11 +324,16 @@ class MetricsAlertDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
             team_id=self.team_id, configuration_id=alert.id, destination_ids=destination_ids
         )
 
-        report_user_action(
-            cast(User, request.user),
-            "metrics alert destination deleted",
-            {"alert_id": str(alert.id), "count": deleted},
-            team=self.team,
-            request=request,
+        transaction.on_commit(
+            lambda: self._track("deleted", {"alert_id": str(alert.id), "count": deleted}), robust=True
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def _track(self, action: Literal["created", "deleted"], properties: dict[str, Any]) -> None:
+        report_user_action(
+            cast(User, self.request.user),
+            f"metrics alert destination {action}",
+            properties,
+            team=self.team,
+            request=self.request,
+        )

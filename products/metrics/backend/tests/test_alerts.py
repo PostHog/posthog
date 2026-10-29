@@ -220,14 +220,21 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         destinations_url = f"/api/projects/{self.team.id}/metrics_alerts/{self.configuration_id}/destinations/"
         slack = self.client.post(
             destinations_url,
-            {"type": "slack", "slack_workspace_id": workspace.id, "slack_channel_id": "C123"},
+            {
+                "type": "slack",
+                "slack_workspace_id": workspace.id,
+                "slack_channel_id": "C123",
+                "webhook_url": "https://example.com/hooks/secret-token",
+            },
             format="json",
         )
-        pagerduty = self.client.post(
-            destinations_url,
-            {"type": "pagerduty", "pagerduty_routing_key": "0123456789abcdef0123456789abcdef"},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            pagerduty = self.client.post(
+                destinations_url,
+                {"type": "pagerduty", "pagerduty_routing_key": "0123456789abcdef0123456789abcdef"},
+                format="json",
+                HTTP_REFERER="https://[",
+            )
         assert slack.status_code == pagerduty.status_code == status.HTTP_201_CREATED, (slack.json(), pagerduty.json())
         assert (slack.json()["event_kinds"], pagerduty.json()["event_kinds"]) == (
             ["firing", "resolved", "errored", "broken"],
@@ -237,9 +244,9 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         assert [d["id"] for d in listed] == [slack.json()["id"], pagerduty.json()["id"]]
         with team_scope(self.team.id):
             stored = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration_id)
-        assert [sorted(key for key in d.data if key.startswith("pagerduty_")) for d in stored] == [
-            [],
-            ["pagerduty_region", "pagerduty_routing_key", "pagerduty_severity"],
+        assert [sorted(d.data) for d in stored] == [
+            ["slack_channel_id", "slack_workspace_id", "type"],
+            ["pagerduty_region", "pagerduty_routing_key", "pagerduty_severity", "type"],
         ]
 
         self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
