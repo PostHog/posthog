@@ -206,6 +206,17 @@ def groups_carry_restriction_marker(current_filters: dict, *, marker_key: str) -
     return bool(groups) and all(group.get(marker_key) is True for group in groups)
 
 
+def any_group_carries_restriction_marker(current_filters: dict, *, marker_key: str) -> bool:
+    """Whether any release group still carries the ``marker_key`` restriction stamp.
+
+    A stamped group stays narrowed when an unstamped group is added beside it, which
+    `groups_carry_restriction_marker` reads as the restriction being lifted.
+    """
+    require_v1_config(current_filters)
+    groups = current_filters.get("groups") or []
+    return any(isinstance(group, dict) and group.get(marker_key) is True for group in groups)
+
+
 def replace_variant_distribution(current_filters: dict, variants: list[dict]) -> dict:
     """Rebuild ``multivariate.variants`` from ``variants``, leaving every other filters key untouched.
 

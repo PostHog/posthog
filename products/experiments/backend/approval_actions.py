@@ -30,6 +30,7 @@ from products.experiments.backend.models.experiment import (
     Experiment,
     experiment_has_legacy_metrics,
 )
+from products.feature_flags.backend.facade.filters import any_group_carries_restriction_marker
 
 _STATUS_TEXT = {
     "draft": "a draft",
@@ -61,8 +62,9 @@ def _flag_has_freeze_stamp(experiment: Experiment) -> bool:
     feature_flag_id: int | None = experiment.feature_flag_id
     if feature_flag_id is None:
         return False
-    groups = (experiment.feature_flag.filters or {}).get("groups") or []
-    return any(isinstance(group, dict) and group.get(EXPOSURE_FROZEN_GROUP_KEY) is True for group in groups)
+    return any_group_carries_restriction_marker(
+        experiment.feature_flag.filters or {}, marker_key=EXPOSURE_FROZEN_GROUP_KEY
+    )
 
 
 def _clears_start_date(request) -> bool:
