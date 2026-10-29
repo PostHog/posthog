@@ -200,7 +200,7 @@ def classify_column_sensitivity(column_name: str, data_type: str | None = None) 
     core = list(words)
     while len(core) > 1 and core[-1].isdigit():
         core.pop()
-    trailing_phrases = {"".join(core[-size:]) for size in (1, 2, 3) if size <= len(core)}
+    trailing_phrases = {"".join(end[-size:]) for end in (core, words) for size in (1, 2, 3) if size <= len(end)}
     for rule in _RULES:
         if kind == "number" and not rule.allows_number:
             continue

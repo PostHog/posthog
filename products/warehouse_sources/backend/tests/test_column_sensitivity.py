@@ -34,6 +34,7 @@ class TestClassifyColumnSensitivity:
             ("ip_address", "inet", S.IP_ADDRESS),
             ("client_ip", "String", S.IP_ADDRESS),
             ("IPAddress", "text", S.IP_ADDRESS),
+            ("client_ipv4", "text", S.IP_ADDRESS),
             ("access_token", "text", S.TOKEN),
             ("api_key", "varchar", S.TOKEN),
             ("password_hash", "text", S.SECRET),
