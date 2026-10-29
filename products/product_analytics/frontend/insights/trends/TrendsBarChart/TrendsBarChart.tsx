@@ -45,6 +45,7 @@ import {
     handleTrendsChartClick,
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
+import { withHighlightedSeries } from '../shared/highlightedSeries'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
@@ -192,10 +193,16 @@ export function TrendsBarChart({
         ]
     )
 
+    const isSeriesHighlighted = context?.isSeriesHighlighted
+    const getColor = useMemo(
+        () => withHighlightedSeries(getTrendsColor, indexedResults ?? [], isSeriesHighlighted),
+        [getTrendsColor, indexedResults, isSeriesHighlighted]
+    )
+
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-                getColor: getTrendsColor,
+                getColor,
                 getHidden: getTrendsHidden,
                 buildMeta,
                 stackBreakdowns,
@@ -203,7 +210,7 @@ export function TrendsBarChart({
             })
         }
         const timeSeries = buildTrendsBarTimeSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
-            getColor: getTrendsColor,
+            getColor,
             // Hidden series stay listed (dimmed) and are excluded via config.legend.hiddenKeys
             // instead of being dropped here, so the legend can restore them.
             getHidden: undefined,
@@ -224,7 +231,7 @@ export function TrendsBarChart({
     }, [
         isAggregated,
         indexedResults,
-        getTrendsColor,
+        getColor,
         getTrendsHidden,
         isStickiness,
         currentPeriodResult?.days,
@@ -485,6 +492,7 @@ export function TrendsBarChart({
                     />
                 )}
                 {showValuesOnSeries && <ValueLabels valueFormatter={valueLabelFormatter} />}
+                {context?.chartOverlay}
             </BarChart>
         )
     }
@@ -535,6 +543,7 @@ export function TrendsBarChart({
                     previousSeriesKey={previousSeriesKey}
                 />
             )}
+            {context?.chartOverlay}
         </TimeSeriesBarChart>
     )
 }
