@@ -20,7 +20,7 @@ from django.test import SimpleTestCase
 
 from parameterized import param, parameterized
 
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -281,15 +281,18 @@ class TestReadFlagCallsWithUnion(BaseTest):
         union: bool = True,
         persons_on_events: PersonsOnEventsMode | None = None,
         new_events_schema: bool | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
     ) -> str:
         _set_mode(self.organization, mode)
         with _enabled_flags(union=union):
             sql, context = HogQLQueryExecutor(
                 query=query,
                 team=self.team,
-                modifiers=HogQLQueryModifiers(
-                    personsOnEventsMode=persons_on_events,
-                    useNewEventsSchema=_events_schema_for(mode, new_events_schema),
+                modifiers=(modifiers or HogQLQueryModifiers()).model_copy(
+                    update={
+                        "personsOnEventsMode": persons_on_events,
+                        "useNewEventsSchema": _events_schema_for(mode, new_events_schema),
+                    },
                 ),
                 pretty=False,
             ).generate_clickhouse_sql()
@@ -334,12 +337,47 @@ class TestReadFlagCallsWithUnion(BaseTest):
                 False,
                 mode=ONLY,
             ),
+            param(
+                "property_in_a_string_materialized_column",
+                f"SELECT properties.probe FROM events WHERE {MIXED}",
+                True,
+                True,
+                column_type="Nullable(String)",
+            ),
+            # Each branch reads the property from JSON, so the typed column never reaches the UNION ALL.
+            param(
+                "typed_materialized_column_on_the_native_events_schema",
+                f"SELECT properties.probe FROM events WHERE {MIXED}",
+                True,
+                True,
+                column_type="Nullable(Float64)",
+                new_events_schema=True,
+            ),
+            param(
+                "typed_materialized_column_with_materialization_disabled",
+                f"SELECT properties.probe FROM events WHERE {MIXED}",
+                True,
+                True,
+                column_type="Nullable(Float64)",
+                modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
+            ),
         ]
     )
     def test_union_reads_the_scans_phase_1_leaves_on_events(
-        self, _name: str, query: str, union: bool, expected_union: bool, mode: FlagEvaluationsMode = READ
+        self,
+        _name: str,
+        query: str,
+        union: bool,
+        expected_union: bool,
+        mode: FlagEvaluationsMode = READ,
+        column_type: str | None = None,
+        new_events_schema: bool | None = None,
+        modifiers: HogQLQueryModifiers | None = None,
     ):
-        sql = self._sql(query, union=union, mode=mode)
+        if column_type is not None:
+            self.addCleanup(cleanup_materialized_columns)
+            materialize("events", "probe", is_nullable=True, column_type=column_type)
+        sql = self._sql(query, union=union, mode=mode, new_events_schema=new_events_schema, modifiers=modifiers)
 
         assert ("UNION ALL" in sql) is expected_union
         if expected_union:

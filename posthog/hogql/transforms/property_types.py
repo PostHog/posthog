@@ -137,14 +137,14 @@ class ToTimeZoneParts:
     swapped: bool
 
 
+# The tables whose `person_properties` field holds the person's properties on each event row.
+_PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
+
 # ClickHouse string-parsing conversions (toFloat64OrZero, toInt64OrZero,
 # toFloat64OrDefault, toInt64OrDefault) require a String first argument and raise
 # ILLEGAL_TYPE_OF_ARGUMENT on numeric input. When a user explicitly wraps a
 # Numeric-typed property in one of these, we must not auto-convert the property
 # to Float, the raw String value has to flow through for the parser to work.
-# The tables whose `person_properties` field holds the person's properties on each event row.
-_PERSON_PROPERTIES_TABLES = (*EVENTS_TABLE_TYPES, EventsWithFlagCallsTable)
-
 STRING_INPUT_CONVERSIONS = frozenset({"toFloatOrZero", "toIntOrZero", "toFloatOrDefault", "toIntOrDefault"})
 
 

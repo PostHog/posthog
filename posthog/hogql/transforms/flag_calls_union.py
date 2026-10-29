@@ -137,12 +137,15 @@ def union_unreadable_reason(node: ast.AST, context: HogQLContext) -> str | None:
     for chain in collector.chains:
         if columns.chain(chain) is None:
             return f"it reads {'.'.join(str(part) for part in chain)}, which that table doesn't have"
-    return _typed_materialized_property(columns.events, collector.chains)
+    return _typed_materialized_property(columns.events, collector.chains, context)
 
 
-def _typed_materialized_property(union: Table, chains: list[list[str | int]]) -> str | None:
+def _typed_materialized_property(union: Table, chains: list[list[str | int]], context: HogQLContext) -> str | None:
     # Each branch projects a property raw. A raw read of a typed materialized column keeps the column's type. The
     # flag_evaluations branch reads a JSON String, so the UNION ALL has no common type.
+    # The printer reads no materialized column on the native events schema or with materialization disabled.
+    if context.uses_new_events_schema() or context.modifiers.materializationMode == "disabled":
+        return None
     reads = {read for chain in chains if (read := property_read(union, chain)) is not None}
     if not reads:
         return None
