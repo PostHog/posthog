@@ -111,9 +111,10 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
         use_new_events_schema: bool | None = None,
         restricted_properties: set[RestrictedProperty] | None = None,
         property_groups_mode: PropertyGroupsMode | None = None,
+        event_properties: dict[str, dict[str, str | None]] | None = None,
     ) -> str:
         expr = parse_select(select)
-        context = self._context(use_new_events_schema)
+        context = self._context(use_new_events_schema, event_properties)
         if restricted_properties is not None:
             context.restricted_properties = restricted_properties
         if property_groups_mode is not None:
@@ -170,6 +171,42 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         assert expected not in restricted
         assert "events.properties" not in restricted
         assert "events.person_properties" not in restricted
+
+    @parameterized.expand(
+        [
+            ("aliased", "SELECT s.properties.amount = 'seven' FROM (SELECT properties FROM events) AS s"),
+            (
+                "nested",
+                "SELECT t.properties.amount = 'seven' FROM (SELECT * FROM (SELECT properties FROM events) AS s) AS t",
+            ),
+            ("unaliased", "SELECT properties.amount = 'seven' FROM (SELECT properties FROM events)"),
+            (
+                "union",
+                "SELECT s.properties.amount = 'seven' "
+                "FROM (SELECT properties FROM events UNION ALL SELECT properties FROM events) AS s",
+            ),
+            (
+                "cte",
+                "WITH docs AS (SELECT properties FROM events) SELECT docs.properties.amount = 'seven' FROM docs",
+            ),
+        ]
+    )
+    def test_property_read_from_a_user_document_subquery_stays_a_string(self, _name: str, select: str) -> None:
+        for use_new_events_schema in (False, True):
+            printed = self._print_select(
+                select, use_new_events_schema=use_new_events_schema, event_properties={"amount": {"type": "Numeric"}}
+            )
+            assert "accurateCastOrNull" not in printed, printed
+            assert "JSONExtractRaw(" in printed
+
+    def test_property_converted_inside_a_user_subquery_is_not_converted_again(self) -> None:
+        printed = self._print_select(
+            "SELECT s.amount = 7 FROM (SELECT properties.amount AS amount FROM events) AS s",
+            use_new_events_schema=False,
+            event_properties={"amount": {"type": "Numeric"}},
+        )
+        assert printed.count("accurateCastOrNull") == 1
+        assert "ifNull(equals(s.amount, 7), 0)" in printed
 
     def test_native_string_predicate_inside_an_unaliased_column(self) -> None:
         native = self._print_select("SELECT countIf(properties.value = '5') FROM events")
