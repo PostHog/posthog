@@ -279,6 +279,11 @@ Every input the sandbox reads from its checkout must reach the tree too, or fina
 `pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
 Anything in doubt, and any error, falls through to the full review.
 
+The sandbox runs over a PR-controlled checkout, and nothing authenticates its stdout, so `post_verdict` never posts an approval on the sandbox's report alone.
+Before the approve branch, `_attest_gates` runs `review_local.py --attest` on the worker in the same tree as the pre-check, and a run that does not attest is posted as ESCALATE.
+Every input the worker cannot confirm fails the check: a truncated file list, unread folder files, a dependency manifest that the git scan would read, or an engine error.
+A new path to an approval must go through this check too.
+
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
 refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a
 race with CI. It can't reuse `Pipeline._only_pending_migration_check`: that method disqualifies on

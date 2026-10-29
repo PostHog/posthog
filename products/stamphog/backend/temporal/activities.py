@@ -30,7 +30,7 @@ import contextvars
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from pathlib import PurePosixPath
@@ -76,11 +76,13 @@ from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_fo
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.engine_pregate import (
     ENGINE_DIR,
+    GateAttestation,
     PregateOutcome,
     engine_source_files,
     fetch_folder_policy_files,
     owners_package_files,
     pregate_skip_reason,
+    run_engine_attest,
     run_engine_pregate,
 )
 from products.stamphog.backend.logic.familiarity_facts import ReviewHistory, fetch_review_history
@@ -1015,6 +1017,55 @@ def _save_pregate_outcome(run: ReviewRun, pregate_outcome: str) -> None:
     _merge_run_output(run, {"pregate_outcome": pregate_outcome})
 
 
+def _engine_gate_inputs(run: ReviewRun) -> tuple[dict, dict[str, str]]:
+    """The engine context and the tree's policy files for a gate-only run on the worker."""
+    output = run.output or {}
+    context = json.loads(_review_invocation(run, output.get("merge_base_sha")).context_json)
+    # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
+    policy_files = _effective_policy_files(run.pull_request.repo_config.repository, output.get("policy_files", {}))
+    folder_policy_files = output.get("folder_policy_files")
+    if isinstance(folder_policy_files, dict):
+        policy_files = {**policy_files, **folder_policy_files}
+        context["folder_policies_known"] = True
+    return context, policy_files
+
+
+def _attest_gates(run: ReviewRun) -> GateAttestation:
+    """The worker's own gate run for an approval that the sandbox reported.
+
+    Nothing authenticates the sandbox's stdout, so its gate results do not decide an approval. Any
+    input the worker cannot confirm, and any error, gives an unattested result.
+    """
+    output = run.output or {}
+    pr = output.get("pr") or {}
+    if (pr.get("head") or {}).get("sha") != run.head_sha:
+        return GateAttestation(attested=False, reason="head_moved", gates=[])
+    # A renamed file still attests: the engine checks the deny-list against its previous path too.
+    if pregate_skip_reason(pr, output.get("files") or [], run.head_sha) == "file_list_incomplete":
+        return GateAttestation(attested=False, reason="file_list_incomplete", gates=[])
+    try:
+        context, policy_files = _engine_gate_inputs(run)
+        return run_engine_attest(context, policy_files)
+    except Exception:
+        activity.logger.exception(f"Run {run.id}: gate attestation failed")
+        return GateAttestation(attested=False, reason="error", gates=[])
+
+
+def _unattested_approval(parsed: ReviewerVerdict, attestation: GateAttestation) -> ReviewerVerdict:
+    """The verdict to post when the worker cannot confirm the gates that a sandbox approval needs."""
+    return replace(
+        parsed,
+        verdict=ReviewVerdict.ESCALATE,
+        showstoppers=[
+            *parsed.showstoppers,
+            "Stamphog could not confirm its own checks for this PR, so a person needs to review it.",
+        ],
+        # The engine rendered this body for an approval, so _verdict_body builds one from the fields above.
+        review_body="",
+        gate_result={**parsed.gate_result, "attestation": {"reason": attestation.reason, "gates": attestation.gates}},
+    )
+
+
 def _refuse_on_pre_gates(run: ReviewRun) -> dict:
     output = run.output or {}
     skip_reason = pregate_skip_reason(output.get("pr") or {}, output.get("files") or [], run.head_sha)
@@ -1023,13 +1074,7 @@ def _refuse_on_pre_gates(run: ReviewRun) -> dict:
         _save_pregate_outcome(run, f"skipped:{skip_reason}")
         return {"refused": False, "skipped": skip_reason}
 
-    context = json.loads(_review_invocation(run, output.get("merge_base_sha")).context_json)
-    # The same trusted set the sandbox injects, so both runs judge the PR under the same policy.
-    policy_files = _effective_policy_files(run.pull_request.repo_config.repository, output.get("policy_files", {}))
-    folder_policy_files = output.get("folder_policy_files")
-    if isinstance(folder_policy_files, dict):
-        policy_files = {**policy_files, **folder_policy_files}
-        context["folder_policies_known"] = True
+    context, policy_files = _engine_gate_inputs(run)
     timer = _StepTimer()
     # No analytics env on this first run: it only decides, and the posted run below emits the event.
     with timer.step("pregate"):
@@ -1834,6 +1879,17 @@ def post_verdict(input: StamphogReviewInput) -> dict:
             _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Skipping verdict for run {run.id}: superseded during posting")
         return {"verdict": "skipped_superseded"}
+
+    # A retry after the approval posted skips this, because the gates attested before that post.
+    if parsed.verdict == ReviewVerdict.APPROVED and not parsed.gate_blocked and run.posted_review_id is None:
+        attestation = _attest_gates(run)
+        _merge_run_output(run, {"gate_attestation": {"attested": attestation.attested, "reason": attestation.reason}})
+        if not attestation.attested:
+            if attestation.reason == "gate_failed":
+                # The sandbox reported every gate passed, so its output disagrees with the worker's.
+                activity.logger.warning(f"Run {run.id}: sandbox approval failed the worker's gates")
+            parsed = _unattested_approval(parsed, attestation)
+            run.gate_result = parsed.gate_result
 
     # Computed before the branch chain because two things must agree on it: the trigger label is only
     # stripped for a refusal, and only then may the review tell the author to re-add it.

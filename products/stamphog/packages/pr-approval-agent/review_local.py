@@ -42,6 +42,7 @@ comes from the environment (ANTHROPIC_API_KEY).
 `--pregate` is the server's gate-only pre-check (see pregate()). The server runs it on the worker,
 in a temporary tree that holds the trusted policy files, this engine and, when the server could read
 them, the PR head's AGENT_APPROVALS.md files, before it waits for other bots or makes a sandbox.
+`--attest` runs the same gates in the same tree before the server posts an approval (see attest()).
 """
 
 import os
@@ -601,6 +602,50 @@ def pregate(context: dict) -> dict:
     return {**outcome, "final": True, "needs_summary": True, "result": pipeline.to_dict()}
 
 
+def attest(context: dict) -> dict:
+    """Gate-only check that the hosted server runs before it posts an approval from the sandbox.
+
+    The sandbox prints its verdict and its gate results on stdout, and the server cannot authenticate
+    that output. So the server runs the deterministic gates again on the worker, under the trusted
+    policy and on the file list it read from GitHub. ``attested`` is True only when this run reaches
+    every condition that the sandbox needs before it may ask the LLM: no refused bot author, every
+    gate passed, and no reviewer in flight. ``reason`` names the first condition that failed.
+
+    Two inputs need the checkout, so an unknown value fails the check rather than guessing. The
+    folder files can lower a size ceiling, so ``folder_policies_known`` must be set. The manifest
+    scripts scan reads git and can add a deny, so a dependency manifest without its lockfile fails.
+    """
+    pipeline = Pipeline(
+        0,
+        context.get("repo") or "",
+        self_driving=bool(context.get("self_driving_review")),
+        review_trigger=str(context.get("review_trigger") or ""),
+        head_checkout=True,
+        checkout=False,
+    )
+    pipeline.pr = _build_pr_data(context, checkout=False)
+
+    def outcome(reason: str) -> dict:
+        gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
+        return {"attested": not reason, "reason": reason, "gates": gates}
+
+    if pipeline.pr.author_is_bot and not pipeline.self_driving:
+        return outcome("bot_author")
+    if context.get("folder_policies_known") is not True:
+        return outcome("folder_policies_unknown")
+    if dependency_manifests_without_lockfile(pipeline.pr.file_paths):
+        return outcome("dependency_manifest")
+
+    pipeline.author_team_slugs = _author_team_slugs(context)
+    pipeline._classify()
+    _run_gates_offline(pipeline)
+    if any(not gate.passed for gate in pipeline.gate_results):
+        return outcome("gate_failed")
+    if pipeline._in_flight_bot_reviewers() or pipeline.pr.pending_review_evidence():
+        return outcome("review_in_flight")
+    return outcome("")
+
+
 def run(context: dict) -> dict:
     """Run the full offline review and return the to_dict() contract."""
     # The hosted server sets self_driving_review only for PRs it verified came from a self-driving
@@ -720,6 +765,9 @@ def main() -> None:
     parser.add_argument("--context", required=True, help="Path to the review context JSON")
     parser.add_argument("--repo-dir", default=None, help="Checkout directory (defaults to cwd)")
     parser.add_argument("--pregate", action="store_true", help="Gates only, no checkout and no LLM (server pre-check)")
+    parser.add_argument(
+        "--attest", action="store_true", help="Gates only, no checkout and no LLM (server check before an approval)"
+    )
     args = parser.parse_args()
 
     if args.repo_dir:
@@ -732,6 +780,10 @@ def main() -> None:
         pregate_result = pregate(context)
         flush_analytics()
         print(json.dumps(pregate_result), flush=True)
+        return
+    if args.attest:
+        # A crash exits non-zero, and the server treats that as a failed check and posts no approval.
+        print(json.dumps(attest(context)), flush=True)
         return
 
     launched_at = _launched_at_ms()

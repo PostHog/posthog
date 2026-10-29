@@ -17,7 +17,7 @@ sys.path.insert(0, str(_ENGINE_DIR))
 import gates  # noqa: E402
 import policy  # noqa: E402
 
-from products.stamphog.backend.logic.engine_pregate import run_engine_pregate  # noqa: E402
+from products.stamphog.backend.logic.engine_pregate import run_engine_attest, run_engine_pregate  # noqa: E402
 from products.stamphog.backend.temporal import activities  # noqa: E402
 from products.stamphog.backend.temporal.activities import (  # noqa: E402
     PullRequestHeadMovedError,
@@ -126,6 +126,10 @@ def test_pregate_merges_the_repo_policy_onto_the_shipped_default(path: str, deni
         }
     )
     outcome = run_engine_pregate(_pregate_context(path), {STAMPHOG_POLICY_ENTRYPOINT: repo_policy}, environment={})
+    attestation = run_engine_attest(_pregate_context(path), {STAMPHOG_POLICY_ENTRYPOINT: repo_policy})
+    assert (attestation.attested, attestation.reason) == (
+        (True, "") if denied_category is None else (False, "gate_failed")
+    )
     if denied_category is None:
         assert not outcome.final
         assert outcome.not_final_reason == "no_failing_gate"

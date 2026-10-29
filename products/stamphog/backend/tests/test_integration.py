@@ -37,7 +37,7 @@ from products.stamphog.backend.logic.channel_resolution import (
     build_routing_context,
     resolve_destination,
 )
-from products.stamphog.backend.logic.engine_pregate import EnginePregateError, pregate_skip_reason
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, GateAttestation, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
@@ -295,6 +295,32 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
 
     # An APPROVED verdict never hands off to ReviewHog — the posthog-review label is a refusal-only signal.
     assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, stamphog_chain: StamphogChain) -> None:
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha102a"
+    recorder.register_pr(REPO, 102, _pr_object(102, author, head_sha), [_api_file("src/util.py")])
+    stamphog_chain.attest_gates.return_value = GateAttestation(
+        attested=False, reason="gate_failed", gates=[{"gate": "deny-list", "passed": False, "message": "denied"}]
+    )
+
+    stamphog_chain.post_webhook(_opened_event(102, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=102)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
+    assert (run.status, run.verdict, run.posted_review_id) == (
+        ReviewRunStatus.COMPLETED,
+        ReviewVerdict.ESCALATE,
+        None,
+    )
+    assert run.output["gate_attestation"] == {"attested": False, "reason": "gate_failed"}
+    assert run.gate_result["attestation"]["reason"] == "gate_failed"
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+    (review,) = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
+    assert "could not confirm its own checks" in review["body"]["body"]
 
 
 def _api_file(filename: str) -> dict:

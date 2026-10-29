@@ -85,6 +85,15 @@ class PregateOutcome:
     not_final_reason: str = ""
 
 
+@frozen
+class GateAttestation:
+    # True only when the worker's own gate run allows the sandbox's approval to stand.
+    attested: bool
+    # The first condition that failed, or empty when attested.
+    reason: str
+    gates: list[dict]
+
+
 def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: str) -> str | None:
     """Why the stored context cannot stand in for the sandbox's own file list, or None when it can.
 
@@ -244,16 +253,9 @@ def _parse_outcome(stdout: str) -> PregateOutcome:
     )
 
 
-def run_engine_pregate(
-    context: Mapping[str, object], policy_files: Mapping[str, str], *, environment: Mapping[str, str]
-) -> PregateOutcome:
-    """Run ``review_local.py --pregate`` on ``context`` under ``policy_files`` and parse its answer.
-
-    ``policy_files`` maps repo-relative paths to the effective trusted policy, the same set the
-    sandbox injects, plus any folder files from ``fetch_folder_policy_files``. ``environment`` is added to the child's otherwise empty environment: pass the
-    analytics keys only on the run whose result is posted, so the engine emits its
-    ``stamphog_review_completed`` event once.
-    """
+def _run_engine_gates_only(
+    context: Mapping[str, object], policy_files: Mapping[str, str], mode_flag: str, environment: Mapping[str, str]
+) -> str:
     with tempfile.TemporaryDirectory(prefix="stamphog-pregate-") as temp_dir:
         root = Path(temp_dir)
         _write_tree(root, policy_files)
@@ -266,7 +268,7 @@ def run_engine_pregate(
                     str(root / _ENGINE_SUBDIR / "review_local.py"),
                     "--context",
                     str(context_path),
-                    "--pregate",
+                    mode_flag,
                 ],
                 cwd=root,
                 env=_child_environment(root, environment),
@@ -276,8 +278,42 @@ def run_engine_pregate(
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise EnginePregateError("the engine pre-check timed out") from exc
+            raise EnginePregateError(f"the engine {mode_flag} run timed out") from exc
     if completed.returncode != 0:
         # Only the exit code: stderr can quote the PR title or file names, and callers log this text.
-        raise EnginePregateError(f"the engine pre-check exited with code {completed.returncode}")
-    return _parse_outcome(completed.stdout)
+        raise EnginePregateError(f"the engine {mode_flag} run exited with code {completed.returncode}")
+    return completed.stdout
+
+
+def run_engine_pregate(
+    context: Mapping[str, object], policy_files: Mapping[str, str], *, environment: Mapping[str, str]
+) -> PregateOutcome:
+    """Run ``review_local.py --pregate`` on ``context`` under ``policy_files`` and parse its answer.
+
+    ``policy_files`` maps repo-relative paths to the effective trusted policy, the same set the
+    sandbox injects, plus any folder files from ``fetch_folder_policy_files``. ``environment`` is added to the child's otherwise empty environment: pass the
+    analytics keys only on the run whose result is posted, so the engine emits its
+    ``stamphog_review_completed`` event once.
+    """
+    return _parse_outcome(_run_engine_gates_only(context, policy_files, "--pregate", environment))
+
+
+def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, str]) -> GateAttestation:
+    """Run ``review_local.py --attest`` on ``context`` under ``policy_files`` and parse its answer.
+
+    It takes the same inputs as ``run_engine_pregate``. It emits no analytics event.
+    """
+    stdout = _run_engine_gates_only(context, policy_files, "--attest", {})
+    lines = [line for line in stdout.splitlines() if line.strip()]
+    try:
+        parsed = json.loads(lines[-1]) if lines else None
+    except json.JSONDecodeError as exc:
+        raise EnginePregateError("the engine attestation printed no JSON result") from exc
+    if not isinstance(parsed, dict):
+        raise EnginePregateError("the engine attestation result is not an object")
+    gates = parsed.get("gates")
+    return GateAttestation(
+        attested=parsed.get("attested") is True,
+        reason=str(parsed.get("reason") or ""),
+        gates=[gate for gate in gates if isinstance(gate, dict)] if isinstance(gates, list) else [],
+    )
