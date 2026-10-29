@@ -1,4 +1,4 @@
-"""Render `facade/kinds_generated.py`, the typed accessors of the integrations SDK, from `facade/catalogue.py`.
+"""Render `kinds_generated.py`, the typed accessors of the integrations SDK, from `catalogue.py`.
 
 A renderer in the projection registry (`tools/hogli-commands/hogli_commands/projections.py`). Run
 `hogli build:projections --only integration-kinds` after a change to the catalogue.
@@ -7,27 +7,27 @@ Each kind gets a class with one attribute per auth type that it supports, plus `
 an auth type that a kind does not support, for example `IntegrationManager.github.credentials`.
 """
 
-from products.integrations.backend.facade.catalogue import KINDS
-from products.integrations.backend.facade.contracts import KindSpec
-from products.integrations.backend.facade.enums import AuthType
+from posthog.integrations.catalogue import KINDS
+from posthog.integrations.contracts import KindSpec
+from posthog.integrations.enums import AuthType
 
-OUTPUT = "products/integrations/backend/facade/kinds_generated.py"
+OUTPUT = "posthog/integrations/kinds_generated.py"
 
-HEADER = '''"""Generated from `products/integrations/backend/facade/catalogue.py`. Do not edit by hand.
+HEADER = '''"""Generated from `posthog/integrations/catalogue.py`. Do not edit by hand.
 
 Run `hogli build:projections --only integration-kinds` after a change to the catalogue. Import
-`IntegrationManager` from `facade/api.py`, not the classes here.
+`IntegrationManager` from `posthog.integrations`, not the classes here.
 """
 
 from enum import StrEnum
 
-from products.integrations.backend.facade.api_accessors import (
+from posthog.integrations.accessors import (
     AuthAccessor,
     IntegrationManagerBase,
     IntegrationReader,
     KindAccessor,
 )
-from products.integrations.backend.facade.enums import AuthType
+from posthog.integrations.enums import AuthType
 '''
 
 

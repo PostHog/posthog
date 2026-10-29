@@ -10,14 +10,9 @@ from unittest.mock import patch
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.models import Team
-from posthog.models.integration import ANY, Integration, auth_types
-from posthog.models.integration.auth_types import default_auth_type, kind_auth_types
-from posthog.models.integration.model import IntegrationQuerySet
-
-from products.integrations.backend.facade.api import IntegrationManager, register_source_kinds, register_usage_provider
-from products.integrations.backend.facade.api_accessors import AuthAccessor, IntegrationReader, SourceRows
-from products.integrations.backend.facade.contracts import (
+from posthog.integrations import usages
+from posthog.integrations.accessors import AuthAccessor, IntegrationReader, SourceRows
+from posthog.integrations.contracts import (
     IntegrationConflict,
     IntegrationInUse,
     IntegrationNotFound,
@@ -27,8 +22,12 @@ from products.integrations.backend.facade.contracts import (
     UnsupportedAuthType,
     UnsupportedIntegrationFilter,
 )
-from products.integrations.backend.facade.enums import AuthType
-from products.integrations.backend.logic import usages
+from posthog.integrations.enums import AuthType
+from posthog.integrations.manager import IntegrationManager, register_source_kinds, register_usage_provider
+from posthog.models import Team
+from posthog.models.integration import ANY, Integration, auth_types
+from posthog.models.integration.auth_types import default_auth_type, kind_auth_types
+from posthog.models.integration.model import IntegrationQuerySet
 
 MARKER = "warehouse_source_type"
 

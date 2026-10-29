@@ -19,12 +19,8 @@ from typing import ClassVar, Literal
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 
-from posthog.models.integration.auth_types import ANY, AUTH_TYPE_CONFIG_KEY, default_auth_type, kind_auth_types
-from posthog.models.integration.model import Integration, IntegrationQuerySet, defer_repository_cache_fields
-from posthog.sync import database_sync_to_async
-
-from products.integrations.backend.facade.catalogue import KINDS
-from products.integrations.backend.facade.contracts import (
+from posthog.integrations.catalogue import KINDS
+from posthog.integrations.contracts import (
     SOURCE_MARKER_CONFIG_KEY,
     ConfigValue,
     IntegrationConflict,
@@ -36,9 +32,12 @@ from products.integrations.backend.facade.contracts import (
     UnsupportedAuthType,
     UnsupportedIntegrationFilter,
 )
-from products.integrations.backend.facade.enums import AuthType
-from products.integrations.backend.logic.source_kinds import is_source_kind
-from products.integrations.backend.logic.usages import integration_usages
+from posthog.integrations.enums import AuthType
+from posthog.integrations.source_kinds import is_source_kind
+from posthog.integrations.usages import integration_usages
+from posthog.models.integration.auth_types import ANY, AUTH_TYPE_CONFIG_KEY, default_auth_type, kind_auth_types
+from posthog.models.integration.model import Integration, IntegrationQuerySet, defer_repository_cache_fields
+from posthog.sync import database_sync_to_async
 
 # The SDK writes these keys itself. A caller cannot set, remove or filter on them.
 RESERVED_CONFIG_KEYS = frozenset({AUTH_TYPE_CONFIG_KEY, SOURCE_MARKER_CONFIG_KEY})
@@ -276,7 +275,7 @@ class IntegrationReader:
         return self._cross_team_rows("exists_by_external_id").filter(integration_id=external_id).exists()
 
     def usages(self, team_id: int, id: int) -> builtins.list[IntegrationUsage]:
-        """The PostHog objects of the team that use the row. See `logic/usages.py`."""
+        """The PostHog objects of the team that use the row. See `usages.py`."""
         row = self.get(team_id, id)
         return integration_usages(team_id, row.id)
 

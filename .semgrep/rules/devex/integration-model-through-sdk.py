@@ -20,7 +20,7 @@ import posthog.models.integration.model
 from posthog.models.integration import SlackIntegration
 
 # ok: integration-model-through-sdk
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from django.apps import apps
 from django.db import models

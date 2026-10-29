@@ -11,17 +11,16 @@ import mypy.api
 from hogli_commands.projections import PROJECTIONS, OutputFormatter, ProjectionRunner
 from parameterized import parameterized
 
+from posthog.integrations import IntegrationManager
+from posthog.integrations.accessors import AuthAccessor, IntegrationReader
+from posthog.integrations.catalogue import KINDS
+from posthog.integrations.contracts import UnsupportedIntegrationFilter
+from posthog.integrations.enums import AuthType
+from posthog.integrations.kinds_generated import IntegrationKind
 from posthog.models.integration import Integration
 
-from products.integrations.backend.facade.api import IntegrationManager
-from products.integrations.backend.facade.api_accessors import AuthAccessor, IntegrationReader
-from products.integrations.backend.facade.catalogue import KINDS
-from products.integrations.backend.facade.contracts import UnsupportedIntegrationFilter
-from products.integrations.backend.facade.enums import AuthType
-from products.integrations.backend.facade.kinds_generated import IntegrationKind
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-BACKEND = REPO_ROOT / "products/integrations/backend"
+REPO_ROOT = Path(__file__).resolve().parents[3]
+SDK_DIR = REPO_ROOT / "posthog/integrations"
 
 
 # The default auth type of a kind is stored data: a row without `config["auth_type"]` has it.
@@ -139,18 +138,19 @@ class TestCatalogue(SimpleTestCase):
 # The SDK modules are copied into an empty directory, so mypy reads them without the Django plugin
 # and without following imports into the rest of the repo. Imports it cannot find become `Any`.
 SDK_FILES = (
-    "facade/api.py",
-    "facade/api_accessors.py",
-    "facade/catalogue.py",
-    "facade/contracts.py",
-    "facade/enums.py",
-    "facade/kinds_generated.py",
-    "logic/source_kinds.py",
-    "logic/usages.py",
+    "__init__.py",
+    "accessors.py",
+    "catalogue.py",
+    "contracts.py",
+    "enums.py",
+    "kinds_generated.py",
+    "manager.py",
+    "source_kinds.py",
+    "usages.py",
 )
 
 SNIPPET = """
-from products.integrations.backend.facade.api import IntegrationManager
+from posthog.integrations import IntegrationManager
 
 IntegrationManager.github.oauth.create(1, external_id="x", config={})
 IntegrationManager.github.token.upsert(1, "x", config={})
@@ -173,13 +173,10 @@ def test_mypy_rejects_unsupported_auth_types_and_writes_through_any(
     monkeypatch.chdir(tmp_path)
     root = tmp_path / "src"
     for relative in SDK_FILES:
-        target = root / "products/integrations/backend" / relative
+        target = root / "posthog/integrations" / relative
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy(BACKEND / relative, target)
-    for package in ("products", "products/integrations", "products/integrations/backend"):
-        (root / package / "__init__.py").touch()
-    for package in ("facade", "logic"):
-        (root / "products/integrations/backend" / package / "__init__.py").touch()
+        shutil.copy(SDK_DIR / relative, target)
+    (root / "posthog/__init__.py").touch()
     (root / "snippet.py").write_text(textwrap.dedent(SNIPPET))
     (tmp_path / "mypy.ini").write_text("[mypy]\n")
 

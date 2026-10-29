@@ -1,18 +1,18 @@
-"""Generated from `products/integrations/backend/facade/catalogue.py`. Do not edit by hand.
+"""Generated from `posthog/integrations/catalogue.py`. Do not edit by hand.
 
 Run `hogli build:projections --only integration-kinds` after a change to the catalogue. Import
-`IntegrationManager` from `facade/api.py`, not the classes here.
+`IntegrationManager` from `posthog.integrations`, not the classes here.
 """
 
 from enum import StrEnum
 
-from products.integrations.backend.facade.api_accessors import (
+from posthog.integrations.accessors import (
     AuthAccessor,
     IntegrationManagerBase,
     IntegrationReader,
     KindAccessor,
 )
-from products.integrations.backend.facade.enums import AuthType
+from posthog.integrations.enums import AuthType
 
 
 class IntegrationKind(StrEnum):

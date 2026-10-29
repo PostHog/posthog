@@ -5,13 +5,12 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 from rest_framework import serializers
 
+from posthog.integrations.contracts import SOURCE_MARKER_CONFIG_KEY
+from posthog.integrations.enums import AuthType
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team
 from posthog.models.comment.slack_thread import CommentSlackThread
 from posthog.models.integration import ANY, Integration
-
-from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY
-from products.integrations.backend.facade.enums import AuthType
-from products.integrations.backend.presentation.fields import IntegrationReferenceField
 
 
 class _Serializer(serializers.Serializer):

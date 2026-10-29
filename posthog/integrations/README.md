@@ -5,7 +5,7 @@ The rows move to a separate credentials service soon.
 The SDK is a small, closed set of operations, so only its transport changes after the move.
 
 ```python
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
+from posthog.integrations.manager import IntegrationManager, IntegrationRecord
 ```
 
 ## Read rows

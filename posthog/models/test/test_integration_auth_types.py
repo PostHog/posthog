@@ -13,7 +13,7 @@ from posthog.models import Team, User
 from posthog.models.integration import ANY, DEFAULT, AuthRequirement, Integration, IntegrationAuthType
 from posthog.models.integration.auth_types import config_for_write
 
-from products.integrations.backend.facade.catalogue import KINDS
+from posthog.integrations.catalogue import KINDS
 
 AuthType = IntegrationAuthType
 

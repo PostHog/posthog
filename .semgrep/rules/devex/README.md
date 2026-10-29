@@ -39,4 +39,4 @@ The ratchet fails when a file has more findings than its baseline count, and als
 
 | Rule                            | Baseline                                                  |
 | ------------------------------- | --------------------------------------------------------- |
-| `integration-model-through-sdk` | `products/integrations/backend/model_access_baseline.txt` |
+| `integration-model-through-sdk` | `posthog/integrations/model_access_baseline.txt` |

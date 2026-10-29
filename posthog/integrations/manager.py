@@ -1,6 +1,6 @@
-"""The integrations SDK: the only way to read and write `Integration` rows.
+"""The entry point of the integrations SDK. Import the names from `posthog.integrations`, not from here.
 
-    from products.integrations.backend.facade.api import IntegrationManager
+    from posthog.integrations import IntegrationManager
 
     IntegrationManager.github.oauth.get(team_id, integration_id)  # one kind, one auth type: reads and writes
     IntegrationManager.stripe.any.list(team_id)                   # one kind, every auth type: reads and deletes
@@ -10,25 +10,23 @@
 
 A kind class has an attribute only for the auth types that the kind supports, so mypy rejects
 `IntegrationManager.github.credentials`. `.any` has no writes, because a new row has exactly one auth
-type. See `products/integrations/backend/README.md`.
+type. See `posthog/integrations/README.md`.
 """
 
 from collections.abc import Mapping
 
+from posthog.integrations import accessors, source_kinds, usages
+from posthog.integrations.enums import AuthType
+from posthog.integrations.kinds_generated import GeneratedIntegrationManager
 from posthog.models.integration.model import Integration
-
-from products.integrations.backend.facade import api_accessors
-from products.integrations.backend.facade.enums import AuthType
-from products.integrations.backend.facade.kinds_generated import GeneratedIntegrationManager
-from products.integrations.backend.logic import source_kinds, usages
 
 # The Django model for now. A later change makes it a frozen record, so callers must not call
 # `.save()` or `.delete()` on it, and must write through the SDK.
 IntegrationRecord = Integration
 
-IntegrationReader = api_accessors.IntegrationReader
-AuthAccessor = api_accessors.AuthAccessor
-SourceKindAccessor = api_accessors.SourceKindAccessor
+IntegrationReader = accessors.IntegrationReader
+AuthAccessor = accessors.AuthAccessor
+SourceKindAccessor = accessors.SourceKindAccessor
 UsageProvider = usages.UsageProvider
 
 IntegrationManager = GeneratedIntegrationManager()

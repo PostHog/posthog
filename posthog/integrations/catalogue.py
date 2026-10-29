@@ -13,8 +13,8 @@ Warehouse source kinds are not in this file. The warehouse product registers the
 
 from collections.abc import Mapping
 
-from products.integrations.backend.facade.contracts import KindSpec
-from products.integrations.backend.facade.enums import AuthType
+from posthog.integrations.contracts import KindSpec
+from posthog.integrations.enums import AuthType
 
 _OAUTH = AuthType.OAUTH
 _TOKEN = AuthType.TOKEN

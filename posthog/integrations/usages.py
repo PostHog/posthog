@@ -9,9 +9,8 @@ calls `register_usage_provider` instead.
 import threading
 from collections.abc import Callable, Iterable
 
+from posthog.integrations.contracts import IntegrationUsage
 from posthog.products import load_product_modules
-
-from products.integrations.backend.facade.contracts import IntegrationUsage
 
 UsageProvider = Callable[[int, int], Iterable[IntegrationUsage]]
 

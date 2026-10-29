@@ -1,4 +1,4 @@
-"""DRF fields that reference an integration row. The facade cannot hold DRF code, so they live here."""
+"""DRF fields that reference an integration row. Not in `posthog.integrations`, so the SDK does not load DRF."""
 
 from collections.abc import Iterable
 from typing import Any, Literal
@@ -9,9 +9,9 @@ from rest_framework import serializers
 from rest_framework.fields import empty, get_attribute
 from rest_framework.relations import PKOnlyObject
 
-from products.integrations.backend.facade.api import IntegrationManager, IntegrationRecord
-from products.integrations.backend.facade.contracts import IntegrationNotFound
-from products.integrations.backend.facade.enums import AuthType
+from posthog.integrations.contracts import IntegrationNotFound
+from posthog.integrations.enums import AuthType
+from posthog.integrations.manager import IntegrationManager, IntegrationRecord
 
 
 @extend_schema_field(OpenApiTypes.INT)

@@ -8,11 +8,10 @@ A row of a source kind carries the source type in `config["warehouse_source_type
 import threading
 from collections.abc import Mapping
 
+from posthog.integrations.catalogue import KINDS
+from posthog.integrations.contracts import SOURCE_MARKER_CONFIG_KEY, KindSpec
+from posthog.integrations.enums import AuthType
 from posthog.models.integration.auth_types import register_kind_auth_types
-
-from products.integrations.backend.facade.catalogue import KINDS
-from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY, KindSpec
-from products.integrations.backend.facade.enums import AuthType
 
 __all__ = ["SOURCE_MARKER_CONFIG_KEY", "is_source_kind", "register_source_kinds"]
 

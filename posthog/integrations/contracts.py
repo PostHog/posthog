@@ -4,8 +4,7 @@ import dataclasses
 from collections.abc import Mapping
 
 from posthog.dataclasses import frozen
-
-from products.integrations.backend.facade.enums import AuthType
+from posthog.integrations.enums import AuthType
 
 # A value that `find`, `list` and `exists` can compare a config key with. Equality only.
 ConfigValue = str | int | float | bool | None
