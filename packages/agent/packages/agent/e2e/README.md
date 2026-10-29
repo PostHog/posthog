@@ -72,7 +72,7 @@ includes `src/**`). They are opt-in and cost a couple of short model turns.
 In CI they run as the **`e2e` job in `.github/workflows/test.yml`**, on pull
 requests only, after the unit + integration jobs pass. The job is opt-in and safe
 by default: it self-skips unless the repo variable `AGENT_E2E_ENABLED` is `true`
-with a `POSTHOG_CODE_E2E_GATEWAY_API_KEY` secret against `https://ai-gateway.us.posthog.com`, and it never runs for fork PRs (their secrets
+with a `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY` secret against `https://ai-gateway.us.posthog.com`, and it never runs for fork PRs (their secrets
 are withheld, which would otherwise red the fail-loud token guard). Off by
 default, so it costs nothing until explicitly enabled; the codex arm self-skips if
 the native binary isn't on the runner.
@@ -93,7 +93,7 @@ arm self-skips if it is missing).
 
 | Var | Default | Notes |
 | --- | --- | --- |
-| `POSTHOG_CODE_E2E_GATEWAY_API_KEY` | — | Required. A `phs_` key, or a `phe_` dev token from `hogli gateway:token`. Requests carry `X-PostHog-Product: ci`. Without it every arm skips. |
+| `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY` | — | Required. A `phs_` key, or a `phe_` dev token from `hogli gateway:token`. Requests carry `X-PostHog-Product: ci`. Without it every arm skips. |
 | `POSTHOG_CODE_E2E_GATEWAY_URL` | `http://localhost:8080` | ai-gateway base (codex appends `/v1`). |
 | `POSTHOG_CODE_E2E_CLAUDE_MODEL` | `claude-haiku-4-5` | Override if the gateway serves a different cheap Claude id. |
 | `POSTHOG_CODE_E2E_CODEX_MODEL` | `gpt-5-mini` | Cheapest codex id the local gateway serves; override if needed. |

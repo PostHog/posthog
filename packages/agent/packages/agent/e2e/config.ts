@@ -6,14 +6,14 @@ export type { Adapter };
 
 /**
  * Live e2e configuration, resolved entirely from the environment so no secret is
- * committed. Needs an ai-gateway and a `phs_` key in `POSTHOG_CODE_E2E_GATEWAY_API_KEY`; sends
+ * committed. Needs an ai-gateway and a `phs_` key in `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY`; sends
  * `X-PostHog-Product: ci` so e2e traffic is attributed to its own product.
  * Without the token every arm self-skips.
  */
 // `||` not `??`: CI sets unset vars to "" which should fall back to the default.
 const GATEWAY_URL =
   process.env.POSTHOG_CODE_E2E_GATEWAY_URL || "http://localhost:8080";
-const TOKEN = process.env.POSTHOG_CODE_E2E_GATEWAY_API_KEY ?? "";
+const TOKEN = process.env.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY ?? "";
 const GATEWAY_PRODUCT = "ci";
 
 // The desktop app downloads the codex binaries; it lives in the sibling desktop workspace.
@@ -79,7 +79,7 @@ export const E2E = {
 
   /** Null => runnable; a string => skip this arm with that reason (never silent). */
   skipReason(adapter: Adapter): string | null {
-    if (!TOKEN) return "POSTHOG_CODE_E2E_GATEWAY_API_KEY not set";
+    if (!TOKEN) return "POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY not set";
     if (adapter === "codex" && !existsSync(NATIVE_CODEX_BIN)) {
       return `native codex binary missing at ${NATIVE_CODEX_BIN}`;
     }
