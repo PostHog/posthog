@@ -1047,26 +1047,38 @@ def take_subscription_ownership(
 ) -> SubscriptionRecord:
     """Make `user` the owner and enable the subscription, so deliveries run with their access.
 
-    The new owner must be able to view the dashboard or insight before the ownership moves. The
-    enable that follows runs the usual save-time checks as the new owner, so a table they cannot
-    read still refuses, and the subscription then stays disabled under its new owner.
+    Every refusal comes before the owner changes, so a refused takeover leaves the subscription as
+    it was: the new owner must be able to view the dashboard or insight and read every table the
+    subscription delivers, and the enable must pass its usual checks as the new owner.
     """
     instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
     try:
         assert_creator_can_run(user, team, instance.dashboard, instance.insight)
     except (CreatorLeftOrganizationError, UserAccessControlError):
         raise SubscriptionRequestInvalidError("Can't take ownership: you don't have access to this content.") from None
-    Subscription.objects.filter(pk=instance.pk).update(created_by=user)
-    return update_subscription(
+    # The enable below only compiles the queries when it enables a disabled row, so an enabled one is
+    # checked here, as the new owner.
+    denied_resources = denied_resources_in_subscription(
+        user=user, team=team, user_access_control=viewer, subscription_id=subscription_id, attrs={}
+    )
+    if denied_resources:
+        denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+        raise SubscriptionRequestInvalidError(f"Can't take ownership: you don't have access to {denied_names}.")
+    # The re-enable check reads the owner off the instance, so it sees the new owner before the row does.
+    instance.created_by = user
+    subscription_write = _SubscriptionWrite(
         team=team,
         organization=organization,
         user=user,
         viewer=viewer,
-        subscription_id=subscription_id,
-        write=SubscriptionWrite(enabled=True),
+        instance=instance,
         partial=True,
+        is_create_request=False,
         analytics_props=analytics_props,
     )
+    validated_data = subscription_write.validate(_write_attrs(SubscriptionWrite(enabled=True)))
+    Subscription.objects.filter(pk=instance.pk).update(created_by=user)
+    return subscription_record(subscription_write.update(instance, validated_data))
 
 
 def start_test_delivery(*, team_id: int, subscription_id: int) -> ManualDeliveryResult:
