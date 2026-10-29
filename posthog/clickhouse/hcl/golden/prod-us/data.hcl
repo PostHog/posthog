@@ -4491,9 +4491,6 @@ database "posthog" {
     column "flag_key_values" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
-    }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
@@ -4507,9 +4504,9 @@ database "posthog" {
       type = "SimpleAggregateFunction(max, Bool)"
     }
     engine "distributed" {
-      cluster_name    = "posthog"
+      cluster_name    = "sessions"
       remote_database = "posthog"
-      remote_table    = "sharded_raw_sessions_v3"
+      remote_table    = "raw_sessions_v3"
       sharding_key    = "cityHash64(session_id_v7)"
     }
   }
@@ -6419,9 +6416,6 @@ database "posthog" {
     }
     column "flag_key_values" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
-    }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
@@ -9059,9 +9053,6 @@ database "posthog" {
     }
     column "flag_key_values" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
-    }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
     }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"

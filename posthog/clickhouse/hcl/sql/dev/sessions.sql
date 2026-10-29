@@ -328,7 +328,6 @@ CREATE TABLE posthog.raw_sessions_v3 (
   page_screen_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
   has_autocapture SimpleAggregateFunction(max, Bool),
   flag_key_values SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String)),
-  flag_values AggregateFunction(groupUniqArrayMap, Map(String, String)),
   event_names SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
   hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
   emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),

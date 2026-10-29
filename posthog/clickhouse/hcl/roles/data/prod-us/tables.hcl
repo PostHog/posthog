@@ -819,9 +819,6 @@ database "posthog" {
     column "flag_key_values" {
       type = "SimpleAggregateFunction(groupUniqArrayArray(10000), Array(String))"
     }
-    column "flag_values" {
-      type = "AggregateFunction(groupUniqArrayMap, Map(String, String))"
-    }
     column "event_names" {
       type = "SimpleAggregateFunction(groupUniqArrayArray, Array(String))"
     }
@@ -1658,6 +1655,15 @@ SQL
       cluster_name    = "sessions"
       remote_database = "posthog"
       remote_table    = "raw_sessions"
+      sharding_key    = "cityHash64(session_id_v7)"
+    }
+  }
+
+  patch_table "raw_sessions_v3" {
+    engine "distributed" {
+      cluster_name    = "sessions"
+      remote_database = "posthog"
+      remote_table    = "raw_sessions_v3"
       sharding_key    = "cityHash64(session_id_v7)"
     }
   }
