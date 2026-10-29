@@ -39,8 +39,10 @@ import {
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
 import { requestReportClaim } from '../utils/reportClaim'
+import { keepRowFieldsWrittenDuringFetch } from '../utils/reportFreshness'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
+import { setReportState } from '../utils/writeTimeout'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 import { buildSignalReportListSortParams, inboxFiltersLogic } from './inboxFiltersLogic'
 import type { InboxCreatedWindow, InboxFilterState, InboxSortDirection, InboxSortField } from './inboxFiltersLogic'
@@ -554,6 +556,7 @@ export const reportListLogic = kea<reportListLogicType>([
                     const params = values.listApiParams
                     const requestContext = requestContextFromValues(values)
                     cache.firstPageRequestId = (cache.firstPageRequestId ?? 0) + 1
+                    const rowsBefore = values.reportsResponse?.results
                     // nosemgrep: prefer-codegen-api-namespaced-signals -- the Inbox renders the handwritten SignalReport. The generated report type is wider (string status and priority, read-only arrays), so the list calls move to generated types together with the Inbox.
                     const response = await api.signalReports.list({
                         ...listRequestParams(params),
@@ -562,7 +565,16 @@ export const reportListLogic = kea<reportListLogicType>([
                     })
                     // A newer first-page request for a changed query supersedes this one.
                     breakpoint()
-                    return { ...response, requestParams: params, requestContext }
+                    return {
+                        ...response,
+                        results: keepRowFieldsWrittenDuringFetch(
+                            response.results,
+                            rowsBefore,
+                            values.reportsResponse?.results
+                        ),
+                        requestParams: params,
+                        requestContext,
+                    }
                 },
                 loadMoreReports: async (): Promise<ReportListResponse> => {
                     const params = values.listApiParams
@@ -948,7 +960,7 @@ export const reportListLogic = kea<reportListLogicType>([
         dismissReport: async ({ reportId, dismissal }) => {
             actions.removeReport(reportId)
             try {
-                await api.signalReports.setState(reportId, {
+                await setReportState(reportId, {
                     state: 'suppressed',
                     ...suppressDismissalPayload(dismissal),
                 })
@@ -965,7 +977,7 @@ export const reportListLogic = kea<reportListLogicType>([
         resolveReport: async ({ reportId, reason, note }) => {
             actions.removeReport(reportId)
             try {
-                await api.signalReports.setState(reportId, {
+                await setReportState(reportId, {
                     state: 'resolved',
                     dismissal_reason: reason,
                     ...(note ? { dismissal_note: note } : {}),
@@ -984,7 +996,7 @@ export const reportListLogic = kea<reportListLogicType>([
             const report = values.reports.find((r) => r.id === reportId)
             actions.removeReport(reportId)
             try {
-                await api.signalReports.setState(reportId, { state: 'potential' })
+                await setReportState(reportId, { state: 'potential' })
                 // Fire only after the restore persists, matching ReportDetailActions' fallback path.
                 captureInboxReportAction({ report, actionType: 'restore', surface })
                 lemonToast.success('Report restored to inbox')

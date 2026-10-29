@@ -58,6 +58,7 @@ import {
 } from './types'
 import { mergeReportRows, selectedFlatListSections } from './utils/flatReportList'
 import { inboxTabRedirectPath } from './utils/inboxReportUrls'
+import { keepFieldsWrittenDuringFetch } from './utils/reportFreshness'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from './utils/reportMetrics'
 import { decodeScoutCreateTemplate } from './utils/scoutTemplateDeepLink'
 
@@ -720,10 +721,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             null as SignalReport | null,
             {
                 loadSelectedReport: async ({ id }: { id: string }, breakpoint) => {
+                    const before = values.selectedReportResponse
                     try {
                         const report = await api.signalReports.get(id)
                         breakpoint()
-                        return report
+                        return keepFieldsWrittenDuringFetch(report, before, values.selectedReportResponse)
                     } catch (error) {
                         // Discard a superseded load so a slow response for a report the user already
                         // navigated away from can't overwrite the current one (e.g. a stale 404

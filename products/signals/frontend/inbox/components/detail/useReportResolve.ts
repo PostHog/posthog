@@ -2,11 +2,10 @@ import { useState } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { hasOpenImplementationPr } from '../../utils/reportActions'
+import { setReportState } from '../../utils/writeTimeout'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
 
 /**
@@ -49,7 +48,7 @@ export function useReportResolve({
                 })
                 setIsResolving(true)
                 try {
-                    await api.signalReports.setState(report.id, {
+                    await setReportState(report.id, {
                         state: 'resolved',
                         dismissal_reason: reason,
                         ...(note ? { dismissal_note: note } : {}),

@@ -230,6 +230,29 @@ describe('reportListLogic', () => {
             expect(logic.values.reports).toHaveLength(FIRST_PAGE.length + SECOND_PAGE.length)
         })
 
+        it('keeps a claim made while the first page reloads, which the reload read before the claim saved', async () => {
+            let releasePage: () => void = () => {}
+            const heldPage = new Promise<void>((resolve) => {
+                releasePage = resolve
+            })
+            useMocks({
+                get: {
+                    [REPORTS_URL]: async () => {
+                        await heldPage
+                        return [200, { count: FIRST_PAGE.length, next: null, previous: null, results: FIRST_PAGE }]
+                    },
+                },
+            })
+
+            logic.actions.loadReports()
+            logic.actions.setReportAssignee(FIRST_PAGE[0].id, myClaim)
+            releasePage()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[0].id)?.assignee).toEqual(myClaim)
+            expect(logic.values.reports.find((r) => r.id === FIRST_PAGE[1].id)?.assignee).toBeUndefined()
+        })
+
         it('keeps a row removed while the next page is in flight out of the appended list', async () => {
             let releasePage: () => void = () => {}
             const heldPage = new Promise<void>((resolve) => {

@@ -2,11 +2,10 @@ import { useState } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
-
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
 import { SignalReport } from '../../types'
 import { DismissalFeedback, suppressDismissalPayload } from '../../utils/dismissalReasons'
+import { setReportState } from '../../utils/writeTimeout'
 import { openDismissReportDialog } from '../shell/DismissReportDialog'
 
 /**
@@ -63,7 +62,7 @@ export function useReportDismiss({
                 // Fallback for standalone usage (e.g. stories) without a bound list logic.
                 setIsDismissing(true)
                 try {
-                    await api.signalReports.setState(reportId, {
+                    await setReportState(reportId, {
                         state: 'suppressed',
                         ...suppressDismissalPayload(dismissal),
                     })

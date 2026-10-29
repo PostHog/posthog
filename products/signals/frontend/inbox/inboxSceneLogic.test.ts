@@ -1,7 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { combineUrl, router } from 'kea-router'
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { waitFor } from '@testing-library/react'
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import type { CaptureOptions } from 'posthog-js'
@@ -636,6 +637,42 @@ describe('inboxSceneLogic routing', () => {
                 addEventListenerSpy.mockRestore()
                 removeEventListenerSpy.mockRestore()
             }
+        })
+
+        it('keeps a claim made while a refresh is in flight, and takes the other fields from the refresh', async () => {
+            let releaseRefresh: () => void = () => {}
+            const heldRefresh = new Promise<void>((resolve) => {
+                releaseRefresh = resolve
+            })
+            let fetches = 0
+            const reportGet = jest.fn(async () => {
+                if (fetches++ === 0) {
+                    return [200, { id: 'report-1', title: 'Crash on login', status: SignalReportStatus.READY }]
+                }
+                await heldRefresh
+                return [
+                    200,
+                    { id: 'report-1', title: 'Crash on login after refresh', status: SignalReportStatus.READY },
+                ]
+            })
+            useMocks({
+                get: { '/api/projects/:team_id/signals/reports/report-1/': reportGet },
+                post: { '/api/projects/:team_id/signals/reports/:id/viewed/': [204, null] },
+            })
+            mountLogic()
+            logic.actions.setSelectedReportId('report-1')
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            setTabVisibility('visible')
+            await waitFor(() => expect(reportGet).toHaveBeenCalledTimes(2))
+            inboxBulkActionsLogic.actions.reportClaimChanged('report-1', myClaim)
+            releaseRefresh()
+            await expectLogic(logic).toDispatchActions(['loadSelectedReportSuccess'])
+
+            expect(logic.values.selectedReport).toMatchObject({
+                title: 'Crash on login after refresh',
+                assignee: myClaim,
+            })
         })
 
         // The lists behind the detail pane reconcile only on `reportStateChanged`, so a refresh that

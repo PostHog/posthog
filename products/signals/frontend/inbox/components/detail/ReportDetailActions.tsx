@@ -5,7 +5,6 @@ import { type MouseEvent, useState } from 'react'
 import { IconCheckCircle, IconHide, IconReceipt, IconUndo, IconClock } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
@@ -16,6 +15,7 @@ import { INBOX_REPORT_SECTION_LIST_PARAMS, reportListLogic } from '../../logics/
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canMonitorReport, canResolveReport } from '../../utils/reportActions'
 import { hasMergedReportPullRequest } from '../../utils/reportPullRequests'
+import { setReportState } from '../../utils/writeTimeout'
 import { useReportDismiss } from '../cards/useReportDismiss'
 import { useReportRefund } from '../cards/useReportRefund'
 import { useReportResolve } from './useReportResolve'
@@ -123,7 +123,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
         // the flag-off Archive list, which mounts under the `resolved` key and so isn't found above.
         setIsRestoring(true)
         try {
-            await api.signalReports.setState(report.id, { state: 'potential' })
+            await setReportState(report.id, { state: 'potential' })
             captureInboxReportAction({ report, actionType: 'restore', surface: 'detail_pane' })
             lemonToast.success('Report restored to inbox')
             // Broadcast so any mounted list (including that Archive instance) reconciles against the

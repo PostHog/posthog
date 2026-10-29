@@ -212,6 +212,37 @@ describe('inboxReportDetailLogic', () => {
             }
         )
 
+        // A write that fails without an answer, such as one that timed out, can still have saved on the server.
+        it.each([
+            {
+                write: 'claim',
+                mocks: { post: { '/api/projects/:team_id/signals/reports/:id/claim/': () => [500, {}] } },
+                run: () => logic.actions.setReportClaimed(true),
+            },
+            {
+                write: 'priority',
+                mocks: { put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } },
+                run: () => logic.actions.updatePriority('P2'),
+            },
+        ])('reloads the open report after a failed $write write that was not a conflict', async ({ mocks, run }) => {
+            const reloadReport = jest.fn()
+            const sceneSpy = jest.spyOn(inboxSceneLogic, 'findMounted').mockReturnValue({
+                values: { selectedReportId: REPORT.id },
+                actions: { loadSelectedReport: reloadReport },
+            } as unknown as ReturnType<typeof inboxSceneLogic.build>)
+            const errorToast = jest.spyOn(lemonToast, 'error')
+            try {
+                useMocks(mocks)
+                run()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(reloadReport).toHaveBeenCalledWith({ id: REPORT.id })
+                expect(errorToast).toHaveBeenCalledTimes(1)
+            } finally {
+                sceneSpy.mockRestore()
+                errorToast.mockRestore()
+            }
+        })
+
         it('keeps the saved priority after a failure and allows retrying', async () => {
             useMocks({ put: { '/api/projects/:team_id/signals/reports/:id/priority/': () => [500, {}] } })
             logic.actions.updatePriority('P2')

@@ -2,7 +2,6 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -16,6 +15,7 @@ import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import type { SignalReport } from '../types'
 import { type DismissalFeedback, type ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
+import { setReportState } from '../utils/writeTimeout'
 
 /** Tally of a bulk operation that ran one request per selected report. */
 interface BulkActionResult {
@@ -311,7 +311,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             })
             const results = await Promise.allSettled(
                 reportIds.map((id) =>
-                    api.signalReports.setState(id, {
+                    setReportState(id, {
                         state: 'suppressed',
                         ...suppressDismissalPayload(dismissal),
                     })
@@ -359,7 +359,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             })
             const results = await Promise.allSettled(
                 reportIds.map((id) =>
-                    api.signalReports.setState(id, {
+                    setReportState(id, {
                         state: 'resolved',
                         dismissal_reason: reason,
                         ...(trimmedNote ? { dismissal_note: trimmedNote } : {}),
