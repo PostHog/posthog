@@ -168,6 +168,9 @@ export const addTrackingToEmail = (
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
     let anchorIndex = 0
+    // A sensitive email's links can carry a login code or a reset token, so none of them goes through
+    // a click-tracking redirect. Opens and deliveries are still tracked.
+    const sensitive = invocation.hogFunction?.metadata?.sensitive === true
 
     html = html.replace(LINK_REGEX, (m, d, s, u) => {
         const linkIndex = anchorIndex++
@@ -183,7 +186,7 @@ export const addTrackingToEmail = (
         // Match only the opening <a> tag so a marker in the link's inner HTML (a child
         // element's attribute or literal link text) can't silently disable tracking.
         const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        const optedOut = LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
+        const optedOut = sensitive || LINK_TRACKING_OPT_OUT_REGEX.test(openingTag)
 
         if (mode === 'ses') {
             // SES rewrites every http(s) anchor once click tracking is on, and it honors only its
@@ -210,18 +213,6 @@ export const addTrackingToEmail = (
     html = html.replace('</body>', `<img src="${trackingUrl}" style="display: none;" /></body>`)
 
     return html
-}
-
-// For an untracked send that still goes out on a configuration set with click tracking on. SES rewrites
-// every anchor there unless it carries `ses:no-track`, and a rewritten link can carry a one-time token.
-export const addSesNoTrackToLinks = (html: string): string => {
-    return html.replace(LINK_REGEX, (m) => {
-        const openingTag = m.match(/^<a\b[^>]*>/i)?.[0] ?? ''
-        if (!openingTag || SES_NO_TRACK_ATTR_REGEX.test(openingTag)) {
-            return m
-        }
-        return addAttributeToOpeningTag(openingTag, 'ses:no-track') + m.slice(openingTag.length)
-    })
 }
 
 const REDIRECT_CONFIRMATION_PAGE_HEADERS = {

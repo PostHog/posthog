@@ -1815,7 +1815,6 @@ describe('EmailService', () => {
                     hog_flow_name: 'Spring sale',
                     hog_flow_action_name: 'Welcome',
                 }
-                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
                 const messageAssets = new MessageAssetsService({
                     produce: jest.fn().mockResolvedValue(undefined),
                 } as unknown as IngestionOutputs<'message_assets'>)
@@ -1833,14 +1832,12 @@ describe('EmailService', () => {
                 )
             })
 
-            it('falls back to the tracked configuration set when no untracked set is configured, with every link marked no-track', async () => {
+            it('falls back to the tracked configuration set when no untracked set is configured, still untracked HTML', async () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
                 expect(sentCommand.input.ConfigurationSetName).toEqual('posthog-messaging')
-                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(
-                    '<body>Hi! <a href="https://example.com" ses:no-track>Click me</a></body>'
-                )
+                expect(sentCommand.input.Content.Simple.Body.Html.Data).toEqual(trackableHtml)
             })
 
             it('records an email_untracked app metric for untracked sends but not for test sends', async () => {
@@ -1894,7 +1891,6 @@ describe('EmailService', () => {
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
                 invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: trackableHtml })
                 invocation.hogFunction.metadata = { message_category_type: 'marketing' }
-                service['sesConfig'].sesUntrackedConfigurationSet = 'posthog-messaging-untracked'
             })
 
             it.each([
@@ -1932,17 +1928,8 @@ describe('EmailService', () => {
                 expect(sentHtml).toContain('ph_id=')
             })
 
-            it.each([
-                {
-                    case: 'tracking_enabled false',
-                    metadata: { message_category_type: 'marketing', tracking_enabled: false },
-                },
-                {
-                    case: 'a sensitive transactional template',
-                    metadata: { message_category_type: 'transactional', sensitive: true },
-                },
-            ])('sends untracked for $case, even to opted-in recipients', async ({ metadata }) => {
-                invocation.hogFunction.metadata = metadata
+            it('the step-level toggle wins over consent: tracking_enabled false is untracked even for opted-in recipients', async () => {
+                invocation.hogFunction.metadata = { message_category_type: 'marketing', tracking_enabled: false }
                 setConsentState('opt_in', 'OPTED_IN')
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -2015,11 +2002,11 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject', true],
-            ['a sensitive template', { sensitive: true }, undefined, false],
+            ['an ordinary template', {}, 'Test Subject'],
+            ['a sensitive template', { sensitive: true }, undefined],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject, trackingEnabled) => {
+            async (_name, extraMetadata, subject) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
@@ -2038,7 +2025,7 @@ describe('EmailService', () => {
                         $workflow_id: invocation.functionId,
                         $workflow_action_id: invocation.state.actionId,
                         $email_to: 'test@example.com',
-                        $email_tracking_enabled: trackingEnabled,
+                        $email_tracking_enabled: true,
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
