@@ -130,7 +130,7 @@ class TestTableDescriptions(APIBaseTest):
     def test_resolves_static_field_description_for_native_tables(self):
         # Native tables carry their descriptions on the field objects, not in an annotation model.
         # Both consumers (information_schema and read_data) rely on the resolver surfacing them.
-        resolver = TableDescriptions({}, {}, {}, {})
+        resolver = TableDescriptions({}, {}, {}, {}, {})
         field = StringDatabaseField(name="ts", description="When the event occurred.")
         table = Table(fields={"ts": field}, name="events", description="Every analytics event.")
 

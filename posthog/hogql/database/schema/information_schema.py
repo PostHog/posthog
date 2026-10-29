@@ -1694,7 +1694,8 @@ class InformationSchemaColumnsTable(InformationSchemaTable):
     description: str = (
         "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
         "table_name to inspect a table's columns, their types, descriptions, and (for data warehouse "
-        "tables) profiling statistics: null_fraction, min_value, max_value."
+        "tables) profiling statistics (null_fraction, min_value, max_value) and a sensitivity flag for "
+        "columns that likely hold personal or secret data."
     )
     fields: dict[str, FieldOrTable] = {
         "table_schema": _string_field(
@@ -2282,7 +2283,7 @@ def static_column_rows() -> list[list[Any]]:
 
     Row layout matches `_Introspection.column_rows()`:
     `[table_schema, table_name, column_name, ordinal, data_type, is_nullable, is_array, field_kind,
-    description, null_fraction, min_value, max_value]`.
+    description, null_fraction, min_value, max_value, sensitivity]`.
     """
     # Deferred: `Database` imports the schema package, so a module-level import would cycle.
     from posthog.hogql.context import HogQLContext  # noqa: PLC0415

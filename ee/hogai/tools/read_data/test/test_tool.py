@@ -776,6 +776,7 @@ class TestReadDataTool(BaseTest):
         assert "- amount (integer) — charge amount in cents" in result
         assert "- currency (string)" in result
         assert "- receipt_email (string) [sensitive: email]" in result
+        assert "Columns marked [sensitive: ...] likely hold personal or secret data." in result
 
     async def test_table_schema_returns_view_fields(self):
         """Test that data_warehouse_table returns full schema for a view."""

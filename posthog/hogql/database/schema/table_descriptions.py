@@ -32,7 +32,7 @@ class TableDescriptions:
         view_descriptions: dict[tuple[str, str], str],
         view_by_backing_table: dict[str, str],
         source_table_descriptions: dict[str, str],
-        warehouse_sensitivities: dict[tuple[str, str], str] | None = None,
+        warehouse_sensitivities: dict[tuple[str, str], str],
     ) -> None:
         # Descriptions keyed by ``(uuid, column_name)`` where ``column_name=""`` is the table/view-level
         # row. `view_by_backing_table` maps a materialized view's backing table UUID to its saved-query UUID.
@@ -42,7 +42,7 @@ class TableDescriptions:
         self._view = view_descriptions
         self._view_by_backing_table = view_by_backing_table
         self._source_table = source_table_descriptions
-        self._warehouse_sensitivity = warehouse_sensitivities or {}
+        self._warehouse_sensitivity = warehouse_sensitivities
 
     @classmethod
     def load(cls, team_id: Optional[int]) -> "TableDescriptions":
@@ -54,7 +54,7 @@ class TableDescriptions:
         source_table: dict[str, str] = {}
         sensitivity: dict[tuple[str, str], str] = {}
         if team_id is None:
-            return cls(warehouse, view, view_by_backing_table, source_table)
+            return cls(warehouse, view, view_by_backing_table, source_table, sensitivity)
 
         # Inline imports: keep the products dependency off the hogql import path (products import
         # hogql, so a module-level import would cycle) and off every code path that never resolves
@@ -72,11 +72,9 @@ class TableDescriptions:
 
         try:
             with team_scope(team_id):
-                for table_id, column_name, description, column_sensitivity in (
-                    WarehouseColumnAnnotation.objects.exclude(description="", sensitivity__isnull=True).values_list(
-                        "table_id", "column_name", "description", "sensitivity"
-                    )
-                ):
+                for table_id, column_name, description, column_sensitivity in WarehouseColumnAnnotation.objects.exclude(
+                    description="", sensitivity__isnull=True
+                ).values_list("table_id", "column_name", "description", "sensitivity"):
                     # A row with an empty description only carries a sensitivity flag.
                     if description:
                         warehouse[(str(table_id), column_name)] = description
@@ -107,7 +105,7 @@ class TableDescriptions:
                         source_table.setdefault(str(table_id), source_description)
         except Exception:
             logger.exception("table_descriptions: failed to load annotations", team_id=team_id)
-            return cls({}, {}, {}, {})
+            return cls({}, {}, {}, {}, {})
 
         return cls(warehouse, view, view_by_backing_table, source_table, sensitivity)
 

@@ -651,6 +651,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         lines = [f"{header} with fields:"]
 
         rendered_column_description = False
+        rendered_sensitivity = False
         for field in table.fields.values():
             line = self._format_schema_field(field, raw_fields.get(field.name))
             resolved_column = descriptions.for_column(raw_table, field.name, raw_fields.get(field.name))
@@ -660,6 +661,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             sensitivity = descriptions.sensitivity_for_column(raw_table, field.name)
             if sensitivity:
                 line += f" [sensitive: {sensitivity}]"
+                rendered_sensitivity = True
             lines.append(line)
 
         foreign_keys = semantics.get("foreign_keys")
@@ -682,6 +684,13 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 lines.append("")
                 lines.append("Foreign keys (use these to join related tables):")
                 lines.extend(fk_lines)
+
+        if rendered_sensitivity:
+            lines.append("")
+            lines.append(
+                "Columns marked [sensitive: ...] likely hold personal or secret data. Leave them out of queries "
+                "unless the question needs them."
+            )
 
         if table_description or rendered_column_description:
             lines.append("")
