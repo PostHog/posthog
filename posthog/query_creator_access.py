@@ -48,7 +48,7 @@ def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | N
         raise CreatorLeftOrganizationError()
     user_access_control = UserAccessControl(user=user, team=team)
     # Object rules do not consult the project, so a member shut out of a private project is checked first.
-    if not user_access_control.has_project_access():
+    if not user_access_control.has_project_access:
         raise UserAccessControlError("project", "viewer", str(team.pk))
     for obj in objects:
         if obj is None:
