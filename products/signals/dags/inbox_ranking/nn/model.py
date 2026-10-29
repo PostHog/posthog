@@ -16,10 +16,15 @@ import numpy as np
 from posthog import settings
 from posthog.dataclasses import frozen
 
+from products.signals.backend.ranking.features import (
+    DAYS_SINCE_LAST_VIEW_CAP,
+    USER_HISTORY_KINDS,
+    PairUserHistoryFeatureSet,
+)
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION
-from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS
+from products.signals.dags.inbox_ranking.dataset.project_vectors import USER_HISTORY_LIMIT, VECTOR_KINDS
 from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ONNX_OUTPUT, NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
@@ -53,11 +58,24 @@ class TrainedNetwork:
     refit_rows: int
     # The project-vector kinds the graphs take, empty for a report-only network.
     vector_kinds: tuple[str, ...]
+    # The user-history kinds the graphs take, empty for a network without a `user` input.
+    user_vector_kinds: tuple[str, ...] = ()
 
 
 def network_vector_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
     """The project-vector kinds a network fit on `inputs` takes, empty for a report-only network."""
     return VECTOR_KINDS if inputs.context is not None else ()
+
+
+def network_user_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
+    """The user-history kinds a network fit on `inputs` takes, empty for a network without them."""
+    return USER_HISTORY_KINDS if inputs.users is not None else ()
+
+
+def family_user_kinds(family: ModelFamily) -> tuple[str, ...]:
+    """The user-history kinds the pair lane gives a `family` network. A pair set's network takes
+    them even when the set holds them at zero, so the two arms of a comparison share one shape."""
+    return USER_HISTORY_KINDS if isinstance(family.feature_set, PairUserHistoryFeatureSet) else ()
 
 
 def family_heads(family: ModelFamily) -> tuple[Head, ...]:
@@ -72,9 +90,12 @@ def network_recipe(
     config: NetworkConfig,
     vector_kinds: Sequence[str],
     pair_settings: Mapping[str, Any] | None = None,
+    *,
+    user_vector_kinds: Sequence[str] = (),
 ) -> dict[str, Any]:
-    """`pair_settings` is the pair examples' label horizon and schema, for a pair-grain family only,
-    so a report-grain family's recipe and hash stay as they were."""
+    """`pair_settings` is the pair examples' label horizon and schema, and `user_vector_kinds` the
+    user-history kinds the graphs take, both for a pair-grain family only, so a report-grain family's
+    recipe and hash stay as they were."""
     recipe = model_recipe(
         model_kind=ONNX_MODEL_KIND,
         feature_set=family.feature_set,
@@ -83,7 +104,18 @@ def network_recipe(
         project_vector_kinds=vector_kinds,
     )
     if family.grain == PAIR_GRAIN:
-        recipe = {**recipe, "grain": PAIR_GRAIN, "pair": dict(pair_settings or {})}
+        recipe = {
+            **recipe,
+            "grain": PAIR_GRAIN,
+            "pair": dict(pair_settings or {}),
+            "user_vector_kinds": list(user_vector_kinds),
+            # Both change the user inputs, so they matter only to a model that reads user history.
+            "user_vector_settings": (
+                {"history_limit": USER_HISTORY_LIMIT, "days_since_last_view_cap": DAYS_SINCE_LAST_VIEW_CAP}
+                if user_vector_kinds
+                else {}
+            ),
+        }
     return recipe
 
 
@@ -142,7 +174,13 @@ def candidate_metadata(
     }
     if family.grain == PAIR_GRAIN:
         metadata["grain"] = PAIR_GRAIN
-    return with_recipe(metadata, network_recipe(family, config, trained.vector_kinds, pair_settings))
+        metadata["user_vector_kinds"] = list(trained.user_vector_kinds)
+    return with_recipe(
+        metadata,
+        network_recipe(
+            family, config, trained.vector_kinds, pair_settings, user_vector_kinds=trained.user_vector_kinds
+        ),
+    )
 
 
 def onnx_probabilities(model: bytes, inputs: NetworkInputs, output_heads: Sequence[str]) -> dict[str, np.ndarray]:
@@ -155,7 +193,7 @@ def onnx_probabilities(model: bytes, inputs: NetworkInputs, output_heads: Sequen
 
     session = ort.InferenceSession(model, providers=["CPUExecutionProvider"])
     declared = {node.name for node in session.get_inputs()}
-    report_input, project_input, history_input = ONNX_INPUTS
+    report_input, project_input, history_input, user_input = ONNX_INPUTS
     feeds: dict[str, np.ndarray] = {report_input: np.ascontiguousarray(inputs.reports, dtype=np.float32)}
     if project_input in declared:
         if inputs.context is None:
@@ -163,6 +201,10 @@ def onnx_probabilities(model: bytes, inputs: NetworkInputs, output_heads: Sequen
         pairs = inputs.context.index
         feeds[project_input] = np.ascontiguousarray(inputs.context.vectors[pairs], dtype=np.float32)
         feeds[history_input] = np.ascontiguousarray(inputs.context.has_history[pairs], dtype=np.float32)
+    if user_input in declared:
+        if inputs.users is None:
+            raise ValueError("the graph takes user offsets and the inputs carry none")
+        feeds[user_input] = np.ascontiguousarray(inputs.users.vectors[inputs.users.index], dtype=np.float32)
     (probabilities,) = session.run([ONNX_OUTPUT], {name: value for name, value in feeds.items() if name in declared})
     return {head: probabilities[:, column] for column, head in enumerate(output_heads)}
 

@@ -1,11 +1,15 @@
+import unicodedata
 from collections.abc import Mapping
+from enum import StrEnum
 from zoneinfo import ZoneInfo
 
-from scipy.stats import chisquare
+from scipy.stats import chi2_contingency, chisquare
 
 from posthog.schema import SampleRatioMismatch
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
@@ -13,15 +17,28 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
-from products.experiments.backend.health.context import ExposureTotals, FlagHistory, HealthContext
+from products.experiments.backend.health.context import ExposureSegment, ExposureTotals, FlagHistory, HealthContext
 from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, not_applicable
+from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange
 
 SAMPLE_RATIO_MISMATCH_P_VALUE = 0.001
 SRM_MINIMUM_SAMPLE_SIZE = 100
+TOP_SEGMENT_VALUES = 5
+# Below this, a skew of a few points passes the homogeneity test for lack of power, and would read as the same skew
+# everywhere. Two segments this large are needed before the finding calls a dimension uniform.
+UNIFORM_SEGMENT_MINIMUM_SIZE = 1000
+SEGMENT_LABEL_MAX_LENGTH = 60
 
 # pinned: the subcode is sent as `finding_variant` on the health finding events, so insights group on it.
 SPLIT_CHANGED = "split_changed"
+
+
+class SrmReason(StrEnum):
+    # pinned: sent as `finding_reason` on the health finding events, so insights group on them.
+    LIBRARY = ExposureSegmentDimension.LIBRARY.value
+    PAGE = ExposureSegmentDimension.PAGE.value
+    UNIFORM = "uniform"
 
 
 def sample_ratio_test(observed: Mapping[str, int], weights: Mapping[str, float]) -> SampleRatioMismatch | None:
@@ -47,6 +64,17 @@ def reads_flag_history(ctx: HealthContext) -> bool:
     the load reads the flag's activity log and can query the exposures."""
     p_value = ctx.exposures.sample_ratio_mismatch_p_value if ctx.exposures else None
     return p_value is not None and p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+
+
+def reads_segments(ctx: HealthContext) -> bool:
+    """Whether `srm` reports a mismatch that no split change explains, which it then looks for in the segments of the
+    exposures. The exposure query loads the segments only then, because their query scans the exposure events."""
+    # With an activation, the segments would come from the activation event, not from the flag call that assigned
+    # the variant.
+    if ctx.exposure_events is not None and ctx.exposure_events.activation is not None:
+        return False
+    outcome = srm(ctx)
+    return isinstance(outcome, ExperimentHealthFinding) and outcome.subcode != SPLIT_CHANGED
 
 
 def srm(ctx: HealthContext) -> CheckOutcome:
@@ -146,16 +174,155 @@ def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
 def _mismatch(exposures: ExposureTotals, p_value: float) -> ExperimentHealthFinding:
     unit = "group" if exposures.counts_groups else "user"
+    tests = _segment_tests(exposures)
+    verdicts = [_verdict(tests, dimension, exposures.sample_ratio_expected) for dimension in ExposureSegmentDimension]
+    cause, reason = _cause(verdicts, unit, exposures.sample_ratio_expected)
+    evidence: dict[str, str | int | float | None] = {"p_value": p_value, **_segment_evidence(tests, verdicts)}
+    if reason is not None:
+        evidence["reason"] = reason.value
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=None,
         severity=ExperimentHealthFindingSeverity.WARNING,
         title=f"{unit.capitalize()}s are not split across variants as configured",
-        detail=(
-            f"The distribution of {unit}s across variants doesn't match your configured rollout percentages "
-            f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}). This may indicate issues with randomization or data collection."
+        detail=" ".join(
+            [
+                f"The distribution of {unit}s across variants doesn't match your configured rollout percentages "
+                f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
+                *cause,
+            ]
         ),
-        evidence={"p_value": p_value},
+        evidence=evidence,
         actions=(),
         diagnostic_ref="A2",
     )
+
+
+@frozen
+class _SegmentTest:
+    segment: ExposureSegment
+    # None when the segment holds too few persons or groups for the test.
+    p_value: float | None
+
+
+@frozen
+class _Verdict:
+    dimension: ExposureSegmentDimension
+    homogeneity_p_value: float | None
+    powered: bool
+    located: ExposureSegment | None
+
+
+def _segment_tests(exposures: ExposureTotals) -> list[_SegmentTest]:
+    """The sample ratio test of each segment against the split of the whole test, largest segment first."""
+    segments = sorted(exposures.segments or (), key=lambda segment: -sum(segment.exposed_by_variant.values()))
+    tests = []
+    for segment in segments:
+        result = sample_ratio_test(segment.exposed_by_variant, exposures.sample_ratio_expected)
+        tests.append(_SegmentTest(segment=segment, p_value=result.p_value if result else None))
+    return tests
+
+
+def _verdict(tests: list[_SegmentTest], dimension: ExposureSegmentDimension, weights: Mapping[str, float]) -> _Verdict:
+    # A test per segment would blame the largest segment for a skew that every segment shares, because the same skew
+    # reaches significance first in the most users. The homogeneity test asks whether the segments differ at all.
+    compared = [test for test in tests if test.segment.dimension == dimension and test.p_value is not None]
+    variants = [
+        variant for variant in weights if any(test.segment.exposed_by_variant.get(variant, 0) for test in compared)
+    ]
+    if len(compared) < 2 or len(variants) < 2:
+        return _Verdict(dimension=dimension, homogeneity_p_value=None, powered=False, located=None)
+    table = [[test.segment.exposed_by_variant.get(variant, 0) for variant in variants] for test in compared]
+    homogeneity_p_value = float(chi2_contingency(table).pvalue)
+    powered = sum(1 for row in table if sum(row) >= UNIFORM_SEGMENT_MINIMUM_SIZE) >= 2
+    if homogeneity_p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
+        return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, powered=powered, located=None)
+    failing = [
+        test.segment for test in compared if test.p_value is not None and test.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE
+    ]
+    # The detail says the mismatch comes from the segment, which reads as if the other segments match the split.
+    located = failing[0] if len(failing) == 1 else None
+    return _Verdict(dimension=dimension, homogeneity_p_value=homogeneity_p_value, powered=powered, located=located)
+
+
+def _distance_from_split(segment: ExposureSegment, weights: Mapping[str, float]) -> float:
+    """The share of the segment's persons or groups that would have to move between variants to match the split."""
+    total = sum(segment.exposed_by_variant.get(variant, 0) for variant in weights)
+    total_weight = sum(weights.values())
+    return (
+        sum(
+            abs(segment.exposed_by_variant.get(variant, 0) / total - weight / total_weight)
+            for variant, weight in weights.items()
+        )
+        / 2
+    )
+
+
+def _cause(verdicts: list[_Verdict], unit: str, weights: Mapping[str, float]) -> tuple[list[str], SrmReason | None]:
+    """The sentences that follow the mismatch, and the finding's reason: the dimension of the segment furthest from
+    the split."""
+    located = sorted(
+        (verdict.located for verdict in verdicts if verdict.located is not None),
+        key=lambda segment: -_distance_from_split(segment, weights),
+    )
+    if located:
+        places = ", and from ".join(f"{unit}s {_segment_place(segment)}" for segment in located)
+        return [
+            f"The mismatch comes from {places}.",
+            f"Check that the code there sends the exposure for every {unit} in every variant.",
+        ], SrmReason(located[0].dimension.value)
+    compared = {
+        verdict.dimension: verdict.homogeneity_p_value
+        for verdict in verdicts
+        if verdict.homogeneity_p_value is not None
+    }
+    powered = [verdict.dimension for verdict in verdicts if verdict.powered]
+    if powered and all(p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE for p_value in compared.values()):
+        across = " and ".join(
+            "SDK libraries" if dimension == ExposureSegmentDimension.LIBRARY else "pages" for dimension in powered
+        )
+        return [
+            f"The mismatch looks the same across {across}, which points at how {unit}s get their variants rather "
+            "than at one integration."
+        ], SrmReason.UNIFORM
+    return ["This may indicate issues with randomization or data collection."], None
+
+
+def _segment_place(segment: ExposureSegment) -> str:
+    if segment.dimension == ExposureSegmentDimension.LIBRARY:
+        if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+            return f"whose first exposure was sent by a library other than the {TOP_SEGMENT_VALUES} most common"
+        if segment.value == BREAKDOWN_NULL_STRING_LABEL:
+            return "whose first exposure was sent by an unknown library"
+        return f"whose first exposure was sent by the {_segment_label(segment.value)} library"
+    if segment.value == BREAKDOWN_OTHER_STRING_LABEL:
+        return f"first exposed on a page other than the {TOP_SEGMENT_VALUES} most common"
+    return f"first exposed on the page {_segment_label(segment.value)}"
+
+
+def _segment_label(value: str) -> str:
+    """The value quoted for the detail. It comes from an event property, so anyone with the project's token writes
+    it, and agents read the detail as PostHog's own words. A double quote would end the quotes early, so the label
+    drops it. The evidence keeps the raw value."""
+    printable = "".join(char for char in value if char != '"' and not unicodedata.category(char).startswith("C"))
+    if len(printable) > SEGMENT_LABEL_MAX_LENGTH:
+        printable = printable[: SEGMENT_LABEL_MAX_LENGTH - 1] + "…"
+    return f'"{printable}"'
+
+
+def _segment_evidence(tests: list[_SegmentTest], verdicts: list[_Verdict]) -> dict[str, str | int | float | None]:
+    """Each segment in the keys `<dimension>_N` (the value), `<dimension>_N_p_value` and
+    `<dimension>_N_exposed_<variant>`, and each compared dimension in `<dimension>_homogeneity_p_value`."""
+    evidence: dict[str, str | int | float | None] = {}
+    for verdict in verdicts:
+        dimension = verdict.dimension
+        if verdict.homogeneity_p_value is not None:
+            evidence[f"{dimension.value}_homogeneity_p_value"] = verdict.homogeneity_p_value
+        in_dimension = [test for test in tests if test.segment.dimension == dimension]
+        for index, test in enumerate(in_dimension, start=1):
+            key = f"{dimension.value}_{index}"
+            evidence[key] = test.segment.value
+            evidence[f"{key}_p_value"] = test.p_value
+            for variant, exposed in test.segment.exposed_by_variant.items():
+                evidence[f"{key}_exposed_{variant}"] = exposed
+    return evidence

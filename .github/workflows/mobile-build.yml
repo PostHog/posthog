@@ -1,0 +1,115 @@
+name: Mobile Build
+
+# Queues internal development/preview builds. Production binaries and OTA updates
+# are published only by Mobile Release after a release request merges to master.
+# Release steps: products/mobile/docs/RELEASING.md.
+#
+# Store credentials stay on EAS, set once with `eas credentials`, so this workflow
+# never handles an Apple or Google key.
+
+on:
+    # Manual only. A pull request run executes code its author controls, so it must
+    # never reach the Expo token or the stores.
+    workflow_dispatch:
+        inputs:
+            profile:
+                description: 'EAS build profile'
+                type: choice
+                default: preview
+                options:
+                    - development
+                    - preview
+            platform:
+                description: 'Platform'
+                type: choice
+                default: all
+                options:
+                    - all
+                    - ios
+                    - android
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.profile }}-${{ inputs.platform }}
+    # Let an explicit build dispatch finish uploading and submitting to EAS.
+    # This only serializes GitHub runs in this group. With --no-wait, EAS builds
+    # continue independently and may overlap.
+    cancel-in-progress: false
+
+permissions:
+    contents: read
+
+jobs:
+    build:
+        if: github.repository == 'PostHog/posthog' && github.ref == 'refs/heads/master'
+        environment: mobile-build
+        name: EAS build (${{ inputs.profile }}, ${{ inputs.platform }})
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        defaults:
+            run:
+                working-directory: products/mobile
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.sha }}
+                  persist-credentials: false
+                  sparse-checkout: products/mobile
+                  sparse-checkout-cone-mode: false
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/mobile/package.json
+              env:
+                  # See mobile-ci.yml: a stalled npm audit or fetch otherwise waits 300s.
+                  NPM_CONFIG_FETCH_TIMEOUT: 45000
+                  NPM_CONFIG_FETCH_RETRIES: 2
+                  NPM_CONFIG_AUDIT: 'false'
+                  NPM_CONFIG_FUND: 'false'
+
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version-file: products/mobile/.node-version
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Same key as mobile-ci.yml, which writes it on master. Restore only.
+            - name: Restore pnpm store
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
+                  restore-keys: mobile-pnpm-${{ runner.os }}-
+
+            # EAS CLI evaluates app.config.ts and its config plugins, which need the
+            # app's dependencies on disk.
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Setup EAS
+              uses: expo/expo-github-action@eab7a230208c952974db8c3245cfd78402c7b385 # 9.0.0
+              with:
+                  # Pinned so a new eas-cli release cannot change a release build unannounced.
+                  eas-version: 24.8.0
+                  token: ${{ secrets.MOBILE_BUILD_EXPO_TOKEN }}
+
+            - name: EAS internal build
+              env:
+                  PLATFORM: ${{ inputs.platform }}
+                  PROFILE: ${{ inputs.profile }}
+              run: |
+                  if [[ "$PROFILE" != "development" && "$PROFILE" != "preview" ]]; then
+                    echo "::error::Use a merged mobile release request for production builds."
+                    exit 1
+                  fi
+                  sh scripts/eas-build.sh \
+                    --non-interactive \
+                    --no-wait \
+                    --platform "$PLATFORM" \
+                    --profile "$PROFILE" \
+                    --message "${GITHUB_REF_NAME}@${GITHUB_SHA::12}"
