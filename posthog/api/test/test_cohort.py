@@ -110,29 +110,24 @@ _FLAG_CALLED_ANY_FLAG_CRITERION = {
 _FLAG_KEY_FILTER = {"key": "$feature_flag", "type": "event", "value": "beta-feature", "operator": "exact"}
 _FLAG_CALLED_CRITERION = {**_FLAG_CALLED_ANY_FLAG_CRITERION, "event_filters": [_FLAG_KEY_FILTER]}
 _PAGEVIEW_CRITERION = {**_FLAG_CALLED_ANY_FLAG_CRITERION, "key": "$pageview"}
+
+
+def _pageview_with_hogql_filter(expression: str) -> dict[str, Any]:
+    return {**_PAGEVIEW_CRITERION, "event_filters": [{"key": expression, "type": "hogql"}]}
+
+
 _FLAG_CALLED_PAST_RETENTION_CRITERION = {**_FLAG_CALLED_CRITERION, "time_value": 180}
 _FLAG_CALLED_UNRESOLVABLE_CRITERION = {
     **_FLAG_CALLED_CRITERION,
     "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
 }
 # The rewrite swaps the flag-call subquery and then can't resolve it, because flag_evaluations stores no group properties.
-_PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION = {
-    **_PAGEVIEW_CRITERION,
-    "event_filters": [
-        {
-            "key": (
-                "distinct_id IN (SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
-                "AND properties.$feature_flag = 'beta-feature' AND timestamp > now() - INTERVAL 7 DAY "
-                "AND goe_0.properties.plan = 'pro')"
-            ),
-            "type": "hogql",
-        }
-    ],
-}
-_PAGEVIEW_WITH_HOGQL_FILTER_CRITERION = {
-    **_PAGEVIEW_CRITERION,
-    "event_filters": [{"key": "properties.plan = 'pro'", "type": "hogql"}],
-}
+_PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION = _pageview_with_hogql_filter(
+    "distinct_id IN (SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
+    "AND properties.$feature_flag = 'beta-feature' AND timestamp > now() - INTERVAL 7 DAY "
+    "AND goe_0.properties.plan = 'pro')"
+)
+_PAGEVIEW_WITH_HOGQL_FILTER_CRITERION = _pageview_with_hogql_filter("properties.plan = 'pro'")
 _FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION = {
     **_FLAG_CALLED_CRITERION,
     "value": "performed_event_multiple",
@@ -4979,7 +4974,7 @@ email@example.org,
                 "malformed_hogql_filter_on_another_criterion",
                 [
                     _FLAG_CALLED_CRITERION,
-                    {**_PAGEVIEW_CRITERION, "event_filters": [{"key": "properties.x = (", "type": "hogql"}]},
+                    _pageview_with_hogql_filter("properties.x = ("),
                 ],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 True,
@@ -5108,7 +5103,7 @@ email@example.org,
                 [_FLAG_CALLED_UNRESOLVABLE_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
                 [
                     _FLAG_CALLED_UNRESOLVABLE_CRITERION,
-                    {**_PAGEVIEW_CRITERION, "event_filters": [{"key": "properties.plan = 'free'", "type": "hogql"}]},
+                    _pageview_with_hogql_filter("properties.plan = 'free'"),
                 ],
                 None,
                 mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
