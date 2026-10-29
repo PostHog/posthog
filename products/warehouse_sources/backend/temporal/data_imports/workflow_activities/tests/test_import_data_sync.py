@@ -122,6 +122,7 @@ def _patched_activity(source_mock, model=None, schema=None):
         schema.should_use_incremental_field = False
         schema.row_filters = None
         schema.delta_revive_required = None
+        schema.keeps_history = False
 
     with (
         mock.patch.object(module, "tag_queries"),
@@ -1233,6 +1234,7 @@ def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -
     schema.row_filters = None
     schema.api_version = None
     schema.delta_revive_required = None
+    schema.keeps_history = False
     # The model reads this marker out of the persisted config through a property. Set both, because
     # the mock cannot run the property, and the config carries the shape a real revive leaves behind.
     schema.sync_type_config = {
