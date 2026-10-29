@@ -226,16 +226,13 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
             )
 
         tables = request.data.get("tables") or []
-        slot_name = request.data.get("cdc_slot_name") or None
-        publication_name = request.data.get("cdc_publication_name") or None
 
         try:
             prereq_errors = source_impl.check_cdc_prerequisites(
                 config,
                 management_mode=management_mode,
                 tables=tables,
-                slot_name=slot_name,
-                publication_name=publication_name,
+                setup=request.data,
                 team_id=self.team_id,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
@@ -304,8 +301,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 management_mode=management_mode,
                 tables=[],
                 schema=schema_hint,
-                slot_name=request.data.get("cdc_slot_name") or None,
-                publication_name=request.data.get("cdc_publication_name") or None,
+                setup=request.data,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
             # Probing the source's database to validate it is expected to fail when the host,
@@ -380,8 +376,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 management_mode=management_mode,
                 tables=[],
                 schema=schema_hint,
-                slot_name=request.data.get("cdc_slot_name") or None,
-                publication_name=request.data.get("cdc_publication_name") or None,
+                setup=request.data,
             )
         except base._EXPECTED_CONNECTION_ERRORS as e:
             # Expected user/upstream connection failure (bad host/credentials/SSH tunnel, server

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
     get_cdc_adapter,
@@ -32,14 +33,14 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
         config: ConfigType,
         management_mode: str,
         tables: list[str],
-        slot_name: str | None = None,
-        publication_name: str | None = None,
+        setup: Mapping[str, Any],
         require_ssl: bool = True,
         team_id: int | None = None,
     ) -> list[str]:
         """Validate the CDC prerequisites against a live connection, before the source exists.
 
-        Returns one message per unmet prerequisite.
+        ``setup`` holds the engine's own ``cdc_*`` setup fields from the request. Returns one
+        message per unmet prerequisite.
         """
         raise NotImplementedError(f"{type(self).__name__} does not check CDC prerequisites")
 
@@ -68,16 +69,16 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
 
         if cdc_config.management_mode != "posthog":
             return
-        if not cdc_config.slot_name or not cdc_config.publication_name:
+        if not cdc_config.stream_resources_configured:
             return
 
         try:
             with adapter.management_connection(source, connect_timeout=10) as conn:
-                adapter.drop_resources(conn, cdc_config.slot_name, cdc_config.publication_name)
+                adapter.drop_stream(conn, source)
         except Exception:
             log.exception(
                 "Failed to drop CDC slot/publication on source DB (best-effort)",
-                extra={"source_id": str(source.id), "slot_name": cdc_config.slot_name},
+                extra={"source_id": str(source.id), "slot_name": cdc_config.stream_name},
             )
 
     def _buffered_cdc_source(self, schema: ExternalDataSchema, inputs: SourceInputs) -> SourceResponse:
