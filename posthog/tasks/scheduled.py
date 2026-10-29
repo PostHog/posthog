@@ -1235,12 +1235,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     # AEO citation-tracking POC: daily citation checks for allowlisted, flag-enabled teams.
     add_periodic_task_with_expiry(
         sender,
-        crontab(hour="7", minute="30"),
+        # Hourly through the morning: the first dispatch starts the day's run and the later
+        # ones resume it if a worker rollout killed it. The runner skips the prompts already
+        # checked that day and the per-team lease makes a dispatch during a live run a no-op.
+        crontab(hour="7-15", minute="30"),
         run_aeo_citation_checks_task.s(),
         name="AEO citation checks",
-        # Well under the daily interval, so a backed-up queue drops the stale dispatch
-        # instead of fanning out a second day's checks and paying for them twice.
-        expires_seconds=60 * 60,
+        # Under the dispatch interval, so a backed-up queue drops the stale dispatch
+        # instead of the next one finding it still queued.
+        expires_seconds=50 * 60,
     )
 
     # MCP registry daily sync: crawl the official registry, aggregate measured servers,

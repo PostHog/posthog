@@ -42,16 +42,27 @@ def test_select_prompts_alternates_topics_and_rotates_to_least_recently_checked(
     assert "replay question 0?" not in selected
 
 
+CHECKED_BEFORE = dt.datetime(2026, 10, 28, 11, 30, tzinfo=dt.UTC)
+
+
 @pytest.mark.parametrize(
     "excluded",
-    [{"active": False}, {"archived_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)}],
-    ids=["inactive", "archived"],
+    [
+        {"active": False},
+        {"archived_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC)},
+        {"last_checked_at": CHECKED_BEFORE + dt.timedelta(seconds=1)},
+    ],
+    ids=["inactive", "archived", "checked_inside_the_recheck_window"],
 )
-def test_select_prompts_skips_inactive_and_archived_prompts(team: Team, excluded: dict) -> None:
+def test_select_prompts_skips_inactive_archived_and_recently_checked_prompts(team: Team, excluded: dict) -> None:
     upsert_prompts(team, [PromptCandidate(text=f"q{i}?", source="imported") for i in range(3)])
-    AEOPrompt.objects.for_team(team.id).filter(prompt="q1?").update(**excluded)
+    prompts = AEOPrompt.objects.for_team(team.id)
+    prompts.filter(prompt="q1?").update(**excluded)
+    prompts.filter(prompt="q2?").update(last_checked_at=CHECKED_BEFORE - dt.timedelta(seconds=1))
 
-    assert sorted(p.prompt for p in select_prompts(team, limit=10)) == ["q0?", "q2?"]
+    selected = select_prompts(team, limit=10, checked_before=CHECKED_BEFORE)
+
+    assert sorted(p.prompt for p in selected) == ["q0?", "q2?"]
 
 
 class _StubEngine:
@@ -82,8 +93,14 @@ def test_run_records_checks_and_rotates_without_a_team_scope(
 
     first, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
     second, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
+    resumed, _ = run_citation_checks(runner_team, engines=[_StubEngine()], limit=2)
 
     assert (first.rows_written, second.rows_written) == (2, 2)
+    assert (resumed.prompts, resumed.rows_written, resumed.error) == (
+        0,
+        0,
+        "nothing due: every active prompt was checked in the last 20h",
+    )
     checks = AEOCitationCheck.objects.for_team(team.id)
     assert checks.filter(cited=True).count() == 4
     assert {c.prompt_topic for c in checks} == {"t0", "t1"}

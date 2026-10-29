@@ -1479,6 +1479,10 @@ AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 # A full daily run covers the whole prompt set, so the cap only guards against a runaway import.
 AEO_MAX_PROMPTS_PER_RUN = get_from_env("AEO_MAX_PROMPTS_PER_RUN", 2000, type_cast=int)
 AEO_RUN_CONCURRENCY = get_from_env("AEO_RUN_CONCURRENCY", 16, type_cast=int)
+# A prompt checked more recently than this is not due. Below a day so that the catch-up dispatches
+# that follow a killed run only pick up the prompts it missed, and tomorrow's first dispatch covers
+# prompts the previous day's run checked late.
+AEO_RECHECK_INTERVAL_HOURS = get_from_env("AEO_RECHECK_INTERVAL_HOURS", 20, type_cast=int)
 EXA_API_KEY = get_from_env("EXA_API_KEY", "")
 CONTENT_AUTOPILOT_MODEL = get_from_env("CONTENT_AUTOPILOT_MODEL", "claude-sonnet-5")
 CONTENT_AUTOPILOT_SAFETY_MODEL = get_from_env("CONTENT_AUTOPILOT_SAFETY_MODEL", "claude-haiku-4-5")

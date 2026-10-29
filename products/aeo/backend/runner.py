@@ -15,11 +15,13 @@ gateway-key owner's project, not the checked team's, and carries the
 from __future__ import annotations
 
 import uuid
+import datetime as dt
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
 from django.conf import settings
-from django.db.models import F, Window
+from django.db.models import F, Q, QuerySet, Window
 from django.db.models.functions import RowNumber
 from django.utils import timezone
 
@@ -43,22 +45,32 @@ def run_citation_checks(
     engines: Optional[list[CitationEngine]] = None,
     limit: Optional[int] = None,
     record: bool = True,
+    on_prompt_done: Optional[Callable[[], object]] = None,
 ) -> tuple[CitationRunSummary, list[dict[str, Any]]]:
-    """Run every active prompt against every engine; record the results.
+    """Run every due prompt against every engine; record the results.
 
     Returns (summary, per-check field values). Rows are written per prompt so an
-    interrupted run keeps the checks it already paid for. With record=False the
-    engines still run (and cost money) but nothing is written — smoke-test mode.
+    interrupted run keeps the checks it already paid for, and a later run skips
+    the prompts it covered. With record=False the engines still run (and cost
+    money) but nothing is written — smoke-test mode. `on_prompt_done` is called
+    after each prompt completes, so the caller can prove the run is still alive.
     """
     engines = engines if engines is not None else available_engines()
     if not engines:
         logger.warning("aeo_citation_run_no_engines", team_id=team.id)
         return _empty_summary(team, "no engines configured (AI_GATEWAY_URL/AI_GATEWAY_API_KEY, EXA_API_KEY)"), []
 
-    prompts = select_prompts(team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit)
+    recheck_hours: int = settings.AEO_RECHECK_INTERVAL_HOURS
+    checked_before = timezone.now() - dt.timedelta(hours=recheck_hours)
+    prompts = select_prompts(
+        team, settings.AEO_MAX_PROMPTS_PER_RUN if limit is None else limit, checked_before=checked_before
+    )
     if not prompts:
-        logger.warning("aeo_citation_run_no_prompts", team_id=team.id)
-        return _empty_summary(team, "no active prompts — run `seed_aeo_prompts` first"), []
+        if not _active_prompts(team).exists():
+            logger.warning("aeo_citation_run_no_prompts", team_id=team.id)
+            return _empty_summary(team, "no active prompts — run `seed_aeo_prompts` first"), []
+        logger.info("aeo_citation_run_nothing_due", team_id=team.id, checked_before=checked_before.isoformat())
+        return _empty_summary(team, f"nothing due: every active prompt was checked in the last {recheck_hours}h"), []
 
     run_id = str(uuid.uuid4())
     # bulk_create skips RootTeamMixin.save(), so map a child environment to its parent here, as reads do.
@@ -96,6 +108,8 @@ def run_citation_checks(
                     write_failures += len(result.fields_per_engine)
             if done % 100 == 0:
                 logger.info("aeo_citation_run_progress", team_id=team.id, run_id=run_id, done=done, total=len(prompts))
+            if on_prompt_done is not None:
+                on_prompt_done()
     except BaseException:
         # A Celery time limit or a worker shutdown lands here. Drop the queued prompts so they
         # make no more paid calls whose results nobody records.
@@ -206,22 +220,25 @@ def _record_prompt_checks(
     return True
 
 
-def select_prompts(team: Team, limit: int) -> list[AEOPrompt]:
-    """Pick up to `limit` active, unarchived prompts, alternating between topics.
+def select_prompts(team: Team, limit: int, *, checked_before: Optional[dt.datetime] = None) -> list[AEOPrompt]:
+    """Pick up to `limit` due prompts, alternating between topics.
 
-    Each run samples every topic: it takes one prompt per topic in turn, so a
-    single large topic cannot fill the run. Within a topic, prompts never checked
-    come first, then the least recently checked, so a set larger than one run
-    rotates. A small topic runs out of unchecked prompts first and is then
-    re-checked while larger topics still rotate.
+    A prompt is due when it is active, unarchived, and was never checked or was
+    last checked before `checked_before` (every active prompt when None). Each
+    run samples every topic: it takes one prompt per topic in turn, so a single
+    large topic cannot fill the run. Within a topic, prompts never checked come
+    first, then the least recently checked, so a set larger than one run rotates.
+    A small topic runs out of unchecked prompts first and is then re-checked
+    while larger topics still rotate.
     """
     freshness = [F("last_checked_at").asc(nulls_first=True), F("rank").desc(), F("created_at").asc()]
+    due = _active_prompts(team)
+    if checked_before is not None:
+        due = due.filter(Q(last_checked_at__isnull=True) | Q(last_checked_at__lt=checked_before))
     by_topic: dict[str, list[AEOPrompt]] = {}
     # The round-robin never takes more than `limit` prompts from one topic, so load no more than that.
     for prompt in (
-        AEOPrompt.objects.for_team(team.id)
-        .filter(active=True, archived_at__isnull=True)
-        .annotate(position_in_topic=Window(RowNumber(), partition_by=[F("topic")], order_by=freshness))
+        due.annotate(position_in_topic=Window(RowNumber(), partition_by=[F("topic")], order_by=freshness))
         .filter(position_in_topic__lte=limit)
         .order_by(*freshness)
     ):
@@ -234,6 +251,10 @@ def select_prompts(team: Team, limit: int) -> list[AEOPrompt]:
         selected.extend(queue[position] for queue in queues if position < len(queue))
         position += 1
     return selected[:limit]
+
+
+def _active_prompts(team: Team) -> QuerySet[AEOPrompt]:
+    return AEOPrompt.objects.for_team(team.id).filter(active=True, archived_at__isnull=True)
 
 
 def _empty_summary(team: Team, error: str) -> CitationRunSummary:

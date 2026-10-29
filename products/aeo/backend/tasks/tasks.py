@@ -5,6 +5,10 @@ allowlist AND have the `aeo-citation-tracking` feature flag enabled. Both are
 empty/off by default, so this is a no-op everywhere until deliberately turned
 on. Each eligible team gets its own long-running task so one slow team can't
 block another and a worker restart only loses one team's in-flight run.
+
+A run takes hours and a worker rollout kills it part way, so beat dispatches
+several times a day and the runner skips the prompts a killed run already
+covered. A per-team lease stops two dispatches from running at once.
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from celery import shared_task
 from posthog.celery_queues import CeleryQueue
 from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
+from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG
@@ -31,6 +36,13 @@ logger = structlog.get_logger(__name__)
 # daily dispatch.
 RUN_SOFT_TIME_LIMIT_SECONDS = 10 * 60 * 60
 RUN_TIME_LIMIT_SECONDS = RUN_SOFT_TIME_LIMIT_SECONDS + 300
+
+# The per-team lease is renewed after every completed prompt instead of lasting the whole
+# time limit. A worker that outlives its termination grace period is SIGKILLed, which skips
+# every `finally`, so a lease as long as the time limit would block the catch-up dispatches
+# for the rest of the day. One prompt is bounded by the engines' request timeouts (well under
+# this), so a run that renews nothing for this long is dead or hung and may be superseded.
+RUN_LEASE_SECONDS = 30 * 60
 
 
 def _citation_tracking_enabled(team: Team) -> bool:
@@ -84,10 +96,16 @@ def run_aeo_citation_checks_for_team_task(team_id: int) -> None:
     if not _citation_tracking_enabled(team):
         logger.info("aeo_citation_task_flag_disabled", team_id=team_id)
         return
+    lease = get_client().lock(f"aeo_citation_run:{team_id}", timeout=RUN_LEASE_SECONDS)
+    if not lease.acquire(blocking=False):
+        logger.info("aeo_citation_task_already_running", team_id=team_id)
+        return
     try:
-        run_citation_checks(team)
+        run_citation_checks(team, on_prompt_done=lease.reacquire)
     except Exception:
         # The runner already absorbs per-prompt failures, so anything reaching here is
         # unexpected. Re-raise so Celery marks the task failed and alerting sees it.
         logger.exception("aeo_citation_task_failed", team_id=team_id)
         raise
+    finally:
+        lease.release()
