@@ -79,9 +79,9 @@ function OwnerUnavailableContent({
                 ) : (
                     // The creator foreign key is set to null when the account is deleted.
                     'It runs with the access of its creator, whose account was deleted.'
-                )}
+                )}{' '}
+                Take ownership to enable it with your access instead.
             </p>
-            <p className="m-0">Take ownership to enable it with your access instead.</p>
         </div>
     )
 }
