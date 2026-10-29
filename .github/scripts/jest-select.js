@@ -59,7 +59,7 @@ function classifyChanges({ files, diffOutcome, isDraft }) {
     }
     const sources = files
         .filter((file) => /\.(ts|tsx|js|jsx|mjs|cjs|json)$/.test(file))
-        .filter((file) => /^(frontend|products|common|ee\/frontend)\//.test(file))
+        .filter((file) => /^(frontend|products|packages|common|ee\/frontend)\//.test(file))
         .map((file) => (file.startsWith('frontend/') ? file.slice('frontend/'.length) : `../${file}`))
     // Listing must use the same space-separated arguments as the test job.
     const changedFiles = sources.join(' ').split(' ').filter(Boolean)
