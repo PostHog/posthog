@@ -6609,6 +6609,14 @@ export type ColumnSensitivity =
     | 'secret'
     | 'card_number'
 
+/** A column offered by the column picker. */
+export interface SchemaAvailableColumn {
+    name: string
+    data_type?: string
+    is_nullable?: boolean
+    sensitivity?: ColumnSensitivity | null
+}
+
 export interface AvailableColumn {
     label: string
     field: string
@@ -6741,12 +6749,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     enabled_columns?: string[] | null
     /** Source columns whose values are replaced with a one-way hash at sync time. */
     masked_columns?: string[] | null
-    available_columns?: {
-        name: string
-        data_type?: string
-        is_nullable?: boolean
-        sensitivity?: ColumnSensitivity | null
-    }[]
+    available_columns?: SchemaAvailableColumn[]
     /** Exact source identifiers are available for sources that project columns upstream. */
     source_column_metadata_available?: boolean
     /**

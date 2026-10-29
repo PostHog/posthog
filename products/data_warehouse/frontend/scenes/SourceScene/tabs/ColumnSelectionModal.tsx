@@ -3,7 +3,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonModal, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { ColumnSensitivity, ExternalDataSourceSchema } from '~/types'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
+import { ColumnSensitivity, ExternalDataSourceSchema, SchemaAvailableColumn } from '~/types'
 
 const SENSITIVITY_LABELS: Record<ColumnSensitivity, string> = {
     email: 'Email',
@@ -17,13 +19,6 @@ const SENSITIVITY_LABELS: Record<ColumnSensitivity, string> = {
     card_number: 'Card number',
 }
 
-interface AvailableColumnOption {
-    name: string
-    data_type?: string
-    is_nullable?: boolean
-    sensitivity?: ColumnSensitivity | null
-}
-
 // Unifies the existing-source schema and the wizard's pre-creation sync schema so
 // both can drive the picker without coupling it to either concrete type.
 export interface ColumnSelectionTarget {
@@ -35,7 +30,7 @@ export interface ColumnSelectionTarget {
     /** The key discovery found, which a sync merges on when no key is stored. */
     detected_primary_keys?: string[] | null
     incremental_field?: string | null
-    available_columns?: AvailableColumnOption[]
+    available_columns?: SchemaAvailableColumn[]
 }
 
 interface ColumnSelectionPickerProps {
@@ -73,10 +68,10 @@ interface UseColumnSelectionResult {
     suggestedColumns: string[]
     maskSuggested: () => void
     persistedSelection: () => string[] | null
-    available: AvailableColumnOption[]
+    available: SchemaAvailableColumn[]
     primaryKeys: Set<string>
     incrementalField: string | null | undefined
-    filteredColumns: AvailableColumnOption[]
+    filteredColumns: SchemaAvailableColumn[]
 }
 
 function useColumnSelection(
@@ -263,11 +258,12 @@ export function ColumnSelectionPicker({
         primaryKeys,
         filteredColumns,
     } = useColumnSelection(schema, onChange, onMaskedChange)
+    const suggestSensitive = useFeatureFlag('WAREHOUSE_COLUMN_SENSITIVITY') && !!enableMasking
 
     return (
         <div className="flex flex-col gap-2">
             <LemonInput type="search" placeholder="Filter columns" size="small" value={filter} onChange={setFilter} />
-            {enableMasking && suggestedColumns.length > 0 && (
+            {suggestSensitive && suggestedColumns.length > 0 && (
                 <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs text-secondary">
                         {suggestedColumns.length === 1
@@ -293,8 +289,7 @@ export function ColumnSelectionPicker({
                 )}
                 {filteredColumns.map((column) => {
                     const retained = isAlwaysRetained(column.name)
-                    const showSensitivity =
-                        enableMasking && !!column.sensitivity && !retained && !isSyncKey(column.name)
+                    const sensitivity = suggestSensitive && isMaskable(column.name) ? column.sensitivity : null
                     const checkbox = (
                         <LemonCheckbox
                             checked={isChecked(column.name)}
@@ -306,10 +301,10 @@ export function ColumnSelectionPicker({
                                     {column.data_type && (
                                         <span className="text-xs text-muted-alt">{column.data_type}</span>
                                     )}
-                                    {showSensitivity && column.sensitivity && (
+                                    {sensitivity && (
                                         <Tooltip title="This column's name suggests personal or secret data. Consider masking it.">
                                             <LemonTag size="small" type="caution">
-                                                {SENSITIVITY_LABELS[column.sensitivity]}
+                                                {SENSITIVITY_LABELS[sensitivity]}
                                             </LemonTag>
                                         </Tooltip>
                                     )}
