@@ -1,11 +1,12 @@
 """Cross-product value contracts exposed by data_catalog."""
 
+from dataclasses import field
 from datetime import datetime
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import JudgeRelation, ShapeOutcome, UsageSnapshotStatus
+from .enums import JudgeRelation, ShapeOutcome, UsageSection, UsageSnapshotStatus
 
 
 @dataclass(frozen=True)
@@ -172,9 +173,17 @@ class ProposedMetric:
 
 
 @dataclass(frozen=True)
+class SectionFailure:
+    """A scan step that failed after its retries. Its section stays None."""
+
+    section: UsageSection
+    reason: str
+
+
+@dataclass(frozen=True)
 class UsageSnapshotPayload:
     """The stored body of a usage snapshot. Each scan step writes its own section, so a section
-    stays None until its step has run."""
+    stays None until its step has run, and stays None when its step fails."""
 
     metric_runs: list[MetricRunCounts] | None = None
     adjusted_runs: list[AdjustedRun] | None = None
@@ -183,6 +192,7 @@ class UsageSnapshotPayload:
     table_sources: list[TableSource] | None = None
     uncovered: list[UncoveredGroup] | None = None
     proposed_metrics: list[ProposedMetric] | None = None
+    failed_sections: list[SectionFailure] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -221,3 +231,4 @@ class MetricUsage:
     computed_at: datetime | None
     runs: MetricRunCounts | None
     adjusted_runs: list[AdjustedRun]
+    failed_sections: list[SectionFailure]

@@ -631,6 +631,11 @@ class ProposedMetricSerializer(serializers.Serializer):
     )
 
 
+class SectionFailureSerializer(serializers.Serializer):
+    section = serializers.CharField(help_text="The failed section: metric_runs, adjusted_runs, topics or uncovered.")
+    reason = serializers.CharField(help_text="Why the scan step failed.")
+
+
 class UsageSnapshotPayloadSerializer(serializers.Serializer):
     metric_runs = MetricRunCountsSerializer(
         many=True, allow_null=True, help_text="Run counts per metric. Null until the scan counts runs."
@@ -652,6 +657,9 @@ class UsageSnapshotPayloadSerializer(serializers.Serializer):
     )
     proposed_metrics = ProposedMetricSerializer(
         many=True, allow_null=True, help_text="Proposed metrics with their sources. Null until drafted."
+    )
+    failed_sections = SectionFailureSerializer(
+        many=True, help_text="Sections whose scan step failed. Each one stays null, and the others keep their results."
     )
 
 
@@ -679,4 +687,7 @@ class MetricUsageSerializer(serializers.Serializer):
     runs = MetricRunCountsSerializer(allow_null=True, help_text="Run counts. Null when the metric had no runs.")
     adjusted_runs = AdjustedRunSerializer(
         many=True, help_text="Agent queries that re-derived the metric. is_scout marks the ones a scout ran."
+    )
+    failed_sections = SectionFailureSerializer(
+        many=True, help_text="Failed sections that these numbers read, so a missing count is not a zero."
     )
