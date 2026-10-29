@@ -23,6 +23,7 @@ export const tracingSpansAggregateCreateBodyQueryOneLimitMax = 5000
 export const tracingSpansAggregateCreateBodyQueryOneOffsetMin = 0
 
 export const tracingSpansAggregateCreateBodyQueryOneIncludeImpactDefault = false
+export const tracingSpansAggregateCreateBodyQueryOneGroupByEndpointDefault = false
 
 export const TracingSpansAggregateCreateBody = () => zod.object({
     query: zod
@@ -131,6 +132,12 @@ export const TracingSpansAggregateCreateBody = () => zod.object({
                 .default(tracingSpansAggregateCreateBodyQueryOneIncludeImpactDefault)
                 .describe(
                     'Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches.'
+                ),
+            groupByEndpoint: zod
+                .boolean()
+                .default(tracingSpansAggregateCreateBodyQueryOneGroupByEndpointDefault)
+                .describe(
+                    'Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `\/users\/1` and `\/users\/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out.'
                 ),
         })
         .describe('The span aggregation query to execute.'),

@@ -618,6 +618,15 @@ class _TracingAggregationQueryBodySerializer(serializers.Serializer):
             "and resource attribute maps, which the rest of the aggregation never touches."
         ),
     )
+    groupByEndpoint = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths "
+            "like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans "
+            "that are not HTTP server spans are left out."
+        ),
+    )
 
 
 class _TracingAggregationRequestSerializer(serializers.Serializer):
@@ -1711,6 +1720,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             limit=min(limit + 1, _ROW_LIMIT),
             offset=offset,
             include_impact=bool(query_data.get("includeImpact")),
+            group_by_endpoint=bool(query_data.get("groupByEndpoint")),
         )
 
         results = list(response.results)
@@ -1732,6 +1742,7 @@ class SpansViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 "has_filter_group": bool(query_data.get("filterGroup")),
                 "service_names_count": len(query_data.get("serviceNames") or []),
                 "include_impact": bool(query_data.get("includeImpact")),
+                "group_by_endpoint": bool(query_data.get("groupByEndpoint")),
             },
         )
 

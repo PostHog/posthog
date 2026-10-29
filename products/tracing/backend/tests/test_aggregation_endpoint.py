@@ -67,3 +67,9 @@ class TestTraceSpansAggregationEndpoint(_TraceSpansTestBase):
         expected_more = offset + page_size < self.TOTAL_NAMES
         self.assertEqual(data["has_more"], expected_more)
         self.assertEqual(data["next_offset"], offset + page_size if expected_more else None)
+
+    def test_group_by_endpoint_reaches_the_query(self):
+        # The fixture spans carry no HTTP method, so endpoint grouping scopes every one of them out.
+        data = self._aggregate(groupByEndpoint=True)
+        self.assertEqual(data["results"], [])
+        self.assertFalse(data["has_more"])

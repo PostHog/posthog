@@ -90,6 +90,14 @@ Max rows to return, ordered by `total_duration_nano` DESC. Defaults to 100; hard
 
 Row offset for pagination. Combine with `limit` and the `next_offset` from a previous response to page through results beyond the first page.
 
+## query.groupByEndpoint
+
+Set to `true` to get per-endpoint health for HTTP servers. Rows then group by `METHOD route` (for example `GET /users/{id}`) from the `http.route` attribute, in place of the span name.
+
+- Only HTTP server spans (span kind server with an HTTP method) are counted. Queue consumers, workflow activities and client spans are left out.
+- A span without `http.route` keeps its span name as the row key.
+- Use it when span names are raw paths (`/users/1`, `/users/2`) or a bare method (`GET`), which split or merge routes.
+
 # Examples
 
 ## Top operations by total time in the last hour
@@ -145,6 +153,20 @@ Returns `results` for the last hour and `compare` for the hour before. Diff `tot
   }
 }
 ```
+
+## Endpoint health for one service
+
+```json
+{
+  "query": {
+    "serviceNames": ["api-gateway"],
+    "groupByEndpoint": true,
+    "dateRange": { "date_from": "-1d" }
+  }
+}
+```
+
+Each row is one route. Compare `error_count / count` and `p95_duration_nano` across rows to find unhealthy endpoints.
 
 ## Aggregate within one service
 
