@@ -940,6 +940,8 @@ class TestCohortUtils(BaseTest):
                 "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
                 "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
                 "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "max_bytes_ratio_before_external_group_by": 0.5,
+                "max_bytes_ratio_before_external_sort": 0.5,
             },
         )
         self.assertEqual(kwargs["workload"], Workload.OFFLINE)
@@ -1078,7 +1080,7 @@ class TestCohortUtils(BaseTest):
             distinct_ids=["p1_distinct"],
             properties={"email": "p1@example.com"},
         )
-        _create_person(
+        p2 = _create_person(
             team_id=self.team.pk,
             distinct_ids=["p2_distinct"],
             properties={"email": "p2@example.com"},
@@ -1125,6 +1127,23 @@ class TestCohortUtils(BaseTest):
             {"team_id": self.team.id, "cohort_id": cohort_distinct.id},
         )
         self.assertEqual([str(r[0]) for r in rows_distinct], [str(p1.uuid)])
+
+        # Also test plain multi-column distinct_id query from events populates successfully
+        cohort_multi = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="distinct_id multi-column cohort",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT distinct_id, event FROM events",
+            },
+        )
+        insert_cohort_query_actors_into_ch(cohort_multi, team=self.team)
+        rows_multi = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort_multi.id},
+        )
+        self.assertCountEqual([str(r[0]) for r in rows_multi], [str(p1.uuid), str(p2.uuid)])
 
     def test_wrap_select_query_strips_inner_distinct_on_unbounded_query(self):
         cohort = Cohort.objects.create(

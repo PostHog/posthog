@@ -521,6 +521,8 @@ def _wrap_select_query_with_column(
     if not _is_bounded(inner):
         inner.distinct = None
     inner.ctes = None
+    # The outer query selects `source_column` by its bare name, so a dotted field such as
+    # `person.id` needs an alias for the subquery to expose that column.
     inner.select = [
         ast.Alias(alias=source_column, expr=expr)
         if isinstance(expr, ast.Field) and len(expr.chain) > 1 and str(expr.chain[-1]) == source_column
@@ -1257,7 +1259,11 @@ def insert_actors_into_cohort_by_query(
             **context.values,
             **params,
         },
-        settings=COHORT_QUERY_TIMEOUT_SETTINGS,
+        settings={
+            **COHORT_QUERY_TIMEOUT_SETTINGS,
+            "max_bytes_ratio_before_external_group_by": 0.5,
+            "max_bytes_ratio_before_external_sort": 0.5,
+        },
         workload=Workload.OFFLINE,
         ch_user=ClickHouseUser.COHORTS,
         team_id=team_id,
