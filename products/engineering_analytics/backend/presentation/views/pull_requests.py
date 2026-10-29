@@ -11,9 +11,11 @@ from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import PRState
 from products.engineering_analytics.backend.presentation.serializers.pull_requests import (
     AttentionPullRequestListSerializer,
+    AuthorLLMSpendListSerializer,
     BranchPRMatchSerializer,
     CICardSummarySerializer,
     CIFailureLogsSerializer,
+    LLMSpendCoverageSerializer,
     PRCostSummarySerializer,
     PRLifecycleSerializer,
     PullRequestListSerializer,
@@ -44,6 +46,8 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
         "ci_failure_logs",
         "pr_cost",
         "author_workflow_costs",
+        "author_llm_spend",
+        "llm_spend_coverage",
     ]
 
     @extend_schema(
@@ -479,3 +483,85 @@ class PullRequestActionsMixin(EngineeringAnalyticsViewSetBase):
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid author, date, or source_id")
         return Response(WorkflowCostSerializer(instance=costs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_author_llm_spend",
+        parameters=[
+            OpenApiParameter(
+                name="author",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="GitHub handle whose pull requests to list.",
+            ),
+            _DATE_FROM,
+            _DATE_TO,
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum pull requests to return, 1 to 200. Defaults to 100.",
+            ),
+            _SOURCE_ID,
+            _REPO,
+        ],
+        responses={
+            200: AuthorLLMSpendListSerializer,
+            400: OpenApiResponse(description="Missing author, or invalid date, limit, repo or source_id."),
+        },
+        description=(
+            "One author's pull requests active in a window (date_from default -30d), newest first, each with the "
+            "agent LLM token spend attributed to it by git branch and AI session, the same rule as `pr_cost`."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def author_llm_spend(self, request: Request, **kwargs) -> Response:
+        author = request.query_params.get("author")
+        if not author:
+            return Response({"detail": "author is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            limit = _optional_int_param(request, "limit")
+            if limit is not None and limit < 1:
+                raise ValueError("limit must be at least 1")
+            result = api.list_author_llm_spend(
+                team=self.team,
+                author=author,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                limit=limit,
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid author, date, limit, repo or source_id")
+        return Response(AuthorLLMSpendListSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_llm_spend_coverage",
+        parameters=[_DATE_FROM, _DATE_TO, _SOURCE_ID, _REPO],
+        responses={
+            200: LLMSpendCoverageSerializer,
+            400: OpenApiResponse(description="Invalid date, repo or source_id."),
+        },
+        description=(
+            "How much of a repository's agent LLM spend in a window (date_from default -30d) the pull request "
+            "attribution reaches: the cost and count of $ai_generation events stamped with the repository, and "
+            "the part credited to any pull request."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def llm_spend_coverage(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_llm_spend_coverage(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, repo or source_id")
+        return Response(LLMSpendCoverageSerializer(instance=result).data)
