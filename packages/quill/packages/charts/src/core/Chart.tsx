@@ -236,7 +236,8 @@ export function Chart<Meta = unknown>({
 
     const margins = useChartMargins({
         series,
-        labels,
+        // The x tick formatter indexes the tick labels, so measure those.
+        labels: xTickLabels ?? labels,
         hideXAxis,
         hideYAxis,
         xAxisLabel,

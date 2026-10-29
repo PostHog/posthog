@@ -235,7 +235,8 @@ function useTimeScale(
 ): { timeScale: NonNullable<LineChartConfig['timeScale']>; xAxis: XAxisConfig & { allDays: string[] } } | null {
     const timezone = xAxis?.timezone ?? 'UTC'
     const parse = useMemo(() => {
-        // Every series' points and every redraw parse the same labels, so parse each once.
+        // Every series' points and every redraw parse the same labels, so parse each once. New labels
+        // start a new cache, so a rolling window doesn't keep every label it has shown.
         const cache = new Map<string, number>()
         return (label: string): number => {
             let t = cache.get(label)
@@ -245,7 +246,7 @@ function useTimeScale(
             }
             return t
         }
-    }, [timezone])
+    }, [timezone, labels])
     const [from, to] = xDomain ?? [parse(labels[0] ?? ''), parse(labels[labels.length - 1] ?? '')]
     const configInterval = xAxis?.interval
     const interval = useMemo(

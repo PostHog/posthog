@@ -208,6 +208,27 @@ describe('hog-charts canvas-renderer', () => {
         })
     })
 
+    describe('drawLine — connects with partial strokes', () => {
+        it('bridges a gap that falls on a partial dash boundary', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 50, 30], stroke: { partial: { fromIndex: 2 } } })
+            const drawCtx = makeDrawContextWithGaps(ctx, ['a', 'b', 'c'], new Set([50]))
+            drawLine({ ...drawCtx, connects: () => true }, series)
+            expect(ctx.lineTo).toHaveBeenCalledTimes(1)
+        })
+
+        it('skips the fractional tail when the final segment is not connected', () => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 20, 30], stroke: { partial: { fromFraction: 0.5 } } })
+            const drawCtx = {
+                ...makeDrawContext(ctx, ['a', 'b', 'c']),
+                smooth: true,
+                connects: (from: number) => from !== 1,
+            }
+            expect(() => drawLine(drawCtx, series)).not.toThrow()
+        })
+    })
+
     describe('drawLine — monotone smoothing and yFloor', () => {
         it('emits one bezier segment per point pair and no interior lineTo when smooth', () => {
             const ctx = mockCanvasContext()
