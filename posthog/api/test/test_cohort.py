@@ -5225,9 +5225,9 @@ email@example.org,
                 cohort = Cohort.objects.create(
                     team=self.team,
                     name="flag callers",
-                    # The API stores the validated criterion, which carries negation.
+                    # A criterion stored without the validator has no negation key.
                     filters={
-                        "properties": {"type": "OR", "values": [{**_FLAG_CALLED_CRITERION, "negation": False}]},
+                        "properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]},
                         "filterTestAccounts": stored_filter_test_accounts,
                     },
                     cohort_type=stored_cohort_type,

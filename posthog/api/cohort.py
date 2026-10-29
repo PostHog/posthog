@@ -477,16 +477,21 @@ _COMPUTED_FILTER_KEYS = frozenset({"bytecode", "bytecode_error", "conditionHash"
 
 
 def _canonical_criteria(node: Any) -> Any:
-    """The criteria with server-computed keys removed and single-child groups collapsed.
+    """The criteria with server-computed keys and a false negation removed, and single-child groups collapsed.
 
     The editor wraps conditions in an extra group and the server recompiles bytecode on every save,
-    so comparing raw filters would count a save that touched no criteria as a change.
+    so comparing raw filters would count a save that touched no criteria as a change. The validator
+    adds `negation: false` to every criterion, and a criterion without the key means the same thing.
     """
     if isinstance(node, list):
         return [_canonical_criteria(item) for item in node]
     if not isinstance(node, dict):
         return node
-    canonical = {key: _canonical_criteria(value) for key, value in node.items() if key not in _COMPUTED_FILTER_KEYS}
+    canonical = {
+        key: _canonical_criteria(value)
+        for key, value in node.items()
+        if key not in _COMPUTED_FILTER_KEYS and not (key == "negation" and value is False)
+    }
     values = canonical.get("values")
     if (
         canonical.get("type") in ("AND", "OR")
