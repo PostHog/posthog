@@ -1,12 +1,13 @@
 """Evaluation of due metrics alerts on the shared alerts platform.
 
 Each check sends its PromQL expression to Snuffle as one instant query, at the check's due time
-held back to the ingestion checkpoint. Each series the query returns is compared with the
+held back to where the team's ingestion has reached. Each series the query returns is compared with the
 condition. Under grouping by result labels, each distinct set of grouping label values is a group.
 Without grouping, the alert has one group that breaches when any series does.
 
-A series the query no longer returns resolves its group, as it does in Prometheus. A series whose
-value is not a number reaches no verdict, so its group keeps its state.
+A series the query no longer returns resolves its group, as it does in Prometheus. When the batch
+cannot tell where ingestion has reached, a missing series keeps its group's state instead, so a
+lag never reads as recovery. A series whose value is not a number reaches no verdict either.
 
 This reads and decides. It writes nothing, so a retried attempt reads the same due checks and makes
 the same decisions. The platform records the outcomes in its own activity.
@@ -64,7 +65,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
-from products.metrics.backend.alerts.checkpoint import evaluation_time, fetch_live_metrics_checkpoint
+from products.metrics.backend.alerts.checkpoint import evaluation_time, fetch_metrics_freshness
 from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertCondition, MetricsPlatformAlertConfig
 from products.metrics.backend.alerts.wording import alert_url
@@ -82,7 +83,7 @@ BATCH_QUERY_BUDGET_SECONDS: Final = 25
 MAX_QUERY_SECONDS: Final = 10
 # Below this there is no point starting another query.
 MIN_QUERY_SECONDS: Final = 2
-CHECKPOINT_QUERY_SECONDS: Final = 5
+FRESHNESS_QUERY_SECONDS: Final = 5
 # Ten times the most groups a configuration can hold. A query past it is refused before its series
 # are judged, so one high-cardinality expression cannot exhaust the worker.
 MAX_SERIES: Final = 1000
@@ -119,14 +120,14 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
     if team is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
-    checkpoint = _checkpoint(team)
+    freshness = _freshness(team)
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     decided: list[Decision] = []
     for check in checks:
         remaining = deadline - time.monotonic()
         if remaining < MIN_QUERY_SECONDS:
             break
-        at = evaluation_time(check.next_check_at or cutoff, checkpoint)
+        at = evaluation_time(check.next_check_at or cutoff, freshness)
         decided.append(
             _evaluate(
                 team,
@@ -135,6 +136,7 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
                 now=cutoff,
                 query_seconds=min(MAX_QUERY_SECONDS, remaining),
                 muted=_in_quiet_hours(check, cutoff, team.timezone),
+                absence_resolves=freshness is not None,
             )
         )
     evaluation = _collect(decided, team_id=team_id, slot=slot, past_budget=len(checks) - len(decided))
@@ -142,12 +144,12 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
     return evaluation
 
 
-def _checkpoint(team: Team) -> datetime | None:
+def _freshness(team: Team) -> datetime | None:
     try:
-        return fetch_live_metrics_checkpoint(team, max_execution_time=CHECKPOINT_QUERY_SECONDS)
+        return fetch_metrics_freshness(team, max_execution_time=FRESHNESS_QUERY_SECONDS)
     except Exception:
-        # Without a checkpoint the check reads at its due time, as it would with a fresh one.
-        logger.exception("Failed to fetch the metrics ingestion checkpoint", team_id=team.id)
+        # Without a freshness the batch still runs, and a missing series keeps its group's state.
+        logger.exception("Failed to fetch the metrics ingestion freshness", team_id=team.id)
         return None
 
 
@@ -161,7 +163,14 @@ def _in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str)
 
 
 def _evaluate(
-    team: Team, check: PlatformAlertCheckInput, *, at: datetime, now: datetime, query_seconds: float, muted: bool
+    team: Team,
+    check: PlatformAlertCheckInput,
+    *,
+    at: datetime,
+    now: datetime,
+    query_seconds: float,
+    muted: bool,
+    absence_resolves: bool,
 ) -> Decision:
     started_at = time.monotonic()
     try:
@@ -186,8 +195,13 @@ def _evaluate(
         policy=POLICY,
         now=now,
         muted=muted,
-        # A group with no number this check keeps its state. One the query no longer returns resolves.
-        absent=lambda key: None if key in unknown else GroupObservation(grouping_key=key, current_breached=False),
+        # A group with no number this check keeps its state. One the query no longer returns resolves,
+        # unless the batch cannot tell whether ingestion has written it yet.
+        absent=lambda key: (
+            GroupObservation(grouping_key=key, current_breached=False)
+            if absence_resolves and key not in unknown
+            else None
+        ),
     )
     for verdict in decision.verdicts:
         safe_record(increment_checks, SOURCE.value, verdict.outcome.notification.value)

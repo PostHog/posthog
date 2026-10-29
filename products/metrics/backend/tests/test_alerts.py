@@ -72,19 +72,19 @@ class TestMetricsAlertCreate(APIBaseTest):
 class TestEvaluationTime(SimpleTestCase):
     @parameterized.expand(
         [
-            ("fresh_checkpoint_holds_the_check_back", timedelta(seconds=-30), timedelta(seconds=-30)),
-            ("stale_checkpoint_is_ignored", timedelta(minutes=-6), timedelta(0)),
-            ("checkpoint_past_the_due_time", timedelta(seconds=30), timedelta(0)),
-            ("no_checkpoint", None, timedelta(0)),
+            ("ingestion_slightly_behind", timedelta(seconds=-30), timedelta(seconds=-30)),
+            ("ingestion_lagging", timedelta(minutes=-20), timedelta(minutes=-20)),
+            ("ingestion_past_the_due_time", timedelta(seconds=30), timedelta(0)),
+            ("freshness_unknown", None, timedelta(0)),
         ]
     )
     def test_a_check_reads_no_later_than_ingestion_reached(
-        self, _name: str, checkpoint_offset: timedelta | None, expected_offset: timedelta
+        self, _name: str, freshness_offset: timedelta | None, expected_offset: timedelta
     ) -> None:
         due_at = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
-        checkpoint = None if checkpoint_offset is None else due_at + checkpoint_offset
+        freshness = None if freshness_offset is None else due_at + freshness_offset
 
-        assert evaluation_time(due_at, checkpoint) == due_at + expected_offset
+        assert evaluation_time(due_at, freshness) == due_at + expected_offset
 
 
 def _vector(*series: tuple[dict[str, str], str]) -> dict[str, Any]:
@@ -110,8 +110,8 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         self.cutoff = timezone.now().replace(second=0, microsecond=0) + timedelta(minutes=5)
         self.snuffle = MagicMock()
         self.enterContext(patch("products.metrics.backend.promql.snuffle_request", self.snuffle))
-        self.checkpoint = self.enterContext(
-            patch("products.metrics.backend.alerts.evaluation.fetch_live_metrics_checkpoint", return_value=None)
+        self.freshness = self.enterContext(
+            patch("products.metrics.backend.alerts.evaluation.fetch_metrics_freshness", return_value=None)
         )
         with team_scope(self.team.id):
             self.configuration_id = create_configuration(
@@ -151,7 +151,7 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         return {json.loads(group.grouping_key)["group"]: group.kind for group in outcome.groups}
 
     def test_a_series_fires_resolves_when_it_vanishes_and_holds_when_it_has_no_number(self) -> None:
-        self.checkpoint.return_value = self.due_at - timedelta(seconds=30)
+        self.freshness.return_value = self.due_at - timedelta(seconds=30)
         self.snuffle.return_value = _response(
             200, _vector(({"group": "a"}, "2000"), ({"group": "b"}, "3000"), ({"group": "c"}, "10"))
         )
@@ -166,6 +166,15 @@ class TestMetricsAlertEvaluation(APIBaseTest):
         )
 
         assert self._kinds(self._evaluate()) == {"a": AlertEventKind.RESOLVED}
+
+    def test_a_vanished_series_keeps_its_group_when_ingestion_progress_is_unknown(self) -> None:
+        self.freshness.return_value = self.due_at - timedelta(seconds=30)
+        self.snuffle.return_value = _response(200, _vector(({"group": "a"}, "2000")))
+        self._next_check(self._evaluate())
+        self.freshness.return_value = None
+        self.snuffle.return_value = _response(200, _vector())
+
+        assert self._kinds(self._evaluate()) == {}
 
     @parameterized.expand(
         [
