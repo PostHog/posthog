@@ -197,6 +197,22 @@ describe('flagMatchesFilters', () => {
         })
     })
 
+    describe('deleted filter', () => {
+        const liveFlag = { ...base, deleted: false } as FeatureFlagType
+        const deletedFlag = { ...base, deleted: true } as FeatureFlagType
+        const archivedDeletedFlag = { ...base, deleted: true, archived: true } as FeatureFlagType
+
+        it.each<[string, FeatureFlagType, Partial<FeatureFlagsFilters>, boolean]>([
+            ['hides deleted by default', deletedFlag, {}, false],
+            ['shows deleted when deleted=true', deletedFlag, { deleted: 'true' }, true],
+            ['hides live when deleted=true', liveFlag, { deleted: 'true' }, false],
+            ['shows a flag archived before its delete', archivedDeletedFlag, { deleted: 'true' }, true],
+            ['hides a deleted flag under archived=true', archivedDeletedFlag, { archived: 'true' }, false],
+        ])('%s', (_label, flag, filters, expected) => {
+            expect(flagMatchesFilters(flag, filters as FeatureFlagsFilters)).toBe(expected)
+        })
+    })
+
     describe('excluded_tags filter', () => {
         const flagWithTag = { ...base, archived: false, tags: ['beta', 'internal'] } as FeatureFlagType
         const flagWithoutTag = { ...base, archived: false, tags: ['beta'] } as FeatureFlagType
@@ -487,6 +503,48 @@ describe('updateFeatureFlag 409 handling', () => {
         expect(showApprovalRequiredToast).not.toHaveBeenCalled()
         // A non-approval 409 stays visible to error tracking; only approval-shaped ones are suppressed
         expect(posthog.captureException).toHaveBeenCalledWith(error)
+    })
+})
+
+describe('restoreFeatureFlag', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+    let restoreBodies: unknown[]
+
+    beforeEach(() => {
+        restoreBodies = []
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [
+                    200,
+                    { results: [{ id: 1, key: 'checkout-flag:deleted:1', deleted: true, active: true }], count: 1 },
+                ],
+            },
+            patch: {
+                '/api/projects/:projectId/feature_flags/:id': async ({ request }) => {
+                    restoreBodies.push(await request.json())
+                    return [200, { id: 1, key: 'checkout-flag', deleted: false, active: true }]
+                },
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => logic?.unmount())
+
+    it('restores the flag and drops it from the deleted view', async () => {
+        logic.actions.setFeatureFlagsFilters({ deleted: 'true' }, true)
+        await expectLogic(logic).toDispatchActions(['loadFeatureFlagsSuccess'])
+        expect(logic.values.displayedFlags.map((flag) => flag.id)).toEqual([1])
+
+        logic.actions.restoreFeatureFlag({ id: 1 })
+        expect(logic.values.featureFlagsUpdating[1]).toBe(true)
+        await expectLogic(logic).toDispatchActions(['restoreFeatureFlagSuccess'])
+
+        expect(restoreBodies).toEqual([{ deleted: false }])
+        expect(logic.values.displayedFlags).toEqual([])
+        expect(logic.values.featureFlagsUpdating[1]).toBeUndefined()
     })
 })
 

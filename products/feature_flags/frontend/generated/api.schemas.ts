@@ -2475,6 +2475,10 @@ export type FeatureFlagsListParams = {
      */
     created_by_id?: string
     /**
+     * Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.
+     */
+    deleted?: FeatureFlagsListDeleted
+    /**
      * When 'true', only return flags that can back an experiment: multivariate with 2-20 variants. Any other value is ignored.
      */
     eligible_for_experiment?: FeatureFlagsListEligibleForExperiment
@@ -2528,6 +2532,13 @@ export const FeatureFlagsListActive = {
 export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof typeof FeatureFlagsListArchived]
 
 export const FeatureFlagsListArchived = {
+    False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListDeleted = (typeof FeatureFlagsListDeleted)[keyof typeof FeatureFlagsListDeleted]
+
+export const FeatureFlagsListDeleted = {
     False: 'false',
     True: 'true',
 } as const

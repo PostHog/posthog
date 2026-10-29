@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 
@@ -155,6 +156,22 @@ describe('FeatureFlagFiltersSection', () => {
         expect(container.querySelector('[data-attr="feature-flag-select-status"]')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="feature-flag-select-created-by"]')).toBeInTheDocument()
         expect(container.querySelector('[data-attr="feature-flag-select-runtime"]')).toBeInTheDocument()
+    })
+
+    it('switches to the deleted view and drops the other status filters', async () => {
+        render(
+            <FeatureFlagFiltersSection
+                filters={{ ...mockFilters, archived: 'true', active: 'false' }}
+                setFeatureFlagsFilters={mockSetFilters}
+                searchPlaceholder="Search"
+                filtersConfig={{ status: true }}
+            />
+        )
+
+        await userEvent.click(screen.getByRole('button', { name: 'Archived' }))
+        await userEvent.click(screen.getByRole('menuitem', { name: 'Deleted' }))
+
+        expect(mockSetFilters).toHaveBeenCalledWith({ search: '', deleted: 'true', page: 1 }, true)
     })
 
     it('ignores false values in config', () => {

@@ -61,12 +61,15 @@ import {
     cohortCanBeRestored,
     deletedCohortDisabledReason,
     deletedCohortFilters,
+    restoreChecksCohorts,
 } from 'products/feature_flags/frontend/deletedCohortFilters'
 import { featureFlagsEmptyState } from 'products/feature_flags/frontend/emptyState/featureFlagsEmptyState'
 import {
     ARCHIVE_UNAVAILABLE_DISABLED_REASON,
+    RESTORE_UNAVAILABLE_DISABLED_REASON,
     UNSUPPORTED_CONFIG_DISABLED_REASON,
     canArchiveFeatureFlag,
+    canRestoreFeatureFlag,
     featureFlagConfigFormat,
     featureFlagConfigFormatLabel,
     featureFlagDeleteOptions,
@@ -129,6 +132,14 @@ function FeatureFlagStatusCell({ featureFlag }: { featureFlag: FeatureFlagType }
                         Updating
                     </span>
                 </LemonTag>
+            ) : featureFlag.deleted ? (
+                <Tooltip title="This flag is deleted, so it can't be evaluated. Restore it from the row menu to use it again.">
+                    <span>
+                        <LemonTag type="danger" className="uppercase cursor-default">
+                            Deleted
+                        </LemonTag>
+                    </span>
+                </Tooltip>
             ) : featureFlag.archived ? (
                 <Tooltip title="This flag is done for good. It's hidden from the flag list by default, but linked experiments and surveys keep their data.">
                     <span>
@@ -193,7 +204,8 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
     const { currentProjectId } = useValues(projectLogic)
     const flagLogic = featureFlagsLogic({})
     const { featureFlagsUpdating } = useValues(flagLogic)
-    const { toggleFeatureFlagActive, updateFeatureFlagArchived, loadFeatureFlags } = useActions(flagLogic)
+    const { toggleFeatureFlagActive, updateFeatureFlagArchived, loadFeatureFlags, restoreFeatureFlag } =
+        useActions(flagLogic)
 
     const isUpdating = featureFlag.id ? featureFlagsUpdating[featureFlag.id] : false
     const [isQuickSurveyModalOpen, setIsQuickSurveyModalOpen] = useState(false)
@@ -221,6 +233,59 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
             },
         }
         return urls.insightNew({ query })
+    }
+
+    // A deleted flag serves nobody, so the only change it takes is a restore.
+    if (featureFlag.deleted) {
+        return (
+            <More
+                overlay={
+                    <>
+                        {featureFlag.id && (
+                            <LemonButton to={urls.featureFlag(featureFlag.id)} data-attr="feature-flag-view" fullWidth>
+                                View
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            onClick={() => {
+                                void copyToClipboard(featureFlag.key, 'feature flag key')
+                            }}
+                            fullWidth
+                        >
+                            Copy key
+                        </LemonButton>
+                        {featureFlag.id && (
+                            <>
+                                <LemonDivider />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.FeatureFlag}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={featureFlag.user_access_level}
+                                >
+                                    <LemonButton
+                                        data-attr={`feature-flag-${featureFlag.key}-restore`}
+                                        onClick={() => featureFlag.id && restoreFeatureFlag({ id: featureFlag.id })}
+                                        fullWidth
+                                        loading={isUpdating}
+                                        disabledReason={
+                                            isUpdating
+                                                ? 'Updating…'
+                                                : !canRestoreFeatureFlag(featureFlag.filters)
+                                                  ? RESTORE_UNAVAILABLE_DISABLED_REASON
+                                                  : restoreChecksCohorts(featureFlag)
+                                                    ? deletedCohortReason
+                                                    : undefined
+                                        }
+                                    >
+                                        Restore
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </>
+                        )}
+                    </>
+                }
+            />
+        )
     }
 
     return (
@@ -686,11 +751,13 @@ export function OverviewTab({
                     isRowSelectable: (flag: FeatureFlagType) =>
                         flag.id === null
                             ? false
-                            : !isV1FeatureFlagConfig(flag.filters)
-                              ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
-                              : flag.can_edit
-                                ? true
-                                : { disabledReason: "You don't have permission to edit this feature flag." },
+                            : flag.deleted
+                              ? { disabledReason: 'Restore deleted flags one at a time from the row menu.' }
+                              : !isV1FeatureFlagConfig(flag.filters)
+                                ? { disabledReason: 'Bulk actions are not available for this flag yet.' }
+                                : flag.can_edit
+                                  ? true
+                                  : { disabledReason: "You don't have permission to edit this feature flag." },
                     rowAriaLabel: (flag: FeatureFlagType) => `Select feature flag ${flag.key}`,
                     headerAriaLabel: 'Select all feature flags on this page',
                     noun: ['flag', 'flags'],
