@@ -11,12 +11,10 @@ import type { ValueMatcher } from '~/types'
 import type { LogsIngestionConsumerConfig } from './config'
 import { INTERNAL_LOGS_HTTP_HEADER, INTERNAL_SOURCE_POLICIES, signInternalLogs } from './internal-logs'
 
-// A source needs a name here as well as a policy, because the name is what a team filters on in the logs product.
 const SERVICE_NAMES: Readonly<Record<string, string>> = {
     hog_flow: 'posthog-internal-workflows',
 }
 
-// OTLP SeverityNumber for the first value of each range.
 const SEVERITY_NUMBERS: Readonly<Record<string, number>> = { debug: 5, info: 9, warn: 13, error: 17 }
 
 // Half of capture-logs' default 2 MiB body limit, which leaves room for the envelope.
@@ -25,7 +23,6 @@ const MAX_REQUEST_RECORD_BYTES = 1024 * 1024
 // A JSON-escaped character takes at most 6 bytes, so a message cut to this length always fits in one request.
 const MAX_MESSAGE_LENGTH = 128 * 1024
 
-/** One row of `log_entries`, the table every internal log source writes to. */
 export type InternalLogEntry = {
     team_id: number
     log_source_id: string
@@ -52,11 +49,8 @@ const internalLogsProducerBatchesCounter = new Counter({
 })
 
 /**
- * Sends a copy of PostHog's own logs to the logs product, signed so the logs consumer does not bill them.
- *
- * Delivery is best-effort: a failed or dropped batch is not retried. This is safe only while `log_entries` still has
- * every row and the product UI reads from it. Before the UI reads from the logs product, add retries with backoff,
- * a bounded queue in place of the drop, a drain on shutdown, and a parity check against `log_entries`.
+ * Best-effort: a failed or dropped batch is lost, which is safe only while the product UI reads `log_entries`. Before
+ * the UI reads from the logs product, add retries with backoff, a bounded queue, a drain on shutdown and a parity check.
  */
 export class InternalLogsProducer {
     private readonly enabled: boolean
@@ -93,7 +87,6 @@ export class InternalLogsProducer {
         }
     }
 
-    /** Never throws. A caller must not await the result on a hot path, because capture-logs can be slow. */
     async flush(): Promise<void> {
         const batches = [...this.queued.values()]
         this.queued = new Map()
