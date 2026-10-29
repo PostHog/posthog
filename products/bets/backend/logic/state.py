@@ -10,7 +10,6 @@ from posthog.dataclasses import frozen
 
 from products.signals.backend.facade import api as signals
 
-from ..db import WRITER_DB
 from ..facade.contracts import Money
 from ..facade.enums import (
     BetActionKind as Kind,
@@ -27,7 +26,7 @@ from ..models import Bet, WorkItem
 from .ledger import totals, used_up
 from .plan import EXPOSURE_GRACE, extend_question
 from .scout import DISMISS_LIMIT, ScoutJob, scout_job
-from .stages import LIVE, OPEN
+from .stages import LIVE, OPEN, items, source_id
 from .workspace import get_settings
 
 EMPTY_SCOUT_RUNS = 2
@@ -289,7 +288,6 @@ def bet_text(
         "metric": bet.goal_metric or "the goal",
         "fits": "Check that it fits, then set the value to reach",
         "stalled": "Check that the events reach PostHog, or change the measure in Edit bet.",
-        "spent": dollars(money.spent_cents),
         "tracking": bet.note
         or f"Bets looks for the events behind {bet.goal_metric or 'the goal'}. This takes a few minutes.",
         "building": bet.note or "An agent writes the pull request.",
@@ -340,7 +338,7 @@ def owner_asks(bet: Bet, found: Facts) -> list[NextAction]:
     setting_up, tracking, failures = bet.status == BetStatus.SETTING_UP, found.tracking, FAILURES.match(bet.note)
     empty: list[str] = []
     if bet.status == BetStatus.RUNNING and not found.ready and not found.checking and found.current is None:
-        empty = signals.empty_scout_run_summaries(bet.team_id, "bets", f"{bet.id}:v{bet.goal_version}")
+        empty = signals.empty_scout_run_summaries(bet.team_id, "bets", source_id(bet))
     applies = {
         "access": bet.note == NO_ACCESS,
         "errors": bool(failures and int(failures.group(1)) >= ERROR_LIMIT),
@@ -403,24 +401,19 @@ def pick(bet: Bet, found: Facts) -> tuple[str, WorkItem | None]:
 
 
 def bet_state(bet: Bet, value: float | None = None) -> BetState:
-    items = list(
-        WorkItem.objects.for_team(bet.team_id)
-        .using(WRITER_DB)
-        .filter(bet=bet, goal_version=bet.goal_version)
-        .order_by("created_at")
-    )
-    proposed = [work for work in items if work.stage == WorkStage.PROPOSED]
+    work_items = list(items(bet).order_by("created_at"))
+    proposed = [work for work in work_items if work.stage == WorkStage.PROPOSED]
     checking = sum(1 for work in proposed if work.source == IdeaSource.OWNER and work.report_id is None)
     money, job = totals(bet.team_id, bet), scout_job(bet)
     found = Facts(
-        items=items,
+        items=work_items,
         ready=len(proposed) - checking,
         checking=checking,
-        current=next((work for work in items if work.kind == WorkKind.IDEA and work.stage in OPEN), None),
-        tracking=next((work for work in items if work.kind == WorkKind.TRACKING), None),
+        current=next((work for work in work_items if work.kind == WorkKind.IDEA and work.stage in OPEN), None),
+        tracking=next((work for work in work_items if work.kind == WorkKind.TRACKING), None),
         money=money,
         job=job,
-        text=bet_text(bet, items, job, money, (len(proposed) - checking, checking), value),
+        text=bet_text(bet, work_items, job, money, (len(proposed) - checking, checking), value),
         asks={},
     )
     actions = owner_asks(bet, found)

@@ -27,6 +27,10 @@ TARGET_FIELDS = frozenset({"target", "direction"})
 FROZEN_FIELDS = ("final_value", "final_at", "final_series", "reached_at")
 
 
+def locked_settings(team_id: int) -> BetsSettings:
+    return BetsSettings.objects.for_team(team_id).using(WRITER_DB).select_for_update().get(id=get_settings(team_id).id)
+
+
 def validate_insights(team: Team, user: User, data: dict) -> None:
     if data.get("goal_insight"):
         validate_goal(team, user, data["goal_insight"])
@@ -70,9 +74,7 @@ def create_bet(team: Team, user: User, data: dict) -> Bet:
     operation_id = payload.pop("operation_id")
     ideas = [idea for idea in payload.pop("ideas", None) or [] if idea.strip()]
     with transaction.atomic(using=WRITER_DB):
-        settings = (
-            BetsSettings.objects.for_team(team_id).using(WRITER_DB).select_for_update().get(id=get_settings(team_id).id)
-        )
+        settings = locked_settings(team_id)
         existing = Bet.objects.for_team(team_id).using(WRITER_DB).filter(id=operation_id).first()
         if existing:
             allocation = LedgerEntry.objects.for_team(team_id).using(WRITER_DB).get(key=f"create:{operation_id}")
@@ -97,9 +99,7 @@ def update_bet(team: Team, user: User, bet_id: UUID, data: dict) -> Bet:
     validate_insights(team, user, data)
     refuse_met_target(team, user, data, Bet.objects.for_team(team_id).using(WRITER_DB).get(id=bet_id))
     with transaction.atomic(using=WRITER_DB):
-        settings = (
-            BetsSettings.objects.for_team(team_id).using(WRITER_DB).select_for_update().get(id=get_settings(team_id).id)
-        )
+        settings = locked_settings(team_id)
         bet = Bet.objects.for_team(team_id).using(WRITER_DB).select_for_update().get(id=bet_id)
         if bet.status == BetStatus.CLOSED:
             raise ValidationError("This bet is closed.")
@@ -156,9 +156,7 @@ def update_bet(team: Team, user: User, bet_id: UUID, data: dict) -> Bet:
 def change_status(team: Team, user: User, bet_id: UUID, status: str) -> Bet:
     team_id = project_id(team)
     with transaction.atomic(using=WRITER_DB):
-        settings = (
-            BetsSettings.objects.for_team(team_id).using(WRITER_DB).select_for_update().get(id=get_settings(team_id).id)
-        )
+        settings = locked_settings(team_id)
         bet = Bet.objects.for_team(team_id).using(WRITER_DB).select_for_update().get(id=bet_id)
         if bet.status == BetStatus.CLOSED:
             raise ValidationError("This bet is closed.")
@@ -181,12 +179,7 @@ def change_status(team: Team, user: User, bet_id: UUID, status: str) -> Bet:
 
 def update_settings(team: Team, data: dict) -> BetsSettings:
     with transaction.atomic(using=WRITER_DB):
-        settings = (
-            BetsSettings.objects.for_team(project_id(team))
-            .using(WRITER_DB)
-            .select_for_update()
-            .get(id=get_settings(project_id(team)).id)
-        )
+        settings = locked_settings(project_id(team))
         if data.get("budget_cents", settings.budget_cents) < totals(settings.team_id).allocated_cents:
             raise ValidationError("The project budget cannot be lower than the money already allocated.")
         if "step_models" in data:

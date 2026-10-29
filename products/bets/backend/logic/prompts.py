@@ -1,6 +1,6 @@
-from ..db import WRITER_DB
 from ..facade.enums import WorkKind, WorkStage
 from ..models import Bet, WorkItem
+from .stages import items
 
 
 def bet_context(bet: Bet) -> str:
@@ -20,14 +20,8 @@ Guardrails:
 
 def history(bet: Bet) -> str:
     ideas = (
-        WorkItem.objects.for_team(bet.team_id)
-        .using(WRITER_DB)
-        .filter(
-            bet=bet,
-            goal_version=bet.goal_version,
-            kind=WorkKind.IDEA,
-            stage__in=[WorkStage.DONE, WorkStage.DROPPED, WorkStage.DISMISSED],
-        )
+        items(bet)
+        .filter(kind=WorkKind.IDEA, stage__in=[WorkStage.DONE, WorkStage.DROPPED, WorkStage.DISMISSED])
         .order_by("updated_at")
     )
     lines = [

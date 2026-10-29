@@ -2,12 +2,7 @@ from posthog.dataclasses import frozen
 from posthog.models import User
 
 from products.tasks.backend.facade.automatic import plan_billing_available, unattended_run_settings
-from products.tasks.backend.facade.model_catalogue import (
-    ModelChoice,
-    display_name_for_model,
-    offered_model_choices,
-    runtime_adapter_for,
-)
+from products.tasks.backend.facade.model_catalogue import display_name_for_model, runtime_adapter_for
 
 from ..facade.enums import ModelStep, StepBilling
 from ..models import BetsSettings
@@ -56,10 +51,6 @@ def run_settings(settings: BetsSettings, user: User, step: ModelStep) -> dict[st
         reasoning_effort=chosen.reasoning_effort,
         billing="subscription" if chosen.billing == StepBilling.SUBSCRIPTION else "credits",
     )
-
-
-def model_options() -> list[ModelChoice]:
-    return list(offered_model_choices())
 
 
 def plan_available(user: User) -> bool:

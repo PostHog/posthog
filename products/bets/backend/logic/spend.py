@@ -13,6 +13,7 @@ from products.tasks.backend.facade.task_run_signals import task_has_origin_key
 from ..db import WRITER_DB
 from ..models import Bet, WorkItem
 from .ledger import settle_usage, totals
+from .stages import LIVE
 
 SCOUT_BUDGET_CENTS = 1200
 
@@ -31,40 +32,17 @@ class UsageSource:
 def usage_sources(bet: Bet) -> list[UsageSource]:
     sources: list[UsageSource] = []
     seen: set[UUID] = set()
-    runs = tasks.get_latest_run_by_task(
-        [
-            str(task_id)
-            for task_id in (
-                WorkItem.objects.for_team(bet.team_id)
-                .using(WRITER_DB)
-                .filter(bet=bet, task_id__isnull=False)
-                .values_list("task_id", flat=True)
-            )
-        ]
-    )
-    for work in WorkItem.objects.for_team(bet.team_id).using(WRITER_DB).filter(bet=bet, task_id__isnull=False):
-        if work.task_id is None or work.task_id in seen:
-            continue
-        if str(work.task_id) not in runs:
+    works = list(WorkItem.objects.for_team(bet.team_id).using(WRITER_DB).filter(bet=bet, task_id__isnull=False))
+    runs = tasks.get_latest_run_by_task([str(work.task_id) for work in works])
+    for work in works:
+        if work.task_id is None or work.task_id in seen or str(work.task_id) not in runs:
             continue
         seen.add(work.task_id)
         cost = get_task_cost(team_id=bet.team_id, task_id=work.task_id)
         waiting = recent(runs[str(work.task_id)])
         sources.extend(
-            [
-                UsageSource(
-                    reference=f"task:{work.task_id}:tokens",
-                    cumulative_cents=cost.token_cost,
-                    work=work,
-                    waiting=waiting,
-                ),
-                UsageSource(
-                    reference=f"task:{work.task_id}:compute",
-                    cumulative_cents=cost.compute_cost,
-                    work=work,
-                    waiting=waiting,
-                ),
-            ]
+            UsageSource(reference=f"task:{work.task_id}:{part}", cumulative_cents=cents, work=work, waiting=waiting)
+            for part, cents in (("tokens", cost.token_cost), ("compute", cost.compute_cost))
         )
     source_ids = [f"{bet.id}:v{version}" for version in range(1, bet.goal_version + 1)]
     for run_id in signals.scout_run_ids_for_source(bet.team_id, "bets", source_ids):
@@ -74,10 +52,8 @@ def usage_sources(bet: Bet) -> list[UsageSource]:
         cost = get_task_run_cost(team_id=bet.team_id, run_id=run_id)
         waiting = recent(run)
         sources.extend(
-            [
-                UsageSource(reference=f"scout:{run_id}:tokens", cumulative_cents=cost.token_cost, waiting=waiting),
-                UsageSource(reference=f"scout:{run_id}:compute", cumulative_cents=cost.compute_cost, waiting=waiting),
-            ]
+            UsageSource(reference=f"scout:{run_id}:{part}", cumulative_cents=cents, waiting=waiting)
+            for part, cents in (("tokens", cost.token_cost), ("compute", cost.compute_cost))
         )
     return sources
 
@@ -127,7 +103,7 @@ def admit_gateway_spend(team_id: int, run_id: UUID) -> int | None:
     bet = bet_for_run(team_id, run_id)
     if bet is None:
         return None
-    if bet.status not in ("setting_up", "running"):
+    if bet.status not in LIVE:
         raise ValueError("The bet is not running.")
     run = tasks.get_task_run(run_id, team_id=team_id)
     work = (

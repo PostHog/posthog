@@ -10,6 +10,7 @@ from posthog.models import Team
 
 from products.signals.backend.facade import api as signals
 from products.tasks.backend.facade import api as tasks
+from products.tasks.backend.facade.model_catalogue import offered_model_choices
 
 from ..adapters.identity import Member, PostHogIdentity
 from ..db import WRITER_DB
@@ -19,8 +20,9 @@ from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import totals
 from .metrics import metric, proposed_plan
 from .scout import recent_scout_runs
+from .stages import ENDED, items, source_id
 from .state import bet_state, meets, tested
-from .step_models import choice, model_options, plan_available
+from .step_models import choice, plan_available
 from .workspace import get_settings, project_id
 
 if TYPE_CHECKING:
@@ -48,7 +50,6 @@ BET_FIELDS = (
 )
 
 
-ENDED = ("reached", "spent", "closed")
 WEAK_SAMPLE = 100
 RETURN_KEYS = ("return:", "close:")
 
@@ -84,12 +85,7 @@ def entry(
     *,
     owners: dict[int, Member] | None = None,
 ) -> dict:
-    ideas = list(
-        WorkItem.objects.for_team(bet.team_id)
-        .using(WRITER_DB)
-        .filter(bet=bet, goal_version=bet.goal_version, kind=WorkKind.IDEA)
-        .values_list("result__outcome", flat=True)
-    )
+    ideas = list(items(bet).filter(kind=WorkKind.IDEA).values_list("result__outcome", flat=True))
     owner = (owners if owners is not None else PostHogIdentity().members({bet.owner_id})).get(bet.owner_id)
     money = totals(bet.team_id, bet)
     measured = goal_metric(team, user, bet)
@@ -290,14 +286,8 @@ def results(bet: Bet, measured: Metric, work: list[dict]) -> dict | None:
         return None
     spent = {str(item["id"]): item["spent_cents"] for item in work}
     ideas = sorted(
-        WorkItem.objects.for_team(bet.team_id)
-        .using(WRITER_DB)
-        .filter(
-            bet=bet,
-            goal_version=bet.goal_version,
-            kind=WorkKind.IDEA,
-            stage__in=(WorkStage.DONE, WorkStage.DROPPED),
-        )
+        items(bet)
+        .filter(kind=WorkKind.IDEA, stage__in=(WorkStage.DONE, WorkStage.DROPPED))
         .exclude(flag_key="", chosen_at__isnull=True),
         key=lambda item: (build_number(item) or math.inf, item.created_at),
     )
@@ -324,10 +314,7 @@ def results(bet: Bet, measured: Metric, work: list[dict]) -> dict | None:
 
 
 def detail(team: Team, user: User, bet: Bet) -> dict:
-    scout = next(
-        (item for item in signals.scouts_for_source(bet.team_id, "bets", f"{bet.id}:v{bet.goal_version}")),
-        None,
-    )
+    scout = next(iter(signals.scouts_for_source(bet.team_id, "bets", source_id(bet))), None)
     row = entry(team, user, bet)
     actions = row["state"].actions
     work = work_entries(bet, user)
@@ -382,6 +369,6 @@ def settings_entry(settings: BetsSettings, user: User) -> dict:
         "mde_percent": settings.mde_percent,
         "goal_confirm_hours": settings.goal_confirm_hours,
         "models": [choice(settings, user, step) for step in ModelStep],
-        "model_options": model_options(),
+        "model_options": list(offered_model_choices()),
         "plan_available": plan_available(user),
     }

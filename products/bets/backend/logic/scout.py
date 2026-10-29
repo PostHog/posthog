@@ -17,7 +17,7 @@ from ..facade.enums import BetStatus, IdeaSource, WorkKind, WorkStage
 from ..models import Bet, WorkItem
 from .ledger import totals
 from .prompts import bet_context, history
-from .stages import OPEN
+from .stages import OPEN, items, source_id
 
 
 def scout_body(bet: Bet) -> str:
@@ -89,7 +89,7 @@ def scout_job(bet: Bet) -> ScoutJob:
         return ScoutJob(mode="", label="Paused", reason=IDLE.get(BetStatus(bet.status), "No ideas wait for a choice."))
     if totals(bet.team_id, bet).available_cents <= 0:
         return ScoutJob(mode="", label="Waiting for budget", reason="The bet has no budget left.")
-    ideas = WorkItem.objects.for_team(bet.team_id).using(WRITER_DB).filter(bet=bet, goal_version=bet.goal_version)
+    ideas = items(bet)
     unchecked = ideas.filter(source=IdeaSource.OWNER, stage=WorkStage.PROPOSED, report_id=None).exists()
     latest = list(
         ideas.filter(kind=WorkKind.IDEA).order_by("-created_at").values_list("stage", flat=True)[:DISMISS_LIMIT]
@@ -159,36 +159,20 @@ def scout_refusal(team_id: int, source_id: str) -> str | None:
 
 
 def live_flag(bet: Bet) -> str:
-    live = (
-        WorkItem.objects.for_team(bet.team_id)
-        .using(WRITER_DB)
-        .filter(bet=bet, goal_version=bet.goal_version, kind=WorkKind.IDEA, stage__in=OPEN)
-        .first()
-    )
+    live = items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).first()
     return live.flag_key if live else ""
 
 
 def owner_ideas(bet: Bet) -> str:
     unchecked = (
-        WorkItem.objects.for_team(bet.team_id)
-        .using(WRITER_DB)
-        .filter(
-            bet=bet, goal_version=bet.goal_version, source=IdeaSource.OWNER, stage=WorkStage.PROPOSED, report_id=None
-        )
-        .order_by("created_at")
+        items(bet).filter(source=IdeaSource.OWNER, stage=WorkStage.PROPOSED, report_id=None).order_by("created_at")
     )
     lines = [f"- Owner idea {work.key.removeprefix('owner:')}: {work.title}" for work in unchecked]
     return "\n".join(lines) or "No owner ideas to check."
 
 
 def waiting_ideas(bet: Bet) -> str:
-    waiting = (
-        WorkItem.objects.for_team(bet.team_id)
-        .using(WRITER_DB)
-        .filter(bet=bet, goal_version=bet.goal_version, stage=WorkStage.PROPOSED)
-        .exclude(report_id=None)
-        .order_by("created_at")
-    )
+    waiting = items(bet).filter(stage=WorkStage.PROPOSED).exclude(report_id=None).order_by("created_at")
     return "\n".join(f"- {work.title}" for work in waiting) or "None."
 
 
@@ -208,7 +192,7 @@ FAILURE_PAUSE = timedelta(hours=6)
 
 
 def recent_scout_runs(bet: Bet, limit: int = 5) -> list[TaskRunDTO]:
-    run_ids = signals.scout_run_ids_for_source(bet.team_id, "bets", [f"{bet.id}:v{bet.goal_version}"])
+    run_ids = signals.scout_run_ids_for_source(bet.team_id, "bets", [source_id(bet)])
     runs = [run for run_id in run_ids if (run := tasks.get_task_run(run_id, team_id=bet.team_id))]
     epoch = timezone.make_aware(datetime.min.replace(year=1970))
     return sorted(runs, key=lambda run: run.created_at or epoch, reverse=True)[:limit]

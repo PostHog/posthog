@@ -6,7 +6,7 @@ from statistics import fmean
 from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -59,7 +59,7 @@ from .plan import (
 from .prompts import instructions
 from .scout import scout_body, scout_job
 from .spend import reconcile_spend, spend_pending, usage_sources
-from .stages import ACTIVE, LIVE, OPEN
+from .stages import ACTIVE, ENDED, LIVE, OPEN, items, source_id
 from .state import NO_ACCESS, build_refusal, failure_note, goal_confirm_at, meets
 from .step_models import run_settings
 from .usage import track_from_task
@@ -99,10 +99,6 @@ CONCLUSIONS = {
     IdeaOutcome.BROKEN: "stopped_early",
     IdeaOutcome.DROPPED: "stopped_early",
 }
-
-
-def items(bet: Bet) -> QuerySet[WorkItem]:
-    return WorkItem.objects.for_team(bet.team_id).using(WRITER_DB).filter(bet=bet, goal_version=bet.goal_version)
 
 
 def move(work: WorkItem, stage: WorkStage, note: str = "", **fields: object) -> None:
@@ -457,10 +453,7 @@ def goal_reached(team: Team, user: User, bet: Bet) -> bool:
     values = metric(team, user, bet.goal_insight, complete=True).values[-GOAL_POINTS:]
     if len(values) < GOAL_POINTS or bet.target is None:
         return False
-    target = float(bet.target)
-    met = [value <= target if bet.direction == "decrease" else value >= target for value in values]
-    average = fmean(values)
-    return sum(met) >= GOAL_POINTS - 1 and (average <= target if bet.direction == "decrease" else average >= target)
+    return sum(meets(bet, value) for value in values) >= GOAL_POINTS - 1 and meets(bet, fmean(values))
 
 
 def goal_check(team: Team, user: User, bet: Bet, idea_open: bool) -> bool:
@@ -477,10 +470,6 @@ def goal_check(team: Team, user: User, bet: Bet, idea_open: bool) -> bool:
 def clean_title(title: str) -> str:
     title = re.sub(r"^bet idea:\s*", "", title, flags=re.IGNORECASE)
     return title[:1].upper() + title[1:]
-
-
-def source_id(bet: Bet) -> str:
-    return f"{bet.id}:v{bet.goal_version}"
 
 
 def evidence_from(summary: str) -> list[dict[str, str]]:
@@ -788,9 +777,9 @@ def step(team: Team, user: User, bet: Bet) -> str:
         ingest(bet)
         idea_open = items(bet).filter(kind=WorkKind.IDEA, stage__in=OPEN).exists()
         if goal_check(team, user, bet, idea_open):
-            return stop(bet, BetStatus.REACHED, team, user)
+            return stop(team, user, bet, BetStatus.REACHED)
         if not idea_open and used_up(totals(bet.team_id, bet)):
-            return stop(bet, BetStatus.SPENT, team, user)
+            return stop(team, user, bet, BetStatus.SPENT)
         if scout_job(bet).mode:
             note = run_scout(team, user, bet)
         else:
@@ -798,7 +787,6 @@ def step(team: Team, user: User, bet: Bet) -> str:
     return dispatch(bet, user) or note
 
 
-ENDED = (BetStatus.REACHED, BetStatus.SPENT, BetStatus.CLOSED)
 END_NOTES = {
     BetStatus.REACHED: "The bet reached its goal.",
     BetStatus.SPENT: "The bet used its budget.",
@@ -852,15 +840,12 @@ def freeze(team: Team, user: User, bet: Bet) -> None:
             setattr(bet, name, value)
 
 
-def stop(bet: Bet, status: BetStatus, team: Team | None = None, user: User | None = None) -> str:
+def stop(team: Team, user: User, bet: Bet, status: BetStatus) -> str:
     bet.status = status
     bet.save(using=WRITER_DB, update_fields=["status", "updated_at"])
-    if team and user:
-        freeze(team, user, bet)
-        money = totals(bet.team_id, bet)
-        track_from_task(
-            team, user, "bet ended", {"bet_id": str(bet.id), "status": status, "spent_cents": money.spent_cents}
-        )
+    freeze(team, user, bet)
+    spent = totals(bet.team_id, bet).spent_cents
+    track_from_task(team, user, "bet ended", {"bet_id": str(bet.id), "status": status, "spent_cents": spent})
     set_scout(bet, False)
     finish(bet)
     return ""
