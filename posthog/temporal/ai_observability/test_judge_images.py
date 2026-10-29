@@ -58,7 +58,8 @@ class TestJudgeImagesContent:
         content = images.content(" ".join([*markers, markers[0]]), "openai", "gpt-5.5")
 
         assert {"type": "text", "text": "Image 1:"} in content
-        assert {"type": "text", "text": "Image 2: not attached, over the judge's image limit."} in content
+        assert {"type": "text", "text": "Image 2:"} not in content
+        assert {"type": "text", "text": "Images not attached, over the judge's image limit: 1."} in content
 
     def test_attaches_the_newest_images_when_over_the_limit(self):
         images = JudgeImages(team_id=7)
@@ -66,10 +67,11 @@ class TestJudgeImagesContent:
 
         content = images.content(prompt, "openai", "gpt-5.5")
 
-        assert content[1] == {"type": "text", "text": "Image 1: not attached, over the judge's image limit."}
-        assert content[-3:-1] == [
+        assert content[1] == {"type": "text", "text": "Image 2:"}
+        assert content[-4:-1] == [
             {"type": "text", "text": f"Image {MAX_IMAGES + 1}:"},
             ImagePart(mime_type="image/png", data=base64.b64decode(f"{MAX_IMAGES:02}" * 4)),
+            {"type": "text", "text": "Images not attached, over the judge's image limit: 1."},
         ]
 
     @pytest.mark.parametrize(

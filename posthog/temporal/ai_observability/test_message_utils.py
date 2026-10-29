@@ -582,6 +582,16 @@ class TestExtractTextFromMessages:
             ),
             pytest.param({"type": "file", "file_id": "file_123"}, "[file: file_123]", id="file_reference"),
             pytest.param({"type": "blob", "content": "aGVsbG8="}, "[media]", id="blob_without_modality"),
+            pytest.param(
+                {"type": "blob", "mime_type": "audio/wav", "content": "aGVsbG8="},
+                "[audio]",
+                id="modality_from_mime_type",
+            ),
+            pytest.param(
+                {"type": "uri", "modality": "image", "mime_type": "image/png", "uri": "gs://bucket/a.png"},
+                "[image]",
+                id="uri_nobody_else_can_fetch",
+            ),
         ],
     )
     def test_otel_parts_media_render_markers(self, part, marker):

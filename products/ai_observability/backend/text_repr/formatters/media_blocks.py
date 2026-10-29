@@ -74,7 +74,15 @@ def _otel_part(part: dict) -> MediaBlock:
     modality = part.get("modality")
     if not isinstance(modality, str) or not modality:
         modality = mime_type.split("/")[0] if mime_type else "media"
-    return _with_source(modality, mime_type, part.get("content") if part["type"] == "blob" else part.get("uri"))
+    if part["type"] == "blob":
+        return _with_source(modality, mime_type, part.get("content"))
+    uri = part.get("uri")
+    # A `uri` part never holds inline bytes, and a `gs://` URI is not a link anyone else can fetch.
+    return MediaBlock(
+        modality=modality,
+        mime_type=mime_type,
+        url=uri if isinstance(uri, str) and uri.startswith(_LINK_SCHEMES) else None,
+    )
 
 
 def _image_block(block: dict) -> MediaBlock:

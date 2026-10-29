@@ -1,5 +1,7 @@
 import json
 
+from .media_blocks import parse_media_block
+
 # A media part's flattened message keeps the original part here, so a judge with images can attach it.
 MEDIA_PART_KEY = "media_part"
 
@@ -106,13 +108,9 @@ def flatten_parts_message(msg: dict) -> list[dict]:
 
 
 def _media_part_marker(part_type: str, part: dict) -> str:
-    modality = part.get("modality")
-    if not isinstance(modality, str) or not modality:
-        modality = "media"
-    if part_type == "blob":
-        return f"[{modality}]"
-    if part_type == "uri":
-        uri = part.get("uri")
-        return f"[{modality}: {uri}]" if isinstance(uri, str) and uri else f"[{modality}]"
+    if part_type in ("blob", "uri"):
+        # The same rule a judge with images falls back to, so both transcripts match where no image attaches.
+        media = parse_media_block(part)
+        return media.marker() if media else "[media]"
     file_id = part.get("file_id")
     return f"[file: {file_id}]" if isinstance(file_id, str) and file_id else "[file]"

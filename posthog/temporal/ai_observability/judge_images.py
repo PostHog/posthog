@@ -30,10 +30,9 @@ MAX_INLINE_BYTES = 15_000_000
 # AWS credentials stops working when the credentials expire.
 PRESIGNED_URL_SECONDS = 15 * 60
 
-Outcome = Literal["link", "inline", "over_limit", "too_large", "unavailable"]
+Outcome = Literal["link", "inline", "too_large", "unavailable"]
 
 _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
-    "over_limit": "not attached, over the judge's image limit",
     "too_large": "not attached, too large",
     "unavailable": "could not be attached",
 }
@@ -101,7 +100,7 @@ class JudgeImages:
 
         # Keep the images referenced last: the newest input and the graded output, even when it repeats an old image.
         ranked = sorted(images, key=lambda image: user_prompt.rfind(f"[image {image.number}]"))
-        attachments = {image.number: _Attachment(outcome="over_limit") for image in ranked[:-MAX_IMAGES]}
+        attachments: dict[int, _Attachment] = {}
         inline_bytes = 0
         for image in reversed(ranked[-MAX_IMAGES:]):
             attachment = self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
@@ -111,6 +110,8 @@ class JudgeImages:
         parts: list[Any] = [{"type": "text", "text": "The transcript refers to these images as [image N]."}]
         outcomes: Counter[str] = Counter()
         for image in images:
+            if image.number not in attachments:
+                continue
             attachment = attachments[image.number]
             outcomes[attachment.outcome] += 1
             if attachment.part is None:
@@ -118,6 +119,10 @@ class JudgeImages:
                 parts.append({"type": "text", "text": f"Image {image.number}: {label}."})
             else:
                 parts.extend([{"type": "text", "text": f"Image {image.number}:"}, attachment.part])
+        # One line, not one per image: it sits outside the transcript's text budget.
+        if over_limit := len(images) - len(attachments):
+            outcomes["over_limit"] = over_limit
+            parts.append({"type": "text", "text": f"Images not attached, over the judge's image limit: {over_limit}."})
         parts.append({"type": "text", "text": user_prompt})
         logger.info("judge_images_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
