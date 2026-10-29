@@ -1,3 +1,5 @@
+from datetime import date
+
 import time_machine
 from posthog.test.base import APIBaseTest
 
@@ -8,6 +10,7 @@ from rest_framework import status
 
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.events_plan_deletion import TeamEventsPlanDeletion
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from posthog.models.organization import OrganizationMembership
 
@@ -74,15 +77,35 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 12,
             "min_retention_months": 1,
             "max_retention_months": 12,
+            "next_deletion_on": None,
         }
+
+    @parameterized.expand(
+        [
+            ("admitted", 12, "2027-02-03"),
+            ("longest_plan", 84, None),
+        ]
+    )
+    def test_reports_the_next_plan_deletion(self, _name: str, plan_months: int, next_deletion_on: str | None) -> None:
+        self.team.event_retention_months = plan_months
+        self.team.save()
+        TeamEventsPlanDeletion.objects.create(team=self.team, months=12, next_deletion_on=date(2027, 2, 3))
+
+        response = self.client.get(self.url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["next_deletion_on"] == next_deletion_on
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_reports_no_window_until_retention_is_enforced(self) -> None:
+        TeamEventsPlanDeletion.objects.create(team=self.team, months=24, next_deletion_on=date(2027, 2, 3))
+
         response = self.client.get(self.url())
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["retention_months"] is None
         assert response.json()["retained_from"] is None
+        assert response.json()["next_deletion_on"] is None
 
     def test_organization_admin_sets_and_clears_the_project_window(self) -> None:
         self._set_membership("organization_admin")

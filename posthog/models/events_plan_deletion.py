@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
-from posthog.models.team.event_retention import DEFAULT_EVENT_RETENTION_MONTHS
+from posthog.models.team.event_retention import DEFAULT_EVENT_RETENTION_MONTHS, should_enforce_events_retention
 
 PASS_INTERVAL_MONTHS = 3
 
@@ -63,3 +63,10 @@ def deletion_months(setting_months: int | None, plan_months: int | None, pass_du
         windows.append(plan_months)
     set_windows = [months for months in windows if months is not None]
     return min(set_windows) if set_windows else None
+
+
+def next_plan_deletion_on(team: Team) -> date | None:
+    """The date of the team's next pass, or None while its plan's window deletes nothing."""
+    if team.event_retention_months >= DEFAULT_EVENT_RETENTION_MONTHS or not should_enforce_events_retention(team.id):
+        return None
+    return TeamEventsPlanDeletion.objects.filter(team_id=team.id).values_list("next_deletion_on", flat=True).first()

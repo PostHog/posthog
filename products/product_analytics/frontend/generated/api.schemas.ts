@@ -263,6 +263,11 @@ export interface EventsRetentionApi {
      * @nullable
      */
     readonly project_retention_months: number | null
+    /**
+     * The date the next cleanup deletes this project's events older than the plan's window. Null while the plan's window deletes nothing.
+     * @nullable
+     */
+    readonly next_deletion_on: string | null
 }
 
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]

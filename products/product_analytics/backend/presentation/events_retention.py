@@ -10,6 +10,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.helpers.impersonation import is_impersonated
+from posthog.models.events_plan_deletion import next_plan_deletion_on
 from posthog.models.team.event_retention import events_retention_floor_date, events_retention_months_for_team
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminWritePermissions
@@ -66,6 +67,11 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
         allow_null=True,
         help_text="The window, in months, set for this project. Null while the project uses the organization's window.",
     )
+    next_deletion_on = serializers.DateField(
+        read_only=True,
+        allow_null=True,
+        help_text="The date the next cleanup deletes this project's events older than the plan's window. Null while the plan's window deletes nothing.",
+    )
 
 
 class EventsRetentionUpdateSerializer(serializers.Serializer):
@@ -95,6 +101,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "retained_from": retained_from,
                     "docs_url": EVENTS_RETENTION_DOCS_URL,
                     "project_retention_months": project_events_retention_months(self.team),
+                    "next_deletion_on": next_plan_deletion_on(self.team),
                     "organization_retention_months": organization.organization_months,
                     "plan_retention_months": organization.plan_months,
                     "min_retention_months": organization.min_months,
