@@ -153,8 +153,8 @@ describe('recording cleanup (integration)', () => {
             PostgresUse.COMMON_WRITE,
             `INSERT INTO replay_vision_replayhighlightfeedentry
                  (team_id, window_days, generation, place, observation_id, scanner_id, created_at, category,
-                  experiment_id, percentile, group_root, group_sessions, group_people)
-             VALUES ($1, 1, 1, 1, $2, $3, now(), 1, 0, 0.9, $2, 1, 1)`,
+                  experiment_id, percentile, group_root)
+             VALUES ($1, 1, 1, 1, $2, $3, now(), 1, 0, 0.9, $2)`,
             [teamId, targetObservationId, scannerId],
             'fixtureHighlightEntry'
         )
