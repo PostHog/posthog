@@ -28,6 +28,7 @@ import { useLatest } from './hooks/useLatest'
 import { useResolvedYFormatter } from './hooks/useResolvedYFormatters'
 import { useStableResolveValue } from './hooks/useStableResolveValue'
 import { useYAxisMaps } from './hooks/useYAxisMaps'
+import { useHoverSync } from './hover-sync'
 import { useResolvedChartTheme } from './theme'
 import type {
     AreaSelectData,
@@ -393,6 +394,23 @@ export function Chart<Meta = unknown>({
         drawHoverRef.current,
     ])
 
+    // Inside a <ChartHoverSync>, another chart's hover draws a bare crosshair here while this chart
+    // isn't hovered itself. Its tooltip and point highlights stay on the hovered chart.
+    const syncedIndex = useHoverSync(labels, hoverIndex >= 0 ? (labels[hoverIndex] ?? null) : null)
+    const showSyncedCrosshair = hoverIndex < 0 && syncedIndex >= 0
+    const syncedCrosshairColor = theme.crosshairColor ?? resolveAxisLineColor(theme) ?? DEFAULT_AXIS_COLOR
+    const drawSyncedCrosshair = useMemo(
+        () =>
+            composeDrawHoverWithCrosshair(() => () => true, {
+                crosshairColor: syncedCrosshairColor,
+                crosshairDash: theme.crosshairDashPattern,
+                showCrosshair: true,
+                axisOrientation,
+                labelToCoord,
+            }),
+        [syncedCrosshairColor, theme.crosshairDashPattern, axisOrientation, labelToCoord]
+    )
+
     useChartDraw({
         ctx,
         overlayCtx,
@@ -400,12 +418,12 @@ export function Chart<Meta = unknown>({
         scales,
         series: coloredSeries,
         labels,
-        hoverIndex,
+        hoverIndex: showSyncedCrosshair ? syncedIndex : hoverIndex,
         hoverPosition,
         theme,
         dragRect,
         drawStatic: drawStaticWithTicks,
-        drawHover: composedDrawHover,
+        drawHover: showSyncedCrosshair ? drawSyncedCrosshair : composedDrawHover,
         hoverAnimationMs,
     })
 

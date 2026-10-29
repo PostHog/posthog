@@ -66,3 +66,11 @@ The chart accessor from `@posthog/quill-charts/testing` drives these gestures in
 Both default to a 3000ms budget.
 Pass an explicit `timeout` whenever the call sits behind another wait in the same test; two full-length waits chained together exceed Jest's 5000ms per-test budget, so give the pair one shared deadline.
 See [TESTING.md](./TESTING.md).
+
+## Shared crosshair
+
+Wrap charts in `<ChartHoverSync>` to share the hovered x between them, as a dashboard's shared crosshair does.
+Hovering one chart draws a crosshair at the same x on every other chart in the provider.
+A chart finds that x by an identical label, or for date labels by the nearest point in time inside its own range, so charts on different time grids still line up.
+Only the hovered chart shows its tooltip and point highlights.
+Charts in different providers do not sync, so wrap each group that should move together, and leave a chart outside to keep it independent.
