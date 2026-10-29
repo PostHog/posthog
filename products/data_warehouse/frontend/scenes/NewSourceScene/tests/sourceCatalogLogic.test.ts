@@ -293,6 +293,26 @@ describe('sourceCatalogLogic', () => {
             }
         )
 
+        it.each([
+            { enabled: false, expectSelfManaged: true },
+            { enabled: true, expectSelfManaged: false },
+        ])(
+            'file upload tiles are self-managed and searchable as such with object storage sources enabled=$enabled',
+            ({ enabled, expectSelfManaged }) => {
+                featureFlagLogic.actions.setFeatureFlags([], {
+                    [FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]: enabled,
+                })
+                const logic = sourceCatalogLogic()
+
+                const uploadTiles = logic.values.catalogItems.filter((item) => item.name.startsWith('FileUpload-'))
+                expect(uploadTiles).toHaveLength(3)
+                for (const tile of uploadTiles) {
+                    expect(!!tile.selfManaged).toBe(expectSelfManaged)
+                    expect(tile.keywords.includes('selfmanaged')).toBe(expectSelfManaged)
+                }
+            }
+        )
+
         it('ignores a self-managed category link when object storage sources are enabled', () => {
             featureFlagLogic.actions.setFeatureFlags([], {
                 [FEATURE_FLAGS.DATA_WAREHOUSE_OBJECT_STORAGE_SOURCES]: true,

@@ -430,20 +430,20 @@ export const sourceCatalogLogic = kea<sourceCatalogLogicType>([
                     })
                 )
 
-                // File upload is self-managed too — the uploaded file becomes an in-place table — but
-                // it isn't a `manualConnector` (those link a user's own bucket). It's one entry with
-                // three tiles, one per format, since users search for "CSV" rather than "File upload".
+                // File upload isn't a `manualConnector` (those link a user's own bucket). Without managed
+                // object storage sources it is self-managed too; with them it is a managed source.
+                // One entry with three tiles, one per format, since users search for "CSV" rather
+                // than "File upload".
                 const fileUpload = FILE_UPLOAD_FORMATS.map(
                     ({ format, label, keywords }): CatalogItem => ({
                         name: fileUploadSourceType(format),
                         label,
                         iconType: FILE_UPLOAD_SOURCE_NAME,
                         category: MANUAL_SOURCE_CATEGORY,
-                        keywords: [...keywords, ...SELF_MANAGED_KEYWORDS],
+                        keywords: objectStorageSourcesEnabled ? keywords : [...keywords, ...SELF_MANAGED_KEYWORDS],
                         status: 'stable',
                         releaseStatus: FILE_UPLOAD_SOURCE_CONFIG.releaseStatus,
                         url: fileUploadSourceUrl(format),
-                        // With managed object storage sources on, an upload becomes a managed source.
                         selfManaged: !objectStorageSourcesEnabled,
                     })
                 )
