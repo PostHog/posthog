@@ -5,24 +5,16 @@ import { GithubIntegration } from 'scenes/integrations/components/GithubIntegrat
 import { urls } from 'scenes/urls'
 
 import { inboxUsageLogic } from '../../logics/inboxUsageLogic'
-import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentSteeringSection } from '../config/AgentSteeringSection'
 import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
-import { SignalSourcesPanel } from '../config/SignalSourcesPanel'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { InboxUsageWidget } from '../shell/InboxUsageWidget'
 import { InstallationSetupSection } from '../shell/InstallationSetupSection'
 import { SettingsSection } from './SettingsSection'
 
-/**
- * The Settings tab: every agent-setup control on one page, in the order a new team works through
- * them. Signal sources and autonomy are edited most, so they lead; the connections and the usage
- * meter follow.
- */
 export function SettingsTab(): JSX.Element {
     useMountedLogic(integrationsLogic)
-    useMountedLogic(signalSourcesLogic)
     // The usage widget renders nothing without the billing product, so the section title
     // must hide with it rather than sit over an empty area.
     const { product: inboxUsageProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
@@ -30,12 +22,6 @@ export function SettingsTab(): JSX.Element {
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-6">
             <InstallationSetupSection />
-            <SettingsSection
-                title="Signal sources"
-                description="Each source watches for signals, and spins up an agent to look into them."
-            >
-                <SignalSourcesPanel />
-            </SettingsSection>
             <SettingsSection
                 title="Autonomy"
                 description="How much agents do on their own: opening pull requests, and how many reports arrive each day."
