@@ -2809,8 +2809,9 @@ class _WorkflowMocks:
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any, **kwargs: Any) -> Any:
         # Without a task_queue the call lands on the Replay Vision queue, so its worker must register the activity.
-        if kwargs.get("task_queue") is None:
-            assert activity_fn in ACTIVITIES, f"{activity_fn.__name__} is not registered on the Replay Vision worker"
+        # pytest.fail raises a BaseException, which the workflow's fail-soft `except Exception` blocks can't swallow.
+        if kwargs.get("task_queue") is None and activity_fn not in ACTIVITIES:
+            pytest.fail(f"{activity_fn.__name__} is not registered on the Replay Vision worker")
         self.activity_calls.append((activity_fn, activity_input))
         if activity_fn in self.activity_errors:
             raise self.activity_errors[activity_fn]
@@ -3033,7 +3034,7 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
 
 
 @pytest.mark.asyncio
-async def test_apply_scanner_workflow_quarantines_a_render_that_times_out() -> None:
+async def test_apply_scanner_workflow_bumps_the_stuck_counter_when_a_render_times_out() -> None:
     mocks = _WorkflowMocks(
         activity_results={
             create_observation_activity: CreateObservationOutput(
