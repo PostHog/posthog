@@ -22,7 +22,7 @@ def _config(**overrides: object) -> SentryProjectConfig:
     defaults: dict[str, object] = {
         "error_message_globs": (),
         "release_globs": (),
-        "blocked_ips": (),
+        "ip_filter": False,
         "browser_extensions": False,
         "localhost": False,
         "web_crawlers": False,
@@ -240,6 +240,7 @@ class TestSentryMigrationPlanConversion(SimpleTestCase):
                 SentryMigrationFit.PARTIAL,
             ),
             ("browser_extensions", {"browser_extensions": True}, "On", None, SentryMigrationFit.UNSUPPORTED),
+            ("ip_filter", {"ip_filter": True}, "On", None, SentryMigrationFit.UNSUPPORTED),
         ]
     )
     def test_inbound_filters_turn_on_the_matching_automatic_rule(

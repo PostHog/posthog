@@ -202,8 +202,8 @@ class SentryMigrationPlanner:
             items.append(self._react_hydration_item())
         if config.chunk_load_errors:
             items.append(self._chunk_load_item())
-        if config.blocked_ips:
-            items.append(self._blocked_ips_item(config.blocked_ips))
+        if config.ip_filter:
+            items.append(self._ip_filter_item())
         return items
 
     def _suppression_item(
@@ -440,12 +440,12 @@ class SentryMigrationPlanner:
             compared_with_sentry=("Also drops failed dynamic imports from Vite and other bundlers",),
         )
 
-    def _blocked_ips_item(self, blocked_ips: tuple[str, ...]) -> SentryMigrationItem:
+    def _ip_filter_item(self) -> SentryMigrationItem:
         return SentryMigrationItem(
             id="inbound_filter:blocked-ips",
             category=SentryMigrationCategory.INBOUND_FILTER,
             sentry_setting="IP address filter",
-            sentry_value=", ".join(blocked_ips),
+            sentry_value="On",
             fit=SentryMigrationFit.UNSUPPORTED,
             note="PostHog suppression rules can't filter by IP address range, so you need to set this up another way.",
             suppression_rule_filters=None,

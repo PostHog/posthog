@@ -45,7 +45,7 @@ class SentryProjectConfig:
 
     error_message_globs: tuple[str, ...]
     release_globs: tuple[str, ...]
-    blocked_ips: tuple[str, ...]
+    ip_filter: bool
     browser_extensions: bool
     localhost: bool
     web_crawlers: bool
@@ -252,6 +252,12 @@ def _filter_patterns(value: object, setting: str) -> tuple[str, ...]:
     return patterns
 
 
+def _has_lines(value: object) -> bool:
+    if isinstance(value, list):
+        return any(str(item).strip() for item in value)
+    return isinstance(value, str) and bool(value.strip())
+
+
 def parse_project_config(
     *, details: dict[str, Any], filters: list[Any], keys: list[dict[str, Any]]
 ) -> SentryProjectConfig:
@@ -289,7 +295,8 @@ def parse_project_config(
     return SentryProjectConfig(
         error_message_globs=_filter_patterns(options.get("filters:error_messages"), "error message filters"),
         release_globs=_filter_patterns(options.get("filters:releases"), "release filters"),
-        blocked_ips=_lines(options.get("filters:blacklisted_ips")),
+        # PostHog can't import an IP filter, so the preview reads only whether one is set and never splits the list.
+        ip_filter=_has_lines(options.get("filters:blacklisted_ips")),
         browser_extensions=active_filters.get("browser-extensions") is True,
         localhost=active_filters.get("localhost") is True,
         web_crawlers=active_filters.get("web-crawlers") is True,
