@@ -33,6 +33,7 @@ from django.db.models.functions import Coalesce
 
 import structlog
 
+from posthog.integrations import IntegrationManager
 from posthog.models import Team, User
 
 from products.batch_exports.backend import (
@@ -48,7 +49,6 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
     get_batch_exports_using_integration,
 )
-from products.integrations.backend.facade.api import IntegrationManager
 
 from . import contracts
 from .enums import BATCH_EXPORT_INTEGRATION_KINDS

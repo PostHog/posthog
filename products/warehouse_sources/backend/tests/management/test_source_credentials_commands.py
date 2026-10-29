@@ -11,9 +11,9 @@ from django.core.management.base import CommandError
 from cryptography.fernet import Fernet
 from parameterized import parameterized
 
+from posthog.integrations import IntegrationManager
 from posthog.models.team import Team
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.warehouse_sources.backend.facade.contracts import CREDENTIALS_REFERENCE_KEY
 from products.warehouse_sources.backend.logic import source_credentials_sync
 from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore

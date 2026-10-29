@@ -5,9 +5,9 @@ import structlog
 from google.auth.exceptions import RefreshError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations import IntegrationNotFound
 from posthog.schema_enums import ProductKey
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,

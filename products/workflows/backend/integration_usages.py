@@ -1,6 +1,7 @@
 """The active workflows that use an integration row. The integrations SDK loads this module."""
 
-from products.integrations.backend.facade.contracts import IntegrationUsage
+from posthog.integrations import IntegrationUsage
+
 from products.workflows.backend.facade.api import get_active_workflows_using_integration
 
 WORKFLOW_USAGE_TYPE = "workflow"

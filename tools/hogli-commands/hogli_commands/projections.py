@@ -105,13 +105,13 @@ PROJECTIONS: tuple[Projection, ...] = (
     ),
     Projection(
         name="integration-kinds",
-        renderer="products/integrations/backend/kinds_projection.py",
+        renderer="posthog/integrations/kinds_projection.py",
         inputs=(
-            "products/integrations/backend/facade/catalogue.py",
-            "products/integrations/backend/facade/contracts.py",
-            "products/integrations/backend/facade/enums.py",
+            "posthog/integrations/catalogue.py",
+            "posthog/integrations/contracts.py",
+            "posthog/integrations/enums.py",
         ),
-        outputs=("products/integrations/backend/facade/kinds_generated.py",),
+        outputs=("posthog/integrations/kinds_generated.py",),
     ),
 )
 

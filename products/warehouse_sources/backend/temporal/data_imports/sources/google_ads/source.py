@@ -7,6 +7,7 @@ from django.core.cache import cache
 import requests
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GoogleAdsIntegration,
@@ -16,7 +17,6 @@ from posthog.models.integration import (
     google_ads_hierarchy_level,
 )
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
@@ -188,8 +188,8 @@ class GoogleAdsSource(
             # recover — the user must reconnect their Google Ads account. Model-specific so we don't
             # swallow unrelated `DoesNotExist` errors from other models, which may be real bugs.
             "Integration matching query does not exist": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
-            # The SDK raises `IntegrationNotFound` ("No integration <id> in ...") for the same case.
-            "No integration ": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
+            # `_get_integration` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": "Your Google Ads connection is no longer available — it may have been disconnected. Please reconnect your Google Ads account.",
             # gapic wraps a transport-level UNAUTHENTICATED into google.api_core.exceptions.Unauthenticated,
             # whose str() is "401 Request is missing required authentication credential. ..." — it never
             # contains the bare "UNAUTHENTICATED" token, so the gRPC-status keys above don't catch it.

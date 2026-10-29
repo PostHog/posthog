@@ -11,9 +11,9 @@ from django.db import OperationalError
 import pyarrow as pa
 from parameterized import parameterized
 
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     evolve_pyarrow_schema,
     table_from_py_list,
@@ -603,10 +603,10 @@ class TestGetIntegrationDbResilience:
         assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=IntegrationNotFound())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
 
         with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH), mock.patch(_SLEEP_PATH):
-            with pytest.raises(IntegrationNotFound):
+            with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted integration row is non-retryable — don't mask it as a transient drop.

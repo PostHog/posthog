@@ -1,7 +1,8 @@
 """The enabled hog functions that use an integration row. The integrations SDK loads this module."""
 
+from posthog.integrations import IntegrationUsage
+
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
-from products.integrations.backend.facade.contracts import IntegrationUsage
 
 HOG_FUNCTION_USAGE_TYPE = "hog_function"
 

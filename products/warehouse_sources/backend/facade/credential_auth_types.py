@@ -841,6 +841,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "mysql": "credentials",
     "n8n": "credentials",
     "nager-date": "credentials",
+    "nango": "credentials",
     "nasa": "credentials",
     "nation-builder": "credentials",
     "navan": "credentials",

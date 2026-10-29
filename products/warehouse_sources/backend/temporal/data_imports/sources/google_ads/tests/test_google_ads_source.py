@@ -25,7 +25,8 @@ from google.ads.googleads.v23.resources.types.change_event import ChangeEvent
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
-from products.integrations.backend.facade.contracts import IntegrationNotFound
+from posthog.integrations import IntegrationNotFound
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
@@ -237,9 +238,10 @@ class TestGoogleAdsNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            # `str(IntegrationNotFound)` as raised by `google_ads_client` during a sync when
-            # the OAuth integration row has been deleted/disconnected.
+            # The ORM text for a deleted OAuth integration row.
             "Integration matching query does not exist.",
+            # `_get_integration` raises `IntegrationNotFound` with this text for the same case.
+            "Integration not found: 42",
         ],
     )
     def test_missing_integration_is_non_retryable(self, error_msg):
@@ -1415,10 +1417,10 @@ class TestGetIntegrationDbResilience:
         assert sleep.call_args_list == [mock.call(2), mock.call(4), mock.call(6)]
 
     def test_missing_integration_is_not_retried(self):
-        get = mock.Mock(side_effect=IntegrationNotFound())
+        get = mock.Mock(side_effect=IntegrationNotFound("SDK text"))
 
         with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
-            with pytest.raises(IntegrationNotFound):
+            with pytest.raises(IntegrationNotFound, match="^Integration not found: 1$"):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted connection row is non-retryable elsewhere — don't mask it as a transient drop.

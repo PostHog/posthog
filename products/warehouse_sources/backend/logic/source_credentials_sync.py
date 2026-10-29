@@ -19,8 +19,8 @@ from django.db import transaction
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationManager
 
-from products.integrations.backend.facade.api import IntegrationManager
 from products.warehouse_sources.backend.facade.contracts import (
     CREDENTIALS_REFERENCE_KEY,
     SharedCredentialsError,

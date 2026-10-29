@@ -10,6 +10,7 @@ from temporalio.client import Client
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
+from posthog.integrations import IntegrationNotFound
 from posthog.models import Integration, User
 from posthog.temporal.common.client import sync_connect
 
@@ -21,7 +22,6 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportRun,
 )
 from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound
-from products.integrations.backend.facade.contracts import IntegrationNotFound
 
 pytestmark = [pytest.mark.django_db]
 
