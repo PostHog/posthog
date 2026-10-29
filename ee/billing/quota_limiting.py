@@ -36,6 +36,7 @@ from posthog.tasks.usage_report import (
     get_signals_credited_refund_credits_for_org,
     get_teams_with_api_queries_metrics,
     get_teams_with_apm_tracing_usage_in_period,
+    get_teams_with_mcp_event_count_in_period,
     iter_billable_teams,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
@@ -83,6 +84,7 @@ class QuotaResource(Enum):
     API_QUERIES = "api_queries_read_bytes"
     SURVEY_RESPONSES = "survey_responses"
     LLM_EVENTS = "llm_events"
+    MCP_EVENTS = "mcp_events"
     CDP_TRIGGER_EVENTS = "cdp_trigger_events"
     ROWS_EXPORTED = "rows_exported"
     AI_CREDITS = "ai_credits"
@@ -110,6 +112,7 @@ OVERAGE_BUFFER = {
     QuotaResource.API_QUERIES: 0,
     QuotaResource.SURVEY_RESPONSES: 0,
     QuotaResource.LLM_EVENTS: 0,
+    QuotaResource.MCP_EVENTS: 0,
     QuotaResource.CDP_TRIGGER_EVENTS: 0,
     QuotaResource.ROWS_EXPORTED: 0,
     QuotaResource.AI_CREDITS: 0,
@@ -141,6 +144,7 @@ class UsageCounters(TypedDict):
     api_queries_read_bytes: int
     survey_responses: int
     llm_events: int
+    mcp_events: int
     cdp_trigger_events: int
     rows_exported: int
     ai_credits: int
@@ -1273,6 +1277,7 @@ def _aggregate_quota_usage(
             api_queries_read_bytes=all_data["teams_with_api_queries_read_bytes"].get(team.id, 0),
             survey_responses=all_data["teams_with_survey_responses_count_in_period"].get(team.id, 0),
             llm_events=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
+            mcp_events=all_data["teams_with_mcp_event_count_in_period"].get(team.id, 0),
             ai_credits=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
             signals_credits=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
             posthog_code_credits=all_data["teams_with_posthog_code_credits_used_in_period"].get(team.id, 0),
@@ -1394,6 +1399,9 @@ def update_all_orgs_billing_quotas(
     token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
     compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
     logs_bytes = dict(counter_report.counts[UsageCounter.LOGS_BYTES])
+    mcp_event_counts = _timed_query(
+        "mcp_event_count", get_teams_with_mcp_event_count_in_period, period.start, period.end, count_distinct=True
+    )
     apm_tracing_bytes = convert_team_usage_rows_to_dict(
         _timed_query("apm_tracing_usage", get_teams_with_apm_tracing_usage_in_period, period.start, period.end)["bytes"]
     )
@@ -1413,6 +1421,7 @@ def update_all_orgs_billing_quotas(
         "teams_with_rows_exported_in_period": dict(counter_report.counts[UsageCounter.ROWS_EXPORTED]),
         "teams_with_survey_responses_count_in_period": dict(counter_report.counts[UsageCounter.SURVEY_RESPONSES]),
         "teams_with_ai_event_count_in_period": dict(counter_report.counts[UsageCounter.AI_EVENTS]),
+        "teams_with_mcp_event_count_in_period": convert_team_usage_rows_to_dict(mcp_event_counts),
         "teams_with_ai_credits_used_in_period": dict(counter_report.counts[UsageCounter.AI_CREDITS]),
         "teams_with_signals_credits_used_in_period": dict(counter_report.counts[UsageCounter.SIGNALS_CREDITS]),
         "teams_with_posthog_code_credits_used_in_period": {
@@ -1664,6 +1673,7 @@ def update_all_orgs_billing_quotas(
                 "quota_limited_api_queries": quota_limited_orgs["api_queries_read_bytes"].get(org_id, None),
                 "quota_limited_survey_responses": quota_limited_orgs["survey_responses"].get(org_id, None),
                 "quota_limited_llm_events": quota_limited_orgs["llm_events"].get(org_id, None),
+                "quota_limited_mcp_events": quota_limited_orgs["mcp_events"].get(org_id, None),
                 "quota_limited_cdp_trigger_events": quota_limited_orgs["cdp_trigger_events"].get(org_id, None),
                 "quota_limited_rows_exported": quota_limited_orgs["rows_exported"].get(org_id, None),
             }
