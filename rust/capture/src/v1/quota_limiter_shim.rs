@@ -3,7 +3,9 @@ use limiters::redis::QuotaResource;
 use metrics::counter;
 
 use crate::quota_limiters::CaptureQuotaLimiter;
-use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event, EventInfo};
+use crate::quota_limiters::{
+    is_exception_event, is_llm_event, is_mcp_event, is_survey_event, EventInfo,
+};
 use crate::v1::analytics::constants::CAPTURE_V1_EVENTS_QUOTA_LIMITED;
 use crate::v1::analytics::types::{EventResult, WrappedEvent};
 use crate::v1::Error;
@@ -14,6 +16,7 @@ const SCOPED_CHECKS: &[ScopedCheck] = &[
     (QuotaResource::Exceptions, is_exception_event),
     (QuotaResource::Surveys, is_survey_event),
     (QuotaResource::LLMEvents, is_llm_event),
+    (QuotaResource::MCPEvents, is_mcp_event),
 ];
 
 /// Apply billing quota limits to a batch of events in-place.
@@ -69,6 +72,7 @@ pub async fn apply_quota_limits(
                     QuotaResource::Exceptions => "exceptions_over_quota",
                     QuotaResource::Surveys => "survey_responses_over_quota",
                     QuotaResource::LLMEvents => "llm_events_over_quota",
+                    QuotaResource::MCPEvents => "mcp_events_over_quota",
                     _ => "over_quota",
                 });
                 count += 1;
@@ -252,6 +256,7 @@ mod tests {
             QuotaResource::Exceptions,
             QuotaResource::Surveys,
             QuotaResource::LLMEvents,
+            QuotaResource::MCPEvents,
         ] {
             let key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, resource.as_str());
             let limited_tokens = if resources_to_limit.contains(resource) {
@@ -265,7 +270,8 @@ mod tests {
         let limiter = CaptureQuotaLimiter::new(&cfg, Arc::new(redis), Duration::from_secs(60))
             .add_scoped_limiter(QuotaResource::Exceptions, is_exception_event)
             .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
-            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
+            .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event)
+            .add_scoped_limiter(QuotaResource::MCPEvents, is_mcp_event);
 
         // Allow background tasks to populate the DashMap caches from MockRedisClient
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -555,6 +561,26 @@ mod tests {
         ok.sort();
         assert_eq!(ok, vec!["$ainotcounted", "ai_generation"]);
         assert_eq!(quota_dropped_event_names(&events), vec!["$ai_generation"]);
+    }
+
+    #[tokio::test]
+    async fn mcp_limit_marks_only_mcp_events() {
+        let limiter = build_limiter("tok", false, &[QuotaResource::MCPEvents]).await;
+        let mut events = vec![
+            make_event("$mcp_tool_call", None),
+            make_event("$pageview", None),
+            make_event("$ai_generation", None),
+            make_event("$mcp_initialize", None),
+        ];
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+        assert!(result.is_ok());
+
+        assert_eq!(ok_event_names(&events), vec!["$ai_generation", "$pageview"]);
+        assert_eq!(quota_dropped_event_names(&events).len(), 2);
+        for ev in events.iter().filter(|e| e.result == EventResult::Drop) {
+            assert_eq!(ev.details, Some("mcp_events_over_quota"));
+        }
     }
 
     #[tokio::test]
