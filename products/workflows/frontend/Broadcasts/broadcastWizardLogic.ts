@@ -254,7 +254,9 @@ function inputTemplating(existing: { templating?: string } | undefined): string 
     return existing ? (existing.templating ?? 'hog') : 'liquid'
 }
 
-export type BroadcastTemplatingErrors = Partial<Record<'subject' | 'body' | 'to' | 'title' | 'message', string>>
+export type BroadcastTemplatingErrors = Partial<
+    Record<'subject' | 'preheader' | 'body' | 'to' | 'title' | 'message', string>
+>
 
 // The worker parses the template for each recipient, so one that can't parse fails every send.
 export function getBroadcastTemplatingErrors(
@@ -274,7 +276,8 @@ export function getBroadcastTemplatingErrors(
         broadcast ? findAction(broadcast, 'function_email')?.config?.inputs?.email : undefined
     )
     return {
-        subject: getTemplatingError(email.subject, templating) ?? getTemplatingError(email.preheader ?? '', templating),
+        subject: getTemplatingError(email.subject, templating),
+        preheader: getTemplatingError(email.preheader ?? '', templating),
         body: getTemplatingError(email.html, templating) ?? getTemplatingError(email.text, templating),
         to: getTemplatingError(email.to?.email ?? '', templating),
     }

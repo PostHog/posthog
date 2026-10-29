@@ -886,6 +886,22 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.stepValidationErrors.content).toEqual([])
     })
 
+    it('puts a preheader error on the preheader, and parses a tag that spans lines', () => {
+        const email = {
+            ...DEFAULT_BROADCAST_EMAIL,
+            subject: 'Spring sale',
+            preheader: 'Hi {{ person.name }',
+            html: '<p>{{\n person.properties.name | default: &quot;friend&quot;\n}}</p>',
+        }
+
+        expect(getBroadcastTemplatingErrors('email', email, DEFAULT_BROADCAST_PUSH, null)).toEqual({
+            subject: undefined,
+            preheader: expect.stringMatching(/^Liquid template error: /),
+            body: undefined,
+            to: undefined,
+        })
+    })
+
     it('leaves push text saved as Hog unparsed', () => {
         const broadcast = {
             actions: [

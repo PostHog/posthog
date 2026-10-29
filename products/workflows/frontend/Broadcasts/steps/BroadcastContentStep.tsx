@@ -84,6 +84,7 @@ export function BroadcastContentStep(): JSX.Element {
         from: errors.find((error) => error.includes('sender')),
         to: templatingErrors.to,
         subject: errors.find((error) => error.includes('subject')) ?? templatingErrors.subject,
+        preheader: templatingErrors.preheader,
         body: errors.find((error) => error.includes('content')) ?? templatingErrors.body,
     }
 

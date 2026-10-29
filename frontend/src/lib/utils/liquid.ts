@@ -1,7 +1,8 @@
 // Lazy load liquid library
 import { Context, Emitter, Liquid, Output, Tag, TagToken, Template, TopLevelToken } from 'liquidjs'
 
-const LIQUID_REGEX = /\{\{(.*?)\}\}|{%(.*?)%}/g
+// A tag can span lines, as the worker allows.
+const LIQUID_REGEX = /\{\{([\s\S]*?)\}\}|{%([\s\S]*?)%}/g
 
 // Copy of the currency filter in nodejs/src/cdp/utils/liquid.ts, so previews format money the way sends do.
 const REGION_CURRENCIES: Record<string, string> = {
