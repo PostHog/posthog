@@ -105,6 +105,9 @@ export interface authLogicActions {
     resetLogin: (values?: LoginForm) => {
         values?: LoginForm
     } // loginLogic
+    submitLogin: () => {
+        value: true
+    } // loginLogic
     precheckSignupEmail: (email: string) => {
         email: string
     } // signupLogic
@@ -124,6 +127,9 @@ export interface authLogicActions {
         error: string | null
         isTaken: boolean
     } // signupLogic
+    submitSignupPanelAuth: () => {
+        value: true
+    } // signupLogic
     backToEmail: () => {
         value: true
     }
@@ -142,6 +148,9 @@ export interface authLogicActions {
     }
     setEmailValidationError: (error: string | null) => {
         error: string | null
+    }
+    submitEmailStep: () => {
+        value: true
     }
 }
 
@@ -188,13 +197,29 @@ export const authLogic = kea<authLogicType>([
         ],
         actions: [
             loginLogic,
-            ['precheck', 'precheckSuccess', 'setLoginValue', 'resetLogin', 'clearGeneralError', 'exitCodeVerification'],
+            [
+                'precheck',
+                'precheckSuccess',
+                'setLoginValue',
+                'resetLogin',
+                'submitLogin',
+                'clearGeneralError',
+                'exitCodeVerification',
+            ],
             signupLogic,
-            ['precheckSignupEmail', 'setSignupEmailError', 'setPendingInvite', 'setPanel', 'resetSignupCredentials'],
+            [
+                'precheckSignupEmail',
+                'setSignupEmailError',
+                'setPendingInvite',
+                'setPanel',
+                'resetSignupCredentials',
+                'submitSignupPanelAuth',
+            ],
         ],
     })),
     actions({
         continueWithEmail: true,
+        submitEmailStep: true,
         setEmailValidationError: (error: string | null) => ({ error }),
         setAwaitingPrecheckFor: (email: string | null) => ({ email }),
         chooseAccountPath: (accountPath: AuthAccountPath, accountExists: boolean | null) => ({
@@ -295,6 +320,16 @@ export const authLogic = kea<authLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        // The email card is one form, and its submit button finishes whichever path the email took
+        submitEmailStep: () => {
+            if (values.step === 'login') {
+                actions.submitLogin()
+            } else if (values.step === 'signup_credentials') {
+                actions.submitSignupPanelAuth()
+            } else {
+                actions.continueWithEmail()
+            }
+        },
         continueWithEmail: () => {
             const email = values.login.email.trim()
             if (!email) {

@@ -5,7 +5,21 @@ import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { authLogic } from '../authLogic'
-import { loginLogic } from '../loginLogic'
+import { PrecheckResponseType, loginLogic } from '../loginLogic'
+
+// A new person here signs in through the IdP. SAML normally replaces this row, but an account
+// without a password still needs to see whatever methods it does have.
+function hidesLoginRow(
+    precheck: PrecheckResponseType,
+    accountExists: boolean | null,
+    isPasswordLoginUnavailable: boolean
+): boolean {
+    return (
+        accountExists === false ||
+        !!precheck.sso_enforcement ||
+        (precheck.saml_available && !isPasswordLoginUnavailable)
+    )
+}
 
 export function EmailStepSocialButtons(): JSX.Element | null {
     const { entry, step, accountExists } = useValues(authLogic)
@@ -19,13 +33,7 @@ export function EmailStepSocialButtons(): JSX.Element | null {
         )
     }
     if (step === 'login') {
-        // A new person here signs in through the IdP. SAML normally replaces this row, but an account
-        // without a password still needs to see whatever methods it does have.
-        if (
-            accountExists === false ||
-            precheckResponse.sso_enforcement ||
-            (precheckResponse.saml_available && !isPasswordLoginUnavailable)
-        ) {
+        if (hidesLoginRow(precheckResponse, accountExists, isPasswordLoginUnavailable)) {
             return null
         }
         return (

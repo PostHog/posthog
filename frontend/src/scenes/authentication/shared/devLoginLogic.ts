@@ -189,8 +189,6 @@ export const devLoginLogic = kea<devLoginLogicType>([
             document.cookie = `${PENDING_OAUTH_CONNECTION_COOKIE}=; Max-Age=0; path=/`
             pendingOAuthConnectionLogic.findMounted()?.actions.clearPendingConnection()
         },
-        // Writes what `/oauth/authorize` would leave behind for a signed-out visitor: the cookie, and
-        // a login URL whose `next` returns to the authorize page, so login continues to consent
         startPendingOAuthConnection: ({ connector }) => {
             const payload = {
                 client_name: connector.client_name,
