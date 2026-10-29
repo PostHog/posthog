@@ -77,6 +77,19 @@ class TestMetricsAlertCreate(APIBaseTest):
         assert response.json()["source_kind"] == "metrics"
         assert response.json()["check_interval_minutes"] == 1
 
+    def test_a_project_without_the_metrics_rollout_flag_cannot_create_one(self) -> None:
+        self.enterContext(
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *_args, **_kwargs: key != "platform-alerts-source-metrics",
+            )
+        )
+
+        response = self._create({"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert response.json()["code"] == "feature_flag_required"
+
 
 class TestEvaluationTime(SimpleTestCase):
     @parameterized.expand(
