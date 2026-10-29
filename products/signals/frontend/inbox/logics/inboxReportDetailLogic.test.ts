@@ -38,49 +38,93 @@ const linkedTask = (purpose: ReportTaskPurpose, status: TaskRunStatus | null, pr
     }) as unknown as ReportTaskEntry
 
 describe('inboxReportDetailLogic', () => {
-    it('orders report runs newest first across purposes using their first association', async () => {
-        const runs = [
-            { taskId: 'implementation-old', type: 'implementation', startedAt: '2026-01-01T01:00:00Z' },
-            { taskId: 'research', type: 'research', startedAt: '2026-01-01T02:00:00Z' },
-            { taskId: 'implementation-new', type: 'implementation', startedAt: '2026-01-01T03:00:00Z' },
-            { taskId: 'scout', type: 'scout', startedAt: '2026-01-01T04:00:00Z' },
-            { taskId: 'implementation-old', type: 'implementation', startedAt: '2026-01-01T05:00:00Z' },
-        ]
-        useMocks({
-            get: {
-                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
-                '/api/projects/:team_id/signals/reports/:id/artefacts/': {
-                    results: runs.map(({ taskId, type, startedAt }, index) => ({
-                        id: `task-run-${index}`,
-                        type: 'task_run',
-                        content: { task_id: taskId, product: 'signals', type },
-                        created_at: startedAt,
-                    })),
+    it.each([SignalReportStatus.READY, SignalReportStatus.MONITORING])(
+        'orders report runs and refreshes settled tasks appropriately in %s',
+        async (status) => {
+            let latestRunId: string | null = null
+            let taskLatestRunId = 'old-run'
+            let now = Date.now()
+            const clock = jest.spyOn(Date, 'now').mockImplementation(() => now)
+            const taskRequests: string[] = []
+            const runs = [
+                { taskId: 'implementation-old', type: 'implementation', startedAt: '2026-01-01T01:00:00Z' },
+                { taskId: 'research', type: 'research', startedAt: '2026-01-01T02:00:00Z' },
+                { taskId: 'implementation-new', type: 'implementation', startedAt: '2026-01-01T03:00:00Z' },
+                { taskId: 'scout', type: 'scout', startedAt: '2026-01-01T04:00:00Z' },
+                { taskId: 'implementation-old', type: 'implementation', startedAt: '2026-01-01T05:00:00Z' },
+            ]
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': () => ({
+                        results: runs.map(({ taskId, type, startedAt }, index) => ({
+                            id: `task-run-${index}`,
+                            type: 'task_run',
+                            content: {
+                                task_id: taskId,
+                                product: 'signals',
+                                type,
+                                run_id: taskId === runs[0].taskId ? latestRunId : null,
+                            },
+                            created_at: startedAt,
+                        })),
+                    }),
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                    '/api/projects/:team_id/tasks/:id/': (req) => {
+                        taskRequests.push(String(req.params.id))
+                        return [
+                            200,
+                            {
+                                id: req.params.id,
+                                latest_run: {
+                                    id: req.params.id === runs[0].taskId ? taskLatestRunId : 'old-run',
+                                    status: TaskRunStatus.COMPLETED,
+                                },
+                            },
+                        ]
+                    },
                 },
-                '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
-                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
-                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
-                '/api/projects/:team_id/tasks/:id/': (req) => [
-                    200,
-                    { id: req.params.id, latest_run: { status: TaskRunStatus.COMPLETED } },
-                ],
-            },
-        })
-        initKeaTests()
-        const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
-        logic.mount()
-        try {
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.reportTasks?.map((entry) => entry.task.id)).toEqual([
-                'scout',
-                'implementation-new',
-                'research',
-                'implementation-old',
-            ])
-        } finally {
-            logic.unmount()
+            })
+            initKeaTests()
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, status } })
+            logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+                expect(logic.values.reportTasks?.map((entry) => entry.task.id)).toEqual([
+                    'scout',
+                    'implementation-new',
+                    'research',
+                    'implementation-old',
+                ])
+                expect(taskRequests).toHaveLength(4)
+                logic.actions.loadReportArtefacts()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(taskRequests).toHaveLength(status === SignalReportStatus.MONITORING ? 4 : 8)
+                const beforeNewRun = taskRequests.length
+                latestRunId = 'replacement-run'
+                taskLatestRunId = latestRunId
+                logic.actions.loadReportArtefacts()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(taskRequests).toHaveLength(beforeNewRun + (status === SignalReportStatus.MONITORING ? 1 : 4))
+                taskLatestRunId = 'run-without-artefact'
+                now += 60_000
+                logic.actions.loadReportArtefacts()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(
+                    logic.values.reportTasks?.find((entry) => entry.task.id === runs[0].taskId)?.task.latest_run?.id
+                ).toBe(taskLatestRunId)
+                const afterRefresh = taskRequests.length
+                logic.actions.loadReportArtefacts()
+                await expectLogic(logic).toFinishAllListeners()
+                expect(taskRequests).toHaveLength(afterRefresh + (status === SignalReportStatus.MONITORING ? 0 : 4))
+            } finally {
+                clock.mockRestore()
+                logic.unmount()
+            }
         }
-    })
+    )
 
     describe('report editing', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
@@ -1176,7 +1220,13 @@ describe('inboxReportDetailLogic', () => {
                     ],
                 })
                 let requests = 0
-                let reportStatus = REPORT.status
+                let reportStatus = SignalReportStatus.MONITORING
+                const monitoringReport = { ...REPORT, status: reportStatus }
+                const reloadReport = jest.fn()
+                const sceneSpy = jest.spyOn(inboxSceneLogic, 'findMounted').mockReturnValue({
+                    values: { selectedReportId: REPORT.id, selectedReportLoading: false },
+                    actions: { loadSelectedReport: reloadReport },
+                } as unknown as ReturnType<typeof inboxSceneLogic.build>)
                 const check = {
                     id: 'monitoring-check',
                     status: 'active',
@@ -1221,21 +1271,27 @@ describe('inboxReportDetailLogic', () => {
                     },
                 })
                 try {
-                    logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+                    logic = inboxReportDetailLogic({ reportId: REPORT.id, report: monitoringReport })
                     logic.mount()
                     await expectLogic(logic).toFinishAllListeners()
+                    const reloadArtefacts = jest.spyOn(logic.actions, 'loadReportArtefacts')
                     expect(requests).toBe(1)
                     jest.advanceTimersByTime(60000)
                     await expectLogic(logic).toFinishAllListeners()
                     expect(requests).toBe(2)
+                    expect(reloadReport).toHaveBeenCalledWith({ id: REPORT.id })
+                    expect(reloadArtefacts).toHaveBeenCalled()
                     expect(logic.values.reportChecks?.[0].monitoring_timing?.state).toBe('window_ended')
-                    inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT } })
+                    inboxReportDetailLogic({ reportId: REPORT.id, report: { ...monitoringReport } })
                     await expectLogic(logic).toFinishAllListeners()
                     expect(requests).toBe(2)
+                    reloadArtefacts.mockClear()
+                    reloadReport.mockClear()
                     reportStatus = status
                     inboxReportDetailLogic({ reportId: REPORT.id, report: { ...REPORT, status } })
                     await expectLogic(logic).toFinishAllListeners()
                     expect(requests).toBe(3)
+                    expect(reloadArtefacts).toHaveBeenCalledTimes(1)
                     expect(logic.values.reportChecks?.[0].monitoring_timing?.state).toBe(
                         status === SignalReportStatus.SUPPRESSED ? 'archived' : undefined
                     )
@@ -1243,8 +1299,11 @@ describe('inboxReportDetailLogic', () => {
                     jest.advanceTimersByTime(60000)
                     await expectLogic(logic).toFinishAllListeners()
                     expect(requests).toBe(3)
+                    expect(reloadReport).not.toHaveBeenCalled()
+                    expect(reloadArtefacts).toHaveBeenCalledTimes(1)
                 } finally {
                     logic.unmount()
+                    sceneSpy.mockRestore()
                     jest.useRealTimers()
                 }
             }
