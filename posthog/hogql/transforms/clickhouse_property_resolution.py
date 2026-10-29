@@ -1445,9 +1445,13 @@ class ClickHousePropertyResolver(CloningVisitor):
             comparison = ast.CompareOperation(
                 left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name]
             )
+            # `comparison` is a temporary: drop its id once visited so a later node can't inherit it from the freed address.
             if id(node) in self._key_guard_nodes:
                 self._key_guard_nodes.add(id(comparison))
-            return self.visit_compare_operation(comparison)
+            try:
+                return self.visit_compare_operation(comparison)
+            finally:
+                self._key_guard_nodes.discard(id(comparison))
 
         return super().visit_call(node)
 

@@ -119,13 +119,10 @@ class TestPrinter(BaseTest):
             ast.SelectQuery,
             prepare_ast_for_printing(select_query, context=context, dialect=dialect, stack=[select_query]),
         )
-        if in_where:
-            assert prepared_select_query.where is not None
-            return print_prepared_ast(
-                prepared_select_query.where, context=context, dialect=dialect, stack=[prepared_select_query]
-            )
+        printed_node = prepared_select_query.where if in_where else prepared_select_query.select[0]
+        assert printed_node is not None
         return print_prepared_ast(
-            prepared_select_query.select[0],
+            printed_node,
             context=context,
             dialect=dialect,
             stack=[prepared_select_query],
