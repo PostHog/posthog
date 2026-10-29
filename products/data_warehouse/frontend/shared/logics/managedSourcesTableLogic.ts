@@ -81,6 +81,7 @@ const compareSortKeys = (a: SortKey[], b: SortKey[]): number => {
     return 0
 }
 
+// The selector computes these once per source, because the rows synced and status keys walk every schema.
 const MANAGED_SOURCE_SORT_KEYS: Record<
     string,
     (source: ExternalDataSource, availableSources: Record<string, SourceConfigResponseApi> | null) => SortKey[]
@@ -206,6 +207,7 @@ export const managedSourcesTableLogic = kea<managedSourcesTableLogicType>([
                           .sort((a, b) => order * compareSortKeys(a.key, b.key))
                           .map(({ source }) => source)
                     : filteredManagedSources
+                // While searching, starred sources do not float above better matches.
                 if (managedSearchTerm?.trim()) {
                     return sorted
                 }
