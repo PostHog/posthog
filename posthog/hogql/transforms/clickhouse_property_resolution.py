@@ -39,7 +39,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_aggregation
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
@@ -1193,10 +1193,8 @@ class ClickHousePropertyResolver(CloningVisitor):
         try:
             if not node.group_by and node.group_by_mode != "all":
                 return super().visit_select_query(node)
-            result = super().visit_select_query(replace(node, select=[], group_by=None, having=None, order_by=None))
+            result = super().visit_select_query(replace(node, having=None, order_by=None))
             self._in_grouped_clause = True
-            result.select = [self.visit(expr) for expr in node.select]
-            result.group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
             result.having = self.visit(node.having)
             result.order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
             return result
@@ -1323,13 +1321,6 @@ class ClickHousePropertyResolver(CloningVisitor):
     # --- comparison / call rewrites ---
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
-        if self._in_grouped_clause and find_hogql_aggregation(node.name):
-            self._in_grouped_clause = False
-            try:
-                return super().visit_call(node)
-            finally:
-                self._in_grouped_clause = True
-
         if node.name == "indexHint":
             self._index_hint_depth += 1
             try:
@@ -1337,7 +1328,7 @@ class ClickHousePropertyResolver(CloningVisitor):
             finally:
                 self._index_hint_depth -= 1
 
-        if not self._in_grouped_clause and node.name in ("toFloat", "toInt") and len(node.args) == 1:
+        if node.name in ("toFloat", "toInt") and len(node.args) == 1:
             access = self._lowered_property_operand(node.args[0])
             # An array index reads through the JSON text of the value, so the cast wraps that read instead.
             if access is not None and all(isinstance(key, str) for key in access.keys):
@@ -1355,7 +1346,7 @@ class ClickHousePropertyResolver(CloningVisitor):
                         type=node.type,
                     )
 
-        boolean_conversion = None if self._in_grouped_clause else self._rewrite_boolean_property_conversion(node)
+        boolean_conversion = self._rewrite_boolean_property_conversion(node)
         if boolean_conversion is not None:
             return boolean_conversion
 
@@ -1891,7 +1882,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
-        node = self._coerce_feature_flag_boolean_literals(node)
         # Try each skip-index comparison rewrite in order. Each one consumes the property operand and returns the
         # rewritten comparison, so once one matches we must NOT also substitute the value. (session_id is left to the
         # printer — it optimizes a real column, not a property.)
@@ -1921,45 +1911,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         if prefilter is not None:
             return _call("and", [prefilter, compared])
         return compared
-
-    def _coerce_feature_flag_boolean_literals(self, node: ast.CompareOperation) -> ast.CompareOperation:
-        if not self.context.uses_new_events_schema():
-            return node
-        sides: tuple[tuple[ast.Expr, ast.Expr, bool], ...]
-        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            sides = ((node.left, node.right, False), (node.right, node.left, True))
-        elif node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
-            sides = ((node.left, node.right, False),)
-        else:
-            return node
-
-        def convert(value: ast.Expr) -> ast.Expr:
-            if isinstance(value, ast.Constant) and isinstance(value.value, bool):
-                return replace(value, value="true" if value.value else "false", type=ast.StringType())
-            if isinstance(value, ast.Constant) and isinstance(value.value, (list, tuple)):
-                values = ["true" if item is True else "false" if item is False else item for item in value.value]
-                return replace(value, value=tuple(values) if isinstance(value.value, tuple) else values, type=None)
-            if isinstance(value, (ast.Tuple, ast.Array)):
-                return replace(value, exprs=[convert(expr) for expr in value.exprs])
-            return value
-
-        for operand, literal, swapped in sides:
-            access = self._lowered_property_operand(operand)
-            if access is None or not access.keys:
-                continue
-            field_type = _blob_field_type_of(access)
-            if field_type is None or not _is_events_properties(field_type, self.context):
-                continue
-            key = str(access.keys[0])
-            if not (
-                len(access.keys) == 1
-                and key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
-                or len(access.keys) == 2
-                and key == "$feature_flags"
-            ):
-                continue
-            return replace(node, left=convert(literal)) if swapped else replace(node, right=convert(literal))
-        return node
 
     # --- unbacked person JSON: a substring pre-check ahead of the JSON parse ---
 
