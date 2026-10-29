@@ -168,6 +168,7 @@ tools:
         enabled: true
         scopes:
             - inbox:write
+            - task:write
         annotations:
             readOnly: false
             destructive: false
@@ -197,6 +198,7 @@ tools:
         enabled: true
         scopes:
             - inbox:write
+            - task:write
         annotations:
             readOnly: false
             destructive: true
@@ -252,6 +254,7 @@ tools:
         enabled: true
         scopes:
             - inbox:write
+            - task:write
         annotations:
             readOnly: false
             destructive: false
@@ -336,6 +339,7 @@ tools:
         enabled: true
         scopes:
             - inbox:write
+            - task:write
         annotations:
             readOnly: false
             destructive: false
@@ -430,6 +434,7 @@ tools:
         enabled: true
         scopes:
             - inbox:write
+            - task:write
         annotations:
             readOnly: false
             destructive: false
@@ -654,6 +659,7 @@ tools:
         enabled: true
         scopes:
             - inbox:write
+            - task:write
         annotations:
             readOnly: false
             destructive: false
@@ -839,6 +845,7 @@ tools:
         enabled: true
         scopes:
             - inbox:write
+            - task:write
         annotations:
             readOnly: false
             destructive: false

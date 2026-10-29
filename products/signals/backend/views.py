@@ -170,7 +170,6 @@ from products.signals.backend.ranking.served_outcomes import served_outcomes
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, annotate_stale_score
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
-from products.signals.backend.report_access import credential_may_start_tasks
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
@@ -1574,6 +1573,13 @@ class SignalReportViewSet(
     scope_object = "inbox"
     queryset = SignalReport.objects.all()
     pagination_class = SignalReportListPagination
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # The title and summary become an implementation task's prompt, so editing them is task work.
+        if self.action == "partial_update":
+            return ["inbox:write", "task:write"]
+        return None
+
     # Shared Q for "ready but not actionable" — used in status ranking and suggested-reviewer suppression.
     _Q_READY_NOT_ACTIONABLE = Q(status=SignalReport.Status.READY) & Q(latest_actionability="not_actionable")
     _DEFAULT_SIGNAL_REPORT_ORDERING = "-is_suggested_reviewer,status,-updated_at"
@@ -2778,7 +2784,7 @@ class SignalReportViewSet(
         description="Append an attributed priority correction, preserving the previous judgment for future learning.",
         operation_id="signals_reports_priority_update",
     )
-    @action(detail=True, methods=["put"], required_scopes=["inbox:write"])
+    @action(detail=True, methods=["put"], required_scopes=["inbox:write", "task:write"])
     def priority(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         report = cast(SignalReport, self.get_object())
         update_report_priority(
@@ -3095,7 +3101,7 @@ class SignalReportViewSet(
         request=SignalReportArtefactWriteSerializer,
         responses={200: SignalReportSuggestedReviewersArtefactSerializer},
     )
-    @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["inbox:write"])
+    @action(detail=True, methods=["put"], url_path="reviewers", required_scopes=["inbox:write", "task:write"])
     def reviewers(self, request, **kwargs):
         """Apply a human reviewer edit, including on reports without a reviewer artefact."""
         report = cast(SignalReport, self.get_object())
@@ -3156,7 +3162,9 @@ class SignalReportViewSet(
             400: OpenApiResponse(description="The reason is invalid, or a reviewer who stays no longer resolves."),
         },
     )
-    @action(detail=True, methods=["delete", "post"], url_path="reviewers/me", required_scopes=["inbox:write"])
+    @action(
+        detail=True, methods=["delete", "post"], url_path="reviewers/me", required_scopes=["inbox:write", "task:write"]
+    )
     def leave_reviewers(self, request, **kwargs):
         report = cast(SignalReport, self.get_object())
         removal = SignalReportLeaveReviewersSerializer(data=request.data if request.method == "POST" else {})
@@ -5505,7 +5513,6 @@ def append_suggested_reviewers(
             attribution=attribution,
             reviewer_edit=edit,
             reevaluate_autostart=edit.action not in {"remove", "confirm"}
-            and credential_may_start_tasks(request)
             and any(
                 not prior_index.get(user_uuid=entry["user_uuid"], github_login=entry["github_login"])
                 for entry in new_content
@@ -6056,7 +6063,8 @@ class SignalReportArtefactViewSet(
 ):
     """Artefacts attached to a signal report.
 
-    Two write surfaces, both gated by the `inbox:write` scope (already held by the agent tokens):
+    Two write surfaces, both gated by `inbox:write` and `task:write` (already held by the agent tokens).
+    Auto-start and implementation runs read these artefacts, so writing one is task work:
 
     - PUT edits a report's suggested reviewers: it appends a new `suggested_reviewers` status
       artefact (latest-wins, so the new row becomes current) with bespoke reviewer enrichment,
@@ -6078,6 +6086,12 @@ class SignalReportArtefactViewSet(
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "inbox"
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            return ["inbox:write", "task:write"]
+        return None
+
     # select_related: the read serializer renders `created_by` inline.
     queryset = SignalReportArtefact.objects.select_related("created_by").order_by("-created_at", "-id")
     http_method_names = ["get", "post", "put", "patch", "delete", "head", "options"]
@@ -6367,7 +6381,6 @@ class SignalReportArtefactViewSet(
                         if attribution.kind == "user" and reviewer_outcome == "selected"
                         else None,
                         claim_id=str(claim_id) if claim_id else None,
-                        reevaluate_autostart=credential_may_start_tasks(request),
                     )
                     if artefact.id != previous:
                         self._schedule_suggested_reviewer_telemetry(

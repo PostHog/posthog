@@ -8023,7 +8023,7 @@
         "feature": "signals",
         "summary": "Append an artefact to a report",
         "title": "Append an artefact to a report",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{report_id}/artefacts/"],
         "annotations": {
             "destructiveHint": false,
@@ -8038,7 +8038,7 @@
         "feature": "signals",
         "summary": "Delete an artefact",
         "title": "Delete an artefact",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["DELETE /api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"],
         "annotations": {
             "destructiveHint": true,
@@ -8083,7 +8083,7 @@
         "feature": "signals",
         "summary": "Replace an artefact's content",
         "title": "Replace an artefact's content",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/reports/{report_id}/artefacts/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8160,7 +8160,7 @@
         "feature": "signals",
         "summary": "Update a report's suggested reviewers",
         "title": "Update a report's suggested reviewers",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["PUT /api/projects/{project_id}/signals/reports/{id}/reviewers/"],
         "annotations": {
             "destructiveHint": false,
@@ -8220,7 +8220,7 @@
         "feature": "signals",
         "summary": "Step off a report's suggested reviewers",
         "title": "Step off a report's suggested reviewers",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/reports/{id}/reviewers/me/"],
         "annotations": {
             "destructiveHint": false,
@@ -8295,7 +8295,7 @@
         "feature": "signals",
         "summary": "Edit a signal report's title or summary",
         "title": "Edit a signal report's title or summary",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/signals/reports/{id}/"],
         "annotations": {
             "destructiveHint": false,
@@ -8480,7 +8480,7 @@
         "feature": "signals",
         "summary": "Update Self-driving steering instructions",
         "title": "Update Self-driving steering instructions",
-        "required_scopes": ["inbox:write"],
+        "required_scopes": ["inbox:write", "task:write"],
         "api_operations": ["POST /api/projects/{project_id}/signals/config/"],
         "annotations": {
             "destructiveHint": false,

@@ -425,8 +425,8 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
             ("post_inbox_only_key", "post", ["inbox:write"], False),
         ]
     )
-    def test_reviewer_writes_re_evaluate_autostart(
-        self, _name: str, method: str, scopes: list[str] | None, reevaluated: bool
+    def test_reviewer_writes_need_task_scope_and_re_evaluate_autostart(
+        self, _name: str, method: str, scopes: list[str] | None, allowed: bool
     ):
         report = self._create_report()
         artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
@@ -454,10 +454,15 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
                         content_type="application/json",
                     )
 
-        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content
-        assert [r["github_login"] for r in self._latest_reviewers(report)] == ["alice", "bob"]
-        assert mock_autostart.await_count == (1 if reevaluated else 0)
-        if reevaluated:
+        if allowed:
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.content
+        else:
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert [r["github_login"] for r in self._latest_reviewers(report)] == (
+            ["alice", "bob"] if allowed else ["alice"]
+        )
+        assert mock_autostart.await_count == (1 if allowed else 0)
+        if allowed:
             assert mock_autostart.call_args.kwargs["report_id"] == str(report.id)
             assert mock_autostart.call_args.kwargs["team_id"] == self.team.id
 

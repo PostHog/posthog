@@ -3605,21 +3605,29 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("inbox_read", ["inbox:read"], status.HTTP_200_OK, status.HTTP_403_FORBIDDEN, set()),
-            ("inbox_write", ["inbox:write"], status.HTTP_200_OK, status.HTTP_200_OK, set()),
+            ("inbox_read", ["inbox:read"], status.HTTP_200_OK, status.HTTP_403_FORBIDDEN, False, set()),
+            ("inbox_write", ["inbox:write"], status.HTTP_200_OK, status.HTTP_200_OK, False, set()),
+            ("inbox_and_task", ["inbox:write", "task:write"], status.HTTP_200_OK, status.HTTP_200_OK, True, set()),
             (
                 "legacy_task_write",
                 ["task:write"],
                 status.HTTP_200_OK,
                 status.HTTP_200_OK,
+                True,
                 {"inbox:read", "inbox:write"},
             ),
-            ("legacy_task_read", ["task:read"], status.HTTP_200_OK, status.HTTP_403_FORBIDDEN, {"inbox:read"}),
-            ("unrelated", ["insight:read"], status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN, set()),
+            ("legacy_task_read", ["task:read"], status.HTTP_200_OK, status.HTTP_403_FORBIDDEN, False, {"inbox:read"}),
+            ("unrelated", ["insight:read"], status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN, False, set()),
         ]
     )
     def test_report_endpoints_require_inbox_scopes(
-        self, _name: str, scopes: list[str], list_status: int, state_status: int, fallback_scopes: set[str]
+        self,
+        _name: str,
+        scopes: list[str],
+        list_status: int,
+        state_status: int,
+        can_edit: bool,
+        fallback_scopes: set[str],
     ) -> None:
         cache.clear()
         report = self._create_report()
@@ -3629,10 +3637,14 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
 
         with patch("posthog.permissions.posthoganalytics.capture") as capture:
             listed = self.client.get(f"/api/projects/{self.team.id}/signals/reports/")
+            edited = self.client.patch(
+                f"/api/projects/{self.team.id}/signals/reports/{report.id}/", {"title": "Edited"}, format="json"
+            )
             changed = self.client.post(self._state_url(str(report.id)), {"state": "suppressed"})
 
         assert listed.status_code == list_status
         assert changed.status_code == state_status
+        assert edited.status_code == (status.HTTP_200_OK if can_edit else status.HTTP_403_FORBIDDEN), edited.content
         if state_status == status.HTTP_403_FORBIDDEN:
             assert "inbox:write" in changed.json()["detail"]
         assert {
