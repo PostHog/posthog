@@ -104,9 +104,14 @@ def _copy_images(team: Team, user: User, urls: list[str], budget: ImageBudget) -
     to_download: list[str] = []
     names = {url: _file_name(url) for url in urls}
     existing: dict[str, UploadedMedia] = {}
+    # Anyone with media access can upload under these names, so only copies this user saved count as the import's own.
     for media in (
         UploadedMedia.objects.filter(
-            team=team, purpose=MEDIA_PURPOSE_EMAIL, file_name__in=set(names.values()), pending=False
+            team=team,
+            created_by=user,
+            purpose=MEDIA_PURPOSE_EMAIL,
+            file_name__in=set(names.values()),
+            pending=False,
         )
         .exclude(media_location__isnull=True)
         .exclude(media_location="")

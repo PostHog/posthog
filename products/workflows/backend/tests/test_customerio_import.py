@@ -14,6 +14,7 @@ from parameterized import parameterized
 from PIL import Image
 
 from posthog.event_usage import EventSource
+from posthog.models import User
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.uploaded_media import UploadedMedia
@@ -35,6 +36,7 @@ from products.workflows.backend.facade.enums import WorkflowImportNoteLevel as N
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import validated_draft
 from products.workflows.backend.services.customerio_import import conditions, liquid
+from products.workflows.backend.services.customerio_import.images import _file_name
 from products.workflows.backend.services.customerio_import.translator import translate_campaign
 
 
@@ -706,11 +708,21 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert any("6 email images on Customer.io's servers will be copied" in n["message"] for n in preview["notes"])
         assert not mock_get.called
 
+        planted = UploadedMedia.objects.create(
+            team=self.team,
+            created_by=User.objects.create_and_join(self.organization, "other@example.com", None),
+            purpose="email",
+            file_name=_file_name(hero),
+            media_location="planted/hero.png",
+        )
         first = self._import(campaigns=campaigns)
         html = next(a for a in HogFlow.objects.get(pk=first["workflow_id"]).actions if a["id"] == "cio_1")["config"][
             "inputs"
         ]["email"]["value"]["html"]
-        copies = list(UploadedMedia.objects.filter(team=self.team, purpose="email").order_by("created_at"))
+        assert planted.get_absolute_url() not in html
+        copies = list(
+            UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).order_by("created_at")
+        )
         assert [(m.content_type, m.width, m.height) for m in copies] == [("image/png", 3, 2)] * 4
         urls = [media.get_absolute_url() for media in copies]
         assert html == (
@@ -733,7 +745,7 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert hero_webp not in design and urls[1] in design
 
         self._import(campaigns=campaigns)
-        assert UploadedMedia.objects.filter(team=self.team, purpose="email").count() == 4
+        assert UploadedMedia.objects.filter(team=self.team, purpose="email", created_by=self.user).count() == 4
         assert [call.args[0] for call in mock_get.call_args_list].count(hero) == 1
         assert all(call.kwargs["allow_redirects"] is False for call in mock_get.call_args_list)
 
