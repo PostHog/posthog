@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -27,7 +28,10 @@ PUSH_TO_CHECKED_OUT_BRANCH = (
     "Fetch it and rebase your commit onto it before you push to the same branch. "
     "Never force-push. Do not open a pull request."
 )
-NO_STORE_CONNECTORS_RUN_STATE = {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
+
+
+def no_store_connectors_run_state() -> dict[str, Any]:
+    return {"config_snapshot": {"connectors": {"mcp_installation_ids": []}}}
 
 
 def build_writer_prompt(request: DocsRequest, routing: SectionRouting, *, is_joining: bool) -> str:
@@ -81,7 +85,7 @@ def start_writer(
             create_pr=False,
             internal=True,
             posthog_mcp_scopes=[],
-            extra_run_state=NO_STORE_CONNECTORS_RUN_STATE,
+            extra_run_state=no_store_connectors_run_state(),
             origin_key=request.dedupe_id,
             branch=joining.head_branch if joining is not None else None,
             start_workflow=start_workflow,
