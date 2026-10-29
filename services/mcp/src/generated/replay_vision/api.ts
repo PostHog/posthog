@@ -513,6 +513,12 @@ export const VisionObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
     watch_group: zod
         .string()
         .optional()
@@ -1589,6 +1595,12 @@ export const VisionScannersObservationsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
     watch_group: zod
         .string()
         .optional()
@@ -1679,6 +1691,12 @@ export const VisionScannersObservationsRetrieveQueryParams = () => zod.object({
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
     watch_group: zod
         .string()
         .optional()
@@ -1768,6 +1786,12 @@ export const VisionScannersObservationsStatsRetrieveQueryParams = () => zod.obje
         .string()
         .optional()
         .describe('Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).'),
+    watch_category: zod
+        .string()
+        .optional()
+        .describe(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
     watch_group: zod
         .string()
         .optional()
@@ -2261,6 +2285,13 @@ export const VisionScannersHighlightFeedRetrieveQueryParams = () => zod.object({
         .optional()
         .describe(
             'The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.'
+        ),
+    categories: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` (repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops its sessions without promoting weaker ones.'
         ),
     created_by: zod
         .string()

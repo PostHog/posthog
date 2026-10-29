@@ -46435,62 +46435,6 @@ export namespace Schemas {
       pipelines: IngestionPipelineEnum[];
     }
 
-    export interface EventMatch {
-      /** The event name to select, such as $autocapture. */
-      name: string;
-      /** The event's display name, such as Autocapture. */
-      display_name: string;
-      /** How likely the search means this event, from 0 to 1. */
-      probability: number;
-    }
-
-    /**
-     * * `wrong_length` - The search is too short or too long to ask about
-     * * `only_values` - Nothing but values is left for the model to read
-     * * `unavailable` - The model could not answer at all
-     * * `partial` - Some model requests failed, so an event it never asked about might have matched
-     * * `nothing_likely` - The model found no core event likely
-     * * `not_ingested` - The project never sent the likely events
-     * * `matched` - At least one likely event has data
-     */
-    export type EventMatchOutcomeEnum = typeof EventMatchOutcomeEnum[keyof typeof EventMatchOutcomeEnum];
-
-
-    export const EventMatchOutcomeEnum = {
-      WrongLength: 'wrong_length',
-      OnlyValues: 'only_values',
-      Unavailable: 'unavailable',
-      Partial: 'partial',
-      NothingLikely: 'nothing_likely',
-      NotIngested: 'not_ingested',
-      Matched: 'matched',
-    } as const;
-
-    export interface EventMatchRequest {
-      /**
-         * What the person typed into the events list search box, which matched no event name.
-         * @maxLength 200
-         */
-      query: string;
-    }
-
-    export interface EventMatchResponse {
-      /** PostHog core events the search most likely means, strongest first. Empty when nothing is likely. */
-      matches: EventMatch[];
-      /** The step that decided the answer, so an empty answer says why it is empty.
-       *
-       * * `wrong_length` - The search is too short or too long to ask about
-       * * `only_values` - Nothing but values is left for the model to read
-       * * `unavailable` - The model could not answer at all
-       * * `partial` - Some model requests failed, so an event it never asked about might have matched
-       * * `nothing_likely` - The model found no core event likely
-       * * `not_ingested` - The project never sent the likely events
-       * * `matched` - At least one likely event has data */
-      outcome: EventMatchOutcomeEnum;
-      /** Likely core events this project never sent, strongest first. Only filled when outcome is not_ingested. */
-      unsent: EventMatch[];
-    }
-
     export type EventMatchScope = typeof EventMatchScope[keyof typeof EventMatchScope];
 
 
@@ -121512,6 +121456,38 @@ export namespace Schemas {
       summary: TraceEvaluationSummary;
     }
 
+    export interface TraceFeedbackScore {
+      id: string;
+      name: string | null;
+      /** The score as text: a string as sent, any other value as compact JSON, such as 0, false or 4.5. */
+      value: string;
+      /** The tree node the score targets: the step's event uuid, or the trace id for a trace-level score. */
+      nodeId: string;
+      timestamp: string;
+    }
+
+    export interface TraceFeedbackText {
+      kind: 'text';
+      id: string;
+      text: string;
+      /** The tree node the feedback targets: the step's event uuid, or the trace id for trace-level feedback. */
+      nodeId: string;
+      timestamp: string;
+    }
+
+    export interface TraceFeedbackSummary {
+      /** Scores plus responses. */
+      total: number;
+    }
+
+    export interface TraceFeedback {
+      /** Oldest first. */
+      scores: TraceFeedbackScore[];
+      /** What users said, oldest first. */
+      responses: TraceFeedbackText[];
+      summary: TraceFeedbackSummary;
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
@@ -130017,6 +129993,13 @@ export namespace Schemas {
     } as const;
 
     export type AiObservabilityTracesRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesFeedbackRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -142447,6 +142430,10 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
      * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
@@ -142693,6 +142680,10 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
      * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
@@ -142756,6 +142747,10 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
      * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
@@ -142818,6 +142813,10 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    /**
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
     /**
      * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
@@ -142906,6 +142905,10 @@ export namespace Schemas {
      */
     verdict?: string;
     /**
+     * Only observations the watch feed ranks under any of these kinds (comma-separated: failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`.
+     */
+    watch_category?: string;
+    /**
      * Only observations the highlight feed groups with this observation as near duplicates, including itself. Pair it with the feed's `date_from` to list the sessions a feed card counts.
      */
     watch_group?: string;
@@ -142916,6 +142919,11 @@ export namespace Schemas {
      * The time the first page loaded. Later pages rank as of that time: observations, views, dismissals and impressions after it are ignored, so pages do not shift under a reader who scrolls.
      */
     as_of?: string;
+    /**
+     * Comma-separated kinds of moment to include: `failure` (errors, failed requests, dead ends), `struggle` (repeated attempts, rage clicks, abandoned forms), `revenue` (failed payments, cancellations, usage limits). Defaults to all three. A pick keeps its rank within its scanner, so leaving a kind out drops its sessions without promoting weaker ones.
+     * @minLength 1
+     */
+    categories?: string;
     /**
      * Comma-separated user IDs. Restrict the feed to observations from scanners those users created.
      * @minLength 1

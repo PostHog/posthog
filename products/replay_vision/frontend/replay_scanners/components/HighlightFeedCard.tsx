@@ -8,6 +8,7 @@ import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRea
 import { TZLabel } from 'lib/components/TZLabel'
 import posthog from 'lib/posthog-typed'
 import { colonDelimitedDuration } from 'lib/utils/durations'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { readResult } from '../../components/ObservationCard'
@@ -23,38 +24,47 @@ import type {
 import { OBSERVATION_ORIGIN_PARAM, HIGHLIGHT_FEED_ORIGIN } from '../../utils/breadcrumbs'
 import { citedTextToPlainText } from '../../utils/citations'
 import { hasScannerPage, scannerLabel } from '../../utils/observation'
-import { highlightFeedLogic } from '../highlightFeedLogic'
+import { feedCategoriesParam, highlightFeedLogic } from '../highlightFeedLogic'
 import { CARD_SEEN_DWELL_MS, cardProperties } from '../highlightFeedTelemetry'
 import { SCANNER_TYPE_TAG_TYPE, ScannerType } from '../types'
 import { HighlightFeedDismissButton } from './HighlightFeedDismissButton'
-import { HighlightFeedGroupList, HighlightFeedGroupToggle } from './HighlightFeedGroup'
+import { HighlightFeedGroupToggle, similarSessionsLabel } from './HighlightFeedGroup'
 
 /** Reason kinds that say nothing about the session. The backend returns these only to pad a near-empty
  * feed, so a feed made up entirely of them means the window turned up no findings at all. */
 export const FILLER_REASON_KINDS = new Set(['unviewed_recent', 'recent'])
 
-const WATCH_CATEGORY_COPY: Record<HighlightFeedCategoryEnumApi, string> = {
-    failure: 'Something failed in this session.',
-    struggle: 'The user struggled in this session.',
-    revenue: 'This session touches billing or a plan limit.',
+const WATCH_CATEGORY_COPY: Record<
+    HighlightFeedCategoryEnumApi,
+    { alone: string; withSimilar: (similar: string) => string }
+> = {
+    failure: {
+        alone: 'Something failed in this session.',
+        withSimilar: (similar) => `Something failed here and in ${similar}.`,
+    },
+    struggle: {
+        alone: 'The user struggled in this session.',
+        withSimilar: (similar) => `The user struggled here and in ${similar}.`,
+    },
+    revenue: {
+        alone: 'A payment problem came up in this session.',
+        withSimilar: (similar) => `A payment problem came up here and in ${similar}.`,
+    },
 }
 
 /** What the reason kind says about the session. */
 export function highlightReasonCopy(reason: HighlightFeedReasonApi): string {
     switch (reason.kind) {
         case 'embedding_pick': {
-            const category = reason.watch_category
-                ? WATCH_CATEGORY_COPY[reason.watch_category]
-                : 'This session stands out for this scanner.'
-            const people = reason.affected_people ?? 1
-            if (people > 1) {
-                return `${category} ${people} people had a similar session.`
-            }
+            // Sessions, not people, so the count matches the card's similar sessions button.
             const similar = reason.similar_count ?? 0
+            const copy = reason.watch_category ? WATCH_CATEGORY_COPY[reason.watch_category] : null
             if (similar === 0) {
-                return category
+                return copy?.alone ?? 'This session stands out for this scanner.'
             }
-            return `${category} ${similar} other session${similar === 1 ? ' from this scanner looks' : 's from this scanner look'} similar.`
+            return copy
+                ? copy.withSimilar(similarSessionsLabel(similar))
+                : `This session and ${pluralize(similar, 'similar one')} stand out for this scanner.`
         }
         case 'unviewed_recent':
             return 'New since you last looked.'
@@ -146,7 +156,7 @@ function HighlightCardPerson({
     person: string | null | undefined
 }): JSX.Element {
     return (
-        <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
+        <div className="flex min-w-0 items-center gap-1 text-xs text-muted">
             {person &&
                 (observation.distinct_id ? (
                     <Link
@@ -255,7 +265,7 @@ export function highlightFeedRowTitle(observation: ReplayObservationApi): string
  */
 export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX.Element {
     const { observation, reason } = item
-    const { feedLoad, dateFrom } = useValues(highlightFeedLogic)
+    const { feedLoad, dateFrom, categories } = useValues(highlightFeedLogic)
     const { cardSeen, dismissItem } = useActions(highlightFeedLogic)
     const rowRef = useAutoMarkRead(true, () => cardSeen(item, position), CARD_SEEN_DWELL_MS)
     const result = readResult(observation)
@@ -268,13 +278,16 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
     const keyMomentMs = observationKeyMomentMs(observation)
     const observationUrl = highlightFeedObservationUrl(observation)
     const title = highlightFeedRowTitle(observation)
+    const why = highlightReasonCopy(reason)
     const filler = FILLER_REASON_KINDS.has(reason.kind)
     const similarCount = reason.kind === 'embedding_pick' ? (reason.similar_count ?? 0) : 0
     const groupProps = {
         observationId: observation.id,
         scannerId: observation.scanner_id,
         dateFrom,
+        categories: feedCategoriesParam(categories),
         similarCount,
+        affectedPeople: reason.kind === 'embedding_pick' ? (reason.affected_people ?? null) : null,
         cardContext: cardProperties(feedLoad, item, position, 'feed_tab'),
     }
     const captureOpened = (): void => {
@@ -292,19 +305,22 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
             data-attr="vision-highlight-feed-row"
         >
             <header className="flex min-w-0 items-center gap-2">
-                <HighlightFeedScannerLink
-                    observation={observation}
-                    scannerName={scannerName}
-                    scannerType={scannerType}
-                />
+                <div className="flex min-w-0">
+                    <HighlightFeedScannerLink
+                        observation={observation}
+                        scannerName={scannerName}
+                        scannerType={scannerType}
+                    />
+                </div>
                 <span className="text-xs text-muted" aria-hidden>
                     ·
                 </span>
-                <div className="min-w-0 flex-1">
+                {/* The person and age keep up to 45% of the line, so a long email is cut before the scanner name. */}
+                <div className="min-w-0 max-w-[45%] shrink-0">
                     <HighlightCardPerson observation={observation} person={person} />
                 </div>
                 <HighlightFeedDismissButton
-                    className="relative z-10 shrink-0"
+                    className="relative z-10 ml-auto shrink-0"
                     onDismiss={(dismissalReason) => dismissItem(item, position, dismissalReason)}
                 />
             </header>
@@ -316,7 +332,8 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
                     data-attr="vision-highlight-feed-row-open"
                 >
                     <h3
-                        className={`m-0 text-base line-clamp-2 group-hover:text-accent ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}
+                        // Two lines are always reserved, so cards in one grid row keep their posters level.
+                        className={`m-0 min-h-[2lh] text-base line-clamp-2 wrap-anywhere group-hover:text-accent ${filler ? 'font-medium text-secondary' : 'font-semibold'}`}
                         title={title}
                     >
                         {!observation.viewed && <span className="sr-only">New: </span>}
@@ -332,9 +349,9 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
                             <IconFlag className="text-accent" aria-hidden />
                         </span>
                     </Tooltip>
-                    <span className="line-clamp-3">
+                    <span className="min-w-0 truncate" title={why}>
                         <span className="sr-only">Why this recording: </span>
-                        {highlightReasonCopy(reason)}
+                        {why}
                     </span>
                 </p>
             </div>
@@ -360,7 +377,6 @@ export function HighlightFeedRow({ item, position }: HighlightFeedRowProps): JSX
                 </LemonButton>
                 {similarCount > 0 && <HighlightFeedGroupToggle {...groupProps} />}
             </footer>
-            {similarCount > 0 && <HighlightFeedGroupList {...groupProps} />}
         </article>
     )
 }
