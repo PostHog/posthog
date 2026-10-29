@@ -60,6 +60,10 @@ describe('ReportContextMenu', () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/reports/': { count: 0, next: null, previous: null, results: [] },
+                // The menu mounts logics that load these. Without a valid answer the loaders log errors, and
+                // Jest formats those stack traces synchronously, which blocks waitFor long enough to time out.
+                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                '/api/projects/:team_id/signals/scout/configs/': [],
             },
             post: {
                 '/api/projects/:team_id/signals/reports/:report_id/state/': async ({ request, params }) => {
