@@ -1,6 +1,7 @@
 import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
 
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { objectsEqual } from 'lib/utils/objects'
 import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -33,7 +34,10 @@ export interface dashboardWidgetMenusLogicValues {
 export interface dashboardWidgetMenusLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        dashboardIdsWithThisWidget: (arg: string, dashboardId: number | null | undefined) => Set<number>
+        dashboardIdsWithThisWidget: (
+            dashboard_tiles: DashboardTileBasicType[] | null | undefined,
+            dashboardId: number | null | undefined
+        ) => Set<number>
         copyToDestinations: (
             nameSortedDashboards: (DashboardBasicType | DashboardType)[],
             dashboardIdsWithThisWidget: Set<number>,
@@ -60,21 +64,18 @@ export const dashboardWidgetMenusLogic = kea<dashboardWidgetMenusLogicType>([
     selectors(() => ({
         /** Dashboards where this widget (insight / text / button / …) is already placed. */
         dashboardIdsWithThisWidget: [
-            // Selectors compare inputs by reference, and callers often pass a new tiles array on each render.
-            // A string of the ids compares by value, so the result changes only when the placements change.
-            // Otherwise every store change gives `copyToDestinations` a new value and re-renders every caller.
-            (_, p) => [
-                (_state: unknown, props: DashboardWidgetMenusLogicProps) =>
-                    liveDashboardIds(props.dashboard_tiles).join(','),
-                p.dashboardId,
-            ],
-            (liveIds: string, dashboardId: number | null | undefined): Set<number> => {
-                const set = new Set(liveIds ? liveIds.split(',').map(Number) : [])
+            (_, p) => [p.dashboard_tiles, p.dashboardId],
+            (
+                dashboard_tiles: DashboardTileBasicType[] | null | undefined,
+                dashboardId: number | null | undefined
+            ): Set<number> => {
+                const set = new Set(liveDashboardIds(dashboard_tiles).map(Number))
                 if (dashboardId != null) {
                     set.add(Number(dashboardId))
                 }
                 return set
             },
+            { resultEqualityCheck: objectsEqual },
         ],
         /** Destinations for Copy to and Move to submenus (disabled rows explain why a target is unavailable). */
         copyToDestinations: [

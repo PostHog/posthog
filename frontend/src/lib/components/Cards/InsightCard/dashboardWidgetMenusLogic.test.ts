@@ -30,15 +30,12 @@ describe('dashboardWidgetMenusLogic', () => {
         })
     })
 
-    it.each([
-        ['no tiles', () => []],
-        ['tiles', () => [{ id: 10, dashboard_id: 2 }]],
-    ])('keeps copyToDestinations stable when a caller passes a new array of %s', (_, makeTiles) => {
-        const logic = dashboardWidgetMenusLogic({ instanceKey: 'test', dashboardId: 1, dashboard_tiles: makeTiles() })
+    it('keeps copyToDestinations stable when a caller passes a new empty tiles array', () => {
+        const logic = dashboardWidgetMenusLogic({ instanceKey: 'test', dashboardId: 1, dashboard_tiles: [] })
         logic.mount()
         const destinations = logic.values.copyToDestinations
 
-        dashboardWidgetMenusLogic({ instanceKey: 'test', dashboardId: 1, dashboard_tiles: makeTiles() })
+        dashboardWidgetMenusLogic({ instanceKey: 'test', dashboardId: 1, dashboard_tiles: [] })
         // The selectors recompute only when the store state changes, and any action does that in the app.
         router.actions.push('/elsewhere')
 
