@@ -1,12 +1,13 @@
 import { cn } from 'lib/utils/css-classes'
 
-import { FeedbackResponseItem } from '../types'
+import type { TraceFeedbackTextApi } from '../../../generated/api.schemas'
+import { FeedbackPlacement } from '../types'
 import { FeedbackStepLink } from './FeedbackStepLink'
 import { scrollIntoNearest } from './scrollIntoNearest'
 import { ShortTimestamp } from './ShortTimestamp'
 
 export interface FeedbackTextCardProps {
-    item: FeedbackResponseItem
+    item: TraceFeedbackTextApi & FeedbackPlacement
     onSelectStep: (nodeId: string) => void
     /** Brings the card into view when it mounts. */
     isScrollTarget: boolean
