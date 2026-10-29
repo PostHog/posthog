@@ -220,20 +220,14 @@ WORKFLOWS_TRANSACTIONAL_EMAIL_FLAG = "transactional-emails-via-workflows"
 # Matches how long the send API keeps an idempotency key, which outlasts every Celery retry.
 WORKFLOWS_PIN_TTL_SECONDS = 24 * 60 * 60
 
-# 422 codes for an email the send API refused before queueing it: sending is suspended for the project or paused for
-# the workflow, or the recipient is on the suppression list. Customer.io sends these emails instead.
-WORKFLOWS_NOT_QUEUED_422_CODES = frozenset({"sending_suspended", "sending_paused", "recipient_suppressed"})
-
 # 422 codes for an email the send API refused before queueing it because the address can't receive email: the syntax
-# is invalid or the domain has no mail servers. Every provider would hard bounce it, so the email is dropped. It is not
-# retried and Customer.io does not send it.
-WORKFLOWS_UNDELIVERABLE_422_CODES = frozenset({"recipient_unreachable"})
+# is invalid, the domain has no mail servers, or the address hard bounced and is on the suppression list. Every
+# provider would bounce it, so the email is dropped. It is not retried and Customer.io does not send it.
+WORKFLOWS_UNDELIVERABLE_422_CODES = frozenset({"recipient_unreachable", "recipient_suppressed"})
 
-EMAIL_WORKFLOWS_FALLBACK_COUNTER = Counter(
-    "posthog_email_workflows_fallback_total",
-    "Emails that Workflows refused and Customer.io sent instead, by template.",
-    labelnames=["template_name"],
-)
+# 422 codes for an email the send API refused before queueing it: sending is suspended for the project or paused for
+# the workflow.
+WORKFLOWS_NOT_QUEUED_422_CODES = frozenset({"sending_suspended", "sending_paused"})
 
 
 def get_email_team_and_org_context(
@@ -294,8 +288,8 @@ class WorkflowsEmailError(Exception):
 RETRYABLE_HTTP_SEND_ERRORS = (WorkflowsEmailError, OperationalError, InterfaceError)
 
 
-def _workflows_error_allows_fallback(err: WorkflowsEmailError) -> bool:
-    """Whether Customer.io can send the email without the risk of a duplicate."""
+def _workflows_queued_nothing(err: WorkflowsEmailError) -> bool:
+    """Whether the email is certain not to be queued, so a retry can pick its provider again."""
     if err.status_code is None:
         # A connection that was never made and a client that queued nothing sent nothing. Any other network
         # failure can come after Workflows queued the email.
@@ -516,8 +510,8 @@ def _send_one(
     Returns None when Workflows refused the recipient as undeliverable, so no provider sent the email.
     """
     idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
-    # After an attempt Workflows may have queued, a retry skips the flag and never falls back. Otherwise a flag
-    # change or a different error on the retry would send the same email again through Customer.io.
+    # After an attempt Workflows may have queued, a retry skips the flag. Otherwise a flag change on the retry would
+    # send the same email again through Customer.io.
     pinned_template_id = _pinned_workflows_template_id(idempotency_key)
     workflows_template_id = get_workflows_template_id(template_name, dest, pinned_template_id)
     if workflows_template_id:
@@ -540,17 +534,11 @@ def _send_one(
                     {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
                 )
                 return None
-            if pinned_template_id or not _workflows_error_allows_fallback(err):
+            # Workflows sends the retry. An email it certainly did not queue stays unpinned, so turning the flag off
+            # moves the retry to Customer.io.
+            if pinned_template_id or not _workflows_queued_nothing(err):
                 _pin_to_workflows(idempotency_key, workflows_template_id)
-                raise
-            logger.warning("email_workflows_send_rejected", template_name=template_name, error=str(err))
-            EMAIL_WORKFLOWS_FALLBACK_COUNTER.labels(template_name=template_name).inc()
-            _capture_email_event(
-                capture,
-                dest,
-                "transactional email workflows rejected",
-                {"template_name": template_name, "campaign_key": campaign_key, "error": str(err)[:500]},
-            )
+            raise
     return "customer_io", _send_one_via_customer_io(dest, template_name, properties)
 
 

@@ -505,22 +505,23 @@ class TestEmail(BaseTest):
     @parameterized.expand(
         [
             ("workflows_accepts", True, [202], ["workflows"], "workflows", ["transactional email triggered"]),
-            (
-                "workflows_rejects_falls_back",
-                True,
-                [400, 200],
-                ["workflows", "customer_io"],
-                "customer_io",
-                ["transactional email workflows rejected", "transactional email triggered"],
-            ),
+            ("workflows_rejects_sends_nothing", True, [400], ["workflows"], None, ["transactional email failed"]),
             ("workflows_in_flight_sends_nothing", True, [409], ["workflows"], None, ["transactional email failed"]),
             (
-                "workflows_refuses_suppressed_recipient_falls_back",
+                "workflows_refuses_suppressed_recipient_drops_email",
                 True,
-                [(422, {"type": "invalid_request", "code": "recipient_suppressed"}), 200],
-                ["workflows", "customer_io"],
-                "customer_io",
-                ["transactional email workflows rejected", "transactional email triggered"],
+                [(422, {"type": "invalid_request", "code": "recipient_suppressed"})],
+                ["workflows"],
+                None,
+                ["transactional email workflows rejected"],
+            ),
+            (
+                "workflows_refuses_paused_sending_sends_nothing",
+                True,
+                [(422, {"type": "invalid_request", "code": "sending_paused"})],
+                ["workflows"],
+                None,
+                ["transactional email failed"],
             ),
             (
                 "workflows_refuses_unreachable_recipient_drops_email",
@@ -548,7 +549,7 @@ class TestEmail(BaseTest):
                 ["transactional email failed"],
             ),
             (
-                "workflows_unreachable_falls_back",
+                "workflows_unreachable_sends_nothing",
                 True,
                 [
                     requests.ConnectionError(
@@ -557,12 +558,11 @@ class TestEmail(BaseTest):
                             "/",
                             urllib3.exceptions.NewConnectionError(None, "refused"),
                         )
-                    ),
-                    200,
+                    )
                 ],
-                ["workflows", "customer_io"],
-                "customer_io",
-                ["transactional email workflows rejected", "transactional email triggered"],
+                ["workflows"],
+                None,
+                ["transactional email failed"],
             ),
             (
                 "workflows_reset_after_send_sends_nothing",
@@ -695,6 +695,7 @@ class TestEmail(BaseTest):
         [
             (
                 "flag_turned_off",
+                requests.ReadTimeout("no response"),
                 False,
                 "phs_test",
                 MagicMock(status_code=202, json=MagicMock(return_value={"message_id": "m1"})),
@@ -702,6 +703,7 @@ class TestEmail(BaseTest):
             ),
             (
                 "workflows_unreachable",
+                requests.ReadTimeout("no response"),
                 True,
                 "phs_test",
                 requests.ConnectionError(
@@ -716,8 +718,18 @@ class TestEmail(BaseTest):
             # Removing the key turns Workflows off, so a pinned retry must not post the email without it.
             (
                 "api_key_removed",
+                requests.ReadTimeout("no response"),
                 True,
                 "",
+                MagicMock(status_code=200, json=MagicMock(return_value={"delivery_id": "d1"})),
+                ["workflows", "customer_io"],
+            ),
+            # Workflows queued nothing, so turning the flag off moves the retry to Customer.io.
+            (
+                "refused_before_queueing_then_flag_turned_off",
+                MagicMock(status_code=400, text="error", json=MagicMock(return_value={"code": "invalid_input"})),
+                False,
+                "phs_test",
                 MagicMock(status_code=200, json=MagicMock(return_value={"delivery_id": "d1"})),
                 ["workflows", "customer_io"],
             ),
@@ -726,9 +738,10 @@ class TestEmail(BaseTest):
     @patch("posthog.email.posthoganalytics.capture")
     @patch("posthog.email.posthoganalytics.feature_enabled")
     @patch("posthog.email.requests.post")
-    def test_retry_after_an_uncertain_workflows_send_stays_on_workflows_while_it_is_configured(
+    def test_retry_after_a_failed_workflows_send_stays_on_workflows_unless_nothing_was_queued(
         self,
         _name: str,
+        first_response: MagicMock | Exception,
         flag_on_retry: bool,
         api_key_on_retry: str,
         retry_response: MagicMock | Exception,
@@ -738,7 +751,7 @@ class TestEmail(BaseTest):
         _mock_capture: MagicMock,
     ) -> None:
         mock_feature_enabled.side_effect = [True, flag_on_retry]
-        mock_post.side_effect = [requests.ReadTimeout("no response"), retry_response]
+        mock_post.side_effect = [first_response, retry_response]
 
         with (
             override_instance_config("EMAIL_HOST", "localhost"),
