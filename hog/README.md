@@ -40,16 +40,23 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 
 ## What's left
 
-hog replaces posthog-cli once everything below is done.
+hog replaces posthog-cli in three steps: settle the CLI, ship it, then move everyone over.
+[MIGRATING.md](MIGRATING.md) drafts the guidance for people moving from `posthog-cli` to `hog`, and it moves to posthog.com when hog ships.
 
-First, the commands that make hog a complete CLI:
+First, settle the CLI:
 
-- [ ] `hog api skill` and `hog api agents-md`, which install PostHog agent skills and the AGENTS.md snippet.
+- [ ] `hog upgrade`, which updates hog to the latest version. It downloads the release binaries, so it lands with distribution. Until then it points to `posthog-cli update`.
+- Agent skills and the AGENTS.md snippet come back as top-level commands, designed fresh rather than ported from `posthog-cli api skill` and `api agents-md`. Until then, hog points to those.
 
-Then, once the commands above work:
+Then ship it:
 
-- [ ] Callers: the SDKs, build plugins and scripts that run `posthog-cli` with its arguments. Move them to hog, or give hog a `posthog-cli` entry point that translates the arguments.
-- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, CI on Linux and Windows.
+- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, and CI on Linux and Windows.
+
+Then move everyone over:
+
+- [ ] Publish the migration guide on posthog.com.
+- [ ] Callers: move the SDK build integrations (posthog-js, React Native and Expo, the Android Gradle plugin, the iOS build script), the error tracking onboarding in the web app, and the posthog.com docs from `posthog-cli` to `hog`.
+- [ ] A `posthog-cli` entry point in hog that translates posthog-cli's commands, flags and `POSTHOG_CLI_` variables, so the posthog-cli package can ship hog and old pipelines and SDK versions keep working.
 
 Not planned:
 

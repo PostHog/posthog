@@ -365,6 +365,11 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
         to: 'error-tracking upload',
         hint: 'Pass the mapping as an argument instead of --path, as in `hog error-tracking upload mapping.txt --map-id <id>`.',
     },
+    exp: {
+        to: 'query|endpoints|schema',
+        hint: 'The experimental commands are top level in hog, as in `hog endpoints pull` for `posthog-cli exp endpoints pull`.',
+    },
+    update: { to: 'upgrade', hint: 'Run `hog upgrade`.' },
 }
 
 function toHogError(caught: unknown): HogError {
