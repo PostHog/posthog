@@ -15,8 +15,12 @@ from posthog.schema import (
     SessionPropertyFilter,
 )
 
-from products.mcp_analytics.backend.facade.constants import MAX_CUSTOM_HARNESSES, UNIDENTIFIED_HARNESS_LABEL
-from products.mcp_analytics.backend.mcp_harness import HARNESS_LABELS, MARKED_CLIENT_NAMES
+from products.mcp_analytics.backend.facade.constants import (
+    HARNESS_LABELS,
+    MARKED_CLIENT_NAMES,
+    MAX_CUSTOM_HARNESSES,
+    UNIDENTIFIED_HARNESS_LABEL,
+)
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPCustomHarness
 
 if TYPE_CHECKING:
