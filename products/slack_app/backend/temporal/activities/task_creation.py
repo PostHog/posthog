@@ -860,7 +860,7 @@ def create_posthog_code_task_for_repo_activity(
             *(m.ts for m in thread_messages),
         )
         SlackThreadTaskMapping.objects.update_or_create(
-            integration=integration,
+            integration_id=integration.id,
             channel=channel,
             thread_ts=thread_ts,
             defaults={

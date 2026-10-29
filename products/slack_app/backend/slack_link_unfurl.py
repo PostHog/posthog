@@ -1410,7 +1410,7 @@ def _bot_reply_actor(integration: WorkspaceIntegration, event: dict) -> str | No
         return None
     actors = (
         SlackThreadTaskMapping.objects.filter(
-            integration=integration,
+            integration_id=integration.id,
             channel=event["channel"],
             thread_ts=event["thread_ts"],
             task_run__state__slack_chart_links=True,

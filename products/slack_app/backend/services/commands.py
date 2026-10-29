@@ -547,7 +547,7 @@ def resolve_command_target(
     user_id: int,
     channel: str,
     thread_ts: str,
-) -> tuple[list[WorkspaceIntegration], "ResolutionResult"]:
+) -> tuple[Sequence[WorkspaceIntegration], "ResolutionResult"]:
     """Load workspace candidates and decide which one to dispatch against.
 
     Returns ``(workspace_candidates, result)``. ``result.integration`` is
