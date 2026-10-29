@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AxisLinesConfig,
     ChartLegendConfig,
@@ -66,7 +67,8 @@ export interface TimeSeriesComboChartConfig {
 export interface TimeSeriesComboChartProps<Meta = unknown> {
     series: Series<Meta>[]
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: TimeSeriesComboChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
@@ -82,7 +84,7 @@ export interface TimeSeriesComboChartProps<Meta = unknown> {
 export function TimeSeriesComboChart<Meta = unknown>({
     series,
     labels,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
@@ -91,6 +93,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     children,
     onError,
 }: TimeSeriesComboChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis,
         yAxis,
