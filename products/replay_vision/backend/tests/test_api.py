@@ -4957,8 +4957,11 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         self._ranked_observation(scanner, "copy", 400, "failure", -0.5, group=str(oldest.id))
         for index in range(10):
             self._ranked_observation(scanner, f"routine-{index}", index)
+        # A row outside the reader's scanner selection never counts, even under the same group id.
+        other = self._create_scanner(name="other")
+        self._ranked_observation(other, "elsewhere", 300, "failure", 0.9, group=str(oldest.id))
 
-        items = self.client.get(self.feed_url).json()["results"]
+        items = self.client.get(self.feed_url, {"scanner_ids": str(scanner.id)}).json()["results"]
         picks = [item for item in items if item["reason"]["kind"] == "embedding_pick"]
         self.assertEqual([item["observation"]["session_id"] for item in picks], ["oldest-failure"])
         self.assertEqual(picks[0]["reason"]["similar_count"], 1)
