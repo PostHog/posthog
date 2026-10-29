@@ -119,10 +119,9 @@ def skip_migration_items(
     """Skip `item_ids`, or every item except `keep_item_ids`. Returns None when the migration is not found."""
     if not _migrations(team_id).filter(id=migration_id).exists():
         return None
-    skipped, not_skipped = service.skip_items(
+    return service.skip_items(
         team_id=team_id, migration_id=migration_id, item_ids=item_ids, keep_item_ids=keep_item_ids
     )
-    return contracts.WarehouseMigrationBulkSkip(skipped_item_ids=skipped, not_skipped_item_ids=not_skipped)
 
 
 def skip_migration_item(team_id: int, migration_id: UUID, item_id: UUID) -> contracts.WarehouseMigrationItem | None:
