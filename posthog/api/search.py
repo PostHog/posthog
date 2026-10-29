@@ -244,7 +244,7 @@ def search_entities(
     # happens here when workflows were the one entity requested.
     if entities or not workflows_requested:
         if query:
-            qs = qs.order_by("-rank")
+            qs = qs.order_by(F("rank").desc())
         else:
             qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 

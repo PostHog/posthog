@@ -33,6 +33,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
+import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
 import { InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
 import {
@@ -141,7 +142,9 @@ function ReportContextMenuItems({
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
-    const { createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { createPrDisabledReason: globalPrDisabledReason } = useValues(inboxTaskKickoffLogic)
+    const { disabledReason: githubDisabledReason } = useValues(reportGithubAccessLogic({ report }))
+    const createPrDisabledReason = globalPrDisabledReason ?? githubDisabledReason
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)

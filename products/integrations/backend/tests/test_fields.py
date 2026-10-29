@@ -9,19 +9,25 @@ from posthog.models import Team
 from posthog.models.comment.slack_thread import CommentSlackThread
 from posthog.models.integration import ANY, Integration
 
-from products.integrations.backend.logic.source_kinds import SOURCE_MARKER_CONFIG_KEY
+from products.integrations.backend.facade.contracts import SOURCE_MARKER_CONFIG_KEY
+from products.integrations.backend.facade.enums import AuthType
 from products.integrations.backend.presentation.fields import IntegrationReferenceField
 
 
 class _Serializer(serializers.Serializer):
     integration = IntegrationReferenceField()
     github = IntegrationReferenceField(kinds=["github"], required=False, allow_null=True)
+    github_any = IntegrationReferenceField(kinds=["github"], auth_types="any", required=False)
+    github_token = IntegrationReferenceField(kinds=["github"], auth_types=[AuthType.TOKEN], required=False)
 
 
 class TestIntegrationReferenceField(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.slack = Integration.objects._with_auth(ANY).create(team=self.team, kind="slack", integration_id="s")
+        self.github_oauth = Integration.objects._with_auth(ANY).create(
+            team=self.team, kind="github", integration_id="o"
+        )
         self.github = Integration.objects._with_auth(ANY).create(
             team=self.team, kind="github", integration_id="g", config={"auth_type": "token"}
         )
@@ -46,10 +52,50 @@ class TestIntegrationReferenceField(BaseTest):
         ]
     )
     def test_accepts_an_id_of_the_team(self, _name: str, value: Any) -> None:
-        serializer = self._validate({"integration": value(self), "github": self.github.id})
+        serializer = self._validate({"integration": value(self), "github": self.github_oauth.id})
 
         assert serializer.errors == {}
-        assert serializer.validated_data == {"integration": self.slack, "github": self.github}
+        assert serializer.validated_data == {"integration": self.slack, "github": self.github_oauth}
+
+    @parameterized.expand(
+        [
+            ("no_kinds_accepts_every_auth_type", "integration", "github", None),
+            ("default_accepts_the_kind_default", "github", "github_oauth", None),
+            ("default_refuses_another_auth_type", "github", "github", "does_not_exist"),
+            ("any_accepts_the_kind_default", "github_any", "github_oauth", None),
+            ("any_accepts_another_auth_type", "github_any", "github", None),
+            ("any_refuses_a_source_row", "github_any", "github_source_row", "does_not_exist"),
+            ("listed_accepts_its_auth_type", "github_token", "github", None),
+            ("listed_refuses_the_kind_default", "github_token", "github_oauth", "does_not_exist"),
+        ]
+    )
+    def test_auth_types(self, _name: str, field: str, row: str, error_code: str | None) -> None:
+        serializer = self._validate({"integration": self.slack.id, field: getattr(self, row).id})
+
+        if error_code is None:
+            assert serializer.validated_data[field] == getattr(self, row)
+        else:
+            assert [error.code for error in serializer.errors[field]] == [error_code]
+
+    @parameterized.expand(
+        [
+            ("allow_null", "github", None),
+            ("not_allow_null", "github_any", "null"),
+            ("not_allow_null_without_kinds", "integration", "null"),
+        ]
+    )
+    def test_an_empty_string_means_null(self, _name: str, field: str, error_code: str | None) -> None:
+        serializer = self._validate({"integration": self.slack.id, field: ""})
+
+        if error_code is None:
+            assert serializer.errors == {}
+            assert serializer.validated_data[field] is None
+        else:
+            assert [error.code for error in serializer.errors[field]] == [error_code]
+
+    def test_auth_types_without_kinds_raises(self) -> None:
+        with self.assertRaises(ValueError):
+            IntegrationReferenceField(auth_types="any")
 
     def test_reads_the_team_from_get_team(self) -> None:
         serializer = self._validate({"integration": self.slack.id}, context={"get_team": lambda: self.team})
@@ -66,7 +112,13 @@ class TestIntegrationReferenceField(BaseTest):
                 "github",
                 "does_not_exist",
             ),
-            # A field with kinds reads only named rows, so a warehouse source row of the kind does not exist.
+            # The field reads only named rows, so a warehouse source row does not exist for it.
+            (
+                "source_row_without_kinds",
+                lambda self: {"integration": self.github_source_row.id},
+                "integration",
+                "does_not_exist",
+            ),
             (
                 "source_row_of_the_kind",
                 lambda self: {"integration": self.slack.id, "github": self.github_source_row.id},
@@ -82,11 +134,6 @@ class TestIntegrationReferenceField(BaseTest):
         serializer = self._validate(data(self))
 
         assert [error.code for error in serializer.errors[field]] == [code]
-
-    def test_a_field_without_kinds_accepts_a_source_row(self) -> None:
-        serializer = self._validate({"integration": self.github_source_row.id})
-
-        assert serializer.validated_data == {"integration": self.github_source_row}
 
     def test_needs_a_team_in_the_context(self) -> None:
         serializer = self._validate({"integration": self.slack.id}, context={})

@@ -1501,7 +1501,7 @@ def _run_note_section(
         )
     if triggered_by == TRIGGERED_BY_CHECK:
         return _CHECK_NOTE_TEMPLATE.format(
-            note=note,
+            note=note.replace("<", r"\u003c").replace(">", r"\u003e"),
             relapse_section=_check_relapse_section(can_emit_report=can_emit_report, can_edit_report=can_edit_report),
         )
     if triggered_by == TRIGGERED_BY_WORKFLOW:

@@ -8,8 +8,6 @@ import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
 from unittest.mock import patch
 
-from django.conf import settings
-
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -1174,9 +1172,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             ),
         ).calculate()
 
-        # The native-JSON table treats an empty value as absent, so an explicit '' never matches there.
-        expected_ids = set() if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else {"trace_with_empty_name"}
-        self.assertEqual({result.id for result in response.results}, expected_ids)
+        self.assertEqual({result.id for result in response.results}, {"trace_with_empty_name"})
 
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):

@@ -566,6 +566,8 @@ export interface HogQLQueryModifiers {
     usePreaggregatedTableTransforms?: boolean
     usePreaggregatedIntermediateResults?: boolean
     optimizeProjections?: boolean
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean
     /** Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types */
     typeAwareCastSimplification?: boolean
     pushDownPredicates?: boolean
@@ -6491,7 +6493,7 @@ export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_ap
 export interface ExperimentExposureHealthCheck {
     /** Stable identifier of the check. */
     key: ExperimentExposureHealthCheckKey
-    /** What the check looks at, as the health panel lists it. */
+    /** The problem the check looks for, as the health panel lists it. */
     name: string
     /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
     status: ExperimentExposureHealthCheckStatus

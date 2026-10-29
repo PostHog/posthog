@@ -884,8 +884,9 @@ def sample_generation_details(
     """Get $ai_generation previews and token usage for specific generations.
 
     Input previews keep the head and tail within 500 characters. Output previews
-    keep the first 500 characters. Returns model, token counts including cache
-    usage, and trace_id for verification before citing in the report.
+    keep the first 500 characters. Returns the stored input's full character count
+    as input_length, model, token counts including cache usage, and trace_id for
+    verification before citing in the report.
     **Always call this before add_citation** so you have the trace_id to pass in.
 
     Args:
@@ -964,12 +965,13 @@ def sample_generation_details(
 
     result = []
     for row in rows:
-        input_text = truncate_to_head_tail(str(row[2]), max_chars=500, head_chars=250) if row[2] else ""
+        input_text = str(row[2]) if row[2] else ""
         output_text = str(row[3])[:500] if row[3] else ""
         entry: dict = {
             "generation_id": str(row[0]) if row[0] else "",
             "model": str(row[1]) if row[1] else "",
-            "input_preview": input_text,
+            "input_preview": truncate_to_head_tail(input_text, max_chars=500, head_chars=250),
+            "input_length": len(input_text),
             "output_preview": output_text,
             "input_tokens": row[4],
             "output_tokens": row[5],

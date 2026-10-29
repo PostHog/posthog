@@ -100,7 +100,7 @@ from products.batch_exports.backend.facade import testing as batch_exports_testi
 from products.batch_exports.backend.facade.enums import BatchExportDestinationType
 from products.cdp.backend.models import HogFunction
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
-from products.integrations.backend.facade.api import IntegrationManager
+from products.integrations.backend.facade.api import IntegrationManager, IntegrationReader
 from products.integrations.backend.facade.contracts import IntegrationInUse, IntegrationUsage
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
@@ -1747,6 +1747,7 @@ class TestIntegrationAPIKeyAccess:
         "url_suffix,method,expected_provider",
         [
             ("github_repos/", "get", "GitHub"),
+            ("github_repository_access/", "get", "GitHub"),
             ("github_repos/refresh/", "post", "GitHub"),
             ("github_branches/?repo=org/repo", "get", "GitHub"),
             ("jira_projects/", "get", "Jira"),
@@ -1775,6 +1776,52 @@ class TestIntegrationAPIKeyAccess:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert expected_provider in response.json()["detail"]
+
+    @pytest.mark.parametrize("repository", ["", "org/repo"])
+    @pytest.mark.parametrize(
+        "github_status,refresh_status,expected_status",
+        [(200, None, 200), (404, None, 200), (503, None, 503), (None, None, 503), (401, 404, 200), (401, 503, 503)],
+    )
+    @patch("posthog.models.integration.github.GitHubIntegration.client_request")
+    @patch("posthog.models.github_integration_base.github_request")
+    def test_github_repository_access_ignores_stale_cache(
+        self,
+        mock_request: MagicMock,
+        mock_token_request: MagicMock,
+        repository: str,
+        github_status: int | None,
+        refresh_status: int | None,
+        expected_status: int,
+        client: HttpClient,
+    ) -> None:
+        self.github_integration.repository_cache = []
+        self.github_integration.repository_cache_updated_at = timezone.now() - timedelta(days=2)
+        self.github_integration.save()
+        if github_status is None:
+            mock_request.side_effect = requests.ConnectionError("Network unavailable")
+        else:
+            mock_request.return_value.status_code = github_status
+            mock_request.return_value.headers = {}
+            mock_request.return_value.json.return_value = {
+                "repositories": [{"id": 1, "name": "repo", "full_name": "org/repo"}]
+            }
+        mock_token_request.return_value.status_code = refresh_status
+        mock_token_request.return_value.text = "Token refresh failed"
+        mock_token_request.return_value.json.return_value = {"message": "Token refresh failed"}
+        key_value = "test_repository_access"
+        PersonalAPIKey.objects.create(
+            user=self.user, secure_value=hash_key_value(key_value), scopes=["integration:read"]
+        )
+
+        response = client.get(
+            f"/api/projects/{self.team.pk}/integrations/{self.github_integration.id}/github_repository_access/",
+            {"repository": repository} if repository else {},
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            assert response.json() == {"available": github_status == 200}
 
     @patch("posthog.models.integration.github.GitHubIntegration.list_cached_repositories")
     def test_github_repos_with_scope_succeeds(self, mock_list_repos, client: HttpClient):
@@ -3237,6 +3284,9 @@ class TestIntegrationAPIKeyAccess:
         token_row = Integration.objects._with_auth(Integration.AuthType.TOKEN).create(
             team=self.team, kind="github", integration_id="typed-in", sensitive_config={"token": "secret"}
         )
+        source_row = Integration.objects._with_auth(Integration.AuthType.CREDENTIALS).create(
+            team=self.team, kind="postgresql", integration_id="source", config={"warehouse_source_type": "Postgres"}
+        )
         base_url = f"/api/environments/{self.team.pk}/integrations"
 
         with patch.object(GitHubIntegration, "ensure_account_name") as heal:
@@ -3248,12 +3298,19 @@ class TestIntegrationAPIKeyAccess:
             (self.github_integration.id, "oauth"),
             (self.twilio_integration.id, "token"),
             (token_row.id, "token"),
+            (source_row.id, "credentials"),
         }
+        # Code that does not state its auth types does not see the warehouse source row.
+        assert not Integration.objects.filter(team=self.team, kind="postgresql").exists()
         assert retrieved.status_code == status.HTTP_200_OK
         assert (retrieved.json()["auth_type"], retrieved.json()["installation_status"]) == ("token", None)
         assert repos.status_code == status.HTTP_404_NOT_FOUND
         # Only the App row of the list heals its account name. The token row has no installation.
         assert heal.call_count == 1
+        # Actions other than list, retrieve and destroy do not reach the warehouse source row.
+        # `test_destroy_of_a_source_credentials_row` covers destroy.
+        source_repos = client.get(f"{base_url}/{source_row.id}/github_repos/")
+        assert source_repos.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_integrations_filtered_by_kind(self, client: HttpClient):
         client.force_login(self.user)
@@ -8247,7 +8304,9 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
 
         assert response.status_code == expected_status
-        assert IntegrationManager.any.exists(self.team.id, external_id=row.integration_id) == (expected_status != 204)
+        assert IntegrationManager.any.with_source_rows().exists(self.team.id, external_id=row.integration_id) == (
+            expected_status != 204
+        )
         if referenced:
             assert "data warehouse sources" in json.dumps(response.json())
 
@@ -8257,8 +8316,8 @@ class TestWarehouseSourceIntegrationKind(APIBaseTest):
         row = self._credentials_row("postgresql")
         usage = IntegrationUsage(type="warehouse_source", id="s1", name="Postgres (prod)")
 
-        with patch.object(IntegrationManager.any, "usages", return_value=[]):
-            with patch.object(IntegrationManager.any, "delete", side_effect=IntegrationInUse([usage])):
+        with patch.object(IntegrationReader, "usages", return_value=[]):
+            with patch.object(IntegrationReader, "delete", side_effect=IntegrationInUse([usage])):
                 response = self.client.delete(f"/api/projects/{self.team.id}/integrations/{row.id}/")
 
         assert response.status_code == 400
