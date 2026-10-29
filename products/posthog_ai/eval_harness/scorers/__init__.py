@@ -1,7 +1,18 @@
 from products.posthog_ai.backend.exec_commands import normalize_tool_name
 from products.posthog_ai.eval_harness.log_parser import LogParser
 
-from .deterministic import AnswerToolCallNot, ExitCodeZero, NoToolCall, RequiredToolCall
+from .deterministic import (
+    AnswerToolCallNot,
+    ExitCodeZero,
+    NoToolCall,
+    RequiredToolCall,
+    ServerUsed,
+    SourcesAvoided,
+    SourcesConsulted,
+    ToolMatch,
+    ToolOrder,
+    reads_table,
+)
 from .judged import (
     BINARY_CHOICE_SCORES,
     GRADED_ALIGNMENT_CHOICE_SCORES,
@@ -23,8 +34,14 @@ __all__ = [
     "LogParser",
     "NoToolCall",
     "RequiredToolCall",
+    "ServerUsed",
+    "SourcesAvoided",
+    "SourcesConsulted",
+    "ToolMatch",
+    "ToolOrder",
     "TracedScorer",
     "judge_model",
     "normalize_tool_name",
+    "reads_table",
     "wrap_scorers",
 ]

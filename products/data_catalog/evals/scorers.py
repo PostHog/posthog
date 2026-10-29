@@ -29,6 +29,7 @@ from products.posthog_ai.eval_harness.scorers import (
     GRADED_ALIGNMENT_CHOICE_SCORES,
     JUDGE_MODEL,
     JudgedScorer,
+    reads_table,
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
@@ -838,16 +839,6 @@ class AnswerValueStated(Scorer):
         return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"value": value})
 
 
-# A table name inside a string literal is a catalog filter such as `WHERE table_name = '...'`, not a read.
-_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'")
-
-
-def _reads_table(query: str, names: list[str]) -> bool:
-    # The guards stop "postgres_contracts_acv" from matching "postgres_contracts_acv_v2" or a longer dotted name.
-    code = _STRING_LITERAL.sub("''", query)
-    return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", code) for name in names)
-
-
 class AnswerTableQueried(Scorer):
     """Binary: did a successful query read the expected table without reading any decoy?
 
@@ -870,13 +861,13 @@ class AnswerTableQueried(Scorer):
             return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
 
         queries = [_query_text(call) for call in _successful_sql(parser)]
-        matching = [query for query in queries if _reads_table(query, tables) and not _reads_table(query, decoys)]
+        matching = [query for query in queries if reads_table(query, tables) and not reads_table(query, decoys)]
         return Score(
             name=self._name(),
             score=1.0 if matching else 0.0,
             metadata={
                 "matching_queries": matching,
-                "candidate_queries": [query for query in queries if _reads_table(query, [*tables, *decoys])],
+                "candidate_queries": [query for query in queries if reads_table(query, [*tables, *decoys])],
             },
         )
 
