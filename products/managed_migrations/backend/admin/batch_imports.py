@@ -56,7 +56,8 @@ class BatchImportAdminForm(forms.ModelForm):
         if self.resumes():
             # Django admin runs the whole POST in one transaction, so this lock holds until save_model
             # writes the resume. A refusal here re-renders the form with the error and saves nothing.
-            self.raise_if_resume_unsafe(BatchImport.objects.select_for_update().get(pk=self.instance.pk))
+            self.locked_row = BatchImport.objects.select_for_update().get(pk=self.instance.pk)
+            self.raise_if_resume_unsafe(self.locked_row)
         return cleaned_data
 
     def resumes(self) -> bool:
@@ -161,7 +162,9 @@ class BatchImportAdmin(admin.ModelAdmin):
                     "Changing the status to running, or using a resume action, clears the lease, backoff "
                     "and pending commit so a worker can claim the job at once. A pending commit on "
                     "a job no worker holds means a worker stopped mid-commit: the chunk it names "
-                    "may or may not have reached the sink. Choosing a resume action: 'Resume (keep progress)' "
+                    "may or may not have reached the sink. A resume moves that part back to the start "
+                    "of the chunk, so nothing is lost. A chunk that had arrived is sent twice. "
+                    "Choosing a resume action: 'Resume (keep progress)' "
                     "continues from the saved byte offset - right for transient pauses and "
                     "for source data that has not changed. 'Resume + re-import in-flight part' "
                     "resets the current part to offset 0 first - right when the source bytes "
@@ -203,7 +206,13 @@ class BatchImportAdmin(admin.ModelAdmin):
             update_fields.append("import_config")
         if form.resumes():
             message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
-            update_fields.extend(obj.reset_for_resume(message))
+            # Take the reset fields from the row locked in clean(): obj was loaded before the lock, so its
+            # state and pending_commit can miss a worker write.
+            locked_row = form.locked_row
+            reset_fields = locked_row.rewind_and_reset_for_resume(message)
+            for name in reset_fields:
+                setattr(obj, name, getattr(locked_row, name))
+            update_fields.extend(reset_fields)
         if update_fields:
             obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))
 

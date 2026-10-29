@@ -137,7 +137,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
             if row.status != BatchImport.Status.PAUSED:
                 raise ValueError(f"Only paused imports can be resumed (status: {row.status})")
             row.raise_if_commit_in_flight()
-            row.save(update_fields=row.reset_for_resume(status_message))
+            row.save(update_fields=row.rewind_and_reset_for_resume(status_message))
         self.refresh_from_db()
 
     def resume_with_inflight_part_reset(self) -> str:
@@ -194,11 +194,42 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         if self.commit_in_flight():
             raise CommitInFlightError()
 
+    def rewind_interrupted_commit(self) -> str | None:
+        """Move the part that `pending_commit` names back to the start of its chunk, so the resumed
+        worker sends the chunk again instead of skipping a chunk that may not have reached the sink.
+
+        Returns a note for the status message, or None when there is no marker. The part moves only
+        from either end of the chunk, because any other offset means the marker does not describe
+        the saved progress; a worker that rewound the part before it stopped leaves it at the start."""
+        if self.pending_commit is None:
+            return None
+        key = self.pending_commit.get("key")
+        from_offset = self.pending_commit.get("from_offset")
+        redacted_key = redact_part_key(key)
+        parts = (self.state or {}).get("parts") or []
+        part = next((p for p in parts if p.get("key") == key), None)
+        if (
+            part is None
+            or not isinstance(from_offset, int)
+            or part.get("current_offset") not in (from_offset, self.pending_commit.get("to_offset"))
+        ):
+            return f"kept the saved offset of part {redacted_key}, which does not match the interrupted chunk"
+        part["current_offset"] = from_offset
+        return f"re-sending the interrupted chunk of part {redacted_key} from offset {from_offset}"
+
+    def rewind_and_reset_for_resume(self, status_message: str) -> list[str]:
+        """Rewind an interrupted chunk, then reset the row for a resume. Call it on a row locked with
+        `select_for_update`, because it saves `state` as read from that row."""
+        note = self.rewind_interrupted_commit()
+        if note is None:
+            return self.reset_for_resume(status_message)
+        return [*self.reset_for_resume(f"{status_message}; {note}"), "state"]
+
     def reset_for_resume(self, status_message: str) -> list[str]:
         """Set the fields every resume path resets, and return their names for `save(update_fields=...)`.
 
         Clears the lease so a worker can claim the row at once, and `pending_commit` because a resume
-        accepts the saved offsets."""
+        starts from the saved offsets; `rewind_and_reset_for_resume` moves them back first."""
         self.status = BatchImport.Status.RUNNING
         self.status_message = status_message
         self.display_status_message = None
