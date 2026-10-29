@@ -408,6 +408,21 @@ class TestPostgresSourceForeignServerConnectionError:
         assert not is_non_retryable, f"A foreign-server connection failure must stay retryable: {error_msg}"
         assert "Connection refused" not in error_msg
 
+        # Also classified in get_retryable_errors, so _handle_import_error logs this self-recovering
+        # failure as a warning instead of flooding error tracking with an exception on every retry.
+        assert error_message_matches(error_msg, source.get_retryable_errors())
+
+        message = next(
+            (
+                friendly
+                for pattern, friendly in source.get_retry_exhausted_errors().items()
+                if error_message_matches(error_msg, [pattern])
+            ),
+            None,
+        )
+        assert message is not None, "an unreachable foreign server must surface an actionable message once exhausted"
+        assert "still enabled" in message.lower()
+
 
 class TestPostgresSourceNonRetryableErrors:
     @pytest.fixture
