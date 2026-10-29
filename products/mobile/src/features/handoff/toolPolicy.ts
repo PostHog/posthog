@@ -2,7 +2,6 @@ import { asRecord } from '@/lib/records'
 
 import type { PermissionRecord, PermissionToolCall } from './types'
 
-// Mirrors the web's `products/posthog_ai/frontend/policy/toolPolicy.ts` and `routePermissionRequest`. Keep in sync.
 // An interactive run waits for the client to answer each approval, so a client that never answers stalls the agent.
 
 export type PermissionDecision = 'auto_allow' | 'prompt'
@@ -75,7 +74,9 @@ export interface ResolvedToolCall {
 // The PostHog MCP server exposes one `exec` tool, so the inner tool comes from `input.command`. An unparsable `call`
 // resolves to the unknown sentinel so the gate fails closed instead of treating it as harmless.
 export function resolveToolCall(toolCall: PermissionToolCall): ResolvedToolCall {
-    const agentToolName = extractAgentToolName(toolCall.meta)
+    const agentToolName =
+        extractAgentToolName(toolCall.meta) ??
+        (typeof toolCall.input.toolName === 'string' ? toolCall.input.toolName : undefined)
     const mcp = agentToolName?.match(/^mcp__(.+?)__(.+)$/)
     const serverName = mcp?.[1] ?? toolCall.rawServerName
     const toolName = mcp?.[0] ?? toolCall.rawToolName
@@ -127,31 +128,9 @@ export function isFullAutoMode(mode: string | null | undefined): boolean {
     return mode === 'bypassPermissions'
 }
 
-/** Fails closed: only a positively identified built-in or PostHog `exec` call in the task's project is allowed. */
-export function defaultPermissionDecision(record: PermissionRecord): PermissionDecision {
-    // A question rides the permission framework but is not an approval. Allowing it picks the
-    // first option with no answers, which the agent rejects.
-    if (record.questions?.length) {
-        return 'prompt'
-    }
-    if (isPlanPermissionRequest(record)) {
-        return 'prompt'
-    }
-    const { toolName } = record
-    const { resolvedKey, innerToolName } = resolveToolCall(record.rawToolCall)
-    const isExec =
-        isPostHogExecTool(toolName) || innerToolName !== undefined || resolvedKey.startsWith('__posthog_exec_')
-    if (isExec) {
-        if (innerToolName !== undefined && isConnectedProjectSubTool(innerToolName)) {
-            return 'prompt'
-        }
-        return 'auto_allow'
-    }
-    if (toolName.startsWith('mcp__')) {
-        return 'prompt'
-    }
-    // A canonical name identifies a built-in (Bash, Edit); an empty name cannot be identified.
-    return toolName ? 'auto_allow' : 'prompt'
+/** Any permission request the server relays still needs a person's answer, regardless of tool name or mode. */
+export function defaultPermissionDecision(_record: PermissionRecord): PermissionDecision {
+    return 'prompt'
 }
 
 export function findAllowOptionId(record: PermissionRecord): string | null {
@@ -173,8 +152,7 @@ export function routePermissionRequest(
     if (isPlanPermissionRequest(record)) {
         return { action: 'prompt' }
     }
-    const fullAuto = isFullAutoMode(context.mode) && !record.questions?.length && !isConnectedProjectTool(record)
-    const decision = fullAuto ? 'auto_allow' : defaultPermissionDecision(record)
+    const decision = defaultPermissionDecision(record)
     if (decision === 'auto_allow') {
         const optionId = findAllowOptionId(record)
         if (optionId) {

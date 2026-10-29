@@ -23,6 +23,7 @@ import { AccountLoadError, accountLoadKind, SignInInputError } from './signInErr
 import {
     clearTokens,
     commitSessionTokens,
+    getSessionIdentity,
     getSessionTokens,
     loadTokens,
     type SessionTokens,
@@ -218,8 +219,10 @@ export const useAuthStore = create<AuthState>()(
                         const region = regionForHost(host)
                         const committed = await commitSessionTokens(
                             tokens,
+                            { host, clientId, method, userUuid: account.user.uuid },
                             () => intent === signInIntent && sessionGeneration() === previousSession,
                             () => {
+                                queryClient.clear()
                                 const preferProjectId =
                                     previous.user?.uuid === account.user.uuid ? previous.projectId : null
                                 set({
@@ -285,12 +288,27 @@ export const useAuthStore = create<AuthState>()(
                     restoring ??= (async () => {
                         await waitForHydration()
                         const tokens = await loadTokens()
-                        const { host } = get()
-                        if (!tokens || !host) {
+                        const owner = getSessionIdentity()
+                        if (!tokens || !owner || !validateHost(owner.host).ok) {
                             setSessionTokens(null)
                             set(SIGNED_OUT_ACCOUNT)
                             return
                         }
+                        const metadata = get()
+                        const sameAccount =
+                            metadata.host === owner.host &&
+                            metadata.clientId === owner.clientId &&
+                            metadata.method === owner.method &&
+                            metadata.user?.uuid === owner.userUuid
+                        set({
+                            ...(!sameAccount ? SIGNED_OUT_ACCOUNT : {}),
+                            status: 'loading',
+                            signedIn: false,
+                            host: owner.host,
+                            clientId: owner.clientId,
+                            method: owner.method,
+                            region: regionForHost(owner.host),
+                        })
                         if (
                             tokens.kind === 'oauth' &&
                             tokens.expiresAt !== null &&

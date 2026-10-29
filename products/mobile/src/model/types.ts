@@ -238,6 +238,7 @@ export interface DecisionOption {
 }
 
 export interface DecisionQuestion {
+    details?: string
     id: string
     question: string
     options: DecisionOption[]

@@ -49,7 +49,7 @@ export function useDecisionAnswer(reportId: string): HandoffAnswer | undefined {
             questionId: answer.questionId,
             text: answer.text,
             ...(answer.optionId ? { optionId: answer.optionId } : {}),
-            canUndo: answer.delivery === 'sending',
+            canUndo: false,
         }
     }, [demo, demoAnswer, entry])
 }
@@ -83,7 +83,7 @@ export function useHandoffActions(reportId: string): HandoffActions {
         void queryClient.invalidateQueries({ queryKey: reportKeys.inbox(scope) })
     }
 
-    // Undo aborts the delivery while it is in flight; after the agent confirms, the answer stands.
+    // Aborting delivery stops local work; it cannot retract an answer accepted by the server.
     const deliverAnswer = async (
         question: DecisionQuestion,
         input: DecisionAnswerInput,
@@ -254,14 +254,6 @@ export function useHandoffActions(reportId: string): HandoffActions {
             demoUndo(reportId)
             return
         }
-        const controller = deliveries.get(reportId)
-        if (!controller || handoffEntry(reportId).answer?.delivery !== 'sending') {
-            return
-        }
-        controller.abort()
-        deliveries.delete(reportId)
-        useHandoffStore.getState().setAnswer(reportId, undefined)
-        track('mobile_decision_undone', { report_id: reportId })
     })
 
     return { handOff, answerDecision, undoDecision }

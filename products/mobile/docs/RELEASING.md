@@ -165,6 +165,13 @@ Mobile Build runs `scripts/eas-build.sh`; Mobile Release uses the hosted release
 Both upload only `products/mobile`, filtered by `.easignore`.
 Without it, EAS uploads the whole repository and installs the root pnpm workspace, which excludes this app.
 
+The hosted publisher accepts only these EAS production inputs: `APP_VARIANT`, `APPLE_TEAM_ID`,
+`GOOGLE_SERVICES_JSON`, `EXPO_PUBLIC_POSTHOG_KEY`, `EXPO_PUBLIC_POSTHOG_HOST`,
+`EXPO_PUBLIC_DEMO_MODE`, `EXPO_PUBLIC_SIGNUP_LINK`, `EXPO_PUBLIC_OAUTH_US_CLIENT_ID`, and
+`EXPO_PUBLIC_OAUTH_EU_CLIENT_ID`. It refuses unrecognized names before importing any values.
+Adding an app build input requires updating the publisher's allowlist. The publisher always sets
+`APP_VARIANT=production` and `EXPO_PUBLIC_SIGNUP_LINK=0`.
+
 ## Build variants
 
 Each profile sets `APP_VARIANT` in its `env` block in `eas.json`, and `app.config.ts` gives each variant its own identity.

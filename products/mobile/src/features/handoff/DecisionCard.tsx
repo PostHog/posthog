@@ -40,6 +40,14 @@ export function DecisionCard({
     return (
         <View style={styles.card} testID="decision-card">
             <ChatMarkdown text={question.question} />
+            {question.details ? (
+                <View style={styles.details} testID="decision-request-details">
+                    <Text style={styles.optionTitle}>Request details</Text>
+                    <Text selectable style={styles.requestText}>
+                        {question.details}
+                    </Text>
+                </View>
+            ) : null}
             {question.options.length > 0 ? (
                 <View style={styles.options}>
                     {question.options.map((option) => (
@@ -96,6 +104,16 @@ const useStyles = createStyles(({ colors }) => ({
         gap: 14,
         paddingHorizontal: 4,
         paddingBottom: 8,
+    },
+    details: {
+        gap: 8,
+        padding: 12,
+        borderRadius: radii.option,
+        backgroundColor: colors.background,
+    },
+    requestText: {
+        ...type.mono,
+        color: colors.ink,
     },
     options: {
         gap: 8,

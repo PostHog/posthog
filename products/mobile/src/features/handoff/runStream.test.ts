@@ -208,10 +208,10 @@ describe('runStream', () => {
         })
     })
 
-    test('a live built-in tool request is allowed for the user, a replayed one is shown', () => {
+    test('live and replayed built-in permission requests both require an answer', () => {
         const live = feed([frame(BASH_REQUEST, '1-0')])
-        expect(live.effects).toMatchObject([{ type: 'auto_allow', requestId: 'req-bash', optionId: 'allow' }])
-        expect(live.state.pending).toBeUndefined()
+        expect(live.effects).toEqual([])
+        expect(live.state.pending?.record.requestId).toBe('req-bash')
 
         const replayed = feed([frame(posthog('_posthog/permission_request', BASH_REQUEST), 'log-4')])
         expect(replayed.effects).toEqual([])

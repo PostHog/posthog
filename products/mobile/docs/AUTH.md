@@ -136,11 +136,13 @@ From `OAUTH2_PROVIDER` in `posthog/settings/web.py` and `OAuthValidator` in `pos
 
 ## Storage
 
-| What                                                                    | Where                                                                     |
-| ----------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Access token, refresh token, expiry                                     | `expo-secure-store` key `posthog_mobile_session`                          |
-| Region, host, client id, user, organizations, projects, current project | AsyncStorage key `posthog-mobile-auth` (zustand `persist`)                |
-| Web build                                                               | localStorage in dev builds, memory in release builds (a reload signs out) |
+| What                                                                         | Where                                                                     |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Access token, refresh token, expiry, host, client id, auth method, user UUID | `expo-secure-store` key `posthog_mobile_session`                          |
+| Region, host, client id, user, organizations, projects, current project      | AsyncStorage key `posthog-mobile-auth` (zustand `persist`)                |
+| Web build                                                                    | localStorage in dev builds, memory in release builds (a reload signs out) |
+
+The secure record is a single versioned session envelope. Restore takes the credential destination and identity only from that envelope; cached account and project metadata is used only when it matches. Older token-only records require signing in again.
 
 Region, host and client id stay after sign out so the sign-in form starts where the user left it.
 If AsyncStorage cannot be read on launch, the auth routing gate settles with its default signed-out state so the splash screen can close.

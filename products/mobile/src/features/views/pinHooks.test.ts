@@ -67,6 +67,7 @@ describe('pin writes', () => {
         client.setQueryData<PaginatedApi<FileSystemShortcutApi>>(listKey, { count: 0, next: null, results: [] })
         jest.mocked(useViewsContext).mockReturnValue({
             mode: 'live',
+            identity: 'example-session',
             scope,
             dataScope: `${scope.host}|${scope.projectId}`,
             ready: false,

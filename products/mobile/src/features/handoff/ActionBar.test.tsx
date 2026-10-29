@@ -90,6 +90,7 @@ function props(state: ActionBarState): ComponentProps<typeof ActionBar> {
 test('keeps the PR, activity and real request together, with full question and answers in a sheet', () => {
     const question = {
         id: 'question-1',
+        details: '{"path":"/example/report.txt","content":"<plain text>"}',
         question:
             '**Which fix should ship?**\n\nUse the guard for missing labels, or update the source of the labels. The full explanation remains available when the report footer is compact.',
         options: [{ id: 'guard', title: 'Guard missing labels' }],
@@ -111,6 +112,8 @@ test('keeps the PR, activity and real request together, with full question and a
     fireEvent.press(screen.getByTestId('decision-request'))
     expect(within(screen.getByTestId('pr-ready-card')).queryByTestId('decision-sheet')).toBeNull()
     expect(screen.getByText('Which fix should ship?')).toBeTruthy()
+    expect(screen.getByText(question.details)).toBeTruthy()
+    expect(screen.getByText(question.details).props.selectable).toBe(true)
     expect(screen.getByText(/The full explanation remains available/)).toBeTruthy()
     fireEvent.press(screen.getByTestId('decision-option-guard'))
     expect(viewProps.actions.answerDecision).toHaveBeenCalledWith({

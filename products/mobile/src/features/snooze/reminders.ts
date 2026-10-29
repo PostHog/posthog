@@ -17,8 +17,11 @@ async function mayNotify(): Promise<boolean> {
 }
 
 /** Undefined when notifications are off. The snooze itself still applies. */
-export async function scheduleSnoozeReminder(reminder: SnoozeReminder): Promise<string | undefined> {
-    if (Platform.OS === 'web' || !(await mayNotify())) {
+export async function scheduleSnoozeReminder(
+    reminder: SnoozeReminder,
+    isCurrent: () => boolean = () => true
+): Promise<string | undefined> {
+    if (Platform.OS === 'web' || !(await mayNotify()) || !isCurrent()) {
         return undefined
     }
     return Notifications.scheduleNotificationAsync({

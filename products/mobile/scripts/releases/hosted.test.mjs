@@ -35,7 +35,7 @@ function fixture(t) {
     )
     writeFileSync(
         preload,
-        `import {readFileSync,writeFileSync} from 'node:fs';globalThis.fetch=async()=>{const state=JSON.parse(readFileSync(process.env.MOBILE_FAKE_STATE,'utf8'));state.expoReads=(state.expoReads??0)+1;writeFileSync(process.env.MOBILE_FAKE_STATE,JSON.stringify(state));const variables=process.env.MOBILE_FAKE_SECRET==='1'?[{name:'NATIVE_CONFIG',type:'STRING',visibility:'SECRET',value:null}]:process.env.MOBILE_FAKE_FILE==='unreadable'?[{name:'GOOGLE_SERVICES_JSON',type:'FILE_BASE64',visibility:'SENSITIVE'}]:process.env.MOBILE_FAKE_CHANGE==='remove'&&state.expoReads===1?[{name:'NATIVE_SWITCH',type:'STRING',visibility:'SENSITIVE',value:'on'}]:[];return {ok:true,json:async()=>({data:{app:{byId:{environmentVariablesIncludingSensitive:variables,ownerAccount:{environmentVariablesIncludingSensitive:[]}}}}})}}`
+        `import {readFileSync,writeFileSync} from 'node:fs';globalThis.fetch=async()=>{const state=JSON.parse(readFileSync(process.env.MOBILE_FAKE_STATE,'utf8'));state.expoReads=(state.expoReads??0)+1;writeFileSync(process.env.MOBILE_FAKE_STATE,JSON.stringify(state));const variables=process.env.MOBILE_FAKE_SECRET==='1'?[{name:'APPLE_TEAM_ID',type:'STRING',visibility:'SECRET',value:null}]:process.env.MOBILE_FAKE_UNSUPPORTED==='1'?[{name:'UNSUPPORTED_BUILD_INPUT',type:'STRING',visibility:'PUBLIC',value:'example'}]:process.env.MOBILE_FAKE_FILE==='unreadable'?[{name:'GOOGLE_SERVICES_JSON',type:'FILE_BASE64',visibility:'SENSITIVE'}]:process.env.MOBILE_FAKE_CHANGE==='remove'&&state.expoReads===1?[{name:'EXPO_PUBLIC_POSTHOG_HOST',type:'STRING',visibility:'SENSITIVE',value:'on'}]:[];return {ok:true,json:async()=>({data:{app:{byId:{environmentVariablesIncludingSensitive:variables,ownerAccount:{environmentVariablesIncludingSensitive:[]}}}}})}}`
     )
     for (const path of [scripts, requests, bin]) {
         mkdirSync(path, { recursive: true })
@@ -251,6 +251,11 @@ test('unreadable native environment inputs stop before claim and mismatched buil
         assert.deepEqual(f.state().releases, {})
         assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, 0)
     }
+    const unsupported = f.invoke(['publish'], { MOBILE_FAKE_UNSUPPORTED: '1' })
+    assert.notEqual(unsupported.status, 0)
+    assert.match(unsupported.stderr, /unsupported app build input/)
+    assert.deepEqual(f.state().releases, {})
+    assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, 0)
     const mismatch = f.invoke(['publish'], { MOBILE_FAKE_FAIL: 'fingerprint' })
     assert.notEqual(mismatch.status, 0)
     assert.match(mismatch.stderr, /build fingerprints differ/)

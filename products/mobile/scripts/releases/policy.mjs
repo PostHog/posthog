@@ -157,14 +157,19 @@ export function validateRepublishedUpdates(updates, runtimeVersion) {
 
 export function validateNativeEnvironment(variables) {
     assert(Array.isArray(variables), 'Cannot inspect the EAS production environment')
+    const allowed = new Set([
+        'APP_VARIANT',
+        'APPLE_TEAM_ID',
+        'GOOGLE_SERVICES_JSON',
+        'EXPO_PUBLIC_POSTHOG_KEY',
+        'EXPO_PUBLIC_POSTHOG_HOST',
+        'EXPO_PUBLIC_DEMO_MODE',
+        'EXPO_PUBLIC_SIGNUP_LINK',
+        'EXPO_PUBLIC_OAUTH_US_CLIENT_ID',
+        'EXPO_PUBLIC_OAUTH_EU_CLIENT_ID',
+    ])
     for (const variable of variables) {
-        assert(
-            typeof variable.name === 'string' &&
-                !/^(?:GITHUB_|RUNNER_|ACTIONS_|INPUT_|STATE_|GH_|MOBILE_|NODE_(?!ENV$)|NPM_|NPM_CONFIG_|npm_|PNPM_|PATH$|HOME$|SHELL|BASH_|ENV$|IFS$|CI$|LD_|DYLD_|EXPO_TOKEN$)/.test(
-                    variable.name
-                ),
-            'EAS build variables must not overwrite the hosted execution identity or command environment'
-        )
+        assert(allowed.has(variable.name), 'EAS environment contains an unsupported app build input')
         assert(
             variable.visibility !== 'SECRET',
             'Hosted release cannot verify secret EAS environment inputs; use readable Sensitive values for native configuration and keep signing keys in EAS credentials'

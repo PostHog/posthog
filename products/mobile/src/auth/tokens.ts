@@ -20,6 +20,32 @@ export interface SessionTokens {
     requestedScopes: string[] | null
 }
 
+export interface SessionIdentity {
+    readonly host: string
+    readonly clientId: string | null
+    readonly method: SessionTokens['kind']
+    readonly userUuid: string
+}
+
+interface SessionEnvelope {
+    version: 1
+    identity: SessionIdentity
+    tokens: SessionTokens
+}
+
+let identity: SessionIdentity | null = null
+
+export function getSessionIdentity(): SessionIdentity | null {
+    return identity
+}
+
+function storedSession(tokens: SessionTokens, owner: SessionIdentity | null): string {
+    if (!owner || owner.method !== tokens.kind) {
+        throw new Error('Session identity is required to persist credentials')
+    }
+    return JSON.stringify({ version: 1, identity: owner, tokens } satisfies SessionEnvelope)
+}
+
 const STORAGE_KEY = 'posthog_mobile_session'
 
 let current: SessionTokens | null = null
@@ -52,7 +78,8 @@ export function sessionGeneration(): number {
  * Changes the in-memory tokens only and starts a new session generation. Call `saveTokens` to keep them across
  * launches.
  */
-export function setSessionTokens(tokens: SessionTokens | null): void {
+export function setSessionTokens(tokens: SessionTokens | null, owner: SessionIdentity | null = null): void {
+    identity = owner ? Object.freeze({ ...owner }) : null
     current = tokens
     generation += 1
 }
@@ -134,7 +161,21 @@ export async function loadTokens(): Promise<SessionTokens | null> {
     } catch {
         parsed = null
     }
-    current = toSessionTokens(parsed)
+    const envelope = parsed as Partial<SessionEnvelope> | null
+    const owner = envelope?.identity
+    const tokens = envelope?.version === 1 ? toSessionTokens(envelope.tokens) : null
+    const validOwner =
+        owner &&
+        typeof owner.host === 'string' &&
+        owner.host.length > 0 &&
+        typeof owner.userUuid === 'string' &&
+        owner.userUuid.length > 0 &&
+        owner.method === tokens?.kind &&
+        (owner.method === 'oauth'
+            ? typeof owner.clientId === 'string' && owner.clientId.length > 0
+            : owner.clientId === null)
+    current = validOwner ? tokens : null
+    identity = validOwner ? Object.freeze({ ...owner }) : null
     generation += 1
     return current
 }
@@ -143,16 +184,18 @@ export async function loadTokens(): Promise<SessionTokens | null> {
  * Keeps the generation, because a refresh saves its rotated tokens into the same session. A new session calls
  * `setSessionTokens` first.
  */
-export async function saveTokens(tokens: SessionTokens): Promise<void> {
+export async function saveTokens(tokens: SessionTokens, owner: SessionIdentity | null = identity): Promise<void> {
     await serializeStorage(async () => {
-        await writeItem(STORAGE_KEY, JSON.stringify(tokens))
+        await writeItem(STORAGE_KEY, storedSession(tokens, owner))
         current = tokens
+        identity = owner ? Object.freeze({ ...owner }) : null
     })
 }
 
 /** Persists and publishes a new session in one storage turn, after its account has loaded. */
 export async function commitSessionTokens(
     tokens: SessionTokens,
+    owner: SessionIdentity,
     canPublish: () => boolean,
     publish: () => void
 ): Promise<boolean> {
@@ -160,18 +203,18 @@ export async function commitSessionTokens(
         if (!canPublish()) {
             return false
         }
-        await writeItem(STORAGE_KEY, JSON.stringify(tokens))
+        await writeItem(STORAGE_KEY, storedSession(tokens, owner))
         if (!canPublish()) {
             // A sign out or later sign-in started while SecureStore was writing. Restore the current session before
             // the queued transition can run, so a relaunch never pairs the earlier candidate with the later host.
             if (current) {
-                await writeItem(STORAGE_KEY, JSON.stringify(current))
+                await writeItem(STORAGE_KEY, storedSession(current, identity))
             } else {
                 await deleteItem(STORAGE_KEY)
             }
             return false
         }
-        setSessionTokens(tokens)
+        setSessionTokens(tokens, owner)
         publish()
         return true
     })
@@ -183,7 +226,7 @@ export async function saveRefreshedTokens(tokens: SessionTokens, expectedGenerat
         if (generation !== expectedGeneration) {
             return false
         }
-        await writeItem(STORAGE_KEY, JSON.stringify(tokens))
+        await writeItem(STORAGE_KEY, storedSession(tokens, identity))
         if (generation !== expectedGeneration) {
             return false
         }
@@ -194,6 +237,7 @@ export async function saveRefreshedTokens(tokens: SessionTokens, expectedGenerat
 
 export async function clearTokens(): Promise<void> {
     current = null
+    identity = null
     generation += 1
     try {
         await serializeStorage(() => deleteItem(STORAGE_KEY))

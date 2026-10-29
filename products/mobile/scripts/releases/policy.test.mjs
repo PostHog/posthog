@@ -199,12 +199,15 @@ test('secret or unmaterialized native files cannot establish a compatibility bas
         { name: 'NATIVE_SWITCH', type: 'STRING', visibility: 'SECRET', value: null },
         { name: 'GITHUB_SHA', type: 'STRING', visibility: 'PUBLIC', value: 'fake' },
         { name: 'GH_TOKEN', type: 'STRING', visibility: 'SENSITIVE', value: 'fake' },
+        { name: 'GIT_CONFIG_COUNT', type: 'STRING', visibility: 'PUBLIC', value: '0' },
+        { name: 'EXPO_PUBLIC_UNSUPPORTED', type: 'STRING', visibility: 'PUBLIC', value: 'example' },
         { name: 'NODE_OPTIONS', type: 'STRING', visibility: 'PUBLIC', value: '--import=example.mjs' },
     ]) {
         assert.throws(() => validateNativeEnvironment([variable]))
     }
     assert.doesNotThrow(() =>
         validateNativeEnvironment([
+            { name: 'APPLE_TEAM_ID', type: 'STRING', visibility: 'PUBLIC', value: 'EXAMPLETEAM' },
             {
                 name: 'GOOGLE_SERVICES_JSON',
                 type: 'FILE_BASE64',

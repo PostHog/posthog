@@ -63,6 +63,26 @@ const pick = (questionId: string, optionId: string, text: string): DecisionAnswe
 const typed = (questionId: string, text: string): DecisionAnswerInput => ({ questionId, text })
 
 describe('permissionRequest', () => {
+    test('keeps the exact request details independently of later frame changes', () => {
+        const toolCall = {
+            toolCallId: 'example-call',
+            rawInput: {
+                toolName: 'mcp__example__write',
+                arguments: { path: '/example/report.txt', content: '<plain text>' },
+            },
+            content: [{ type: 'text', text: 'Example request' }],
+            locations: [{ path: '/example/report.txt' }],
+        }
+        const request = pending({
+            requestId: 'example-request',
+            options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow' }],
+            toolCall,
+        })
+        const details = JSON.stringify(toolCall, null, 2)
+        toolCall.rawInput.arguments.content = 'changed after parsing'
+        expect(decisionQuestionFor(request, []).details).toBe(details)
+    })
+
     test.each<[string, PendingRequest, string[], DecisionAnswerInput, AnswerPlan]>([
         [
             'a picked option answers by question text',

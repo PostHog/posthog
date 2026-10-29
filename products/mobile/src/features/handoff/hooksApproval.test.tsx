@@ -10,7 +10,7 @@ import { aiConsentKey, useAiConsentStore, waitForAiConsent } from '@/features/ch
 
 import { deliverPermissionResponse } from './commands'
 import { handoffEntry, useHandoffStore } from './handoffStore'
-import { useHandoffActions } from './hooks'
+import { useDecisionAnswer, useHandoffActions } from './hooks'
 import { currentDecision } from './liveReport'
 import { parsePermissionRequest, requestKind } from './permissionRequest'
 import { initialRunState } from './runStream'
@@ -127,6 +127,14 @@ test('leaving the screen aborts an approved decision delivery', async () => {
         sending = hook.result.current.answerDecision.run({ questionId: question.id, optionId: 'allow', text: 'Yes' })
     })
     await waitFor(() => expect(deliverPermissionResponse).toHaveBeenCalledTimes(1))
+    const answer = renderHook(() => useDecisionAnswer(REPORT))
+    expect(answer.result.current?.canUndo).toBe(false)
+    await act(async () => {
+        await hook.result.current.undoDecision.run()
+    })
+    expect(signal?.aborted).toBe(false)
+    expect(handoffEntry(REPORT).answer?.delivery).toBe('sending')
+    answer.unmount()
     hook.unmount()
     await act(async () => {
         await sending

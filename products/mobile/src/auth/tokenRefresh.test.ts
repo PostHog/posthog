@@ -3,7 +3,7 @@ import { apiJson, NotSignedInError, projectPath } from '@/api/client'
 
 import { addSessionEndTask, addSignOutTask, installAuthProvider, useAuthStore } from './authStore'
 import { OAuthError } from './oauth'
-import { getSessionTokens, loadTokens, saveTokens, setSessionTokens } from './tokens'
+import { getSessionIdentity, getSessionTokens, loadTokens, saveTokens, setSessionTokens } from './tokens'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -71,14 +71,17 @@ describe('token refresh through the API client', () => {
             projectId: 2,
             signedOutReason: null,
         })
-        await saveTokens({
-            kind: 'oauth',
-            accessToken: 'old-access',
-            refreshToken: 'old-refresh',
-            expiresAt: Date.now() + 60_000,
-            grantedScopes: ['user:read', 'dashboard:read'],
-            requestedScopes: ['user:read', 'dashboard:read', 'insight:read'],
-        })
+        await saveTokens(
+            {
+                kind: 'oauth',
+                accessToken: 'old-access',
+                refreshToken: 'old-refresh',
+                expiresAt: Date.now() + 60_000,
+                grantedScopes: ['user:read', 'dashboard:read'],
+                requestedScopes: ['user:read', 'dashboard:read', 'insight:read'],
+            },
+            { host: HOST, clientId: 'test-client', method: 'oauth', userUuid: 'example-user' }
+        )
     })
 
     test('concurrent 401s share one refresh, store the rotated pair and retry with the new token', async () => {
@@ -393,6 +396,11 @@ describe('token refresh through the API client', () => {
             expect(useAuthStore.getState().user?.uuid).toBe('second-user')
             setSessionTokens(null)
             expect((await loadTokens())?.accessToken).toBe('second-key')
+            expect(getSessionIdentity()).toMatchObject({
+                host: NEW_HOST,
+                userUuid: 'second-user',
+                method: 'personal_api_key',
+            })
         } finally {
             storeWrite.mockRestore()
         }
