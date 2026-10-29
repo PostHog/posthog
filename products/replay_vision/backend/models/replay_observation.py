@@ -48,8 +48,8 @@ def watch_rank_contrast() -> Cast:
 
 
 def watch_group_root() -> Coalesce:
-    """A ranked row's feed group, or the row itself when it has none. `rlo_ranked_feed_group_idx` indexes it."""
-    return Coalesce(KeyTextTransform("group", "watch_rank"), Cast("id", CharField()), output_field=CharField())
+    """A row's feed group, or the row itself when it has none, so an ungrouped row stands as its own group."""
+    return Coalesce(Cast("feed_group_id", CharField()), Cast("id", CharField()), output_field=CharField())
 
 
 class ReplayObservation(UUIDModel):
@@ -210,12 +210,6 @@ class ReplayObservation(UUIDModel):
                 include=["team", "created_at", "completed_at", "watch_rank"],
                 name="rlo_ranked_contrast_idx",
                 condition=models.Q(status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=1),
-            ),
-            # Finds the members of the feed picks' groups, to count the sessions and people each one reached.
-            models.Index(
-                watch_group_root(),
-                name="rlo_ranked_feed_group_idx",
-                condition=models.Q(status="succeeded", watch_rank__isnull=False),
             ),
             # Finds a group's or a theme's members in a window, for the feed's reach and the cluster summaries.
             models.Index(

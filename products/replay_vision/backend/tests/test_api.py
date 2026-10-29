@@ -2266,15 +2266,12 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         }
         root_id = str(rows["root"].id)
 
-        def rank(group: str | None, category: str = "failure", anchor_version: int = ANCHOR_VERSION) -> dict[str, Any]:
-            return {
-                "category": category,
-                "contrast": 0.3,
-                "group": group,
-                "anchor_version": anchor_version,
-            }
+        def rank(
+            group: str | None, category: str = "failure", anchor_version: int = ANCHOR_VERSION
+        ) -> tuple[dict[str, Any], str | None]:
+            return {"category": category, "contrast": 0.3, "anchor_version": anchor_version}, group
 
-        for name, watch_rank in {
+        for name, (watch_rank, group) in {
             "root": rank(None),
             "copy": rank(root_id),
             "struggle": rank(root_id, category="struggle"),
@@ -2282,7 +2279,7 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             "stale": rank(root_id, anchor_version=ANCHOR_VERSION - 1),
             "other": rank(None),
         }.items():
-            ReplayObservation.objects.filter(id=rows[name].id).update(watch_rank=watch_rank)
+            ReplayObservation.objects.filter(id=rows[name].id).update(watch_rank=watch_rank, feed_group_id=group)
 
         other_team = Team.objects.create(organization=self.organization, name="other")
         other_row = ReplayObservation.objects.create(
@@ -5056,7 +5053,8 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
     ) -> ReplayObservation:
         obs = self._succeeded_observation(scanner, session_id, minutes_ago, self._monitor_result("no"))
         ReplayObservation.objects.filter(id=obs.id).update(
-            watch_rank={"category": category, "contrast": contrast, "group": group, "anchor_version": ANCHOR_VERSION}
+            watch_rank={"category": category, "contrast": contrast, "anchor_version": ANCHOR_VERSION},
+            feed_group_id=group,
         )
         return obs
 
@@ -5144,7 +5142,6 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
                 watch_rank={
                     "category": "failure",
                     "contrast": 1 - index / 20,
-                    "group": None,
                     "anchor_version": ANCHOR_VERSION,
                 },
             )
@@ -5199,7 +5196,6 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
                     watch_rank={
                         "category": "failure",
                         "contrast": top - index / 100,
-                        "group": None,
                         "anchor_version": ANCHOR_VERSION,
                     }
                 )
@@ -5223,12 +5219,8 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
         for index in range(30):
             obs = self._succeeded_observation(scanner, f"row-{index}", index, self._monitor_result("yes"))
             ReplayObservation.objects.filter(id=obs.id).update(
-                watch_rank={
-                    "category": "failure",
-                    "contrast": 1 - index / 100,
-                    "group": root_id if 0 < index < 5 else None,
-                    "anchor_version": ANCHOR_VERSION,
-                }
+                watch_rank={"category": "failure", "contrast": 1 - index / 100, "anchor_version": ANCHOR_VERSION},
+                feed_group_id=root_id if 0 < index < 5 else None,
             )
             root_id = root_id or str(obs.id)
 
@@ -5251,7 +5243,6 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
                 watch_rank={
                     "category": category,
                     "contrast": 0.5 - index * 0.01,
-                    "group": None,
                     "anchor_version": ANCHOR_VERSION,
                 }
             )
@@ -5473,7 +5464,6 @@ class TestHighlightFeedAPI(_VisionAPITestCase):
                 watch_rank={
                     "category": "failure",
                     "contrast": index / 10,
-                    "group": None,
                     "anchor_version": ANCHOR_VERSION,
                 }
             )

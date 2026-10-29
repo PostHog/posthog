@@ -359,7 +359,6 @@ def select_embedding_picks(
     after that ranking, so turning a category off drops its rows without promoting weaker rows of the others. A
     group's reach counts only members of those categories, so it matches the similar sessions the card's popover lists.
     """
-    group_root = watch_group_root()
     ranked = walkable.filter(
         # The explicit null and anchor checks let Postgres match the partial `rlo_ranked_*` indexes.
         scanner_id__in=scanner_ids,
@@ -385,32 +384,30 @@ def select_embedding_picks(
     # below the cutoff still count, and a person who hit the problem twice counts once.
     person = Coalesce(NullIf("distinct_id", Value("")), "session_id", output_field=CharField())
     roots = {row["watch_group_root"] for row in window_values.values()}
-    # Postgres misjudges the JSON filters and would walk the whole window, so the members come from the group index
-    # alone. Group ids are random UUIDs, so no other team's row matches; the next query applies the team scope.
+    # The members come from the group index alone, since the team and rank filters would steer Postgres off it. Group
+    # ids are random UUIDs, so no other team's row matches; the next query applies the team scope.
     oldest = min(row["created_at"] for row in window_values.values()) - HIGHLIGHT_FEED_MEMBER_LOOKBACK
     member_ids = list(
         ReplayObservation.objects.filter(
-            status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, created_at__gte=oldest
-        )
-        .alias(member_root=group_root)
-        .filter(member_root__in=list(roots))
-        .values_list("id", flat=True)
+            status=ObservationStatus.SUCCEEDED, feed_group_id__in=list(roots), created_at__gte=oldest
+        ).values_list("id", flat=True)
     )
+    # A pick with no group stands for itself.
+    member_ids += [pick_id for pick_id, row in window_values.items() if row["watch_group_root"] == str(pick_id)]
     # Read by id with the rank checks in Python, since the rank filters steer Postgres onto the partial rank indexes.
     readable_scanners = {str(scanner_id) for scanner_id in scanner_ids}
     members = (
         accessible_observations(access, team_id, walkable.filter(id__in=member_ids))
-        .values_list("id", "scanner_id", "watch_rank", person)
+        .values_list("id", "scanner_id", "watch_rank", "feed_group_id", person)
         .iterator()
     )
     reach_sessions: Counter[str] = Counter()
     reach_people: dict[str, set[str]] = {}
-    for member_id, scanner_id, watch_rank, member_person in members:
+    for member_id, scanner_id, watch_rank, feed_group_id, member_person in members:
         rank = current_rank({"watch_rank": watch_rank})
         if str(scanner_id) not in readable_scanners or rank is None or rank.get("category") not in categories:
             continue
-        group = rank.get("group")
-        root = str(group) if group is not None else str(member_id)
+        root = str(feed_group_id or member_id)
         reach_sessions[root] += 1
         reach_people.setdefault(root, set()).add(member_person)
     group_reach = {
@@ -424,7 +421,7 @@ def select_embedding_picks(
                 access, team_id, ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
             )
             .annotate(feed_viewed=viewed)
-            .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_viewed")
+            .values("id", "scanner_id", "session_id", "created_at", "watch_rank", "feed_group_id", "feed_viewed")
         ),
     )
     for row in rows:
@@ -486,7 +483,7 @@ def rank_highlight_feed_by_embedding(rows: list[dict[str, Any]]) -> list[Highlig
         if rank is None or percentile is None or rank.get("category") not in ISSUE_CATEGORIES:
             continue
         # Group before the cutoff, so members below it still count toward the group and never return as filler.
-        group = str(rank.get("group") or observation_id)
+        group = str(row.get("feed_group_id") or observation_id)
         group_members.setdefault(group, []).append(observation_id)
         # Only a member above the cutoff can stand for the group, so the seen penalty never disqualifies it.
         if percentile < HIGHLIGHT_PICK_MIN_PERCENTILE:

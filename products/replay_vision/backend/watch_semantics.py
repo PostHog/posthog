@@ -113,7 +113,7 @@ def assign_semantics_batch(
                 row["id"]: row
                 for row in ReplayObservation.objects.filter(
                     team_id=team_id, id__in=[key for key in keys if key]
-                ).values("id", "created_at", "watch_rank", "scanner_result", "scanner_snapshot")
+                ).values("id", "created_at", "watch_rank", "feed_group_id", "scanner_result", "scanner_snapshot")
             }
             center_sum = unpack(center.vector_sum).copy()
             member_count = center.member_count
@@ -123,7 +123,7 @@ def assign_semantics_batch(
             for item, key in zip(items, keys):
                 row = rows.get(key) if key else None
                 rank = current_rank({"watch_rank": row["watch_rank"]}) if row else None
-                if row is None or rank is None or rank.get("group"):
+                if row is None or rank is None or row["feed_group_id"]:
                     continue
                 v = semantic_vector(item.vector)
                 space = scanner_space(center_sum, member_count, v)
@@ -187,15 +187,6 @@ def assign_semantics_batch(
             if pruning_due:
                 _prune(team_id, scanner_id, items[-1].now)
             record_memberships(team_id, memberships)
-            # Older readers still find the ids in the rank until every reader has moved to the columns.
-            merge_watch_ranks(
-                team_id,
-                {
-                    observation_id: {"group": str(assignment.group_id)}
-                    | ({"theme": str(assignment.theme.theme_id)} if assignment.theme else {})
-                    for observation_id, assignment in assigned.items()
-                },
-            )
     except Exception:
         feed_group_cache.forget(scanner_id)
         raise

@@ -69,7 +69,7 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
             team_id=team_id, status="succeeded", created_at__gte=since, watch_rank__anchor_version=ANCHOR_VERSION
         )
         .annotate(has_similarities=has_similarities)
-        .filter(Q(watch_rank__group__isnull=True) | Q(watch_rank__scores__isnull=True) | Q(has_similarities=False))
+        .filter(Q(feed_group_id__isnull=True) | Q(watch_rank__scores__isnull=True) | Q(has_similarities=False))
     )
     if dry_run:
         return SemanticBackfillResult(observations=pending.count(), assigned=0, named=0)
@@ -85,7 +85,7 @@ def backfill_team_semantics(team_id: int, since: datetime, *, dry_run: bool = Fa
             page = page.filter(Q(created_at__gt=after[0]) | Q(created_at=after[0], id__gt=after[1]))
         values = list(
             page.values_list(
-                "id", "scanner_id", "created_at", "watch_rank__group", "watch_rank__scores", "has_similarities"
+                "id", "scanner_id", "created_at", "feed_group_id", "watch_rank__scores", "has_similarities"
             )[:_SLICE_ROWS]
         )
         if not values:

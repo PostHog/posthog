@@ -56,13 +56,16 @@ _BACKFILL = "products.replay_vision.backend.watch_semantics_backfill"
 
 
 def _rank(category: str = "failure") -> dict[str, Any]:
-    return {"category": category, "contrast": 0.2, "anchor_version": ANCHOR_VERSION, "duplicate_of": "retired"}
+    return {"category": category, "contrast": 0.2, "anchor_version": ANCHOR_VERSION}
 
 
 def _vector(*head: float) -> list[float]:
     vector = np.zeros(3072)
     vector[: len(head)] = head
     return (vector / np.linalg.norm(vector)).tolist()
+
+
+_KEPT_GROUP = uuid.UUID("00000000-0000-0000-0000-00000000c0de")
 
 
 class TestThemeRules(SimpleTestCase):
@@ -213,9 +216,6 @@ class TestAssignSemantics(BaseTest):
         assert self._counts(ReplayScannerSearchTheme) == [1, 2]
         first.refresh_from_db()
         assert first.watch_rank is not None
-        assert first.watch_rank["group"] == str(joined[0].group_id)
-        assert first.watch_rank["theme"] == str(joined[0].theme.theme_id)
-        assert "duplicate_of" not in first.watch_rank
         assert (first.feed_group_id, first.search_theme_id) == (joined[0].group_id, joined[0].theme.theme_id)
         # The redelivered row is not counted twice, and the routine row counts towards the group but not its issues.
         group_days = ReplayScannerFeedGroupDay.objects.for_team(self.team.id).filter(group_id=joined[0].group_id)
@@ -255,7 +255,7 @@ class TestAssignSemantics(BaseTest):
         assert assignment.theme is None
         observation.refresh_from_db()
         assert observation.watch_rank is not None
-        assert observation.watch_rank["group"] == str(assignment.group_id)
+        assert observation.feed_group_id == assignment.group_id
         assert "theme" not in observation.watch_rank
 
     @parameterized.expand(
@@ -299,7 +299,7 @@ class TestAssignSemantics(BaseTest):
     def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self, _name: str, late: bool) -> None:
         grouped = self._observation()
         ReplayObservation.objects.filter(id=grouped.id).update(
-            watch_rank={**_rank(), "group": "kept"}, status="succeeded", completed_at=timezone.now()
+            watch_rank=_rank(), feed_group_id=_KEPT_GROUP, status="succeeded", completed_at=timezone.now()
         )
         vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
 
@@ -314,7 +314,7 @@ class TestAssignSemantics(BaseTest):
 
         grouped.refresh_from_db()
         assert grouped.watch_rank is not None
-        assert grouped.watch_rank["group"] == "kept"
+        assert grouped.feed_group_id == _KEPT_GROUP
         assert set(grouped.watch_rank["scores"]) == {"failure", "struggle", "revenue", "routine"}
         assert (
             ReplayObservationAnchorSimilarity.objects.for_team(self.team.id)

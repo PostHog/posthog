@@ -30,7 +30,7 @@ from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, RankReques
 from products.replay_vision.backend.watch_rank_consumer import WatchRankConsumer, parse_rank_request
 
 _WATCH_RANK = "products.replay_vision.backend.watch_rank"
-_CURRENT_RANK = {"category": "struggle", "contrast": 0.2, "anchor_version": ANCHOR_VERSION, "group": "g1"}
+_CURRENT_RANK = {"category": "struggle", "contrast": 0.2, "anchor_version": ANCHOR_VERSION}
 _CONSUMER = "products.replay_vision.backend.watch_rank_consumer"
 
 
@@ -142,7 +142,7 @@ class TestWatchRankConsumer(BaseTest):
         else:
             assert observation.watch_rank is not None
             assert expected_rank.items() <= observation.watch_rank.items()
-            assert observation.watch_rank.get("group")
+            assert observation.feed_group_id
             # A redelivery returns before ranking, so only a fresh rank writes the similarity row.
             assert ReplayObservationAnchorSimilarity.objects.for_team(self.team.id).filter(
                 observation=observation

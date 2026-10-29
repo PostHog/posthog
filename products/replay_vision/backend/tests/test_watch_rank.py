@@ -47,7 +47,6 @@ def _row(
             "contrast": contrast,
             "anchor_version": anchor_version,
         }
-        | ({"group": group} if group else {})
     )
     return {
         "id": observation_id,
@@ -55,6 +54,7 @@ def _row(
         "session_id": session or f"session-{observation_id}",
         "created_at": _NOW - timedelta(minutes=minutes_ago),
         "watch_rank": rank,
+        "feed_group_id": group,
         "feed_viewed": viewed,
     }
 
