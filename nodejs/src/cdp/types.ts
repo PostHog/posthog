@@ -342,6 +342,10 @@ export type CyclotronJobInvocation = {
     queuePriority: number
     // When the invocation is scheduled to run
     queueScheduledAt?: DateTime
+    // When the queue first stored the job. A reschedule moves queueScheduledAt but not this, and a clone keeps it.
+    queueCreatedAt?: DateTime
+    // The scheduled time this job had when it was dequeued. A clone resets queueScheduledAt but keeps this.
+    queueDueAt?: DateTime
     // Metadata for the invocation - TODO: check when this gets cleared
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)

@@ -435,9 +435,9 @@ Implementation audit, October 28, 2026. These are proposed integration contracts
 ### BI-owned integration work
 
 - [x] Adopt the catalog overwrite-confirmation flow for worksheet metric proposals. Preserve entered values on cancel, allow retry, and keep overwritten metrics proposed.
-- [ ] Show catalog trust context when exploring a metric: approval and drift status, unit, owner, and stable identity. Distinguish the copied definition from current catalog state; never imply a snapshot follows catalog changes.
-- [ ] Add deliberate, searchable metric discovery in BI using the existing catalog search API. Handle loading, failure, no matches, pagination, and unsupported definition kinds explicitly.
-- [ ] Surface existing field descriptions and data-quality context in the data pane. Preserve raw field identities and distinguish certification from current check health.
+- [x] Show catalog trust context when exploring a metric: approval and drift status, unit, owner, and stable identity. Saved copies retain metadata from copy time, labeled **Catalog status when copied (unverified)** without positive approval styling. Only Proposed and Approved statuses are recorded. Older copies explicitly say no status was recorded. The metadata is editable worksheet content, not verified provenance or a live approval; authors are directed to the current catalog entry. Live version checks remain shared-layer work.
+- [x] Add deliberate, searchable metric discovery in BI using the existing catalog search API. The picker handles loading, failure, no matches, pagination, and unsupported definition kinds explicitly.
+- [x] Surface existing table and view field descriptions in the data pane, including related tables. Show recorded data-quality check health separately from certification, with explicit unavailable, unchecked, and error states. Raw field identities remain unchanged.
 
 ### Shared-layer requests
 

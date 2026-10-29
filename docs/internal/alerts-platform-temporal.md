@@ -47,6 +47,16 @@ Reverting the code that registers a schedule does not remove one already registe
 Verify the Postgres activity result and the delivery child's completion separately.
 Parent completion does not prove either succeeded. Schedule creation also does not prove worker availability.
 
+### Slack message formatting
+
+- Sources can register a Slack renderer with `register_source_slack_renderer` through the delivery facade.
+- Insight alert firings use the same attachment and control builders as their HogFunction templates.
+- Sources without a custom renderer, and insight transitions other than firings, use the platform's default layout.
+- The Slack transport preserves attachments for later message updates. If Slack rejects a chart image, it retries without the image and retains the remaining content.
+- A renderer always sets `text`. A push notification and a screen reader read it, and an attachment does not carry it.
+- A renderer that raises is counted on `alerts_platform_slack_renderer_failures_total` and the message goes out in the platform's layout.
+- A card that lives in an attachment also stores one stand-in block. A reader from before attachments edits `blocks` and indexes its last element, so an empty list would fail that edit during a rolling deploy.
+
 ### Turning a production deployment on
 
 A production tick is a shadow run. Delivery stops at `alerts-platform-deliver-preview`, which records what
@@ -535,8 +545,14 @@ A full logs backfill hit ClickHouse's per-user concurrent query limit and had to
 1. Copy one internal team with `--team-id`, then a small sample with `--sample-percent`, for example 5. The sample is chosen by alert id, so a rerun copies the same alerts and a larger percentage only adds alerts.
 2. Watch the parallel run's ClickHouse cost in `query_log`: its `client_query_id` starts with `alerts-platform-insight:`.
 3. Watch scheduler lag for `source=insight`, and the `capacity` skip reason on the platform's skipped-check counter. Capacity skips mean ClickHouse refused the query for load.
-4. Widen the sample only while both stay flat. `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the concurrent checks whatever the sample size. A batch refills the slots its finished checks free, in rounds within its tick, so the cap limits concurrency rather than checks per minute.
+4. Widen the sample only while both stay flat. Two pools bound the parallel run, whatever the sample size:
+   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS` caps the queries that run in ClickHouse at once. A check holds one of these slots only while its query runs. A check that gets no slot within 45 seconds records nothing and stays due for a later tick.
+   - `ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS` caps the checks admitted at once, and defaults to the query cap. An admitted check also locks itself, so a later run never starts the same check while it runs. An admitted check holds an evaluation worker slot until it ends, including while it waits for a query slot, so keep this cap inside the workers' activity slots.
+
+   Each worker reads both caps from its own environment, so set them to the same values on every worker that runs insight checks, the AI detector worker included.
+   A batch refills the check slots its finished checks free, in rounds within its tick, so the caps limit concurrency rather than checks per minute.
    `ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK` bounds how many teams' batches start each minute, so a larger sample can need it raised. Sixty times its value must cover the batch keys due per hour. Otherwise the checks due at the top of the hour start later and later, while ClickHouse stays idle.
+
 5. Raise that cap from its default of 10 only while the daily count of refused queries, `exception_code = 202` in `query_log`, stays flat for both `alerts_platform_insight` and the user that production insight alerts query as. The first shows the parallel run's own contention. The second shows whether it reaches production through the server-wide limit. Do not size it from per-second concurrency, which overcounts because short queries that run back to back inside one second read as concurrent. Code 202 also covers the server-wide limit, so a rise is a reason to look rather than proof that the cap caused it.
 
 To stop either parallel run, logs or insight, pass `--disable` to its backfill, with `--team-id` to stop one team.

@@ -43,6 +43,17 @@ function MyChart() {
 }
 ```
 
+`theme` is optional. A chart without it uses the nearest `ChartThemeProvider`, and
+without a provider it reads the vars itself. Set the theme once near the app root:
+
+```tsx
+import { ChartThemeProvider, useChartTheme } from '@posthog/quill-charts'
+
+function App() {
+  return <ChartThemeProvider value={useChartTheme()}>{/* … */}</ChartThemeProvider>
+}
+```
+
 - `useChartTheme(opts?)` — React hook; re-reads the vars when the `class` / `theme`
   attribute flips on `<html>` or `<body>`.
 - `themeFromCssVars(opts?)` — one-shot, non-React read.

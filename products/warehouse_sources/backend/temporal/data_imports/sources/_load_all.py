@@ -838,6 +838,7 @@ from .mycase.source import MycaseSource
 from .mysql.source import MySQLSource
 from .n8n.source import N8nSource
 from .nager_date.source import NagerDateSource
+from .nango.source import NangoSource
 from .nasa.source import NasaSource
 from .nationbuilder.source import NationBuilderSource
 from .navan.source import NavanSource

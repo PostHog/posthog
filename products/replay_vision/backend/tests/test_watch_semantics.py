@@ -11,6 +11,7 @@ import numpy as np
 from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
+from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.models.replay_scanner import (
@@ -35,7 +36,6 @@ from products.replay_vision.backend.semantic_space import (
     unit,
 )
 from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
-from products.replay_vision.backend.watch_feed_groups import feed_group_cache
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
 from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics, assign_semantics_batch
 from products.replay_vision.backend.watch_semantics_backfill import backfill_team_semantics
@@ -353,7 +353,7 @@ class TestAssignSemantics(BaseTest):
         client = MagicMock(aclose=AsyncMock())
         client.models.generate_content = AsyncMock(side_effect=[RuntimeError("model unavailable"), response])
         with (
-            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
         ):
             with self.assertRaises(RuntimeError):
@@ -381,7 +381,7 @@ class TestAssignSemantics(BaseTest):
         client = MagicMock(aclose=AsyncMock())
         client.models.generate_content = AsyncMock(side_effect=doubled_then_failed)
         with (
-            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
             self.assertRaises(RuntimeError),
         ):

@@ -1,10 +1,11 @@
+import gc
 import json
 import asyncio
 from collections.abc import Callable
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from django.test import override_settings
 
@@ -17,11 +18,13 @@ from google.genai import (
 from posthog.llm.gateway_client import AIGatewayHostError
 
 from products.replay_vision.backend.gemini_client import (
-    GATEWAY_FLAG,
+    GatewayNotConfiguredError,
     ReplayGemini,
     _AsyncGatewayModels,
     _with_headers,
     assemble_stream,
+    gemini_files_client,
+    gemini_text_models,
     replay_gemini_client,
 )
 from products.replay_vision.backend.temporal import pii_check
@@ -29,29 +32,8 @@ from products.replay_vision.backend.temporal.activities.upload_video_to_gemini i
 from products.replay_vision.backend.temporal.errors import FailureKind
 from products.replay_vision.backend.temporal.gemini import classify_gemini_error
 
-_GATEWAY = {
-    "AI_GATEWAY_URL": "https://ai-gateway.example/v1",
-    "AI_GATEWAY_API_KEY": "phs_gateway",
-    "REPLAY_VISION_GEMINI_API_KEY": "replay-vision-google-key",
-}
+_GATEWAY = {"AI_GATEWAY_URL": "https://ai-gateway.example/v1", "AI_GATEWAY_API_KEY": "phs_gateway"}
 _OK = {"candidates": [{"content": {"role": "model", "parts": [{"text": "ok"}]}, "finishReason": "STOP"}]}
-_FLAG = "products.replay_vision.backend.gemini_client.feature_enabled_or_false"
-
-
-_ORG = "0190e1a2-0000-7000-8000-000000000042"
-
-
-@pytest.fixture(autouse=True)
-def flag_on() -> Any:
-    with patch(_FLAG, return_value=True) as flag:
-        yield flag
-
-
-@pytest.fixture(autouse=True)
-def team_org() -> Any:
-    with patch("products.replay_vision.backend.gemini_client.Team") as team:
-        team.objects.values_list.return_value.aget = AsyncMock(return_value=_ORG)
-        yield team
 
 
 def _sse(*chunks: dict[str, Any]) -> bytes:
@@ -64,15 +46,11 @@ def _ok(request: httpx.Request) -> httpx.Response:
     return httpx.Response(200, json=_OK)
 
 
-async def _agateway_client(properties: dict[str, Any] | None = None) -> ReplayGemini:
+def _gateway_client(properties: dict[str, Any] | None = None) -> ReplayGemini:
     with override_settings(**_GATEWAY):
-        client = await replay_gemini_client(42, properties=properties)
+        client = replay_gemini_client(properties=properties)
     assert isinstance(client.models, _AsyncGatewayModels)
     return client
-
-
-def _gateway_client(properties: dict[str, Any] | None = None) -> ReplayGemini:
-    return asyncio.run(_agateway_client(properties))
 
 
 def _wired_gateway_client(
@@ -98,47 +76,22 @@ def _wire(client: ReplayGemini, respond: Callable[[httpx.Request], httpx.Respons
 
 
 class TestReplayGeminiClient:
-    def test_flag_off_stays_direct(self, flag_on: MagicMock) -> None:
-        flag_on.return_value = False
+    @pytest.mark.parametrize(
+        "build",
+        [
+            lambda: replay_gemini_client(),
+            lambda: gemini_text_models(timeout_ms=1000),
+            gemini_files_client,
+        ],
+    )
+    def test_an_unconfigured_gateway_fails_instead_of_calling_google(self, build: Callable[[], Any]) -> None:
         with (
-            override_settings(**_GATEWAY),
-            patch("products.replay_vision.backend.gemini_client.build_gemini_client") as build,
+            override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY=""),
+            patch("posthog.llm.gateway_client.genai.Client") as sdk_client,
+            pytest.raises(GatewayNotConfiguredError),
         ):
-            client = asyncio.run(replay_gemini_client(42))
-        build.assert_not_called()
-        assert client.raw._api_client.api_key == "replay-vision-google-key"
-        assert not isinstance(client.models, _AsyncGatewayModels)
-
-    def test_direct_mode_captures_with_privacy_mode_and_the_callers_properties(self, flag_on: MagicMock) -> None:
-        flag_on.return_value = False
-        with (
-            override_settings(**_GATEWAY),
-            patch("products.replay_vision.backend.gemini_client.genai.AsyncClient") as direct_client,
-        ):
-            client = asyncio.run(replay_gemini_client(42, properties={"feature": "scanner"}))
-        direct_client.assert_called_once_with(
-            api_key="replay-vision-google-key", posthog_privacy_mode=True, posthog_properties={"feature": "scanner"}
-        )
-        assert client.models is direct_client.return_value.models
-
-    def test_gateway_mode_needs_the_direct_key_cleanup_deletes_with(self) -> None:
-        settings = {**_GATEWAY, "REPLAY_VISION_GEMINI_API_KEY": "", "GEMINI_API_KEY": "shared-key"}
-        with override_settings(**settings):
-            client = asyncio.run(replay_gemini_client(42))
-        assert client.raw._api_client.api_key == "shared-key"
-        assert not isinstance(client.models, _AsyncGatewayModels)
-
-    def test_flag_is_evaluated_locally_per_org_without_events(self, flag_on: MagicMock, team_org: MagicMock) -> None:
-        _gateway_client()
-        team_org.objects.values_list.return_value.aget.assert_awaited_once_with(id=42)
-        flag_on.assert_called_once_with(
-            GATEWAY_FLAG,
-            "team-42",
-            groups={"organization": _ORG, "project": "42"},
-            group_properties={"organization": {"id": _ORG}, "project": {"id": "42"}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+            build()
+        sdk_client.assert_not_called()
 
     def test_per_call_capture_kwargs_become_request_headers(self) -> None:
         client, seen = _wired_gateway_client({"feature": "scanner", "team_id": 42})
@@ -151,7 +104,6 @@ class TestReplayGeminiClient:
                 posthog_distinct_id="user-1",
                 posthog_trace_id="trace-1",
                 posthog_properties={"$ai_span_name": "core", "feature": "override"},
-                posthog_groups={"project": "42"},
             )
         )
 
@@ -228,11 +180,10 @@ class TestReplayGeminiClient:
         assert merged.http_options.headers == {"a": "1", "b": "2"}
 
 
-def test_pii_rewrite_uses_the_gateway_when_configured() -> None:
+def test_pii_rewrite_uses_the_gateway() -> None:
     with (
         override_settings(**_GATEWAY),
         patch("posthog.llm.gateway_client.genai.Client") as gateway_client,
-        patch("products.replay_vision.backend.gemini_client.genai.AsyncClient") as direct_client,
     ):
         sdk = gateway_client.return_value
         sdk.aio.models.generate_content_stream = AsyncMock(side_effect=RuntimeError("stop"))
@@ -240,12 +191,49 @@ def test_pii_rewrite_uses_the_gateway_when_configured() -> None:
         with pytest.raises(RuntimeError):
             asyncio.run(pii_check.rewrite_without_pii(team_id=1, question="q", text={"a": "b"}, trace_id="t"))
 
-    direct_client.assert_not_called()
     request_headers = sdk.aio.models.generate_content_stream.call_args.kwargs["config"].http_options.headers
     assert json.loads(request_headers["X-PostHog-Properties"])["feature"] == "pii_rewrite"
     assert request_headers["X-PostHog-Span-Name"] == "pii_rewrite"
     sdk.close.assert_called_once()
     sdk.aio.aclose.assert_awaited_once()
+
+
+def test_text_models_send_the_timeout_and_capture_headers() -> None:
+    with override_settings(**_GATEWAY), patch("posthog.llm.gateway_client.genai.Client") as gateway_client:
+        gemini_text_models(timeout_ms=1000).generate_content(
+            model="m",
+            contents="c",
+            posthog_trace_id="t",
+            posthog_properties={"feature": "prompt_question", "team_id": 42},
+        )
+
+    assert gateway_client.call_args.kwargs["http_options"].timeout == 1000
+    headers = gateway_client.return_value.models.generate_content.call_args.kwargs["config"].http_options.headers
+    assert headers["X-PostHog-Trace-Id"] == "t"
+    assert json.loads(headers["X-PostHog-Properties"]) == {
+        "feature": "prompt_question",
+        "team_id": "42",
+        "ai_product": "replay_vision",
+    }
+
+
+def test_text_models_keep_their_client_open_between_calls() -> None:
+    with override_settings(**_GATEWAY):
+        models = gemini_text_models(timeout_ms=1000)
+    gc.collect()
+    seen: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return _ok(request)
+
+    http_client = models._client._api_client._httpx_client
+    assert http_client is not None
+    http_client._transport = httpx.MockTransport(respond)
+
+    assert models.generate_content(model="gemini-test", contents="hi").text == "ok"
+    assert models.generate_content(model="gemini-test", contents="again").text == "ok"
+    assert len(seen) == 2
 
 
 def _chunk(*parts: types.Part, finish: types.FinishReason | None = None) -> types.GenerateContentResponse:
