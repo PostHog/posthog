@@ -5093,6 +5093,30 @@ class TestSurveyWithActions(APIBaseTest):
         assert survey is not None
         assert len(survey.actions.all()) == 0
 
+    def test_update_without_conditions_keeps_associated_actions(self):
+        action = Action.objects.create(
+            team=self.team,
+            name="user subscribed",
+            steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],
+        )
+        survey_with_actions = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="survey with actions",
+            type="popover",
+            questions=[{"type": "open", "question": "Why's a hedgehog?"}],
+            conditions={"actions": {"values": [{"id": action.id}]}},
+        )
+        survey_with_actions.actions.set([action])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey_with_actions.id}/",
+            data={"name": "renamed survey"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert list(Survey.objects.get(id=survey_with_actions.id).actions.all()) == [action]
+
 
 class TestGetSurveyConditionsActionSanitization(SimpleTestCase):
     def test_public_action_serializer_strips_non_public_fields_from_stale_blob(self) -> None:

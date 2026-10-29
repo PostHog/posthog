@@ -17,6 +17,11 @@ describe('workflow survey targeting', () => {
             [{ properties: [EMAIL, CONDITION], rollout_percentage: 50 }],
         ],
         ['already limited', [{ properties: [CONDITION] }], [{ properties: [CONDITION] }]],
+        [
+            'an excluding workflow condition is replaced',
+            [{ properties: [EMAIL, { ...CONDITION, operator: 'is_not_set', value: 'is_not_set' }] }],
+            [{ properties: [EMAIL, CONDITION] }],
+        ],
     ])('limits %s to workflow recipients', (_, groups, expected) => {
         const filters = targetingFiltersLimitedToWorkflowRecipients(survey(groups))
         expect(filters.groups).toEqual(expected)

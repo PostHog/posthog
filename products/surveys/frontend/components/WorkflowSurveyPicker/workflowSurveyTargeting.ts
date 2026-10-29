@@ -14,11 +14,17 @@ function targetingGroups(survey: SurveyApi): FeatureFlagConditionGroupSchemaApi[
     return Array.isArray(groups) ? (groups as FeatureFlagConditionGroupSchemaApi[]) : []
 }
 
+function isWorkflowCondition(property: { key?: string; type?: string; operator?: string }, key: string): boolean {
+    return property.key === key && property.type === 'person' && property.operator === 'is_set'
+}
+
 /** True when every targeting group requires the person to have been reached by a workflow. */
 export function isLimitedToWorkflowRecipients(survey: SurveyApi): boolean {
     const key = workflowTriggeredPropertyKey(survey.id)
     const groups = targetingGroups(survey)
-    return groups.length > 0 && groups.every((group) => (group.properties ?? []).some((p) => p.key === key))
+    return (
+        groups.length > 0 && groups.every((group) => (group.properties ?? []).some((p) => isWorkflowCondition(p, key)))
+    )
 }
 
 /** Adds the workflow condition to each existing targeting group, keeping the survey's other conditions. */
@@ -36,9 +42,9 @@ export function targetingFiltersLimitedToWorkflowRecipients(survey: SurveyApi): 
     }
     return {
         groups: groups.map((group) =>
-            (group.properties ?? []).some((p) => p.key === key)
+            (group.properties ?? []).some((p) => isWorkflowCondition(p, key))
                 ? group
-                : { ...group, properties: [...(group.properties ?? []), condition] }
+                : { ...group, properties: [...(group.properties ?? []).filter((p) => p.key !== key), condition] }
         ),
     }
 }

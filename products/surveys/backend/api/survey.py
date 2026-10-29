@@ -2131,7 +2131,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             instance.targeting_flag.save()
 
         self._add_user_survey_interacted_filters(instance)
-        self._associate_actions(instance, validated_data.get("conditions"))
+        if "conditions" in validated_data:
+            self._associate_actions(instance, validated_data["conditions"])
         self._add_internal_response_sampling_filters(instance)
         return instance
 

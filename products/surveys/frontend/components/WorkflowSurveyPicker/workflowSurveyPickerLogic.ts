@@ -68,8 +68,17 @@ export const workflowSurveyPickerLogic = kea<workflowSurveyPickerLogicType>([
                     if (!values.currentProjectId) {
                         return []
                     }
-                    const response = await surveysList(String(values.currentProjectId), { archived: false, limit: 500 })
-                    return response.results
+                    const surveys: SurveyApi[] = []
+                    let response
+                    do {
+                        response = await surveysList(String(values.currentProjectId), {
+                            archived: false,
+                            limit: 500,
+                            offset: surveys.length,
+                        })
+                        surveys.push(...response.results)
+                    } while (response.next && response.results.length > 0)
+                    return surveys
                 },
             },
         ],
