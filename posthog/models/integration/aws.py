@@ -421,7 +421,7 @@ class AWSCredentialsIntegration:
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
         self.integration = model.integration_model(integration)
-        self.credentials = _read_aws_credentials(integration)
+        self.credentials = _read_aws_credentials(self.integration)
 
     @property
     def aws_account_id(self) -> str | None:
@@ -547,7 +547,7 @@ class S3CompatibleIntegration:
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
         self.integration = model.integration_model(integration)
-        self.credentials = _read_aws_credentials(integration)
+        self.credentials = _read_aws_credentials(self.integration)
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:
