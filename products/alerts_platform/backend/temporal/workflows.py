@@ -24,6 +24,7 @@ from products.alerts_platform.backend.temporal.metrics import (
     increment_discovery_omitted,
     increment_holds_expired,
     record_tick_end,
+    record_tick_keys,
     record_tick_start,
     safe_record,
 )
@@ -551,19 +552,17 @@ def _should_continue_as_new() -> bool:
 
 
 def _finished_tick(result: OrchestrateResult, cutoff_iso: str) -> OrchestrateResult:
-    """Records how long the tick took from its scheduled minute and how many keys it found due.
+    """Records how long the tick took from its scheduled minute.
 
     The tick logs no other line, so this one is how an investigation reads a single tick's numbers.
     """
     duration = workflow.now() - dt.datetime.fromisoformat(cutoff_iso)
-    keys = sum(page.dispatched for page in result.pages) + result.remaining
-    safe_record(record_tick_end, duration=duration, keys=keys, deadline_reached=result.deadline_reached)
+    safe_record(record_tick_end, duration=duration, deadline_reached=result.deadline_reached)
     workflow.logger.info(
         "Alerts platform tick finished",
         extra={
             "scheduled_at": cutoff_iso,
             "duration_ms": int(duration.total_seconds() * 1000),
-            "keys": keys,
             "dispatched": sum(page.dispatched for page in result.pages),
             "remaining": result.remaining,
             "pages": len(result.pages),
@@ -591,7 +590,7 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
                 SearchAttributeKey.for_datetime("TemporalScheduledStartTime"), info.workflow_start_time
             )
             now = workflow.now()
-            safe_record(record_tick_start, info.workflow_start_time - cutoff)
+            safe_record(record_tick_start, info.start_time - cutoff)
             hard_stop = info.execution_timeout or (TICK_DISPATCH_BUDGET + TICK_HARD_STOP_MARGIN)
             inputs = replace(
                 inputs,
@@ -614,6 +613,7 @@ class AlertsPlatformOrchestrateWorkflow(PostHogWorkflow):
             )
             demand = discovered.batch_keys_by_source
             inputs = replace(inputs, omitted=sum(discovered.omitted_by_source.values()))
+            safe_record(record_tick_keys, sum(len(keys) for keys in demand.values()) + inputs.omitted)
         else:
             demand = inputs.demand
 
