@@ -7,9 +7,11 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -246,3 +248,24 @@ class TestOrganizationOffboarding(APIBaseTest):
         log = ActivityLog.objects.get(team_id=self.team.pk, scope=scope, item_id=item_id, activity="sharing disabled")
         assert log.user_id == self.user.pk
         assert log.detail["changes"][0]["after"] is False
+
+    def test_self_review_hides_inaccessible_projects_but_removal_cleans_them_up(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        hidden_team = Team.objects.create(organization=self.organization, name="Private project")
+        AccessControl.objects.create(
+            team=hidden_team, resource="project", resource_id=str(hidden_team.pk), access_level="none"
+        )
+        visible = Dashboard.objects.create(team=self.team, created_by=self.departing)
+        hidden = Dashboard.objects.create(team=hidden_team, created_by=self.departing)
+        for dashboard in (visible, hidden):
+            SharingConfiguration.objects.create(team=dashboard.team, dashboard=dashboard, enabled=True)
+        assert len(self.client.get(self.url + "offboarding/").json()) == 2
+        self.client.force_login(self.departing)
+        response = self.client.get(self.url + "offboarding/")
+        assert response.status_code == 200
+        assert [item["team_id"] for item in response.json()] == [self.team.pk]
+        assert self.client.post(self.url + "offboard/", {}, format="json").status_code == 204
+        assert not SharingConfiguration.objects.filter(dashboard__in=[visible, hidden], enabled=True).exists()

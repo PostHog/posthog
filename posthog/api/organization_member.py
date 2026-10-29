@@ -384,6 +384,13 @@ class OrganizationMemberViewSet(
         )
         requesting_membership.validate_update(instance)
         resources = OrganizationOffboarding(instance).resources()
+        if requesting_membership.level < OrganizationMembership.Level.ADMIN:
+            visible_team_ids = set(
+                cast(User, request.user)
+                .teams.filter(organization_id=instance.organization_id)
+                .values_list("id", flat=True)
+            )
+            resources = [resource for resource in resources if resource.team_id in visible_team_ids]
         return Response(MemberOffboardingResourceSerializer(resources, many=True).data)
 
     @extend_schema(request=MemberOffboardingRequestSerializer, responses={204: None})
