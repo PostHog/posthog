@@ -12,7 +12,7 @@ import {
 } from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
-import { applyChartDefaults } from '../../core/chart-config'
+import { applyChartDefaults, PERCENT_TICK_FORMATTER } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import {
     buildSegmentResolveValue,
@@ -88,7 +88,7 @@ function LineChartInner<Meta = unknown>({
     children,
 }: LineChartProps<Meta>): React.ReactElement {
     const theme = useResolvedChartTheme(themeProp)
-    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
+    const config = applyChartDefaults(rawConfig)
     const {
         yScaleType = 'linear',
         percentStackView = false,
@@ -102,14 +102,10 @@ function LineChartInner<Meta = unknown>({
     const smooth = curve === 'monotone'
     // Resolve to primitives so an inline `{ x, y }` config object can't churn the draw callbacks.
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
-    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
-    const hasMultipleFilledSeries = useMemo(() => {
-        const filledSeries = visibleSeries.filter((s) => s.fill && !s.fill.lowerData)
-        return filledSeries.length >= 2
-    }, [visibleSeries])
+    const hasMultipleFilledSeries = visibleSeries.filter((s) => s.fill && !s.fill.lowerData).length >= 2
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (percentStackView) {
@@ -124,16 +120,11 @@ function LineChartInner<Meta = unknown>({
         return undefined
     }, [percentStackView, hasMultipleFilledSeries, visibleSeries, labels])
 
-    const chartConfig = useMemo(() => {
-        const base = { ...config, isPercent: percentStackView }
-        if (!percentStackView || config?.yTickFormatter) {
-            return base
-        }
-        return {
-            ...base,
-            yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
-        }
-    }, [config, percentStackView])
+    const chartConfig = {
+        ...config,
+        isPercent: percentStackView,
+        yTickFormatter: config?.yTickFormatter ?? (percentStackView ? PERCENT_TICK_FORMATTER : undefined),
+    }
 
     const createScales: CreateScalesFn = useCallback(
         (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
@@ -199,7 +190,7 @@ function LineChartInner<Meta = unknown>({
 
             // Grid sits behind the data; the L-axis is drawn after the series (below) so the line
             // doesn't paint over the baseline where it meets the axis.
-            const axisLineStyle = axisLines.x || axisLines.y
+            const axisLineStyle = xAxisLine || yAxisLine
             if (showGrid) {
                 drawGrid(baseDrawCtx, {
                     gridColor: theme.gridColor,
@@ -224,21 +215,21 @@ function LineChartInner<Meta = unknown>({
                 smooth,
                 // Rest baseline-hugging strokes on the axis line, and trim the first point's
                 // stroke at the y-axis, instead of straddling either axis line.
-                yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
-                clipLeftEdge: axisLines.y,
+                yFloor: xAxisLine ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
+                clipLeftEdge: yAxisLine,
             })
 
             if (axisLineStyle) {
                 const hasRightAxis = Object.values(d3Scales.yAxes ?? {}).some((axis) => axis.position === 'right')
                 drawAxes(baseDrawCtx, {
                     axisColor: resolveAxisLineColor(theme),
-                    xLine: axisLines.x,
-                    yLine: axisLines.y,
+                    xLine: xAxisLine,
+                    yLine: yAxisLine,
                     rightAxis: hasRightAxis,
                 })
             }
         },
-        [showGrid, axisLines, stackedData, smooth]
+        [showGrid, xAxisLine, yAxisLine, stackedData, smooth]
     )
 
     const drawHover = useCallback(
@@ -288,8 +279,8 @@ function LineChartInner<Meta = unknown>({
 
     // Stacked/percent-stacked areas: display each series's own segment value (resolveValue)
     // but anchor the tooltip/value labels at the stacked top (resolvePositionValue).
-    const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
-    const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
+    const resolveValue = buildSegmentResolveValue(stackedData)
+    const resolvePositionValue = buildStackedPositionValue(stackedData)
 
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-line-legend">

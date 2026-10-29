@@ -78,10 +78,7 @@ export function RadialChart<Meta = unknown>({
 
     // Wrap DefaultTooltip in a JSX render function so its hooks run inside its own component
     // tree — calling it as a plain function would violate rules-of-hooks.
-    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
-        () => renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} />),
-        [renderTooltipProp]
-    )
+    const renderTooltip = renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} />)
 
     const coloredSeries = useColoredSeries<Meta>(series, theme)
 
@@ -130,7 +127,7 @@ export function RadialChart<Meta = unknown>({
         hoverAnimationMs,
     })
 
-    const ariaLabel = useMemo(() => `Pie chart with ${countVisibleSeries(coloredSeries)} slices`, [coloredSeries])
+    const ariaLabel = `Pie chart with ${countVisibleSeries(coloredSeries)} slices`
 
     const canvasBounds = useCanvasBounds(canvasRef)
 

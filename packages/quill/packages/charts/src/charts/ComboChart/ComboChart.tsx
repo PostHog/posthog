@@ -23,7 +23,7 @@ import {
     type DrawContext,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
-import { applyChartDefaults } from '../../core/chart-config'
+import { applyChartDefaults, PERCENT_TICK_FORMATTER } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { barColorAt } from '../../core/color-utils'
 import { type ComboChartPrivate, createComboScales, partitionByType, resolveSeriesType } from '../../core/combo-scales'
@@ -94,7 +94,7 @@ function ComboChartInner<Meta = unknown>({
     children,
 }: Omit<ComboChartProps<Meta>, 'onError'>): React.ReactElement {
     const theme = useResolvedChartTheme(themeProp)
-    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
+    const config = applyChartDefaults(rawConfig)
     const {
         yScaleType = 'linear',
         showGrid = false,
@@ -110,7 +110,6 @@ function ComboChartInner<Meta = unknown>({
     } = config ?? {}
     const smooth = curve === 'monotone'
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
-    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
 
     const seriesTypeOf = useCallback(
         (s: Pick<Series, 'type'>): SeriesType => resolveSeriesType(s, defaultSeriesType),
@@ -208,7 +207,7 @@ function ComboChartInner<Meta = unknown>({
 
             // Grid sits behind the data; the L-axis is drawn after the series (below) so neither bars
             // nor lines paint over the baseline where they meet the axis.
-            const axisLineStyle = axisLines.x || axisLines.y
+            const axisLineStyle = xAxisLine || yAxisLine
             if (showGrid) {
                 // In the axis-line style only the value-axis grid guides reading; category lines
                 // through the band gaps are noise (line charts never draw them either).
@@ -265,16 +264,16 @@ function ComboChartInner<Meta = unknown>({
                 smooth,
                 // Rest baseline-hugging strokes on the axis line, and trim the first point's
                 // stroke at the y-axis, instead of straddling either axis line.
-                yFloor: axisLines.x ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
-                clipLeftEdge: axisLines.y,
+                yFloor: xAxisLine ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2 : undefined,
+                clipLeftEdge: yAxisLine,
             })
 
             if (axisLineStyle) {
                 const hasRightAxis = Object.values(comboScales.yAxes).some((axis) => axis.position === 'right')
                 drawAxes(baseDrawCtx, {
                     axisColor: resolveAxisLineColor(theme),
-                    xLine: axisLines.x,
-                    yLine: axisLines.y,
+                    xLine: xAxisLine,
+                    yLine: yAxisLine,
                     rightAxis: hasRightAxis,
                 })
             }
@@ -282,7 +281,8 @@ function ComboChartInner<Meta = unknown>({
         [
             seriesTypeOf,
             showGrid,
-            axisLines,
+            xAxisLine,
+            yAxisLine,
             xTickFormatter,
             barLayout,
             barStackedData,
@@ -385,22 +385,17 @@ function ComboChartInner<Meta = unknown>({
     // Bar segments report their own value; lines report raw. buildSegmentResolveValue's fallback
     // handles non-bar series automatically (they aren't in barStackedData), so the bar-only stack
     // still yields correct line values.
-    const resolveValue = useMemo(() => buildSegmentResolveValue(barStackedData), [barStackedData])
-    const resolvePositionValue = useMemo(() => buildStackedPositionValue(barStackedData), [barStackedData])
-    const resolveBottomValue = useMemo(() => buildStackedBottomValue(barStackedData), [barStackedData])
+    const resolveValue = buildSegmentResolveValue(barStackedData)
+    const resolvePositionValue = buildStackedPositionValue(barStackedData)
+    const resolveBottomValue = buildStackedBottomValue(barStackedData)
 
     // Mirrors BarChart: flag the axis context as percent (drives ValueLabels' 0-1 fraction
     // handling) and default the y-tick formatter to a percentage unless the caller overrides it.
-    const chartConfig = useMemo<ComboChartConfig>(() => {
-        const base = { ...config, isPercent: barLayout === 'percent' }
-        if (barLayout !== 'percent' || config?.yTickFormatter) {
-            return base
-        }
-        return {
-            ...base,
-            yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
-        }
-    }, [config, barLayout])
+    const chartConfig: ComboChartConfig = {
+        ...config,
+        isPercent: barLayout === 'percent',
+        yTickFormatter: config?.yTickFormatter ?? (barLayout === 'percent' ? PERCENT_TICK_FORMATTER : undefined),
+    }
 
     return (
         <Chart

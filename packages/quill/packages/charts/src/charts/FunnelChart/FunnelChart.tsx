@@ -101,6 +101,8 @@ function formatPercent(value: number): string {
     return `${parseFloat(value.toFixed(2))}%`
 }
 
+const FUNNEL_TICK_FORMATTER = (value: number): string => `${Math.round(value)}%`
+
 /** Reports each band's pixel box up to the wrapper so the step-footer row can align its cells
  *  under the bars without duplicating the chart's band math. Renders nothing. */
 function StepBandProbe({ onBands }: { onBands: (bands: StepBand[]) => void }): null {
@@ -229,59 +231,38 @@ export function FunnelChart<Meta = unknown>({
     const bandLabels = useMemo(() => steps.map((_, stepIndex) => `${stepIndex + 1}`), [steps])
     const stepLabelFromBand = useCallback((band: string): string => steps[Number(band) - 1] ?? band, [steps])
 
-    const barConfig = useMemo<BarChartConfig>(
-        () => ({
-            barLayout: 'grouped',
-            showGrid,
-            animateHover,
-            margins,
-            hideXAxis: hideStepLabels || hasStepFooter,
-            hideYAxis: hideValueAxis,
-            maxCategoryLabelWidth,
-            xTickFormatter: stepLabelFromBand,
-            yTickFormatter: (value) => `${Math.round(value)}%`,
-            barCornerRadius,
-            legend,
-            tooltip: {
-                placement: 'top',
-                valueFormatter: formatPercent,
-                labelFormatter: stepLabelFromBand,
-                ...tooltipConfig,
-            },
-            bars: {
-                track: true,
-                shadow: FUNNEL_BAR_SHADOW,
-                bandPadding: bandPadding ?? FUNNEL_BAND_PADDING,
-                minBarSize: minBarSize ?? FUNNEL_MIN_BAR_SIZE,
-                minBarSizeScope: 'hover',
-                maxBandRange,
-            },
-        }),
-        [
-            showGrid,
-            animateHover,
-            margins,
-            hideStepLabels,
-            hasStepFooter,
-            hideValueAxis,
-            maxCategoryLabelWidth,
-            stepLabelFromBand,
-            legend,
-            tooltipConfig,
-            barCornerRadius,
-            bandPadding,
+    const barConfig: BarChartConfig = {
+        barLayout: 'grouped',
+        showGrid,
+        animateHover,
+        margins,
+        hideXAxis: hideStepLabels || hasStepFooter,
+        hideYAxis: hideValueAxis,
+        maxCategoryLabelWidth,
+        xTickFormatter: stepLabelFromBand,
+        yTickFormatter: FUNNEL_TICK_FORMATTER,
+        barCornerRadius,
+        legend,
+        tooltip: {
+            placement: 'top',
+            valueFormatter: formatPercent,
+            labelFormatter: stepLabelFromBand,
+            ...tooltipConfig,
+        },
+        bars: {
+            track: true,
+            shadow: FUNNEL_BAR_SHADOW,
+            bandPadding: bandPadding ?? FUNNEL_BAND_PADDING,
+            minBarSize: minBarSize ?? FUNNEL_MIN_BAR_SIZE,
+            minBarSizeScope: 'hover',
             maxBandRange,
-        ]
-    )
+        },
+    }
 
-    const handlePointClick = useMemo(
-        () =>
-            onStepClick
-                ? (data: PointClickData<Meta>): void =>
-                      onStepClick({ ...data, stepIndex: data.dataIndex, converted: !data.inTrackArea })
-                : undefined,
-        [onStepClick]
-    )
+    const handlePointClick = onStepClick
+        ? (data: PointClickData<Meta>): void =>
+              onStepClick({ ...data, stepIndex: data.dataIndex, converted: !data.inTrackArea })
+        : undefined
 
     const [bands, setBands] = useState<StepBand[] | null>(null)
 

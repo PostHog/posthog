@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { useChartLayout } from '../../core/chart-context'
 import { type LabelBox, nonCollidingKeys } from '../../core/label-collision'
@@ -29,46 +29,42 @@ interface NameEntry {
 export function SlopeSeriesLabels({ show = true, offsetX = 8 }: SlopeSeriesLabelsProps): React.ReactElement | null {
     const { series, scales, labels } = useChartLayout()
 
-    const entries = useMemo<NameEntry[]>(() => {
-        if (!show || labels.length < 2) {
-            return []
+    if (!show || labels.length < 2) {
+        return null
+    }
+    const x1 = scales.x(labels[labels.length - 1])
+    if (x1 == null) {
+        return null
+    }
+    const entries: NameEntry[] = []
+    for (const s of series as ResolvedSeries[]) {
+        if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
+            continue
         }
-        const x1 = scales.x(labels[labels.length - 1])
-        if (x1 == null) {
-            return []
+        const y = scales.y(slopeEnd(s))
+        if (!isFinite(y)) {
+            continue
         }
-        const out: NameEntry[] = []
-        for (const s of series as ResolvedSeries[]) {
-            if (s.visibility?.excluded || s.visibility?.valueLabel === false) {
-                continue
-            }
-            const y = scales.y(slopeEnd(s))
-            if (!isFinite(y)) {
-                continue
-            }
-            const width = measureLabelWidth(s.label, SLOPE_LABEL_FONT)
-            out.push({
-                color: s.color,
-                label: s.label,
-                box: {
-                    key: s.key,
-                    x: x1 + offsetX + width / 2,
-                    y,
-                    halfWidth: width / 2 + LABEL_PADDING_X,
-                    halfHeight: SLOPE_LABEL_FONT_SIZE / 2 + LABEL_PADDING_Y,
-                    value: Math.abs(slopeDelta(s)),
-                    lines: [s.label],
-                },
-            })
-        }
-        return out
-    }, [series, scales, labels, show, offsetX])
-
-    const visibleKeys = useMemo(() => nonCollidingKeys(entries.map((e) => e.box)), [entries])
+        const width = measureLabelWidth(s.label, SLOPE_LABEL_FONT)
+        entries.push({
+            color: s.color,
+            label: s.label,
+            box: {
+                key: s.key,
+                x: x1 + offsetX + width / 2,
+                y,
+                halfWidth: width / 2 + LABEL_PADDING_X,
+                halfHeight: SLOPE_LABEL_FONT_SIZE / 2 + LABEL_PADDING_Y,
+                value: Math.abs(slopeDelta(s)),
+                lines: [s.label],
+            },
+        })
+    }
 
     if (entries.length === 0) {
         return null
     }
+    const visibleKeys = nonCollidingKeys(entries.map((e) => e.box))
 
     return (
         <>
