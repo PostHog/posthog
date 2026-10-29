@@ -11335,6 +11335,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, expected_status)
         if has_copy is not None:
+            self.assertEqual(response["Cache-Control"], "no-cache")
             claude_code = json.loads(response.content.decode("utf-8").splitlines()[0])["notification"]["params"][
                 "update"
             ]["_meta"]["claudeCode"]
