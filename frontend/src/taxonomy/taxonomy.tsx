@@ -1,7 +1,7 @@
 import type { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 
 import { UTM_CAMPAIGN_NAME_SCHEMA_FIELD, UTM_SOURCE_NAME_SCHEMA_FIELD } from '~/taxonomy/marketingAnalytics'
-import { CoreFilterDefinition } from '~/types'
+import { CoreFilterDefinition, PropertyDefinitionType } from '~/types'
 
 import coreFilterDefinitionsByGroup from './core-filter-definitions-by-group.json'
 import { transformFilterDefinitions } from './transformations'
@@ -30,6 +30,15 @@ CORE_FILTER_DEFINITIONS_BY_GROUP.events[''] = CORE_FILTER_DEFINITIONS_BY_GROUP.e
 delete CORE_FILTER_DEFINITIONS_BY_GROUP.events['All Events']
 
 export const PROPERTY_KEYS = Object.keys(CORE_FILTER_DEFINITIONS_BY_GROUP.event_properties)
+
+export function isCorePropertyKey(propertyKey: string, type?: PropertyDefinitionType): boolean {
+    if (!PROPERTY_KEYS.includes(propertyKey)) {
+        return false
+    }
+    // The taxonomy does not mirror some event keys onto persons because the same key means something else there,
+    // for example `title` is a page title on events and usually a job title on persons.
+    return type !== PropertyDefinitionType.Person || propertyKey in CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties
+}
 
 /**
  * these are properties that PostHog add to events they track for their own purposes
@@ -127,8 +136,12 @@ export const POSTHOG_EVENT_PROMOTED_PROPERTIES = {
 }
 export type KNOWN_PROMOTED_PROPERTY_PARENTS = keyof typeof POSTHOG_EVENT_PROMOTED_PROPERTIES
 
-export function isPostHogProperty(propertyKey: string, isCloudOrDev: boolean | undefined = false): boolean {
-    const isPostHogProperty = propertyKey.startsWith('$') || PROPERTY_KEYS.includes(propertyKey)
+export function isPostHogProperty(
+    propertyKey: string,
+    isCloudOrDev: boolean | undefined = false,
+    type?: PropertyDefinitionType
+): boolean {
+    const isPostHogProperty = propertyKey.startsWith('$') || isCorePropertyKey(propertyKey, type)
     const isNonDollarPostHogProperty = isCloudOrDev && CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS.includes(propertyKey)
     return isPostHogProperty || isNonDollarPostHogProperty
 }

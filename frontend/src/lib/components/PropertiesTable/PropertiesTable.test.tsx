@@ -233,6 +233,21 @@ describe('PropertiesTable inline editor', () => {
         })
     })
 
+    describe('core property keys', () => {
+        it.each<[PropertyDefinitionType, string, boolean]>([
+            [PropertyDefinitionType.Person, 'title', true],
+            [PropertyDefinitionType.Person, 'utm_source', false],
+            [PropertyDefinitionType.Event, 'title', false],
+        ])('%s property %s can be deleted: %s', (type, key, deletable) => {
+            const { container } = render(
+                <Provider>
+                    <PropertiesTable type={type} properties={{ [key]: 'value' }} onDelete={jest.fn()} />
+                </Provider>
+            )
+            expect(!!container.querySelector('[data-attr="delete-prop-button"]')).toBe(deletable)
+        })
+    })
+
     describe('collapsible complex values', () => {
         const renderWith = (collapsible: boolean): ReturnType<typeof render> => {
             return render(

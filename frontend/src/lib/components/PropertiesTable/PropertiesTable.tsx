@@ -22,9 +22,9 @@ import { getPropertyValueUrl } from '~/taxonomy/propertySources'
 import {
     KNOWN_PROMOTED_PROPERTY_PARENTS,
     POSTHOG_EVENT_PROMOTED_PROPERTIES,
+    isCorePropertyKey,
     isPostHogProperty,
 } from '~/taxonomy/taxonomy'
-import { PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { NewProperty } from 'products/persons/frontend/components/NewProperty'
@@ -98,7 +98,7 @@ function ValueDisplay({
 
     const [editing, setEditing] = useState(false)
     // Can edit if a key and edit callback is set, the property is custom (i.e. not PostHog), and the value is in the root of the object (i.e. no nested objects)
-    const canEdit = rootKey && !PROPERTY_KEYS.includes(rootKey) && (!nestingLevel || nestingLevel <= 1) && onEdit
+    const canEdit = rootKey && !isCorePropertyKey(rootKey, type) && (!nestingLevel || nestingLevel <= 1) && onEdit
 
     const textBasedTypes = ['string', 'number', 'bigint'] // Values that are edited with a text box
     const boolNullTypes = ['boolean', 'null'] // Values that are edited with the boolNullSelect dropdown
@@ -346,7 +346,7 @@ export function PropertiesTable({
                     return false
                 }
                 if (hidePostHogPropertiesInTable) {
-                    return !isPostHogProperty(key, isCloudOrDev)
+                    return !isPostHogProperty(key, isCloudOrDev, type)
                 }
                 return true
             })
@@ -518,7 +518,7 @@ export function PropertiesTable({
                 width: 0,
                 render: function Delete(_, item: any): JSX.Element | false {
                     return (
-                        !PROPERTY_KEYS.includes(item[0]) &&
+                        !isCorePropertyKey(item[0], type) &&
                         !String(item[0]).startsWith('$initial_') && (
                             <LemonButton
                                 icon={<IconTrash />}

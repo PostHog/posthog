@@ -96,6 +96,11 @@ PERSON_PROPERTIES_ADAPTED_FROM_EVENT: set[str] = {
     *CAMPAIGN_PROPERTIES,
 }
 
+# On persons, `title` is usually a job title, so the page title definition must not label it.
+EVENT_PROPERTIES_NOT_MIRRORED_TO_PERSONS: set[str] = {
+    "title",
+}
+
 SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS = {
     "$referring_domain",
     "utm_source",
@@ -1832,6 +1837,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Path name",
             "description": "The path of the Current URL, which means everything in the url after the domain.",
             "examples": ["/pricing", "/about-us/team"],
+        },
+        "title": {
+            "label": "Page title",
+            "description": "The title of the page (document.title) when the event was captured. posthog-js sets this on $pageview events. On custom events, title is whatever the app sent, for example a job title.",
+            "examples": ["Pricing - PostHog", "Home - My App"],
+        },
+        "navigation_type": {
+            "label": "Navigation type",
+            "description": "The browser history change that triggered this pageview in a single-page app. posthog-js sets this on $pageview events it captures from history changes.",
+            "examples": ["pushState", "replaceState", "popstate", "hashchange"],
         },
         "$search_engine": {
             "label": "Search engine",
@@ -4280,7 +4295,7 @@ for key, value in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items():
                 else "Data from the first time this user was seen."
             ),
         }
-    else:
+    elif key not in EVENT_PROPERTIES_NOT_MIRRORED_TO_PERSONS:
         CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"][key] = value
 
     if key in SESSION_INITIAL_PROPERTIES_ADAPTED_FROM_EVENTS:
