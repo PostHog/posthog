@@ -5,6 +5,7 @@ from posthog.schema import HogQLPropertyFilter
 
 from posthog.models import Team, User
 
+from ..ai_blobs import BlobPointer as BlobPointer
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
