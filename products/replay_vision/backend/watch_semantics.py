@@ -30,6 +30,7 @@ from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerSearchTheme,
     ReplayScannerSemanticCenter,
 )
+from products.replay_vision.backend.observation_ranks import set_rank_clusters
 from products.replay_vision.backend.scanner_access import scanners_for_reading_observations
 from products.replay_vision.backend.semantic_space import (
     SEMANTIC_DIMENSIONS,
@@ -166,6 +167,13 @@ def assign_semantics_batch(
                 {
                     observation_id: {"group": str(assignment.group_id)}
                     | ({"theme": str(assignment.theme.theme_id)} if assignment.theme else {})
+                    for observation_id, assignment in assigned.items()
+                },
+            )
+            set_rank_clusters(
+                team_id,
+                {
+                    observation_id: (assignment.group_id, assignment.theme.theme_id if assignment.theme else None)
                     for observation_id, assignment in assigned.items()
                 },
             )
