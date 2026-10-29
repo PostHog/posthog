@@ -969,7 +969,15 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
         },
         createPrFromReport: async ({ report, feedback }) => {
             // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
-            const { reportGithubAccessLogic } = await import('./logics/reportGithubAccessLogic')
+            const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
+                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                return null
+            })
+            if (!githubAccess) {
+                actions.createPrFailure()
+                return
+            }
+            const { reportGithubAccessLogic } = githubAccess
             const disabledReason =
                 values.createPrDisabledReason ??
                 (
