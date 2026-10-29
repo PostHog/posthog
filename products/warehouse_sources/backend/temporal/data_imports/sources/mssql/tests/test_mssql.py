@@ -3,7 +3,9 @@ import threading
 import pytest
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 import pymssql
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
@@ -103,6 +105,20 @@ class TestMSSQLColumnToArrowField:
         col = MSSQLColumn(name="x", data_type="decimal", nullable=True)
         with pytest.raises(TypeError, match="numeric_precision"):
             col.to_arrow_field()
+
+    @parameterized.expand(
+        [
+            ("tinyint", pa.uint8()),
+            ("smallint", pa.int16()),
+            ("int", pa.int32()),
+            ("bigint", pa.int64()),
+        ]
+    )
+    def test_integer_types_match_mssql_value_range(self, data_type, expected_arrow_type):
+        # tinyint is 0-255 in MSSQL, unlike every signed integer type here; a signed arrow
+        # type raises ArrowInvalid as soon as a row carries a value above 127.
+        col = MSSQLColumn(name="x", data_type=data_type, nullable=True)
+        assert col.to_arrow_field().type == expected_arrow_type
 
 
 class TestBuildQuery:
