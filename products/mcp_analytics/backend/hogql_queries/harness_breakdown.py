@@ -13,7 +13,6 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
@@ -21,6 +20,7 @@ from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
 from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
+    HarnessLabelQueryRunner,
     effective_tool_expr,
     mcp_query_date_range,
     mcp_source_expr,
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 
-class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQueryResponse]):
+class MCPHarnessBreakdownQueryRunner(HarnessLabelQueryRunner[MCPHarnessBreakdownQueryResponse]):
     """MCP tool-call activity grouped by the resolved client harness.
 
     Powers the dashboard's harness tile and the `query-mcp-harness-breakdown` MCP

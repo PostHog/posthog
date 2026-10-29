@@ -31,8 +31,8 @@ def custom_harness_rules(team: Team) -> tuple[contracts.CustomHarnessRule, ...]:
     return custom_harnesses.custom_harness_rules(team)
 
 
-def refresh_custom_harness_rules(team: Team) -> None:
-    custom_harnesses.refresh_custom_harness_rules(team)
+def invalidate_custom_harness_rules(team: Team) -> None:
+    custom_harnesses.invalidate_custom_harness_rules(team)
 
 
 def mcp_harness_virtual_field_expr(custom_rules: Sequence[contracts.CustomHarnessRule] = ()) -> ast.Expr:

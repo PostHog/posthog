@@ -13,8 +13,6 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.hogql.database.sources_cache import clear_sources_cache
-
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
@@ -421,18 +419,14 @@ class MCPCustomHarnessViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # saved under its parent. safely_get_queryset already scopes every read.
         return True
 
-    def _invalidate_harness_caches(self) -> None:
-        api.refresh_custom_harness_rules(self.team)
-        clear_sources_cache()
-
     def perform_create(self, serializer: BaseSerializer[Any]) -> None:
         super().perform_create(serializer)
-        self._invalidate_harness_caches()
+        api.invalidate_custom_harness_rules(self.team)
 
     def perform_update(self, serializer: BaseSerializer[Any]) -> None:
         super().perform_update(serializer)
-        self._invalidate_harness_caches()
+        api.invalidate_custom_harness_rules(self.team)
 
     def perform_destroy(self, instance: MCPCustomHarness) -> None:
         super().perform_destroy(instance)
-        self._invalidate_harness_caches()
+        api.invalidate_custom_harness_rules(self.team)
