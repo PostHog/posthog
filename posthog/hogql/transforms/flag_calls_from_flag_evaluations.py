@@ -49,8 +49,9 @@ _MAX_UTC_OFFSET = timedelta(hours=14)
 # How far before UTC midnight a date can start in some zone. A zone behind UTC can still be on the previous date, and
 # a zone 14 hours ahead of UTC starts that date 14 hours before UTC does.
 _DAY_IN_ANY_TIMEZONE = timedelta(days=1) + _MAX_UTC_OFFSET
-# A daylight-saving change moves calendar arithmetic in a timezone by up to an hour.
-_DST_MARGIN = timedelta(hours=1)
+# A daylight-saving change moves calendar arithmetic in a timezone by up to two hours. Antarctica/Troll changes by
+# two hours.
+_DST_MARGIN = timedelta(hours=2)
 
 _UNIT_LENGTHS: dict[str, tuple[timedelta, timedelta]] = {
     "Second": (timedelta(seconds=1), timedelta(seconds=1)),

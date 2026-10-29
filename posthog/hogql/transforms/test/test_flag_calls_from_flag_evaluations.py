@@ -431,8 +431,26 @@ class TestCanReadFlagEvaluations(SimpleTestCase):
 
         assert self._can_read(_bounded_by(bound), placeholders, timezone) is expected
 
-    @time_machine.travel(datetime(2026, 10, 24, 12, 0, tzinfo=UTC), tick=False)
-    def test_refuses_a_date_rounding_shifted_before_coverage_in_a_zone_behind_utc(self):
-        bound = "toMonday(toDateTime('2026-08-02 22:00:00')) - INTERVAL 1 HOUR"
-
-        assert self._can_read(_bounded_by(bound), timezone="America/Los_Angeles") is False
+    @parameterized.expand(
+        [
+            (
+                "date_rounding_shifted_in_a_zone_behind_utc",
+                datetime(2026, 10, 24, 12, 0, tzinfo=UTC),
+                "America/Los_Angeles",
+                "toMonday(toDateTime('2026-08-02 22:00:00')) - INTERVAL 1 HOUR",
+            ),
+            # Troll is on UTC+0 now and was on UTC+2 89 days back, so subtracting 89 days lands two hours earlier
+            # in UTC than 89 times 24 hours does.
+            (
+                "day_rounding_across_a_two_hour_dst_change",
+                datetime(2026, 10, 28, 23, 30, tzinfo=UTC),
+                "Antarctica/Troll",
+                f"toStartOfDay(now() - INTERVAL {FLAG_EVALUATIONS_COMPLETE_DAYS} DAY)",
+            ),
+        ]
+    )
+    def test_refuses_a_bound_that_calendar_arithmetic_moves_before_coverage(
+        self, _name: str, now: datetime, timezone: str, bound: str
+    ):
+        with time_machine.travel(now, tick=False):
+            assert self._can_read(_bounded_by(bound), timezone=timezone) is False
