@@ -7,7 +7,7 @@
         "review_state": {
             "anyOf": [
                 {
-                    "description": "* `known` - Known\n* `resolved` - Resolved\n* `not_an_issue` - Not an issue\n* `` - None",
+                    "description": "* `known` - Known\n* `resolved` - Resolved\n* `not_an_issue` - Not an issue",
                     "enum": ["known", "resolved", "not_an_issue"],
                     "type": "string"
                 },
@@ -16,7 +16,7 @@
                     "type": "string"
                 }
             ],
-            "description": "`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n* `known` - Known\n* `resolved` - Resolved\n* `not_an_issue` - Not an issue\n* `` - None"
+            "description": "`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n* `known` - Known\n* `resolved` - Resolved\n* `not_an_issue` - Not an issue"
         }
     },
     "required": ["id", "review_state"],

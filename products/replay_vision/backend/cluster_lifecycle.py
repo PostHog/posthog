@@ -5,7 +5,8 @@ A person's review takes precedence, except that new members after `resolved` reo
 """
 
 from datetime import datetime, timedelta
-from enum import StrEnum
+
+from django.db import models
 
 from products.replay_vision.backend.models.replay_scanner_semantics import ClusterReview
 
@@ -17,7 +18,7 @@ DORMANT_AFTER = timedelta(days=14)
 FADING_SHARE = 0.5
 
 
-class ClusterStatus(StrEnum):
+class ClusterStatus(models.TextChoices):
     EMERGING = "emerging"
     ACTIVE = "active"
     FADING = "fading"
@@ -25,7 +26,7 @@ class ClusterStatus(StrEnum):
     KNOWN = "known"
     RESOLVED = "resolved"
     REGRESSED = "regressed"
-    NOT_AN_ISSUE = "not_an_issue"
+    NOT_AN_ISSUE = "not_an_issue", "Not an issue"
 
 
 def cluster_status(

@@ -26,7 +26,7 @@
         },
         "order": {
             "default": "people",
-            "description": "`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n* `people` - people\n* `observations` - observations\n* `growth` - growth\n* `recent` - recent",
+            "description": "`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n* `people` - People\n* `observations` - Observations\n* `growth` - Growth\n* `recent` - Recent",
             "enum": ["people", "observations", "growth", "recent"],
             "type": "string"
         },

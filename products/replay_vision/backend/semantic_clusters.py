@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
+from django.db import models
 from django.db.models import CharField, Count, F, Max, Min, Q, QuerySet, Sum, Value, Window
 from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Coalesce, NullIf, RowNumber
@@ -49,7 +50,7 @@ class ClusterKind(StrEnum):
     GROUP = "group"
 
 
-class ClusterOrder(StrEnum):
+class ClusterOrder(models.TextChoices):
     PEOPLE = "people"
     OBSERVATIONS = "observations"
     GROWTH = "growth"
@@ -170,8 +171,8 @@ def summarize_clusters(
         .annotate(
             window_count=Coalesce(Sum(count, filter=in_window), 0),
             previous_count=Coalesce(Sum(count, filter=~in_window), 0),
-            first_seen=Min("day", filter=in_window & Q(**{f"{count}__gt": 0})),
-            last_seen=Max("day", filter=in_window & Q(**{f"{count}__gt": 0})),
+            first_seen=Min("day", filter=in_window & Q(observation_count__gt=0)),
+            last_seen=Max("day", filter=in_window & Q(observation_count__gt=0)),
         )
         .filter(window_count__gt=0)
         .annotate(growth=F("window_count") - F("previous_count"))
@@ -280,6 +281,7 @@ def _readable_days(
 def _reviewed(days: QuerySet[Any], tables: _KindTables, scope: ClusterScope) -> QuerySet[Any]:
     if scope.review_states:
         states = [("" if state == UNREVIEWED else state) for state in scope.review_states]
+        # nosemgrep: semgrep.rules.security.orm-field-injection -- day_cluster comes from the fixed _TABLES map, never from input
         days = days.filter(**{f"{tables.day_cluster}__review_state__in": states})
     return days
 

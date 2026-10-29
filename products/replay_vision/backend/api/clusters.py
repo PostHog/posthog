@@ -102,7 +102,7 @@ class _PageQueryFields(serializers.Serializer):
         ),
     )
     order = serializers.ChoiceField(
-        choices=[(order.value, order.value) for order in ClusterOrder],
+        choices=ClusterOrder.choices,
         default=ClusterOrder.PEOPLE.value,
         help_text=(
             "`people` (distinct people affected), `observations` (member count), `growth` (members gained over "
@@ -129,7 +129,7 @@ class VariantCountSerializer(serializers.Serializer):
 
 class ClusterReviewSerializer(serializers.Serializer):
     review_state = serializers.ChoiceField(
-        choices=[*ClusterReview.choices, ("", "None")],
+        choices=ClusterReview.choices,
         allow_blank=True,
         help_text=(
             "`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, "
@@ -152,7 +152,7 @@ class ClusterSerializer(serializers.Serializer):
         ),
     )
     status = serializers.ChoiceField(
-        choices=[(status.value, status.value) for status in ClusterStatus],
+        choices=ClusterStatus.choices,
         help_text=(
             "Where the cluster stands. From its activity: `emerging` (first member this week), `active`, `fading` "
             "(last week under half of the week before) or `dormant` (no member for two weeks). From a review: "

@@ -470,7 +470,7 @@ export const VisionGroupsListQueryParams = () => zod.object({
         .enum(['people', 'observations', 'growth', 'recent'])
         .default(visionGroupsListQueryOrderDefault)
         .describe(
-            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - people\n\* `observations` - observations\n\* `growth` - growth\n\* `recent` - recent'
+            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - People\n\* `observations` - Observations\n\* `growth` - Growth\n\* `recent` - Recent'
         ),
     review_state: zod
         .string()
@@ -563,13 +563,11 @@ export const VisionGroupsReviewCreateBody = () => zod.object({
         .union([
             zod
                 .enum(['known', 'resolved', 'not_an_issue'])
-                .describe(
-                    '\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
-                ),
+                .describe('\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue'),
             zod.enum(['']),
         ])
         .describe(
-            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue'
         ),
 })
 
@@ -2717,7 +2715,7 @@ export const VisionThemesListQueryParams = () => zod.object({
         .enum(['people', 'observations', 'growth', 'recent'])
         .default(visionThemesListQueryOrderDefault)
         .describe(
-            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - people\n\* `observations` - observations\n\* `growth` - growth\n\* `recent` - recent'
+            '`people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).\n\n\* `people` - People\n\* `observations` - Observations\n\* `growth` - Growth\n\* `recent` - Recent'
         ),
     review_state: zod
         .string()
@@ -2780,12 +2778,10 @@ export const VisionThemesReviewCreateBody = () => zod.object({
         .union([
             zod
                 .enum(['known', 'resolved', 'not_an_issue'])
-                .describe(
-                    '\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
-                ),
+                .describe('\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue'),
             zod.enum(['']),
         ])
         .describe(
-            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue'
         ),
 })

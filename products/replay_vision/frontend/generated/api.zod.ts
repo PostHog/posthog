@@ -453,13 +453,11 @@ export const VisionGroupsReviewCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['known', 'resolved', 'not_an_issue'])
-                .describe(
-                    '\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
-                ),
+                .describe('\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue'),
             zod.enum(['']),
         ])
         .describe(
-            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue'
         ),
 })
 
@@ -1587,12 +1585,10 @@ export const VisionThemesReviewCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod
                 .enum(['known', 'resolved', 'not_an_issue'])
-                .describe(
-                    '\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
-                ),
+                .describe('\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue'),
             zod.enum(['']),
         ])
         .describe(
-            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue\n\* `` - None'
+            '`known` (the team is aware), `resolved` (fixed; new members reopen it as `regressed`), `not_an_issue`, or an empty string to clear the review.\n\n\* `known` - Known\n\* `resolved` - Resolved\n\* `not_an_issue` - Not an issue'
         ),
 })

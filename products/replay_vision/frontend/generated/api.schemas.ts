@@ -584,14 +584,14 @@ export interface PaginatedVisionAlertEventListApi {
 }
 
 /**
- * * `emerging` - emerging
- * * `active` - active
- * * `fading` - fading
- * * `dormant` - dormant
- * * `known` - known
- * * `resolved` - resolved
- * * `regressed` - regressed
- * * `not_an_issue` - not_an_issue
+ * * `emerging` - Emerging
+ * * `active` - Active
+ * * `fading` - Fading
+ * * `dormant` - Dormant
+ * * `known` - Known
+ * * `resolved` - Resolved
+ * * `regressed` - Regressed
+ * * `not_an_issue` - Not an issue
  */
 export type ClusterStatusEnumApi = (typeof ClusterStatusEnumApi)[keyof typeof ClusterStatusEnumApi]
 
@@ -629,14 +629,14 @@ export interface ClusterApi {
     name: string | null
     /** Where the cluster stands. From its activity: `emerging` (first member this week), `active`, `fading` (last week under half of the week before) or `dormant` (no member for two weeks). From a review: `known`, `resolved`, `regressed` (new members after it was resolved) or `not_an_issue`.
      *
-     * * `emerging` - emerging
-     * * `active` - active
-     * * `fading` - fading
-     * * `dormant` - dormant
-     * * `known` - known
-     * * `resolved` - resolved
-     * * `regressed` - regressed
-     * * `not_an_issue` - not_an_issue */
+     * * `emerging` - Emerging
+     * * `active` - Active
+     * * `fading` - Fading
+     * * `dormant` - Dormant
+     * * `known` - Known
+     * * `resolved` - Resolved
+     * * `regressed` - Regressed
+     * * `not_an_issue` - Not an issue */
     status: ClusterStatusEnumApi
     /** The team's review, or an empty string when nobody reviewed it. */
     review_state: string
@@ -674,7 +674,6 @@ export interface ClusterListApi {
  * * `known` - Known
  * * `resolved` - Resolved
  * * `not_an_issue` - Not an issue
- * * `` - None
  */
 export type ClusterReviewEnumApi = (typeof ClusterReviewEnumApi)[keyof typeof ClusterReviewEnumApi]
 
@@ -690,8 +689,7 @@ export interface ClusterReviewApi {
      *
      * * `known` - Known
      * * `resolved` - Resolved
-     * * `not_an_issue` - Not an issue
-     * * `` - None */
+     * * `not_an_issue` - Not an issue */
     review_state: (typeof ClusterReviewApiReviewState)[keyof typeof ClusterReviewApiReviewState]
 }
 
@@ -3189,10 +3187,10 @@ export type VisionGroupsListParams = {
     /**
      * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
      *
-     * * `people` - people
-     * * `observations` - observations
-     * * `growth` - growth
-     * * `recent` - recent
+     * * `people` - People
+     * * `observations` - Observations
+     * * `growth` - Growth
+     * * `recent` - Recent
      * @minLength 1
      */
     order?: VisionGroupsListOrder
@@ -3969,10 +3967,10 @@ export type VisionThemesListParams = {
     /**
      * `people` (distinct people affected), `observations` (member count), `growth` (members gained over the same-length window before `date_from`), or `recent` (newest member first).
      *
-     * * `people` - people
-     * * `observations` - observations
-     * * `growth` - growth
-     * * `recent` - recent
+     * * `people` - People
+     * * `observations` - Observations
+     * * `growth` - Growth
+     * * `recent` - Recent
      * @minLength 1
      */
     order?: VisionThemesListOrder
