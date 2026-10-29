@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
@@ -98,6 +98,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
                 throw Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: 'ENOENT' })
             }
             return contents
+        },
+        isDirectory: async (path) =>
+            options.useDisk
+                ? existsSync(path) && statSync(path).isDirectory()
+                : Object.keys(files).some((file) => file.startsWith(`${path.replace(/\/$/, '')}/`)),
+        writeFile: async (path, contents) => {
+            files[path] = contents
         },
         writePrivateFile: async (path, contents) => {
             files[path] = contents

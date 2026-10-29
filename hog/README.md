@@ -29,6 +29,8 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog error-tracking release`              | Finds or creates the release for this build. `-o text` prints just its ID.                                              |
 | `hog error-tracking download <id/ref>`    | Downloads a symbol set from PostHog and unpacks it.                                                                     |
 | `hog error-tracking extract <file>`       | Unpacks a symbol set file.                                                                                              |
+| `hog schema pull`                         | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.         |
+| `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                        |
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                           |
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                 |
 | Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
@@ -41,7 +43,6 @@ First, the commands that make hog a complete CLI:
 
 - [ ] `hog api skill` and `hog api agents-md`, which install PostHog agent skills and the AGENTS.md snippet.
 - [ ] `hog endpoints`: `list`, `get`, `open`, `run`, `push`, `pull` and `diff`.
-- [ ] `hog schema`: `pull` and `status`, which download event definitions and generate a typed SDK.
 
 Then, once the commands above work:
 
@@ -85,6 +86,9 @@ Point `$schema` at the published schema to get validation in your editor:
   }
 }
 ```
+
+`hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
+posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
 `posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter @posthog/hog schema`.
 

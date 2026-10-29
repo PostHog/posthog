@@ -7,12 +7,14 @@ import config from './config'
 import errorTracking from './error-tracking'
 import { LEGACY_COMMANDS } from './legacy'
 import query from './query'
+import schema from './schema'
 
 export const COMMANDS: CommandTree = {
     auth,
     query,
     api,
     'error-tracking': errorTracking,
+    schema,
     config,
     commands,
     ...LEGACY_COMMANDS,

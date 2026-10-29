@@ -115,6 +115,8 @@ describe('hog', () => {
             'error-tracking release',
             'error-tracking download',
             'error-tracking extract',
+            'schema pull',
+            'schema status',
             'config check',
             'config schema',
             'commands',
