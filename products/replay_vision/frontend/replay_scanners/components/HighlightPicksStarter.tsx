@@ -4,13 +4,14 @@ import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditCount, formatCreditNumber, formatCreditsMaybeUsd } from '../../utils/credits'
 import { highlightPicksLogic } from '../highlightPicksLogic'
-import { BUDGET_PRESETS, QUICKSTART_SCANNER, TARGET_MONTHLY_SCANS, weeklyVolume } from '../highlightPicksStarter'
+import { BUDGET_PRESETS, TARGET_MONTHLY_SCANS, weeklyVolume } from '../highlightPicksStarter'
 import { highlightPicksStarterLogic } from '../highlightPicksStarterLogic'
 import { highlightPicksVolumeLogic } from '../highlightPicksVolumeLogic'
 import { HighlightPicksStateFrame } from './HighlightPicksStateFrame'
@@ -56,7 +57,7 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
             body={
                 volume
                     ? null
-                    : `Start ${QUICKSTART_SCANNER.name}, a scanner that reads each new recording and surfaces the ones worth watching.`
+                    : 'Start scanning your sessions. A scanner reads each new recording and surfaces the ones worth watching.'
             }
             dataAttr="vision-highlight-picks-starter"
             footer={
@@ -130,7 +131,7 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
             >
                 {spendMode === 'free'
                     ? burstCount > 0
-                        ? `Scan the newest ${burstCount}, free`
+                        ? `Scan ${pluralize(burstCount, 'recent recording')} for free`
                         : 'Start free scanner'
                     : `Start with ${formatCreditCount(budget)} a month`}
             </LemonButton>
