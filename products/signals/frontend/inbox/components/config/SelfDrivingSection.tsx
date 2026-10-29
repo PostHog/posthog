@@ -734,6 +734,31 @@ function PullRequestLabelRow(): JSX.Element {
 }
 
 /**
+ * Team-wide opt-out of anomaly scoring. PostHog decides which projects scoring covers, so the row
+ * only renders for a covered project, and the switch can stop scoring but cannot start it.
+ */
+function AnomalyScoringRow(): JSX.Element {
+    const { anomalyScoringEnabled, teamConfigUpdating } = useValues(signalTeamConfigLogic)
+    const { patchTeamConfig } = useActions(signalTeamConfigLogic)
+
+    return (
+        <AutonomySettingRow
+            title="Anomaly scoring"
+            description="Check your active trends insights for anomalies every hour. Results are saved as $anomaly_score events, which are free. Turn this off to stop new events. Events already saved stay."
+            control={
+                <LemonSwitch
+                    checked={anomalyScoringEnabled}
+                    loading={teamConfigUpdating}
+                    onChange={(enabled) => patchTeamConfig({ anomaly_scoring_enabled: enabled })}
+                    aria-label="Score active trends insights for anomalies"
+                    data-attr="signals-anomaly-scoring-enabled"
+                />
+            }
+        />
+    )
+}
+
+/**
  * Per-user opt-in to being added as a GitHub assignee on the implementation PR for reports that
  * suggest this user as reviewer. Off by default, because being assigned is visible to everybody on
  * the pull request. Renders regardless of the auto-start toggle: a PR opened by hand from the inbox
@@ -917,7 +942,7 @@ function PullRequestGenerationRow(): JSX.Element {
  * applies to, and every row shares one shape (`AutonomySettingRow`).
  */
 export function SelfDrivingSection(): JSX.Element {
-    const { teamConfig, teamConfigLoading } = useValues(signalTeamConfigLogic)
+    const { teamConfig, teamConfigLoading, anomalyScoringAvailable } = useValues(signalTeamConfigLogic)
 
     if (teamConfigLoading && teamConfig === null) {
         return <LemonSkeleton className="h-20 w-full rounded" />
@@ -944,6 +969,7 @@ export function SelfDrivingSection(): JSX.Element {
             </AutonomySettingGroup>
             <AutonomySettingGroup title="Reports" description="Applies to everyone in this project.">
                 <DailyReportLimitRow />
+                {anomalyScoringAvailable && <AnomalyScoringRow />}
             </AutonomySettingGroup>
         </div>
     )

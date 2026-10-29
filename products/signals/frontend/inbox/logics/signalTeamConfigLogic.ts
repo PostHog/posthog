@@ -26,6 +26,8 @@ const VISIBILITY_REFETCH_THROTTLE_MS = 5 * 1000
 export interface signalTeamConfigLogicValues {
     addBaseBranchOverrideDisabledReason: string | null
     addImplementationRepositoryDisabledReason: string | null
+    anomalyScoringAvailable: boolean
+    anomalyScoringEnabled: boolean
     autostartEnabled: boolean
     baseBranchOverrides: BaseBranchOverride[]
     baseBranchPickerOpen: boolean
@@ -178,6 +180,8 @@ export interface signalTeamConfigLogicMeta {
         githubIssueWritebackEnabled: (teamConfig: SignalTeamConfig | null) => boolean
         pullRequestLabelEnabled: (teamConfig: SignalTeamConfig | null) => boolean
         pullRequestLabel: (teamConfig: SignalTeamConfig | null) => string
+        anomalyScoringEnabled: (teamConfig: SignalTeamConfig | null) => boolean
+        anomalyScoringAvailable: (teamConfig: SignalTeamConfig | null) => boolean
         issueTrackerIntegrationId: (teamConfig: SignalTeamConfig | null) => number | null
         issueTrackerConfig: (teamConfig: SignalTeamConfig | null) => Record<string, string>
         selectedIssueTrackerIntegrationId: (
@@ -447,6 +451,14 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
         pullRequestLabel: [
             (s) => [s.teamConfig],
             (teamConfig: SignalTeamConfig | null): string => teamConfig?.pull_request_label ?? '',
+        ],
+        anomalyScoringEnabled: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.anomaly_scoring_enabled ?? true,
+        ],
+        anomalyScoringAvailable: [
+            (s) => [s.teamConfig],
+            (teamConfig: SignalTeamConfig | null): boolean => teamConfig?.anomaly_scoring_available ?? false,
         ],
         issueTrackerIntegrationId: [
             (s) => [s.teamConfig],

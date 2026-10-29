@@ -294,6 +294,12 @@ export const SignalsConfigCreateBody = () => zod.object({
         .describe(
             "Extra GitHub repositories, as 'organization\/repository', that self-driving implementation tasks can read and write within the connected GitHub App's permissions, for example an assets repository for PR screenshots. A task gets only the entries with the same owner as its selected repository. They are not cloned, and the PR still targets the selected repository. Each new entry must be reachable through one of the project's GitHub installations. Changes apply to tasks started afterwards. Empty by default."
         ),
+    anomaly_scoring_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            "Whether anomaly scoring scores this project's active trends insights every hour and writes the results as $anomaly_score events, which are not billed. True by default. Set false to stop new scores; events written before stay. Turning it on does not enroll a project that anomaly_scoring_available reports as not covered."
+        ),
 })
 
 export const SignalsReportsListParams = () => zod.object({

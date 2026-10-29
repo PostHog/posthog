@@ -1233,6 +1233,7 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         pull_request_label_enabled: true,
         pull_request_label: true,
         implementation_repositories: true,
+        anomaly_scoring_enabled: true,
     })
 }
 

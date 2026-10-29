@@ -25,6 +25,7 @@ from posthog.models.integration import Integration, is_supported_external_issue_
 
 from products.signals.backend import contracts
 from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGTH, STEERING_FIELDS
+from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
     DEFAULT_NOT_ACTIONABLE_KEY,
@@ -489,6 +490,21 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "installations. Changes apply to tasks started afterwards. Empty by default."
         ),
     )
+    anomaly_scoring_enabled = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether anomaly scoring scores this project's active trends insights every hour and writes "
+            "the results as $anomaly_score events, which are not billed. True by default. Set false to "
+            "stop new scores; events written before stay. Turning it on does not enroll a project that "
+            "anomaly_scoring_available reports as not covered."
+        ),
+    )
+    anomaly_scoring_available = serializers.SerializerMethodField(
+        help_text=(
+            "Whether anomaly scoring covers this project, so anomaly_scoring_enabled has an effect. "
+            "PostHog decides which projects anomaly scoring covers."
+        )
+    )
     reports_generated_today = serializers.SerializerMethodField(
         help_text=(
             "How many reports first became visible in the inbox during the current project-timezone "
@@ -549,6 +565,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         return self._reports_today_count(obj)
 
     @extend_schema_field(serializers.BooleanField())
+    def get_anomaly_scoring_available(self, obj: SignalTeamConfig) -> bool:
+        return covers_team(parse_config(read_payload()), obj.team)
+
+    @extend_schema_field(serializers.BooleanField())
     def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
         if obj.max_reports_per_day is None:
             return False
@@ -573,12 +593,21 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "pull_request_label_enabled",
             "pull_request_label",
             "implementation_repositories",
+            "anomaly_scoring_enabled",
+            "anomaly_scoring_available",
             "reports_generated_today",
             "daily_report_limit_reached",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "reports_generated_today", "daily_report_limit_reached", "created_at", "updated_at"]
+        read_only_fields = [
+            "id",
+            "anomaly_scoring_available",
+            "reports_generated_today",
+            "daily_report_limit_reached",
+            "created_at",
+            "updated_at",
+        ]
         extra_kwargs = {
             "autostart_enabled": {
                 "help_text": (

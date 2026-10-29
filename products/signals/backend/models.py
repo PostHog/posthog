@@ -275,6 +275,9 @@ class SignalTeamConfig(ModelActivityMixin, UUIDModel):
     # for example an assets repository a PR uploads screenshots to. They widen the run's GitHub token
     # only. The run never clones them, and the PR target stays the selected repository.
     implementation_repositories = models.JSONField(default=list, db_default=[], blank=True)
+    # Opt-out of anomaly scoring (see anomaly_scores/queue.py). The `anomaly-scoring` flag payload
+    # still decides which projects are enrolled, so turning this on cannot enroll a project.
+    anomaly_scoring_enabled = models.BooleanField(default=True, db_default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
