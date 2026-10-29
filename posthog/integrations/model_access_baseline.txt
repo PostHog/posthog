@@ -131,7 +131,6 @@ products/slack_app/backend/logic/thread_join.py 1
 products/slack_app/backend/models.py 3
 products/slack_app/backend/onboarding.py 2
 products/slack_app/backend/services/commands.py 3
-products/slack_app/backend/services/followup_invite.py 1
 products/slack_app/backend/services/inbox_interactivity.py 2
 products/slack_app/backend/services/integration_resolver.py 6
 products/slack_app/backend/services/project_picker.py 1
@@ -139,7 +138,6 @@ products/slack_app/backend/services/slack_app_home.py 6
 products/slack_app/backend/services/slack_app_home_stats.py 1
 products/slack_app/backend/services/slack_auth.py 1
 products/slack_app/backend/services/slack_messages.py 2
-products/slack_app/backend/services/slack_scopes.py 1
 products/slack_app/backend/services/slack_settings.py 1
 products/slack_app/backend/services/slack_user_info.py 3
 products/slack_app/backend/services/slack_welcome_messages.py 1
