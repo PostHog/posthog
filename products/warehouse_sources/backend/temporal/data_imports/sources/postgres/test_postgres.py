@@ -1105,6 +1105,16 @@ class TestPostgresSourceNonRetryableErrors:
         assert friendly, "Damaged source page should surface an actionable message"
         assert "damaged data on disk" in friendly[0]
 
+    def test_file_descriptor_exhaustion_on_open_is_retryable(self, source):
+        # Same "could not open file" prefix as the damaged-page case above, but a different errno
+        # reason: file-descriptor exhaustion clears once load on the source drops, unlike the
+        # physical "Input/output error" case, so it must not be classified as permanent corruption.
+        error_msg = 'could not open file "base/16384/1259": Too many open files'
+        non_retryable = source.get_non_retryable_errors()
+        assert not error_message_matches(error_msg, non_retryable.keys()), (
+            f"Transient file-descriptor exhaustion should be retryable: {error_msg}"
+        )
+
     @pytest.mark.parametrize(
         "error_msg",
         [
