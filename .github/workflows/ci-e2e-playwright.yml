@@ -188,7 +188,6 @@ jobs:
                         # docker-compose.dev.yml extends the base file, and the job adds the profiles file
                         - docker-compose.base.yml
                         - docker-compose.profiles.yml
-                        - Dockerfile
                         # Spec-selection selector + map: changes must run the suite (they're
                         # force-full anyway) so the map validation step actually executes.
                         - tools/playwright_spec_selection.py
