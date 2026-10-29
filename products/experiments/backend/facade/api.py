@@ -38,6 +38,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     calculation_metric_name,
@@ -57,7 +58,9 @@ from .contracts import (
     DigestLaunchedExperiment,
     EndedExperiment,
     Experiment,
+    ExperimentAssistantContext,
     ExperimentDetectableEffectCheckpoint,
+    ExperimentFlagVariantSplit,
     ExperimentHealth,
     ExperimentHealthReaderAccess,
     ExperimentRunningTimeOutlook,
@@ -318,6 +321,60 @@ def list_running_experiments(
 
 def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:
     return enrolled_people_by_flag(team, user, flag_keys)
+
+
+def _to_assistant_context(experiment: ExperimentModel) -> ExperimentAssistantContext:
+    flag = experiment.feature_flag
+    return ExperimentAssistantContext(
+        id=experiment.id,
+        team_id=experiment.team_id,
+        created_by_id=experiment.created_by_id,
+        name=experiment.name,
+        description=experiment.description,
+        type=experiment.type,
+        start_date=experiment.start_date,
+        end_date=experiment.end_date,
+        created_at=experiment.created_at,
+        conclusion=experiment.conclusion,
+        conclusion_comment=experiment.conclusion_comment,
+        stats_method=get_experiment_stats_method(experiment),
+        variant_names={key: variant.get("name", key) for key, variant in (experiment.variants or {}).items()},
+        feature_flag_key=flag.key,
+        feature_flag_variants=tuple(
+            ExperimentFlagVariantSplit(key=variant.get("key"), rollout_percentage=variant.get("rollout_percentage", 0))
+            for variant in flag.variants
+        ),
+    )
+
+
+async def aget_experiment_assistant_context(
+    team_id: int, *, experiment_id: int | None = None, feature_flag_key: str | None = None
+) -> ExperimentAssistantContext | None:
+    """The experiment with `experiment_id`, or else the experiment on the flag with `feature_flag_key`. None when
+    neither is given, or when no experiment of the team matches. Only rows whose `deleted` is false match, so a row
+    whose `deleted` is NULL does not."""
+    # `team=` matches the id exactly, so the result's `team_id` is always `team_id`, which an object access check of
+    # the caller's team requires. RootTeamQuerySet rewrites a `team_id=` filter to the project's root team.
+    experiments = ExperimentModel.objects.select_related("feature_flag").filter(team=team_id, deleted=False)
+    try:
+        if experiment_id is not None:
+            experiment = await experiments.aget(id=experiment_id)
+        elif feature_flag_key is not None:
+            experiment = await experiments.aget(feature_flag__key=feature_flag_key)
+        else:
+            return None
+    except ExperimentModel.DoesNotExist:
+        return None
+    return _to_assistant_context(experiment)
+
+
+def get_experiment_team_id(experiment_id: int) -> int | None:
+    """The team of the experiment with this id, deleted experiments included. None when no experiment has the id.
+
+    The lookup is not scoped to a team, so the caller must check that the user may see the returned team."""
+    # The Vercel SSO redirect has no team yet. It checks the user's membership in the returned team.
+    # nosemgrep: idor-lookup-without-team
+    return ExperimentModel.objects.filter(pk=experiment_id).values_list("team_id", flat=True).first()
 
 
 def team_has_launched_experiments(team_id: int) -> bool:

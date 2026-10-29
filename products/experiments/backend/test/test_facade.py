@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
@@ -34,7 +35,9 @@ from products.experiments.backend.facade.contracts import (
     DigestCompletedExperiment,
     DigestLaunchedExperiment,
     EndedExperiment,
+    ExperimentAssistantContext,
     ExperimentChanged,
+    ExperimentFlagVariantSplit,
     ExperimentValidationError,
     StoredPrimaryResult,
     TeamExperimentsSettings,
@@ -489,6 +492,97 @@ class TestTeamHasLaunchedExperiments(BaseTest):
         )
 
         assert api.team_has_launched_experiments(self.team.id) is expected
+
+
+class TestExperimentAssistantContext(BaseTest):
+    def _create_experiment(self, team: Team, *, flag_key: str, deleted: bool = False) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key=flag_key,
+            created_by=self.user,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+        return Experiment.objects.create(
+            team=team,
+            name="Checkout test",
+            description="Does the new checkout convert better?",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=datetime(2026, 9, 1, tzinfo=UTC),
+            conclusion="won",
+            variants={"control": {"name": "Old checkout"}, "test": {}},
+            stats_config={"method": "frequentist"},
+            deleted=deleted,
+        )
+
+    @parameterized.expand([("by_id", True), ("by_flag_key", False)])
+    def test_reads_the_experiment_with_its_flag(self, _name: str, by_id: bool) -> None:
+        experiment = self._create_experiment(self.team, flag_key="checkout")
+
+        context = async_to_sync(api.aget_experiment_assistant_context)(
+            self.team.id,
+            experiment_id=experiment.id if by_id else None,
+            feature_flag_key=None if by_id else "checkout",
+        )
+
+        assert context == ExperimentAssistantContext(
+            id=experiment.id,
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Checkout test",
+            description="Does the new checkout convert better?",
+            type="product",
+            start_date=datetime(2026, 9, 1, tzinfo=UTC),
+            end_date=None,
+            created_at=experiment.created_at,
+            conclusion="won",
+            conclusion_comment=None,
+            stats_method="frequentist",
+            variant_names={"control": "Old checkout", "test": "test"},
+            feature_flag_key="checkout",
+            feature_flag_variants=(
+                ExperimentFlagVariantSplit(key="control", rollout_percentage=50),
+                ExperimentFlagVariantSplit(key="test", rollout_percentage=50),
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("deleted", "own", "own", True),
+            ("another_team", "other", "own", False),
+            # Experiments save on the project's root team. An environment's id must not match them, because the
+            # caller checks object access against its own team.
+            ("environment_of_the_project", "own", "environment", False),
+        ]
+    )
+    def test_does_not_read(self, _name: str, experiment_team: str, lookup_team: str, deleted: bool) -> None:
+        teams = {
+            "own": self.team,
+            "other": Team.objects.create(organization=self.organization, name="Other"),
+            "environment": Team.objects.create(organization=self.organization, name="Env", parent_team=self.team),
+        }
+        experiment = self._create_experiment(teams[experiment_team], flag_key="checkout", deleted=deleted)
+        aget_context = async_to_sync(api.aget_experiment_assistant_context)
+
+        assert aget_context(teams[lookup_team].id, experiment_id=experiment.id) is None
+        assert aget_context(teams[lookup_team].id, feature_flag_key="checkout") is None
+
+
+class TestGetExperimentTeamId(BaseTest):
+    def test_reads_the_team_of_any_experiment_including_a_deleted_one(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        flag = FeatureFlag.objects.create(team=other_team, key="experiment-flag")
+        experiment = Experiment.objects.create(team=other_team, name="Experiment", feature_flag=flag, deleted=True)
+
+        assert api.get_experiment_team_id(experiment.id) == other_team.id
+        assert api.get_experiment_team_id(-1) is None
 
 
 class TestExperimentFlagIds(BaseTest):

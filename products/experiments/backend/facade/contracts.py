@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
@@ -85,6 +85,41 @@ class ExperimentPromptContext:
     # Requestable variants only, excluded variants already removed.
     variants: tuple[ExperimentVariantPromptContext, ...]
     primary_metric_names: tuple[str, ...]
+
+
+@frozen
+class ExperimentFlagVariantSplit:
+    """One variant of the experiment's flag and its share of the rollout, as the flag stores them."""
+
+    # None when the stored variant has no key.
+    key: str | None
+    # As stored, so a whole number stays an int and a prompt prints `50%`, not `50.0%`. 0 when the variant has none.
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentAssistantContext:
+    """What PostHog AI reads to describe an experiment and its results."""
+
+    id: int
+    # With `id`, the fields that an object access check reads.
+    team_id: int
+    created_by_id: int | None
+    name: str
+    description: str | None
+    type: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    created_at: datetime
+    conclusion: str | None
+    conclusion_comment: str | None
+    stats_method: Literal["bayesian", "frequentist"]
+    # Variant names by key from the experiment's own variants field, which web experiments write. A variant without a
+    # name maps to its key.
+    variant_names: Mapping[str, str]
+    feature_flag_key: str
+    # Every variant of the flag, in the flag's order. Excluded variants are not removed.
+    feature_flag_variants: tuple[ExperimentFlagVariantSplit, ...]
 
 
 @frozen
