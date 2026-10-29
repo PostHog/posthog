@@ -1,6 +1,6 @@
 from .hog_flow.hog_flow import HogFlow
 from .hog_flow.hog_flow_template import HogFlowTemplate
-from .hog_flow_batch_job import HogFlowBatchJob
+from .hog_flow_batch_job import HogFlowBatchJob, HogFlowBatchJobAudienceMember
 from .hog_flow_optimization import HogFlowOptimization
 from .hog_flow_revision import HogFlowRevision
 from .hog_flow_schedule.hog_flow_schedule import HogFlowSchedule
@@ -12,6 +12,7 @@ from .workflow_proposal import WorkflowProposal
 __all__ = [
     "HogFlow",
     "HogFlowBatchJob",
+    "HogFlowBatchJobAudienceMember",
     "HogFlowOptimization",
     "HogFlowRevision",
     "HogFlowSchedule",
