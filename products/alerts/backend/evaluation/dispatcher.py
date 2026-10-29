@@ -71,12 +71,23 @@ def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: ob
 
 
 def _query_interval(query: object) -> IntervalType | None:
-    """The insight's time bucket, or None for a kind with no time axis (SQL, a funnel steps snapshot)."""
+    """The insight's time bucket as an ``IntervalType``, or None when there is no such bucket.
+
+    None covers a kind with no time axis (SQL, a funnel steps snapshot) and a bucket size outside
+    the enum: a metrics insight types its interval as a plain string and buckets on its own scale,
+    such as ``minute_5`` or the ``$window`` dashboard variable. An unmapped bucket leaves the shared
+    staleness rule in place, which is what the alert used before it had a limit at all.
+    """
     try:
         raw_interval = get_from_dict_or_attr(query, "interval")
     except AttributeError:
         return None
-    return IntervalType(raw_interval) if raw_interval is not None else None
+    if raw_interval is None:
+        return None
+    try:
+        return IntervalType(raw_interval)
+    except ValueError:
+        return None
 
 
 def _resolve_cache_age_seconds(alert: AlertConfiguration, query: object, execution_mode: ExecutionMode) -> int | None:
@@ -116,7 +127,6 @@ def run_extractor(
     insight: Insight,
     query: object,
     execution_mode: ExecutionMode,
-    cache_age_seconds: int | None = None,
     query_slot: QuerySlot = nullcontext,
 ) -> ExtractionResult:
     """Run an extractor, routing a query the runner refuses to the auto-disable path.
@@ -137,6 +147,11 @@ def run_extractor(
     """
     try:
         with query_slot(), owner_sql_errors(query):
+            # Resolved inside the slot, not before it. The limit is a duration the query layer
+            # measures from its own clock, so a slot wait between resolving and running would be
+            # added to the window — long enough to cross a bucket boundary and readmit the value
+            # this limit exists to reject.
+            cache_age_seconds = _resolve_cache_age_seconds(alert, query, execution_mode)
             return extractor.extract(alert, insight, query, execution_mode, cache_age_seconds)
     except DRFValidationError as err:
         if getattr(err, "served_from_query_failure_cache", False):
@@ -164,15 +179,8 @@ def check_detector_alert(
     detector_extractor = DETECTOR_EXTRACTORS.get(kind)
     if detector_extractor is None:
         raise NotImplementedError(f"AlertCheckError: Detector alerts for {kind} are not supported yet")
-    execution_mode = _resolve_execution_mode(alert, kind, query)
     result = run_extractor(
-        detector_extractor,
-        alert,
-        insight,
-        query,
-        execution_mode,
-        _resolve_cache_age_seconds(alert, query, execution_mode),
-        query_slot,
+        detector_extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query), query_slot
     )
     return describe_delayed_evaluation(
         evaluate_with_detector(result, detector_config, insight=insight, alert=alert, evaluation_id=evaluation_id),
@@ -257,16 +265,7 @@ def _extract_for_threshold(
         return None
 
     condition = AlertCondition.model_validate(alert.condition)
-    execution_mode = _resolve_execution_mode(alert, kind, query)
-    result = run_extractor(
-        extractor,
-        alert,
-        insight,
-        query,
-        execution_mode,
-        _resolve_cache_age_seconds(alert, query, execution_mode),
-        query_slot,
-    )
+    result = run_extractor(extractor, alert, insight, query, _resolve_execution_mode(alert, kind, query), query_slot)
     return _ThresholdExtraction(result=result, condition=condition, threshold=threshold)
 
 

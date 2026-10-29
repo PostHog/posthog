@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -21,6 +21,7 @@ from posthog.schema import (
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
+from posthog.interval_specs import interval_spec
 
 from products.alerts.backend.evaluation.contract import cache_age_seconds_for_alert, execution_mode_for_alert
 from products.alerts.backend.evaluation.detector import extract_detector_series
@@ -237,10 +238,29 @@ def test_hourly_cache_age_tracks_the_bucket_not_the_gap(previous_check, current_
         (IntervalType.HOUR, "Asia/Kolkata", datetime(2026, 10, 28, 22, 31, 13, tzinfo=UTC), 73),
         (IntervalType.DAY, "Asia/Bangkok", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), 18073),
         (None, "UTC", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), None),
+        # second is the one interval the shared rule never calls stale, so it stays exempt rather
+        # than flipping to a recompute on every check.
+        (IntervalType.SECOND, "UTC", datetime(2026, 10, 28, 22, 1, 13, tzinfo=UTC), None),
     ],
 )
 def test_cache_age_seconds_for_alert(interval, timezone, now, expected):
     assert cache_age_seconds_for_alert(interval, now=now, team=_team(timezone)) == expected
+
+
+# The query layer takes this limit instead of its own staleness threshold, not alongside it, so a
+# limit above that threshold widens the window the alert used to get. Seconds-since-bucket-start
+# passes the threshold on every interval coarser than an hour — a day bucket reaches 24 hours
+# against a 6 hour threshold — which would let a daily alert score a value from when the bucket was
+# nearly empty.
+@pytest.mark.parametrize("interval", [i for i in IntervalType if interval_spec(i).staleness_default is not None])
+@pytest.mark.parametrize("hours_into_bucket", [0, 5, 23, 24 * 20])
+def test_cache_age_never_exceeds_the_shared_threshold(interval, hours_into_bucket):
+    shared_threshold = interval_spec(interval).staleness_default
+    assert shared_threshold is not None
+    now = datetime(2026, 3, 1, tzinfo=UTC) + timedelta(hours=hours_into_bucket)
+    limit = cache_age_seconds_for_alert(interval, now=now, team=_team("UTC"))
+    assert limit is not None
+    assert limit <= shared_threshold.total_seconds()
 
 
 # The dispatcher reads the interval for every kind here, unlike _resolve_execution_mode, which reads
@@ -251,6 +271,11 @@ def test_cache_age_seconds_for_alert(interval, timezone, now, expected):
         (NodeKind.FUNNELS_QUERY, "hour", IF_STALE, True),
         (NodeKind.TRENDS_QUERY, "day", IF_STALE, True),
         (NodeKind.METRICS_QUERY, "hour", IF_STALE, True),
+        # A metrics insight types its interval as a plain string and buckets on its own scale, so
+        # these reach the resolver as values no IntervalType member matches. Mapping them eagerly
+        # raised ValueError and failed the whole check for alerts that run today.
+        (NodeKind.METRICS_QUERY, "minute_5", IF_STALE, False),
+        (NodeKind.METRICS_QUERY, "$window", IF_STALE, False),
         (NodeKind.HOG_QL_QUERY, None, IF_STALE, False),
         (NodeKind.FUNNELS_QUERY, "hour", ALWAYS, False),
     ],

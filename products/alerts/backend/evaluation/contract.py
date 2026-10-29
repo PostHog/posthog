@@ -139,9 +139,21 @@ def cache_age_seconds_for_alert(interval: IntervalType | None, *, now: datetime,
     """
     if interval is None:
         return None
+    spec = interval_spec(interval)
     local_now = now.astimezone(ZoneInfo(team.timezone))
-    bucket_start = interval_spec(interval).align(local_now, team.week_start_day)
-    return int((local_now - bucket_start).total_seconds())
+    # A DST transition can leave the aligned bucket start after local_now, so floor at zero rather
+    # than hand the query layer a negative window.
+    elapsed = max(int((local_now - spec.align(local_now, team.week_start_day)).total_seconds()), 0)
+    if spec.staleness_default is None:
+        # The shared rule never calls this interval stale. Leave it exempt rather than flipping it
+        # to a recompute on every check.
+        return None
+    # The limit tightens the shared rule and never loosens it. The query layer takes an override
+    # instead of the shared threshold, not alongside it, and seconds-since-bucket-start grows past
+    # that threshold on a long interval: a day bucket reaches 24 hours against a 6 hour threshold.
+    # An alert that scores the bucket still in progress would then read the value it held when the
+    # bucket was nearly empty.
+    return min(elapsed, int(spec.staleness_default.total_seconds()))
 
 
 @dataclass(frozen=False)
