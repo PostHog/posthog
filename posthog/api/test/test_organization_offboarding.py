@@ -230,3 +230,19 @@ class TestOrganizationOffboarding(APIBaseTest):
         resource.save(update_fields=["deleted"])
         share.refresh_from_db()
         assert not share.enabled
+        scope = {
+            "dashboard": "Dashboard",
+            "insight": "Insight",
+            "notebook": "Notebook",
+            "recording": "SessionRecording",
+        }[kind]
+        item_id = (
+            resource.short_id
+            if kind == "notebook"
+            else resource.session_id
+            if kind == "recording"
+            else str(resource.pk)
+        )
+        log = ActivityLog.objects.get(team_id=self.team.pk, scope=scope, item_id=item_id, activity="sharing disabled")
+        assert log.user_id == self.user.pk
+        assert log.detail["changes"][0]["after"] is False

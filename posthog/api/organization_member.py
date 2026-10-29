@@ -27,6 +27,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.event_usage import groups
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import (
     MAX_SEARCH_LENGTH,
     TrigramSearchField,
@@ -354,7 +355,7 @@ class OrganizationMemberViewSet(
         offboarding = OrganizationOffboarding(instance)
         if keep and keep - {resource.id for resource in offboarding.resources()}:
             raise serializers.ValidationError({"keep": "Some resources have changed. Reload the review and try again."})
-        offboarding.remove(keep)
+        offboarding.remove(keep, actor=requesting_user, was_impersonated=is_impersonated(self.request))
 
         posthoganalytics.capture(
             distinct_id=str(requesting_user.distinct_id),

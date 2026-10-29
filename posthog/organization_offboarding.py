@@ -1,4 +1,4 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
 from django.core.exceptions import ValidationError
@@ -6,9 +6,13 @@ from django.db import models, transaction
 from django.db.models import Exists, OuterRef, Q
 
 from posthog.dataclasses import frozen
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.organization_offboarding_types import OffboardingResource
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 
 @frozen
@@ -108,7 +112,7 @@ class OrganizationOffboarding:
         ]
         return sorted(resources, key=lambda resource: (resource.name, resource.id))
 
-    def remove(self, keep: set[str]) -> None:
+    def remove(self, keep: set[str], *, actor: "User", was_impersonated: bool = False) -> None:
         if self.membership.level == OrganizationMembership.Level.OWNER:
             raise ValidationError("Cannot leave the organization as its owner!")
         with transaction.atomic():
@@ -120,10 +124,34 @@ class OrganizationOffboarding:
                     )
                     field = cast(models.ForeignKey, SharingConfiguration._meta.get_field(resource.kind))
                     resource_model = cast(type[models.Model], field.related_model)
-                    resource_model._default_manager.select_for_update().get(
+                    locked_resource = resource_model._default_manager.select_for_update().get(
                         **{field.target_field.name: resource_id, "team_id": resource.team_id}
                     )
-                    configurations.update(enabled=False)
+                    changed = configurations.filter(enabled=True).update(enabled=False)
+                    if changed:
+                        scope = {
+                            "dashboard": "Dashboard",
+                            "insight": "Insight",
+                            "notebook": "Notebook",
+                            "recording": "SessionRecording",
+                        }[resource.kind]
+                        short_id = getattr(locked_resource, "short_id", None)
+                        log_activity(
+                            organization_id=self.membership.organization_id,
+                            team_id=resource.team_id,
+                            user=actor,
+                            was_impersonated=was_impersonated,
+                            item_id=short_id if resource.kind == "notebook" else resource_id,
+                            scope=scope,
+                            activity="sharing disabled",
+                            detail=Detail(
+                                name=resource.name,
+                                short_id=str(short_id) if short_id else None,
+                                changes=[
+                                    Change(type=scope, action="changed", field="sharing", before=True, after=False)
+                                ],
+                            ),
+                        )
                     if resource.kind == "dashboard":
                         configuration = configurations.select_related("dashboard").first()
                         if configuration and configuration.dashboard:
