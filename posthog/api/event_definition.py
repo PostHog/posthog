@@ -22,7 +22,7 @@ from rest_framework.settings import api_settings
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
-from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
+from posthog.api.event_definition_generators.typescript import TypeScriptGenerator, TypeScriptTypesGenerator
 from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -1079,6 +1079,10 @@ class EventDefinitionViewSet(
     @action(detail=False, methods=["GET"], url_path="typescript", required_scopes=["event_definition:read"])
     def typescript_definitions(self, *args, **kwargs):
         return self._generate_definitions(TypeScriptGenerator())
+
+    @action(detail=False, methods=["GET"], url_path="typescript_types", required_scopes=["event_definition:read"])
+    def typescript_types_definitions(self, *args, **kwargs):
+        return self._generate_definitions(TypeScriptTypesGenerator())
 
     @action(detail=False, methods=["GET"], url_path="golang", required_scopes=["event_definition:read"])
     def golang_definitions(self, *args, **kwargs):
