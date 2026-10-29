@@ -5,7 +5,11 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isOwnerUnavailableError, openTakeOwnershipDialog } from 'lib/components/openTakeOwnershipDialog'
+import {
+    isOwnerUnavailableError,
+    openTakeOwnershipDialog,
+    ownerUnavailableReason,
+} from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectClean } from 'lib/utils/objects'
@@ -348,6 +352,7 @@ export const alertsLogic = kea<alertsLogicType>([
                     void openTakeOwnershipDialog({
                         resourceLabel: 'alert',
                         resourceId: alert.id,
+                        reason: ownerUnavailableReason(error),
                         takeOwnership: async () => {
                             await alertsTakeOwnershipCreate(String(getCurrentTeamId()), alert.id)
                             lemonToast.success('Alert enabled')

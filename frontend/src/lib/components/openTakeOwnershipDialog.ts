@@ -14,17 +14,25 @@ export function isOwnerUnavailableError(error: unknown): boolean {
     return error instanceof ApiError && error.code === OWNER_UNAVAILABLE_CODE
 }
 
+/** The server's explanation of a refused enable, when the error carries one. */
+export function ownerUnavailableReason(error: unknown): string | null {
+    return error instanceof ApiError && error.detail ? error.detail : null
+}
+
 /**
  * Offer to make the current user the owner of a subscription or alert whose owner can no longer run it.
+ * `reason` is the server's explanation, which names the owner and why they cannot run it.
  * Resolves `true` once `takeOwnership` succeeded, `false` when the dialog was dismissed or the request failed.
  */
 export function openTakeOwnershipDialog({
     resourceLabel,
     resourceId,
+    reason,
     takeOwnership,
 }: {
     resourceLabel: OwnedResourceLabel
     resourceId: string | number
+    reason: string | null
     takeOwnership: () => Promise<void>
 }): Promise<boolean> {
     return new Promise((resolve) => {
@@ -32,7 +40,9 @@ export function openTakeOwnershipDialog({
         let request: Promise<void> = Promise.resolve()
         LemonDialog.open({
             title: `Take ownership of this ${resourceLabel}?`,
-            description: `This ${resourceLabel} runs with its owner's access, and the owner can no longer run it. Taking ownership makes you the owner and enables it, so it runs with your access from now on.`,
+            description:
+                reason ??
+                `This ${resourceLabel} runs with its owner's access, and the owner can no longer run it. Take ownership to run it with your access.`,
             // Two sentences of copy; the default dialog width spans the screen.
             maxWidth: '30rem',
             shouldAwaitSubmit: true,

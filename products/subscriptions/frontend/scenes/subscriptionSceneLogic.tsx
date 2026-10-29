@@ -3,7 +3,11 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { isOwnerUnavailableError, openTakeOwnershipDialog } from 'lib/components/openTakeOwnershipDialog'
+import {
+    isOwnerUnavailableError,
+    openTakeOwnershipDialog,
+    ownerUnavailableReason,
+} from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -366,6 +370,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 const taken = await openTakeOwnershipDialog({
                     resourceLabel: 'subscription',
                     resourceId: props.id,
+                    reason: ownerUnavailableReason(errorObject),
                     takeOwnership: async () => {
                         await subscriptionsTakeOwnershipCreate(String(getCurrentTeamId()), props.id)
                         lemonToast.success('Subscription enabled')

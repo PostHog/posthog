@@ -20,7 +20,11 @@ import posthog from 'posthog-js'
 import { z } from 'zod'
 
 import api, { ApiError } from 'lib/api'
-import { isOwnerUnavailableError, openTakeOwnershipDialog } from 'lib/components/openTakeOwnershipDialog'
+import {
+    isOwnerUnavailableError,
+    openTakeOwnershipDialog,
+    ownerUnavailableReason,
+} from 'lib/components/openTakeOwnershipDialog'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
@@ -1010,6 +1014,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 void openTakeOwnershipDialog({
                     resourceLabel: 'subscription',
                     resourceId: id,
+                    reason: ownerUnavailableReason(error),
                     takeOwnership: async () => {
                         await subscriptionsTakeOwnershipCreate(String(getCurrentTeamId()), String(id))
                     },

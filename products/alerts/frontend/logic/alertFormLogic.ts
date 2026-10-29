@@ -8,7 +8,11 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
-import { isOwnerUnavailableError, openTakeOwnershipDialog } from 'lib/components/openTakeOwnershipDialog'
+import {
+    isOwnerUnavailableError,
+    openTakeOwnershipDialog,
+    ownerUnavailableReason,
+} from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -699,6 +703,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         void openTakeOwnershipDialog({
                             resourceLabel: 'alert',
                             resourceId: existingAlertId,
+                            reason: ownerUnavailableReason(error),
                             takeOwnership: async () => {
                                 await alertsTakeOwnershipCreate(String(getCurrentTeamId()), existingAlertId)
                             },

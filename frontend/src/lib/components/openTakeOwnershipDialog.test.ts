@@ -37,9 +37,25 @@ describe('openTakeOwnershipDialog', () => {
         expect(isOwnerUnavailableError({ code: 'owner_unavailable' })).toBe(false)
     })
 
+    it('shows the server reason as the description', () => {
+        openTakeOwnershipDialog({
+            resourceLabel: 'alert',
+            resourceId: 'alert-1',
+            reason: 'Its owner, former@example.com, is no longer in the organization.',
+            takeOwnership: jest.fn(),
+        })
+
+        expect(dialogProps?.description).toBe('Its owner, former@example.com, is no longer in the organization.')
+    })
+
     it('resolves true and reports the takeover once the request succeeds', async () => {
         const takeOwnership = jest.fn().mockResolvedValue(undefined)
-        const result = openTakeOwnershipDialog({ resourceLabel: 'alert', resourceId: 'alert-1', takeOwnership })
+        const result = openTakeOwnershipDialog({
+            resourceLabel: 'alert',
+            resourceId: 'alert-1',
+            reason: null,
+            takeOwnership,
+        })
 
         await confirmAndClose()
 
@@ -52,7 +68,12 @@ describe('openTakeOwnershipDialog', () => {
         const takeOwnership = jest
             .fn()
             .mockRejectedValue(new ApiError('refused', 400, undefined, { detail: 'No access to this insight.' }))
-        const result = openTakeOwnershipDialog({ resourceLabel: 'subscription', resourceId: 7, takeOwnership })
+        const result = openTakeOwnershipDialog({
+            resourceLabel: 'subscription',
+            resourceId: 7,
+            reason: null,
+            takeOwnership,
+        })
 
         await confirmAndClose()
 
@@ -69,7 +90,12 @@ describe('openTakeOwnershipDialog', () => {
                     finishTakeover = resolve
                 })
         )
-        const result = openTakeOwnershipDialog({ resourceLabel: 'alert', resourceId: 'alert-1', takeOwnership })
+        const result = openTakeOwnershipDialog({
+            resourceLabel: 'alert',
+            resourceId: 'alert-1',
+            reason: null,
+            takeOwnership,
+        })
 
         const confirming = dialogProps?.primaryButton?.onClick?.({} as any)
         dialogProps?.onAfterClose?.()
@@ -81,7 +107,12 @@ describe('openTakeOwnershipDialog', () => {
 
     it('resolves false when the dialog is dismissed', async () => {
         const takeOwnership = jest.fn()
-        const result = openTakeOwnershipDialog({ resourceLabel: 'subscription', resourceId: 7, takeOwnership })
+        const result = openTakeOwnershipDialog({
+            resourceLabel: 'subscription',
+            resourceId: 7,
+            reason: null,
+            takeOwnership,
+        })
 
         dialogProps?.onAfterClose?.()
 
