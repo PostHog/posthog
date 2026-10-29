@@ -49,6 +49,7 @@ class TestValidateHarnessIcon(SimpleTestCase):
             ("svg_can_carry_script", "data:image/svg+xml;base64," + base64.b64encode(b"<svg></svg>").decode()),
             ("not_a_data_uri", "https://example.com/icon.png"),
             ("not_base64", "data:image/png;base64,not base64!"),
+            ("trailing_newline", _image_data_uri("image/png", "PNG") + "\n"),
             ("not_an_image", "data:image/png;base64," + base64.b64encode(b"hello").decode()),
             ("type_does_not_match_content", _image_data_uri("image/png", "JPEG")),
             ("too_wide", _image_data_uri("image/png", "PNG", size=(300, 10))),

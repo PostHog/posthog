@@ -12,7 +12,7 @@ MAX_HARNESS_ICON_SIDE_PX = 256
 
 # SVG is left out on purpose: it can carry script, and only a raster image can be decoded and checked here.
 _PIL_FORMAT_BY_SUBTYPE = {"png": "PNG", "jpeg": "JPEG", "gif": "GIF", "webp": "WEBP"}
-_DATA_URI = re.compile(r"^data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/]+={0,2})$")
+_DATA_URI = re.compile(r"data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/]+={0,2})")
 # Base64 needs 4 characters for every 3 bytes, plus the short prefix.
 _MAX_DATA_URI_LENGTH = MAX_HARNESS_ICON_BYTES * 4 // 3 + 64
 
@@ -24,7 +24,7 @@ def validate_harness_icon(value: str) -> None:
     if len(value) > _MAX_DATA_URI_LENGTH:
         raise ValidationError(f"The icon must be {MAX_HARNESS_ICON_BYTES // 1024} KB or smaller.")
 
-    match = _DATA_URI.match(value)
+    match = _DATA_URI.fullmatch(value)
     if match is None:
         raise ValidationError("Paste a PNG, JPEG, GIF or WebP image as a base64 data URI.")
     subtype, encoded = match.groups()
