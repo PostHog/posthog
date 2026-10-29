@@ -48,6 +48,7 @@ import {
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
 import { InsightDisplayConfig } from 'products/product_analytics/frontend/insights/editor/InsightDisplayConfig'
+import { ExplainChartAIAnalysisFallback } from 'products/product_analytics/frontend/insights/explainChart/ExplainChartAIAnalysisFallback'
 import {
     ExplainChartButton,
     InsightExplainChart,
@@ -545,17 +546,20 @@ export function InsightVizDisplay({
     }
 
     function renderAIAnalysisSection(): JSX.Element | null {
-        return !showsExplainChart &&
-            shouldShowAIAnalysisSection({
-                editMode,
-                embedded,
-                inSharedMode,
-                hasQuerySource: !!querySource,
-                insightDataLoading,
-                hasBlockingEmptyState: !!BlockingEmptyState,
-                hasResults: hasResultRows(insightData),
-            }) ? (
-            <InsightAIAnalysis />
+        return shouldShowAIAnalysisSection({
+            editMode,
+            embedded,
+            inSharedMode,
+            hasQuerySource: !!querySource,
+            insightDataLoading,
+            hasBlockingEmptyState: !!BlockingEmptyState,
+            hasResults: hasResultRows(insightData),
+        }) ? (
+            showsExplainChart ? (
+                <ExplainChartAIAnalysisFallback insightProps={insightProps} />
+            ) : (
+                <InsightAIAnalysis />
+            )
         ) : null
     }
 

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import type { ReactNode } from 'react'
+import { type ReactNode, useMemo } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
@@ -25,23 +25,36 @@ function seriesNames(result: TrendResult): string[] {
     return [result.label ?? '', ...[result.breakdown_value ?? []].flat().map(String)]
 }
 
-const EVIDENCE_CHARTS: StoryEvidenceCharts = {
-    canShow: (item) => !!item.query,
-    prefetch: () => {},
-    // The evidence chart takes the main chart's height, so the explanation panel keeps its size.
-    render: ({ query, text }) => (
-        <div data-not-quill className="flex h-(--insight-viz-min-height) flex-col">
-            <Query
-                key={JSON.stringify(query)}
-                uniqueKey="explain-chart-evidence"
-                query={{ ...(query as unknown as InsightVizNode), full: false, showHeader: false, showTable: false }}
-                context={{ isSeriesHighlighted: (result) => isSeriesNamedIn(seriesNames(result), text) }}
-                readOnly
-                embedded
-            />
-        </div>
-    ),
-    onShow: () => posthog.capture('explain chart evidence chart shown'),
+// An evidence chart applies the same dashboard filters and variables as the chart it explains.
+function evidenceCharts(
+    filtersOverride: InsightLogicProps['filtersOverride'],
+    variablesOverride: InsightLogicProps['variablesOverride']
+): StoryEvidenceCharts {
+    return {
+        canShow: (item) => !!item.query,
+        prefetch: () => {},
+        // The evidence chart takes the main chart's height, so the explanation panel keeps its size.
+        render: ({ query, text }) => (
+            <div data-not-quill className="flex h-(--insight-viz-min-height) flex-col">
+                <Query
+                    key={JSON.stringify(query)}
+                    uniqueKey="explain-chart-evidence"
+                    query={{
+                        ...(query as unknown as InsightVizNode),
+                        full: false,
+                        showHeader: false,
+                        showTable: false,
+                    }}
+                    context={{ isSeriesHighlighted: (result) => isSeriesNamedIn(seriesNames(result), text) }}
+                    filtersOverride={filtersOverride}
+                    variablesOverride={variablesOverride}
+                    readOnly
+                    embedded
+                />
+            </div>
+        ),
+        onShow: () => posthog.capture('explain chart evidence chart shown'),
+    }
 }
 
 export function ExplainChartButton({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
@@ -90,6 +103,11 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
     const { explainOpen, explainChartData, formatValue, lookDeeperQuestion } = useValues(
         explainChartLogic(insightProps)
     )
+    const { filtersOverride, variablesOverride } = insightProps
+    const charts = useMemo(
+        () => evidenceCharts(filtersOverride, variablesOverride),
+        [filtersOverride, variablesOverride]
+    )
 
     if (!explainOpen || !explainChartData) {
         return <>{renderChart()}</>
@@ -104,7 +122,7 @@ export function InsightExplainChart({ insightProps, renderChart }: InsightExplai
                 renderChart={(overlay) => <div data-not-quill>{renderChart(overlay)}</div>}
                 openLink={(url) => window.open(url, '_blank', 'noopener')}
                 formatValue={formatValue}
-                evidenceCharts={EVIDENCE_CHARTS}
+                evidenceCharts={charts}
                 action={lookDeeperQuestion ? <ExplainChartLookDeeper question={lookDeeperQuestion} /> : null}
                 onPageChange={({ index, fromIndex, source }) =>
                     posthog.capture('explain chart page viewed', {

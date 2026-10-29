@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import type { LogicWrapper } from 'kea'
 import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -338,7 +339,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         openExplain: true,
         closeExplain: true,
     }),
-    loaders(({ cache, values }) => ({
+    loaders(({ cache, props, values }) => ({
         evidenceResults: [
             null as EvidenceResults | null,
             {
@@ -358,7 +359,15 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                         Promise.all(
                             queries.breakdowns.map(async ({ property, query }) => {
                                 try {
-                                    const response = await performQuery(query, options)
+                                    const response = await performQuery(
+                                        query,
+                                        options,
+                                        undefined,
+                                        undefined,
+                                        undefined,
+                                        props.filtersOverride,
+                                        props.variablesOverride
+                                    )
                                     return { property, query, rows: (response.results ?? []) as EvidenceRow[] }
                                 } catch {
                                     return null
@@ -367,7 +376,15 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                         ),
                         // Only a peak reads the people count.
                         queries.people && values.moments.some((moment) => moment.kind === 'peak')
-                            ? performQuery(queries.people, options)
+                            ? performQuery(
+                                  queries.people,
+                                  options,
+                                  undefined,
+                                  undefined,
+                                  undefined,
+                                  props.filtersOverride,
+                                  props.variablesOverride
+                              )
                                   .then((response) => ({
                                       query: queries.people as NonNullable<EvidenceQueries['people']>,
                                       data: ((response.results?.[0] as EvidenceRow | undefined)?.data ??
@@ -434,7 +451,10 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 closeExplain: () => false,
             },
         ],
-        // Causes belong to the facts they were read from, and new evidence means new facts.
+        // Evidence and causes belong to the series they were read for, so a new search drops the last one's.
+        evidenceResults: {
+            loadEvidence: () => null,
+        },
         modelCauses: {
             loadEvidence: () => null,
         },
@@ -663,6 +683,14 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         loadEvidenceSuccess: () => {
             if (values.explainOpen) {
                 actions.loadModelCauses()
+            }
+        },
+    })),
+    subscriptions(({ actions, values }) => ({
+        // Hiding a series in the legend can change which series the explanation follows without new chart data.
+        explainedSeries: (series: ExplainedSeries | null, previous: ExplainedSeries | null | undefined) => {
+            if (values.explainOpen && previous !== undefined && series?.index !== previous?.index) {
+                actions.loadEvidence()
             }
         },
     })),
