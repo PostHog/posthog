@@ -16,6 +16,7 @@ from products.error_tracking.backend.logic.sentry_migration.client import Sentry
 SUPPORTED_BUCKET_MINUTES = (15, 30, 60)
 # ErrorTrackingSettings.project_rate_limit_value is a 32-bit integer column.
 MAX_RATE_LIMIT_VALUE = 2**31 - 1
+MAX_PATTERN_LENGTH = 1000
 
 # Characters with a meaning in RE2, Rust regex and JavaScript. Escaping only these keeps every
 # generated pattern valid in all three engines: ClickHouse, cymbal and the Python HogVM.
@@ -67,6 +68,10 @@ def glob_to_regex(glob: str) -> str:
     """
     parts: list[str] = []
     in_alternatives = False
+    # A comparison with the last `}` and `]` replaces a scan of the rest of the glob at each `{` and `[`.
+    # This keeps a glob full of unclosed delimiters linear instead of quadratic.
+    last_brace = glob.rfind("}")
+    last_bracket = glob.rfind("]")
     index = 0
     while index < len(glob):
         char = glob[index]
@@ -78,11 +83,11 @@ def glob_to_regex(glob: str) -> str:
             parts.append(".*")
         elif char == "?":
             parts.append(".")
-        elif char == "[" and (class_end := _class_end(glob, index)) is not None:
+        elif char == "[" and (class_end := _class_end(glob, index, last_bracket)) is not None:
             parts.append(_char_class(glob[index + 1 : class_end]))
             index = class_end + 1
             continue
-        elif char == "{" and not in_alternatives and "}" in glob[index + 1 :]:
+        elif char == "{" and not in_alternatives and index < last_brace:
             parts.append("(?:")
             in_alternatives = True
         elif char == "}" and in_alternatives:
@@ -100,14 +105,15 @@ def _escape(char: str) -> str:
     return f"\\{char}" if char in _REGEX_METACHARACTERS else char
 
 
-def _class_end(glob: str, start: int) -> int | None:
+def _class_end(glob: str, start: int, last_bracket: int) -> int | None:
     """Index of the `]` that closes the class opened at `start`, or None when the class never closes."""
     body_start = start + 1
     if glob[body_start : body_start + 1] == "!":
         body_start += 1
     # A `]` right after the opening bracket is a literal member, as in `[]a]`.
-    close = glob.find("]", body_start + 1)
-    return close if close != -1 else None
+    if last_bracket <= body_start:
+        return None
+    return glob.find("]", body_start + 1)
 
 
 def _char_class(body: str) -> str:
@@ -135,6 +141,26 @@ def _rate_limit_item_id(rate_limit: SentryRateLimit) -> str:
 
 def _item_id(prefix: str, value: str) -> str:
     return f"{prefix}:{hashlib.sha256(value.encode()).hexdigest()[:12]}"
+
+
+def _pattern_too_long_item(
+    prefix: str, category: SentryMigrationCategory, sentry_setting: str, glob: str
+) -> SentryMigrationItem:
+    return SentryMigrationItem(
+        id=_item_id(prefix, glob),
+        category=category,
+        sentry_setting=sentry_setting,
+        sentry_value=f"{glob[:100]}…",
+        fit=SentryMigrationFit.UNSUPPORTED,
+        note=(
+            f"PostHog can import patterns of up to {MAX_PATTERN_LENGTH:,} characters, and this one has "
+            f"{len(glob):,}. Add a manual suppression rule with a shorter pattern."
+        ),
+        suppression_rule_filters=None,
+        rate_limit=None,
+        built_in_filter=None,
+        already_in_posthog=False,
+    )
 
 
 def _format_window(seconds: int) -> str:
@@ -258,6 +284,10 @@ class SentryMigrationPlanner:
         )
 
     def _error_message_item(self, glob: str) -> SentryMigrationItem:
+        if len(glob) > MAX_PATTERN_LENGTH:
+            return _pattern_too_long_item(
+                "error_message", SentryMigrationCategory.ERROR_MESSAGE, "Error message filter", glob
+            )
         typed = _TYPE_PREFIX.match(glob)
         note: str | None = None
         if typed:
@@ -295,6 +325,8 @@ class SentryMigrationPlanner:
         )
 
     def _release_item(self, glob: str) -> SentryMigrationItem:
+        if len(glob) > MAX_PATTERN_LENGTH:
+            return _pattern_too_long_item("release", SentryMigrationCategory.RELEASE, "Release filter", glob)
         package, separator, version_glob = glob.rpartition("@")
         notes = ["PostHog compares this with the release version it finds for each exception ($app_version)."]
         if separator and package not in ("", "*"):
