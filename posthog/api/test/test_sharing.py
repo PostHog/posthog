@@ -357,6 +357,19 @@ class TestSharing(APIBaseTest):
         configuration.refresh_from_db()
         assert configuration.shared_by_id == self.user.id
 
+    @parameterized.expand([("insight", "Insight"), ("notebook", "Notebook")])
+    @patch("posthog.api.sharing.export_asset_for_opengraph")
+    def test_settings_edits_do_not_log_publishing(self, kind: str, scope: str, _export: Mock) -> None:
+        resource = self.insight if kind == "insight" else Notebook.objects.create(team=self.team, created_by=self.user)
+        identifier = resource.pk if kind == "insight" else resource.short_id
+        url = f"/api/projects/{self.team.id}/{kind}s/{identifier}/sharing"
+        assert self.client.patch(url, {"enabled": True}, format="json").status_code == 200
+        logs = ActivityLog.objects.filter(scope=scope, item_id=str(identifier), activity="sharing enabled")
+        assert logs.count() == 1
+        assert logs.get().detail["changes"][0]["before"] is False
+        assert self.client.patch(url, {"settings": {}}, format="json").status_code == 200
+        assert logs.count() == 1
+
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")
     def test_can_edit_enabled_state_for_insight(self, patched_exporter_task: Mock):
         assert ActivityLog.objects.filter(scope="SharingConfiguration").count() == 0
@@ -2214,8 +2227,6 @@ class TestSharedLinkWarehouseExecution(APIBaseTest):
         assert tiles[0]["insight"]["result"], tiles[0]["insight"].get("result_error")
 
     def test_shared_notebook_inline_warehouse_query_executes(self):
-        from products.notebooks.backend.models import Notebook
-
         notebook = Notebook.objects.create(
             team=self.team,
             created_by=self.user,

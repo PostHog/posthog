@@ -79,6 +79,9 @@ class SharingConfiguration(models.Model):
 
     password_required = models.BooleanField(default=False)
 
+    class Meta:
+        indexes = [models.Index(fields=["shared_by"], name="sharingconfig_shared_by_idx")]
+
     @classmethod
     def shareable_resource_fields(cls) -> frozenset[str]:
         """The FK fields that point at a shareable resource - every relation except the team tenant FK.
