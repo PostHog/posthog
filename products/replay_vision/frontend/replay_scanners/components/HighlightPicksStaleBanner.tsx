@@ -33,7 +33,7 @@ export function HighlightPicksStaleBanner(): JSX.Element | null {
         nextBest,
         nextBestLoading,
     } = useValues(logic)
-    const { startBackfill, loadNextBest } = useActions(logic)
+    const { startBackfill, loadNextBest, pickSharperGoal } = useActions(logic)
     const editDisabledReason = getReplayVisionEditDisabledReason()
 
     if (!staleReason) {
@@ -148,9 +148,7 @@ export function HighlightPicksStaleBanner(): JSX.Element | null {
                     </div>
                 ))}
             </div>
-            <span className="text-secondary">
-                Nothing stood out with a broad goal. Try a sharper one on the same recordings.
-            </span>
+            <span className="text-secondary">Nothing stood out this week. Try a sharper goal.</span>
             {quietWeekGoals.map((starter) => (
                 <LemonButton
                     key={starter.key}
@@ -160,7 +158,10 @@ export function HighlightPicksStaleBanner(): JSX.Element | null {
                     icon={starter.icon}
                     disabledReason={editDisabledReason}
                     to={combineUrl(urls.replayVisionNewScanner(), { goal: starter.goal }).url}
-                    onClick={() => markScannerGoalDraftIntent(starter.goal)}
+                    onClick={() => {
+                        markScannerGoalDraftIntent(starter.goal)
+                        pickSharperGoal(starter.key)
+                    }}
                     data-attr={`vision-highlight-picks-stale-goal-${starter.key}`}
                 >
                     <span className="flex min-w-0 flex-col text-left">

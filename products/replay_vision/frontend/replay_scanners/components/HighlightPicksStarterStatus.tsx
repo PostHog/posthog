@@ -35,7 +35,7 @@ export function HighlightPicksStarterStatus(): JSX.Element | null {
                         <span className="font-semibold">
                             {total > 0
                                 ? `${pluralize(burstCounts.succeeded, 'recording')} scanned, nothing stood out`
-                                : `${startedScanner.name} is on`}
+                                : 'Your scanner is on'}
                         </span>
                         <span className="text-xs">
                             {burstStalled && burstCounts.pending > 0
@@ -86,14 +86,14 @@ export function HighlightPicksStarterStatus(): JSX.Element | null {
             <div className="flex items-center justify-between gap-2">
                 <span className="flex items-center gap-1 font-semibold">
                     <Spinner className="text-sm" />
-                    {startedScanner.name} is scanning
+                    Scanning sessions
                 </span>
                 <span className="text-secondary">
                     {finished} / {total}
                 </span>
             </div>
             <LemonProgress percent={total === 0 ? 100 : (finished / total) * 100} />
-            <span className="text-secondary">Results show up here as each scan finishes.</span>
+            <span className="text-secondary">Highlights show up here a few minutes after scans finish.</span>
         </div>
     )
 }

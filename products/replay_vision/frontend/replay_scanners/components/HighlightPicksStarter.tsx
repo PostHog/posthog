@@ -15,17 +15,15 @@ import { BUDGET_PRESETS, TARGET_MONTHLY_SCANS, weeklyVolume } from '../highlight
 import { highlightPicksStarterLogic } from '../highlightPicksStarterLogic'
 import { highlightPicksVolumeLogic } from '../highlightPicksVolumeLogic'
 import { HighlightPicksStateFrame } from './HighlightPicksStateFrame'
+import { HighlightPicksVolumeTiles } from './HighlightPicksVolumeTiles'
 
 const SCANS_PER_DAY = Math.round(TARGET_MONTHLY_SCANS / 30)
 const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
-function hoursLabel(hours: number): string {
-    return hours < 1 ? `${Math.max(1, Math.round(hours * 60))}m` : `${Math.round(hours)}h`
-}
-
 export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JSX.Element {
-    const { props: picksProps } = useMountedLogic(highlightPicksLogic)
-    const logic = highlightPicksStarterLogic(picksProps)
+    const picksLogic = useMountedLogic(highlightPicksLogic)
+    const { emptyStateAction } = useActions(picksLogic)
+    const logic = highlightPicksStarterLogic(picksLogic.props)
     const { burstPlan, spendMode, freeAvailable, budget, starting, startError, freeCreditsLeft, candidateRecordings } =
         useValues(logic)
     const { setBudget, chooseBudget, startScanner } = useActions(logic)
@@ -35,6 +33,7 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
     const editDisabledReason = getReplayVisionEditDisabledReason()
 
     const volume = weeklyVolume(volumeEstimate, candidateRecordings)
+    const loading = volumeEstimateLoading && !volume
     const burstCount = burstPlan.sessionIds.length
     const costLine =
         spendMode === 'free'
@@ -42,66 +41,64 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
             : freeAvailable
               ? 'A monthly budget you set. Free credits are used first.'
               : 'Free credits are used up, so this scanner needs a monthly limit.'
-    const tiles: [string, string, string][] | null = volume
-        ? [
-              ['Recorded', String(volume.recorded), 'this week'],
-              ['To watch', volume.hours === null ? '-' : hoursLabel(volume.hours), 'at normal speed'],
-          ]
-        : null
 
     return (
         <HighlightPicksStateFrame
             size={size}
             image={HedgehogMagnifyingGlass}
-            title={volume ? 'Your week in recordings' : 'Nothing to watch yet'}
+            title={
+                loading ? (
+                    <LemonSkeleton className="h-5 w-48" />
+                ) : volume ? (
+                    'Your week in recordings'
+                ) : (
+                    'Nothing to watch yet'
+                )
+            }
             body={
-                volume
+                volume || loading
                     ? null
-                    : 'Start scanning your sessions. A scanner reads each new recording and surfaces the ones worth watching.'
+                    : 'Start scanning your sessions. A scanner reads new recordings and surfaces the ones worth watching.'
             }
             dataAttr="vision-highlight-picks-starter"
             footer={
-                <div className="mt-1 flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+                <div className="mt-1 flex flex-wrap items-baseline justify-center gap-x-3 gap-y-1">
                     {freeAvailable && (
                         <LemonButton
                             type="tertiary"
                             size="xsmall"
                             disabledReason={starting ? 'Starting' : null}
-                            onClick={() => chooseBudget(spendMode === 'free')}
+                            onClick={() => {
+                                emptyStateAction('no-scanners', spendMode === 'free' ? 'set_budget' : 'use_free')
+                                chooseBudget(spendMode === 'free')
+                            }}
                             data-attr="vision-highlight-picks-starter-toggle-budget"
                         >
                             {spendMode === 'free' ? 'Set a monthly budget instead' : 'Use free credits instead'}
                         </LemonButton>
                     )}
-                    <Link to={urls.replayVisionNewScanner()} data-attr="vision-highlight-picks-starter-own-goal">
+                    <Link
+                        to={urls.replayVisionNewScanner()}
+                        onClick={() => emptyStateAction('no-scanners', 'own_goal')}
+                        data-attr="vision-highlight-picks-starter-own-goal"
+                    >
                         Write my own goal
                     </Link>
                 </div>
             }
         >
-            {volumeEstimateLoading && !volume ? (
-                <LemonSkeleton className="h-16 w-full rounded" />
-            ) : tiles ? (
-                <>
-                    <div className="grid grid-cols-2 gap-1.5" data-attr="vision-highlight-picks-starter-volume">
-                        {tiles.map(([label, value, caption]) => (
-                            <div
-                                key={label}
-                                className="flex flex-col items-center gap-0.5 rounded border bg-bg-light px-1 py-2 text-center"
-                            >
-                                <span className="text-xxs font-bold uppercase tracking-wide text-secondary">
-                                    {label}
-                                </span>
-                                <span className="text-xl font-bold leading-tight">{value}</span>
-                                <span className="text-xxs text-secondary">{caption}</span>
-                            </div>
-                        ))}
-                    </div>
-                    <span className="text-xs text-secondary">
-                        A scanner reads all {volume?.recorded} in minutes and hands you the few worth opening.
-                    </span>
-                </>
-            ) : null}
+            <HighlightPicksVolumeTiles
+                volume={volume}
+                loading={loading}
+                dataAttr="vision-highlight-picks-starter-volume"
+            />
+            {volume && (
+                <span className="text-xs text-secondary">
+                    {burstCount > 0
+                        ? `A scanner reads the newest ${burstCount} now and hands you the few worth opening.`
+                        : 'A scanner reads new recordings and hands you the few worth opening.'}
+                </span>
+            )}
             {spendMode === 'budget' && (
                 <>
                     <LemonSegmentedButton
@@ -136,7 +133,7 @@ export function HighlightPicksStarter({ size }: { size: 'small' | 'large' }): JS
                     : `Start with ${formatCreditCount(budget)} a month`}
             </LemonButton>
             <span className="text-xxs text-secondary">
-                Then every new recording, about {SCANS_PER_DAY} a day. {costLine}
+                Then about {SCANS_PER_DAY} new recordings a day. {costLine}
             </span>
         </HighlightPicksStateFrame>
     )

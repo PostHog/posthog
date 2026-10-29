@@ -10,7 +10,9 @@ import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
 import { resolveHighlightFeedEmptyReason } from '../highlightFeedEmptyState'
 import { highlightPicksLogic } from '../highlightPicksLogic'
+import { highlightPicksVolumeLogic } from '../highlightPicksVolumeLogic'
 import { HighlightPicksBlockedState } from './HighlightPicksBlockedState'
+import { HighlightPicksNoRecordingsState } from './HighlightPicksNoRecordingsState'
 import { HighlightPicksQuietState } from './HighlightPicksQuietState'
 import { HighlightPicksReplayOffState } from './HighlightPicksReplayOffState'
 import { HighlightPicksShadowPreview } from './HighlightPicksShadowPreview'
@@ -22,6 +24,7 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
     const { currentTeam } = useValues(teamLogic)
     const picksLogic = useMountedLogic(highlightPicksLogic)
     const { emptyStateShown } = useActions(picksLogic)
+    const { noRecordings } = useValues(highlightPicksVolumeLogic)
     const large = size === 'large'
     const loading = scannersLoading || quotaLoading
 
@@ -46,6 +49,14 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
     if (reason === 'replay-off') {
         return <HighlightPicksReplayOffState size={size} />
     }
+    if ((reason === 'no-scanners' || reason === 'quiet-window') && noRecordings) {
+        return (
+            <>
+                <HighlightPicksNoRecordingsState size={size} reason={reason} />
+                <HighlightPicksShadowPreview />
+            </>
+        )
+    }
     if (reason === 'no-scanners') {
         return (
             <>
@@ -58,5 +69,10 @@ export function HighlightPicksEmptyState({ size }: { size: 'small' | 'large' }):
         return <HighlightPicksBlockedState reason={reason} size={size} />
     }
 
-    return <HighlightPicksQuietState size={size} />
+    return (
+        <>
+            <HighlightPicksQuietState size={size} />
+            <HighlightPicksShadowPreview />
+        </>
+    )
 }

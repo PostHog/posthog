@@ -8,6 +8,7 @@ import { highlightPicksStarterLogic } from '../highlightPicksStarterLogic'
 import { HighlightPickRow } from './HighlightPickRow'
 import { HighlightPicksEmptyState } from './HighlightPicksEmptyState'
 import { HighlightPicksExtraRows } from './HighlightPicksExtraRows'
+import { HighlightPicksScanningState } from './HighlightPicksScanningState'
 import { HighlightPicksStaleBanner } from './HighlightPicksStaleBanner'
 import { HighlightPicksStarterStatus } from './HighlightPicksStarterStatus'
 
@@ -16,7 +17,7 @@ const LIST_TOP_COUNT = 5
 export function HighlightPicksList(): JSX.Element {
     const picksLogic = useMountedLogic(highlightPicksLogic)
     const { picks, picksLoad, picksLoading, picksFailed, activeSessionId } = useValues(picksLogic)
-    const { loadPicks } = useActions(picksLogic)
+    const { loadPicks, docsOpened } = useActions(picksLogic)
     const { startedScanner, burstDone, burstStalled } = useValues(highlightPicksStarterLogic(picksLogic.props))
     const burstActive = startedScanner !== null && (!burstDone || burstStalled)
 
@@ -51,7 +52,9 @@ export function HighlightPicksList(): JSX.Element {
                         </LemonButton>
                     </div>
                 ) : !picks || picks.length === 0 ? (
-                    startedScanner ? (
+                    startedScanner && !burstDone ? (
+                        <HighlightPicksScanningState size="small" />
+                    ) : startedScanner ? (
                         <>
                             <HighlightPicksStarterStatus />
                             <HighlightPicksExtraRows />
@@ -80,7 +83,11 @@ export function HighlightPicksList(): JSX.Element {
             {picks && picks.length > 0 && (
                 <div className="flex items-center justify-between gap-2 border-t px-3 py-1.5 text-xs text-secondary">
                     <span>Picks from the last 7 days</span>
-                    <VisionDocsLink page="what-to-watch" dataAttr="vision-highlight-picks-how-chosen">
+                    <VisionDocsLink
+                        page="what-to-watch"
+                        dataAttr="vision-highlight-picks-how-chosen"
+                        onClick={docsOpened}
+                    >
                         How picks are chosen
                     </VisionDocsLink>
                 </div>
