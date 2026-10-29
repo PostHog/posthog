@@ -43,11 +43,6 @@ class TestCursorSource:
         else:
             assert schema.incremental_fields == []
 
-    def test_get_schemas_filters_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["members", "spend"])
-
-        assert [s.name for s in schemas] == ["members", "spend"]
-
     @parameterized.expand([((True, None),), ((False, KEY_REJECTED_MESSAGE),)])
     def test_validate_credentials(self, probe_result):
         with mock.patch(

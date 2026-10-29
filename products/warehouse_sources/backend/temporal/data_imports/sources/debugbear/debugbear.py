@@ -8,7 +8,7 @@ import orjson
 import structlog
 from dateutil import parser as dateutil_parser
 from requests import Session
-from requests.exceptions import RequestException
+from requests.exceptions import HTTPError, RequestException
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import (
     coerce_datetime_to_utc,
@@ -261,7 +261,20 @@ def _iter_rum_metrics_for_project(
 
     start = since or datetime.now(UTC) - timedelta(days=RUM_BACKFILL_DAYS)
     params = {"groupByTime": RUM_GROUP_BY_TIME, "from": _iso(start)}
-    payload = _get_json(session, f"/project/{project['id']}/rumMetrics", headers, params=params)
+    try:
+        payload = _get_json(session, f"/project/{project['id']}/rumMetrics", headers, params=params)
+    except HTTPError as exc:
+        # DebugBear's rumMetrics endpoint 400s for a project with no Real User Monitoring data
+        # rather than returning an empty series, so the request stays identical on every retry.
+        # Re-raise under a stable message so `get_non_retryable_errors` can stop the sync instead
+        # of retrying a project that will never answer.
+        if exc.response is not None and exc.response.status_code == 400:
+            raise HTTPError(
+                f"DebugBear rejected the RUM metrics request for project {project['id']} with a 400 "
+                "error — Real User Monitoring is likely not set up for this project.",
+                response=exc.response,
+            ) from exc
+        raise
     yield from _flatten_rum_metrics(project_fields, payload)
 
 

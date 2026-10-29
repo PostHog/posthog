@@ -17,6 +17,7 @@ from rest_framework.request import Request
 from posthog.auth import ScopedServiceJWTAuthentication
 from posthog.jwt import PosthogJwtAudience
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.test.authentication_checks import covers_authentication
 
 TEST_PURPOSE = ScopedServiceJwtPurpose(
     audience=PosthogJwtAudience.RECORDING_API,
@@ -124,13 +125,14 @@ class TestScopedServiceJWTAuthentication(APIBaseTest):
             django_request = self.factory.get(path)
         if url_team_id is not None:
             django_request.resolver_match = resolve(path)
-        return Request(django_request)  # ty: ignore[invalid-return-type]
+        return Request(django_request)
 
     def _authenticate(self, authentication: ScopedServiceJWTAuthentication, request: Request) -> tuple[Any, Any]:
         result = authentication.authenticate(request)
         assert result is not None
         return result
 
+    @covers_authentication(ScopedServiceJWTAuthentication)
     def test_valid_token_authenticates_as_the_token_team(self):
         token = TEST_PURPOSE.mint({"team_id": self.team.id})
 

@@ -400,6 +400,11 @@ pub const FLAG_DEFINITIONS_REBUILD_REQUESTED_COUNTER: &str =
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
+// Transitional (#66179): background comparison of legacy-token auth against the
+// backfilled PSAK mirror rows. Labels: result = match | missing | team_mismatch |
+// revoked (leak-revoked, must stay without a row) | error | timeout | skipped (cap).
+pub const LEGACY_TOKEN_MIRROR_SHADOW_COUNTER: &str = "flags_legacy_token_mirror_shadow_total";
+
 // Counter for /flags requests classified as bot traffic. Fires regardless
 // of whether the request was actually short-circuited, so dashboards can
 // plot the "would-have-rejected" rate during the log-only rollout phase
@@ -412,8 +417,16 @@ pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_tot
 // Loki.
 pub const FLAG_BOT_DETECTED_COUNTER: &str = "flags_bot_detected_total";
 
+// Requests refused by the team's request blocklist. Labeled only by `reason`
+// (`host` or `ip`). The blocked host and IP are unbounded, so they go to the
+// canonical log line, never to a label.
+pub const FLAG_REQUEST_BLOCKED_COUNTER: &str = "flags_request_blocked_total";
+
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
+
+// One count per /flags request, labeled `outcome` and `needs_persons`.
+pub const FLAG_REQUEST_OUTCOME_COUNTER: &str = "flags_request_outcome_total";
 
 // Timeout tracking and classification
 pub const FLAG_ACQUIRE_TIMEOUT_COUNTER: &str = "flags_acquire_timeout_total";
@@ -436,13 +449,15 @@ pub const FLAG_CONDITION_SKIPPED_COUNTER: &str = "flags_condition_skipped_total"
 // V2 ingress outcomes use fixed labels and never include configuration values.
 pub const FLAG_V2_PARSE_COUNTER: &str = "flags_v2_config_parse_total";
 
-// Incremented once per flag left out of a team's payload because its `filters` JSON
-// does not deserialize into FlagFilters. A property filter with no `"type"` key is
-// one such blob, because PropertyFilter requires prop_type, and serde fails the
-// whole outer struct. This counts every dropped flag, which is a superset of the
-// flags the two builders disagree about: Python keeps an active or referenced flag
-// that this drops, but an inactive, unreferenced flag is dropped by both builders.
-// Team id and flag key are in the companion warn log, not in metric labels (cardinality).
+// Incremented once per flag left out of a team's payload because its JSON does not
+// deserialize: the `filters` column on the PG read, or the whole flag object on the
+// hypercache read. A property filter with no `"type"` key is one such blob, because
+// PropertyFilter requires prop_type, and serde fails the whole outer struct. This
+// counts every dropped flag, which is a superset of the flags the two builders
+// disagree about: Python keeps an active or referenced flag that this drops, but an
+// inactive, unreferenced flag is dropped by both builders. The `operation` label on
+// the companion tombstone counter says which read path dropped it. Team id and flag
+// key are in the companion warn log, not in metric labels (cardinality).
 pub const FLAG_MALFORMED_FILTER_COUNTER: &str = "flags_flag_malformed_filter_total";
 // Incremented once per team read that left out at least one flag for the reason
 // above. FLAG_MALFORMED_FILTER_COUNTER divided by this gives the mean flags

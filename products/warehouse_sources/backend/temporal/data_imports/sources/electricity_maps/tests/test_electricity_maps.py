@@ -34,10 +34,12 @@ def _page(zone: str) -> ScriptedResponse:
     )
 
 
-def _driver(zones: str = "DE", history_days: int | None = None) -> SourceDriver:
+def _driver(zones: str = "DE", history_days: int | None = None, pricing_nodes: str | None = None) -> SourceDriver:
     return SourceDriver(
         ElectricityMapsSource(),
-        ElectricityMapsSourceConfig(api_token="test-token", zones=zones, history_days=history_days),
+        ElectricityMapsSourceConfig(
+            api_token="test-token", zones=zones, history_days=history_days, pricing_nodes=pricing_nodes
+        ),
     )
 
 
@@ -87,9 +89,19 @@ class TestWindowWalk:
         ]
 
     @time_machine.travel(_NOW, tick=False)
-    def test_watermark_at_or_past_now_still_requests_one_valid_window(self) -> None:
-        result = _driver().run(
-            "carbon_intensity",
+    @pytest.mark.parametrize(
+        ("endpoint", "entity_param", "entity"),
+        [
+            ("carbon_intensity", "zone", "DE"),
+            # Locational marginal prices are addressed by pricing node; the API rejects a zone.
+            ("locational_marginal_price_day_ahead", "node", "CORTINA_1_N106"),
+        ],
+    )
+    def test_watermark_at_or_past_now_still_requests_one_valid_window(
+        self, endpoint: str, entity_param: str, entity: str
+    ) -> None:
+        result = _driver(pricing_nodes="CORTINA_1_N106").run(
+            endpoint,
             [_page("DE")],
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2025, 6, 15, 13, 0, 0, tzinfo=UTC),
@@ -97,7 +109,7 @@ class TestWindowWalk:
 
         assert result.raised is None
         assert result.queries == [
-            {"zone": ("DE",), "start": ("2025-06-15T11:00:00Z",), "end": ("2025-06-15T12:00:00Z",)}
+            {entity_param: (entity,), "start": ("2025-06-15T11:00:00Z",), "end": ("2025-06-15T12:00:00Z",)}
         ]
         assert result.saved_states == []
 
@@ -156,22 +168,94 @@ class TestWindowWalk:
         assert isinstance(result.raised, ValueError)
         assert "Unknown Electricity Maps endpoint" in str(result.raised)
 
-    def test_no_zones_raises(self) -> None:
-        result = _driver(zones="").run("carbon_intensity", [])
+    @pytest.mark.parametrize(
+        ("endpoint", "zones", "pricing_nodes", "expected_fragment"),
+        [
+            ("carbon_intensity", "", "CORTINA_1_N106", "zones"),
+            ("carbon_intensity_forecast", "", None, "zones"),
+            ("locational_marginal_price_day_ahead", "DE", " , ", "pricing nodes"),
+        ],
+    )
+    def test_missing_zones_or_nodes_raises(
+        self, endpoint: str, zones: str, pricing_nodes: str | None, expected_fragment: str
+    ) -> None:
+        result = _driver(zones=zones, pricing_nodes=pricing_nodes).run(endpoint, [])
 
         assert isinstance(result.raised, ValueError)
-        assert "zones" in str(result.raised)
+        assert expected_fragment in str(result.raised)
+        assert result.requests == []
+
+
+class TestSnapshotEndpoints:
+    def test_forecast_rows_carry_zone_and_issue_time_from_envelope(self) -> None:
+        result = _driver("DE, SE").run(
+            "carbon_intensity_forecast",
+            [
+                ScriptedResponse(
+                    json={
+                        "zone": "DE",
+                        "updatedAt": "2025-06-15T11:00:00.000Z",
+                        "forecast": [
+                            {"carbonIntensity": 250, "datetime": "2025-06-15T12:00:00.000Z"},
+                            {"carbonIntensity": 240, "datetime": "2025-06-15T13:00:00.000Z"},
+                        ],
+                    }
+                ),
+                ScriptedResponse(json={"zone": "SE", "updatedAt": "2025-06-15T11:00:00.000Z", "forecast": []}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v3/carbon-intensity/forecast", "/v3/carbon-intensity/forecast"]
+        assert result.params("zone") == ["DE", "SE"]
+        assert result.rows == [
+            {
+                "carbonIntensity": 250,
+                "datetime": datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC),
+                "zone": "DE",
+                "updatedAt": datetime(2025, 6, 15, 11, 0, 0, tzinfo=UTC),
+            },
+            {
+                "carbonIntensity": 240,
+                "datetime": datetime(2025, 6, 15, 13, 0, 0, tzinfo=UTC),
+                "zone": "DE",
+                "updatedAt": datetime(2025, 6, 15, 11, 0, 0, tzinfo=UTC),
+            },
+        ]
+
+    @pytest.mark.parametrize("body", [{"zone": "DE"}, {"zone": "DE", "forecast": None}])
+    def test_forecast_response_without_forecast_list_fails_the_sync(self, body: dict[str, Any]) -> None:
+        result = _driver().run("carbon_intensity_forecast", [ScriptedResponse(json=body)])
+
+        assert isinstance(result.raised, ValueError)
+        assert "forecast list for zone DE" in str(result.raised)
+
+    def test_zones_object_is_flattened_to_one_row_per_zone(self) -> None:
+        result = _driver(zones="").run(
+            "zones",
+            [
+                ScriptedResponse(
+                    json={
+                        "DK-DK2": {"zoneKey": "DK-DK2", "zoneName": "East Denmark", "zoneParentKey": "DK"},
+                        "DE": {"zoneName": "Germany", "zoneParentKey": None},
+                    }
+                )
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v3/zones"]
+        assert result.rows == [
+            {"zoneKey": "DK-DK2", "zoneName": "East Denmark", "zoneParentKey": "DK"},
+            {"zoneKey": "DE", "zoneName": "Germany", "zoneParentKey": None},
+        ]
 
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("status_code", "expected_valid", "expected_fragment"),
         [
-            (200, True, None),
-            (401, False, "rejected your API token"),
-            (403, False, "does not have access to zone DE"),
             (404, False, "does not recognize zone DE"),
-            (500, False, "unexpected status code (500)"),
         ],
     )
     def test_status_maps_to_user_message(

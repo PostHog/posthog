@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 import requests
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,57 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
+    codebase_detection = detect(
+        env=("^APPSFLYER_",),
+        script_hosts=("websdk.appsflyersdk.com",),
+        npm=("react-native-appsflyer", "cordova-plugin-appsflyer-sdk"),
+        cocoapods=(
+            "AppsFlyerFramework",
+            "AppsFlyer-Core",
+            "AppsFlyer-SDK",
+            "AppsFlyerAdobeExtension",
+            "AppsFlyerDynamicFramework",
+            "AppsFlyerFWTestBuild",
+            "AppsFlyerFramework-MacCatalyst",
+            "AppsFlyerTracker",
+            "AppsFlyerTvOsLib",
+            "AppsFlyerTvOsLibStaging",
+            "AppsFlyerURLResolver",
+            "Beta-AppsFlyerFramework",
+            "appsflyer-apple-sdk-qa",
+            "appsflyer-apple-sdk-qa-MacCatalyst",
+            "segment-appsflyer-ios",
+        ),
+        maven=(
+            "com.appsflyer:af-android-sdk",
+            "com.appsflyer:AppsFlyerAdobeExtension",
+            "com.appsflyer:AppsflyerLib",
+            "com.appsflyer:appsflyer-adobe-aep-sdk-extension",
+            "com.appsflyer:appsflyer-adobe-aep-sdk-extension-beta",
+            "com.appsflyer:appsflyer-adobe-sdk-extension",
+            "com.appsflyer:appsflyer-adobe-sdk-extension-beta",
+            "com.appsflyer:appsflyer-url-resolver",
+        ),
+        pub=("appsflyer_sdk",),
+        swiftpm=(
+            "github.com/appsflyersdk/appsflyerframework",
+            "github.com/appsflyersdk/appsflyer-adobe-mobile-ios-swift-extension",
+            "github.com/appsflyersdk/appsflyer-apple-migration-helper",
+            "github.com/appsflyersdk/appsflyer-apple-purchase-connector",
+            "github.com/appsflyersdk/appsflyer-apple-rpc",
+            "github.com/appsflyersdk/appsflyer-apple-sdk-qa",
+            "github.com/appsflyersdk/appsflyer-capacitor-plugin",
+            "github.com/appsflyersdk/appsflyer-urlresolver-client",
+            "github.com/appsflyersdk/appsflyerframework-dynamic",
+            "github.com/appsflyersdk/appsflyerframework-static",
+            "github.com/appsflyersdk/appsflyerframework-strict",
+            "github.com/appsflyersdk/appsflyersdk-qa-spm-dynamic",
+            "github.com/appsflyersdk/appsflyersdk-qa-spm-static",
+            "github.com/appsflyersdk/appsflyersdk-qa-spm-strict",
+            "github.com/appsflyersdk/segment-appsflyer-ios",
+        ),
+    )
+
     api_docs_url = "https://support.appsflyer.com/hc/en-us/articles/207034366-Pull-APIs-aggregate-and-raw-data"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

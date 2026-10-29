@@ -40,4 +40,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "units": "Number of units with this room type.",
         },
     },
+    "availability": {
+        "description": "Availability calendar periods for each property room type, for one year from the sync date.",
+        "docs_url": "https://docs.lodgify.com/reference/getcalendarbyuser",
+        "columns": {
+            "user_id": "Identifier of the Lodgify account that owns the property.",
+            "property_id": "Property identifier.",
+            "room_type_id": "Room type identifier.",
+            "start": "First day of the period.",
+            "end": "Last day of the period.",
+            "available": "Number of units available in the period.",
+            "closed_period": "Closed period that blocks the dates, if any.",
+            "bookings": "Bookings that occupy the period, with their status.",
+            "channel_calendars": "External channel calendars that block the period.",
+        },
+    },
+    "rates_calendar": {
+        "description": "Nightly rates for each property room type, for one year from the sync date.",
+        "docs_url": "https://docs.lodgify.com/reference/ratescalendar-v2",
+        "columns": {
+            "property_id": "Property identifier.",
+            "room_type_id": "Room type identifier.",
+            "date": "Day that the rates apply to.",
+            "is_default": "Whether the day uses the default rate.",
+            "prices": "Prices for the day, with minimum stay, maximum stay, and price per extra guest.",
+        },
+    },
+    "external_bookings": {
+        "description": "External channel bookings that belong to each booking.",
+        "docs_url": "https://docs.lodgify.com/reference/getexternalbookingsasync",
+        "columns": {
+            "booking_id": "Identifier of the Lodgify booking.",
+            "booking_updated_at": "Time of the latest update to the Lodgify booking.",
+            "created_at": "Time when the external booking was created.",
+            "content": "Contents of the external booking.",
+        },
+    },
 }

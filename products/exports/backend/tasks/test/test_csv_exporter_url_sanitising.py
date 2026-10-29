@@ -1,11 +1,11 @@
-from posthog.test.base import APIBaseTest
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.utils import PotentialSecurityProblemException, absolute_uri
 
 
-class TestCSVExporterURLSanitization(APIBaseTest):
+class TestCSVExporterURLSanitization(SimpleTestCase):
     def test_sanitize_url_when_provided_path(self) -> None:
         with self.settings(SITE_URL="https://something.posthog.com"):
             sanitised = absolute_uri(None or "/some/location")

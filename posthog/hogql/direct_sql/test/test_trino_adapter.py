@@ -1,8 +1,14 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from posthog.hogql.direct_sql.trino_adapter import TrinoAdapter, ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
+
+from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseTarget
+
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
 
 @pytest.mark.parametrize(
@@ -49,6 +55,7 @@ def test_execute_returns_rows_and_types(
     request = MagicMock()
     request.sql = request_sql
     request.values = request_values
+    request.cancellation_token = None
     request.team.pk = 1
     request.source.id = "source-id"
     request.settings.max_execution_time = 30
@@ -76,3 +83,78 @@ def test_execute_returns_rows_and_types(
     assert result.results == [(1, True)]
     assert result.print_columns == ["id", "active"]
     assert result.types == [("id", "Nullable(Int64)"), ("active", "Nullable(Bool)")]
+
+
+def test_cancellation_during_prepare_prevents_starting_the_main_query() -> None:
+    import json
+    import threading
+    from contextlib import nullcontext
+
+    import requests
+    from trino.dbapi import connect
+
+    from posthog.hogql.direct_sql.trino_adapter import TrinoQueryRequest, execute_trino_query
+    from posthog.hogql.timings import HogQLTimings
+
+    polled = threading.Event()
+    statements: list[str] = []
+    session = requests.Session()
+
+    def cancelled(*args: object) -> bool:
+        polled.set()
+        return True
+
+    def send(request: requests.PreparedRequest, **kwargs: object) -> requests.Response:
+        body = request.body
+        statements.append(body.decode() if isinstance(body, bytes) else str(body))
+        assert polled.wait(2)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(
+            {"id": "prepare", "infoUri": "https://trino.example.com/query", "stats": {}, "data": []}
+        ).encode()
+        return response
+
+    connection = connect(host="trino.example.com", user="test", http_session=session, legacy_prepared_statements=True)
+    with (
+        patch.object(session, "send", side_effect=send),
+        patch("posthog.hogql.direct_sql.trino_adapter.is_direct_query_cancellation_requested", side_effect=cancelled),
+        pytest.raises(ExposedHogQLError, match="Trino query was canceled"),
+    ):
+        execute_trino_query(
+            TrinoQueryRequest(
+                sql="SELECT %(value)s",
+                values={"value": 1},
+                timeout_seconds=10,
+                timings=HogQLTimings(),
+                team_id=1,
+                cancellation_token="token",
+            ),
+            nullcontext(connection),
+        )
+    assert len(statements) == 1
+    assert statements[0].startswith("PREPARE ")
+
+
+@override_settings(CLOUD_DEPLOYMENT="US", MANAGED_WAREHOUSE_INGRESS_IPS="10.1.0.1")
+def test_validate_source_config_accepts_the_teams_managed_warehouse() -> None:
+    # A managed warehouse host resolves to a private load balancer address. The host check
+    # exempts it only when the caller names the port and the source type.
+    host = "acme.dw.us.postwh.com"
+    source = MagicMock(direct_engine="trino")
+    team = MagicMock(pk=1)
+    config = MagicMock(host=host, port=443)
+
+    with (
+        patch("posthog.hogql.direct_sql.trino_adapter.is_direct_capable", return_value=True),
+        patch("posthog.hogql.direct_sql.trino_adapter.parse_direct_source_config", return_value=config),
+        patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", return_value=[(None, None, None, None, ("10.1.0.1", 0))]),
+        patch(f"{_MIXINS_MODULE}._managed_warehouse_organization_id", return_value="org-1"),
+        patch(
+            "products.managed_warehouse.backend.managed_ingress.get_managed_warehouse_target",
+            return_value=ManagedWarehouseTarget(host=host, ports=frozenset({443})),
+        ),
+    ):
+        _, validated_config = TrinoAdapter().validate_source_config(source, team)
+
+    assert validated_config is config

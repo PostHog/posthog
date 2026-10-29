@@ -55,6 +55,13 @@ export const KAFKA_SESSION_REPLAY_IMAGE_FETCH = `${prefix}session_replay_image_f
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_session_replay_image_fetch_retry_1m${suffix}`
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_session_replay_image_fetch_retry_10m${suffix}`
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_session_replay_image_fetch_retry_1h${suffix}`
+// The v4 image fetch lane: remote image URLs from the v4 recorder, and their delay tiers.
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH = `${prefix}ai_research_v4_image_fetch${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_v4_image_fetch_retry_1m${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_v4_image_fetch_retry_10m${suffix}`
+export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_v4_image_fetch_retry_1h${suffix}`
+// v4 index rows: v4 recorder -> v4 Parquet sink, one message per Parquet row.
+export const KAFKA_AI_RESEARCH_V4_INDEX = `${prefix}ai_research_v4_index${suffix}`
 
 // images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
 // The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be
@@ -76,6 +83,9 @@ export const KAFKA_LOG_ENTRIES = `${prefix}log_entries${suffix}`
 
 // per-invocation result rows for hog functions and hog flows
 export const KAFKA_HOG_INVOCATION_RESULTS = `${prefix}clickhouse_hog_invocation_results${suffix}`
+
+// one row per status change of a transactional email, for the email_status ClickHouse table
+export const KAFKA_EMAIL_STATUS = `${prefix}clickhouse_email_status${suffix}`
 
 // metadata rows for sent message assets (rendered emails stored in object storage)
 export const KAFKA_MESSAGE_ASSETS = `${prefix}clickhouse_message_assets${suffix}`

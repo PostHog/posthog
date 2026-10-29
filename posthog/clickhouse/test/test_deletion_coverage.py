@@ -1,6 +1,7 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from django.conf import settings
+from django.test import SimpleTestCase
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.deletion_targets import (
@@ -49,29 +50,6 @@ class TestDeletionCoverage(ClickhouseTestMixin, BaseTest):
             "See docs/internal/clickhouse-deletion-coverage.md."
         )
 
-    def test_every_personal_data_target_is_squashed_or_exempt(self):
-        # A merge moves a distinct_id to another person, and a later deletion names only the
-        # survivor, so a target the squash skips keeps its rows on the absorbed person until the
-        # TTL drops them (#93035). The test above cannot catch that: it keys on person_properties,
-        # which flag_evaluations does not declare, which is how flag_evaluations slipped through.
-        skipped = {target.data_table for target in PERSONAL_DATA_TARGETS if not target.accepts_person_id_rewrite}
-        unaccounted = sorted(skipped - PERSON_ID_REWRITE_EXEMPT)
-
-        assert not unaccounted, (
-            f"{unaccounted} are swept for person deletion, but squash_person_overrides never rewrites "
-            "their person_id, so a merge strands rows on the person it absorbed. Set "
-            "accepts_person_id_rewrite=True on each (posthog/models/deletion_targets.py), or add it to "
-            "PERSON_ID_REWRITE_EXEMPT with the window you are accepting. "
-            "See docs/internal/clickhouse-deletion-coverage.md."
-        )
-
-        stale = sorted(PERSON_ID_REWRITE_EXEMPT - skipped)
-        assert not stale, (
-            f"{stale} are in PERSON_ID_REWRITE_EXEMPT but are not registered targets the squash skips. "
-            "Remove each entry: either the target now sets accepts_person_id_rewrite=True, or it is no "
-            "longer in PERSONAL_DATA_TARGETS."
-        )
-
     def test_squash_targets_accept_an_alter_update_on_person_id(self):
         # The squash rewrites person_id with ALTER UPDATE, and ClickHouse refuses one on a column in
         # the sorting key or the partition key. A target marked accepts_person_id_rewrite whose key
@@ -117,4 +95,30 @@ class TestDeletionCoverage(ClickhouseTestMixin, BaseTest):
             f"{offenders} are squash targets carrying person_id in their sorting or partition key, "
             "so the squash cannot assign it. Both are fixed once the table holds data, so this "
             "needs a new table rather than an ALTER."
+        )
+
+
+class TestDeletionTargetRegistration(SimpleTestCase):
+    def test_every_personal_data_target_is_squashed_or_exempt(self):
+        # A merge moves a distinct_id to another person, and a later deletion names only the
+        # survivor, so a target the squash skips keeps its rows on the absorbed person until the
+        # TTL drops them (#93035). The test above cannot catch that, because it checks only that the
+        # deletion sweep reaches a table, and only for a table that declares person_properties. This
+        # test reads the registered targets instead, because a target need not declare that column.
+        skipped = {target.data_table for target in PERSONAL_DATA_TARGETS if not target.accepts_person_id_rewrite}
+        unaccounted = sorted(skipped - PERSON_ID_REWRITE_EXEMPT)
+
+        assert not unaccounted, (
+            f"{unaccounted} are swept for person deletion, but squash_person_overrides never rewrites "
+            "their person_id, so a merge strands rows on the person it absorbed. Set "
+            "accepts_person_id_rewrite=True on each (posthog/models/deletion_targets.py), or add it to "
+            "PERSON_ID_REWRITE_EXEMPT with the window you are accepting. "
+            "See docs/internal/clickhouse-deletion-coverage.md."
+        )
+
+        stale = sorted(PERSON_ID_REWRITE_EXEMPT - skipped)
+        assert not stale, (
+            f"{stale} are in PERSON_ID_REWRITE_EXEMPT but are not registered targets the squash skips. "
+            "Remove each entry: either the target now sets accepts_person_id_rewrite=True, or it is no "
+            "longer in PERSONAL_DATA_TARGETS."
         )

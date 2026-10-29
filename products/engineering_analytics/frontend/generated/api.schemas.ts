@@ -152,7 +152,7 @@ export const FrictionGroupEnumApi = {
 } as const
 
 export interface FrictionGroupShareApi {
-    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and kickouts), or rework (own failures and extra pushes).
+    /** ci (red CI and CI waits), review (waiting for the first approval), queue (merge-queue time and failed queue attempts), or rework (own failures and extra pushes).
      *
      * * `ci` - CI
      * * `review` - Review
@@ -245,6 +245,51 @@ export interface AuthorFrictionDetailApi {
     has_membership_data: boolean
     /** The author's merged pull requests in the window. */
     pr_count: number
+}
+
+export interface PRLLMSpendApi {
+    /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
+    cost_usd: number
+    /** Total input (prompt) tokens across the attributed generations. */
+    input_tokens: number
+    /** Total output (completion) tokens across the attributed generations. */
+    output_tokens: number
+    /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
+    generations: number
+    /** Total prompt tokens read from the provider's prompt cache across the attributed generations ($ai_cache_read_input_tokens). Not included in input_tokens. */
+    cache_read_input_tokens: number
+    /** Total prompt tokens written to the provider's prompt cache across the attributed generations ($ai_cache_creation_input_tokens). Not included in input_tokens. */
+    cache_creation_input_tokens: number
+    /** Largest prompt any single attributed generation sent: input plus cache read plus cache write tokens. */
+    peak_context_tokens: number
+}
+
+export interface AuthorPRLLMSpendApi {
+    /** Agent LLM token spend attributed to this pull request, by the same rule as `pr_cost`, or null when no generation matched. */
+    llm_spend: PRLLMSpendApi | null
+    /** Pull request number. */
+    number: number
+    /** Pull request title. */
+    title: string
+    /** Pull request state: open, closed, or merged.
+     *
+     * * `open` - Open
+     * * `closed` - Closed
+     * * `merged` - Merged */
+    state: PRStateEnumApi
+    /** The pull request's head branch, which attribution joins on. */
+    head_branch: string
+    /** When the pull request was opened. */
+    created_at: string
+}
+
+export interface AuthorLLMSpendListApi {
+    /** The author's pull requests active in the window, newest first, capped at `limit`. Each spend covers the pull request's whole attribution window, so it can include spend from before date_from. */
+    items: AuthorPRLLMSpendApi[]
+    /** True when more pull requests matched than `limit`. */
+    truncated: boolean
+    /** Maximum number of pull requests returned in `items`. */
+    limit: number
 }
 
 export interface WorkflowCostApi {
@@ -1199,6 +1244,17 @@ export interface JobLogInsightsApi {
     log_truncated?: boolean
 }
 
+export interface LLMSpendCoverageApi {
+    /** Total cost in USD of the $ai_generation events stamped with this repository ($ai_git_repo) in the window. Generations with no repository stamp are not counted. */
+    cost_usd: number
+    /** The part of cost_usd that the branch and session attribution credits to a pull request. A generation credited to several pull requests counts once. */
+    attributed_cost_usd: number
+    /** Number of $ai_generation events in cost_usd. */
+    generations: number
+    /** Number of $ai_generation events in attributed_cost_usd. */
+    attributed_generations: number
+}
+
 export interface MasterFailureGroupApi {
     /** Repository the failures occurred in. */
     repo: RepoRefApi
@@ -1238,17 +1294,6 @@ export interface RunCostApi {
      * * `github_actions` - GitHub Actions
      * * `depot_ci` - Depot CI */
     ci_engine?: CIEngineEnumApi | null
-}
-
-export interface PRLLMSpendApi {
-    /** Total agent LLM token cost in USD attributed to this PR (sum of $ai_total_cost_usd over the matched $ai_generation events). */
-    cost_usd: number
-    /** Total input (prompt) tokens across the attributed generations. */
-    input_tokens: number
-    /** Total output (completion) tokens across the attributed generations. */
-    output_tokens: number
-    /** Number of $ai_generation events attributed to this PR by git branch ($ai_git_branch). */
-    generations: number
 }
 
 export interface PRCostSummaryApi {
@@ -1491,7 +1536,7 @@ export interface PullRequestFrictionBreakdownApi {
      */
     queue_seconds: number | null
     /**
-     * Times the merge queue removed the pull request. Null without queue data.
+     * Merge queue attempts where at least one workflow run failed. A failed check the queue does not require leaves the pull request in the queue, so this is an upper bound on the times the queue removed it. Null when the pull request never entered the merge queue.
      * @nullable
      */
     kickout_count: number | null
@@ -1935,6 +1980,20 @@ export interface ReadyToMergeBucketApi {
     p50_seconds: number | null
 }
 
+export interface RevertShareBucketApi {
+    /** Bucket start, aligned to revert_share_series_granularity (top of hour, midnight, or Monday). Keyed on the revert's own merge time. */
+    bucket_start: string
+    /** PRs merged in this bucket, all authors and bots included. */
+    merged_pr_count: number
+    /** Of those, PRs whose title names a revert: GitHub's 'Revert "..."' or a conventional-commit 'revert: ...' / 'revert(scope): ...' title. */
+    reverting_pr_count: number
+    /**
+     * reverting_pr_count divided by merged_pr_count. Null when nothing merged in the bucket.
+     * @nullable
+     */
+    revert_share: number | null
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced or include_series=false. */
     cost_series: CostPerMergeBucketApi[]
@@ -1948,6 +2007,8 @@ export interface RepoOverviewApi {
     delivery_pipeline: DeliveryPipelineApi
     /** Median cycle time (p50 per-PR ready_to_merge_seconds, bots/drafts excluded) per bucket across the window, oldest first, bucketed by ready_to_merge_series_granularity. Empty buckets carry null; the whole series is empty when the issue-events table isn't synced or include_series=false, so fall back to open_to_merge_series. */
     ready_to_merge_series: ReadyToMergeBucketApi[]
+    /** Reverting merges over all merges (all authors, bots included) per bucket across the window, oldest first, zero-filled, bucketed by revert_share_series_granularity. Empty buckets carry a null share; the whole series is empty when include_series=false. */
+    revert_share_series: RevertShareBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from: the delta baseline. */
@@ -1970,6 +2031,20 @@ export interface RepoOverviewApi {
     merged_pr_count: number
     /** Merged-PR count over the previous window. */
     merged_pr_count_prev: number
+    /** PRs merged in the window whose title names a revert: GitHub's 'Revert "..."' or a conventional-commit 'revert: ...' / 'revert(scope): ...' title. Counts the revert when it merges, not the change it undid, which may have merged in an earlier window. Same population as merged_pr_count. */
+    reverting_pr_count: number
+    /** Reverting-PR count over the previous window. */
+    reverting_pr_count_prev: number
+    /**
+     * reverting_pr_count divided by merged_pr_count: the share of merges that undid an earlier merge. The guardrail to watch when review requirements are loosened. Null when nothing merged.
+     * @nullable
+     */
+    revert_share: number | null
+    /**
+     * The same share over the previous window. Null when nothing merged.
+     * @nullable
+     */
+    revert_share_prev: number | null
     /**
      * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
      * @nullable
@@ -2030,6 +2105,16 @@ export interface RepoOverviewApi {
      * @nullable
      */
     merge_queue_billable_minutes_prev: number | null
+    /**
+     * Slice of billable_minutes from jobs that ran on the Depot CI engine; null when the job-level source isn't synced.
+     * @nullable
+     */
+    depot_ci_billable_minutes: number | null
+    /**
+     * Depot CI billable minutes over the previous window; null when the job-level source isn't synced.
+     * @nullable
+     */
+    depot_ci_billable_minutes_prev: number | null
     /** PRs merged in the window with at least one corroborated merge-queue gate run: the population behind every merge_queue_* landing stat. All authors, bots included. */
     merge_queue_merged_pr_count: number
     /** Queue-landed merges over the previous window. */
@@ -2150,6 +2235,8 @@ export interface RepoOverviewApi {
     open_to_merge_series_granularity: string
     /** Bucket width of the ready_to_merge_series trend: 'hour', 'day', or 'week'. */
     ready_to_merge_series_granularity: string
+    /** Bucket width of the revert_share_series trend: 'hour', 'day', or 'week'. */
+    revert_share_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {
@@ -2365,10 +2452,8 @@ export interface TrunkQuarantinedTestApi {
     file: string
     /** Owning team slug from the repository's ownership files, or 'unowned' when the test's file cannot be placed or no team claims its path. */
     owner_team: string
-    /** Trunk's current health verdict on the test, e.g. 'FLAKY' or 'BROKEN'. */
+    /** Trunk's current health verdict on the test, e.g. 'flaky' or 'broken'. */
     status: string
-    /** How the quarantine was applied in Trunk, e.g. 'AUTO_QUARANTINE'. */
-    quarantine_setting: string
     /** When Trunk quarantined the test. */
     quarantined_at: string
     /** Whole days since the quarantine started. */
@@ -2376,7 +2461,7 @@ export interface TrunkQuarantinedTestApi {
     /** True once age_days exceeds ttl_days: the quarantine has outlived the TTL. */
     overdue: boolean
     /**
-     * The Trunk app's page for this test; null when the connected source has no organization slug or the row carries no test case id.
+     * The Trunk app's page for this test; null when Trunk returned no URL and the source has no organization slug or the row carries no test id.
      * @nullable
      */
     trunk_url: string | null
@@ -2641,6 +2726,33 @@ export type EngineeringAnalyticsAuthorFrictionDetailParams = {
     author: string
     /**
      * 'owner/name' repository, when the selected source syncs several.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
+
+export type EngineeringAnalyticsAuthorLlmSpendParams = {
+    /**
+     * GitHub handle whose pull requests to list.
+     */
+    author: string
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Maximum pull requests to return, 1 to 200. Defaults to 100.
+     */
+    limit?: number
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
      */
     repo?: string
     /**
@@ -3007,6 +3119,25 @@ export const EngineeringAnalyticsJobLogInsightsCiEngine = {
     GithubActions: 'github_actions',
     DepotCi: 'depot_ci',
 } as const
+
+export type EngineeringAnalyticsLlmSpendCoverageParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * 'owner/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository.
+     */
+    repo?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+}
 
 export type EngineeringAnalyticsMasterFailuresParams = {
     /**

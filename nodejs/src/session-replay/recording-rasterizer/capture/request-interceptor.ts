@@ -3,6 +3,7 @@ import { promisify } from 'node:util'
 import { brotliDecompress, gunzip, inflate } from 'node:zlib'
 import { Frame, HTTPRequest } from 'puppeteer'
 
+import { fetchAttribution } from '~/common/utils/fetch-attribution'
 import { fetchStreamed } from '~/common/utils/request'
 import { config } from '~/session-replay/recording-rasterizer/config'
 import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
@@ -42,6 +43,7 @@ export class RequestInterceptor {
     constructor(
         private capturePage: CapturePage,
         private blockProxy: BlockSource,
+        private teamId: number,
         private log: Logger = createLogger(),
         private enablePlayerCsp: boolean = config.enablePlayerCsp
     ) {
@@ -176,7 +178,10 @@ export class RequestInterceptor {
                     headers[name] = browserHeaders[name]
                 }
             }
-            const resp = await fetchStreamed(url, { headers, timeoutMs: PROXY_TIMEOUT_MS })
+            // The URL checks inside fetchStreamed read the team for their log lines from this store.
+            const resp = await fetchAttribution.run({ teamId: this.teamId }, () =>
+                fetchStreamed(url, { headers, timeoutMs: PROXY_TIMEOUT_MS })
+            )
             const { bytes, overLimit } = await resp.read(MAX_STYLESHEET_BYTES, false)
             if (overLimit) {
                 throw new Error(`stylesheet is larger than ${MAX_STYLESHEET_BYTES} bytes`)

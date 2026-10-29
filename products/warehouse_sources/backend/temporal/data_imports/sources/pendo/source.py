@@ -1,5 +1,8 @@
 from typing import Optional, cast
 
+from posthog.schema_enums import ProductKey
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -25,13 +28,55 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.pend
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.pendo.settings import (
     ENDPOINTS,
+    EVENTS_DEFAULT_LOOKBACK_DAYS,
     INCREMENTAL_FIELDS,
+    PENDO_ENDPOINTS,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
+def _schema_description(endpoint: str) -> str | None:
+    config = PENDO_ENDPOINTS[endpoint]
+    if not config.is_events:
+        return None
+    lookback = f"Only syncs the last {EVENTS_DEFAULT_LOOKBACK_DAYS} days on initial sync"
+    return f"Daily event buckets. {lookback}" if config.grouped_events else lookback
+
+
 @SourceRegistry.register
 class PendoSource(ResumableSource[PendoSourceConfig, PendoResumeConfig]):
+    codebase_detection = detect(
+        env=("^PENDO_", "^REACT_APP_PENDO_KEY$"),
+        script_hosts=(
+            "cdn.pendo.io",
+            "cdn.eu.pendo.io",
+            "us1.cdn.pendo.io",
+            "cdn.jpn.pendo.io",
+            "cdn.au.pendo.io",
+            "pendo-io-static.storage.googleapis.com",
+            "pendo-us1-static.storage.googleapis.com",
+            "pendo-eu-static.storage.googleapis.com",
+            "pendo-jp-prod-static.storage.googleapis.com",
+        ),
+        npm=(
+            "@pendo/agent",
+            "rn-pendo-sdk",
+            "@pendo/web-sdk",
+            "@pendo/openfeature-web-provider",
+            "@pendo/openfeature-server-provider",
+            "pendo-server-sdk",
+            "@pendo/novus-cli",
+            "@types/pendo-io-browser",
+            "ngx-pendo",
+        ),
+        pypi=("pendo-server-sdk",),
+        cocoapods=("Pendo", "PendoLegacy", "PendoSwiftUI", "PendoSDKLib", "Insert"),
+        maven=("sdk.pendo.io:pendoIO", "com.pendo:pendo-cmp"),
+        pub=("pendo_sdk",),
+        swiftpm=("github.com/pendo-io/pendo-mobile-sdk",),
+        alternative_to=(ProductKey.PRODUCT_ANALYTICS, ProductKey.PRODUCT_TOURS, ProductKey.SURVEYS),
+    )
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://engageapi.pendo.io"
@@ -54,7 +99,7 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
 """,
             iconPath="/static/services/pendo.png",
             docsUrl="https://posthog.com/docs/cdp/sources/pendo",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -99,14 +144,16 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh: Pendo exposes no server-side timestamp filter for
-        # this metadata, so neither incremental nor append would avoid re-reading every row.
+        # Metadata endpoints are full refresh: Pendo exposes no server-side timestamp filter for
+        # them. Event endpoints sync incrementally by day, but each run re-reads the days Pendo may
+        # still reprocess, so append would duplicate their rows — merge only.
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=False,
+                supports_incremental=PENDO_ENDPOINTS[endpoint].is_events,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                description=_schema_description(endpoint),
             )
             for endpoint in ENDPOINTS
         ]
@@ -147,4 +194,7 @@ Create an integration key in Pendo under **Settings > Integrations > Integration
             endpoint=inputs.schema_name,
             logger=inputs.logger,
             resumable_source_manager=resumable_source_manager,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
         )

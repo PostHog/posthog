@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -27,6 +28,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class Env0Source(ResumableSource[Env0SourceConfig, Env0ResumeConfig]):
+    codebase_detection = detect(env=("^ENV0_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -46,7 +49,7 @@ You can create an organization API key in your env0 [Organization Settings > API
 Environment cost data is only available for environments with [cost monitoring](https://docs.envzero.com/docs/cost-monitoring) configured.""",
             iconPath="/static/services/env0.png",
             docsUrl="https://posthog.com/docs/cdp/sources/env0",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["env zero", "iac", "terraform"],
             fields=cast(
                 list[FieldType],

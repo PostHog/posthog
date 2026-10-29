@@ -52,6 +52,8 @@ Supported operators:
 - Numeric: `exact`, `gt`, `lt`
 - Existence (no value needed): `is_set`, `is_not_set`
 
+An attribute filter (`span_attribute` or `span_resource_attribute`) matches only spans that have the attribute, also for negated operators such as `is_not` and `not_icontains`. To find spans without the attribute, use `is_not_set`.
+
 ## Time period
 
 Use `query.dateRange` to control the time window. Default is the last hour (`-1h`). Examples: `-1h`, `-6h`, `-1d`, `-7d`.

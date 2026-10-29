@@ -33,11 +33,15 @@ from posthog.models.user_integration import UserIntegration
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_model_router_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_byos_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.logic.feature_tips.features import SlackFeature
+from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.interview_recruitment import INVITE_MESSAGE, book_button, invite_section
 from products.slack_app.backend.models import (
     ChannelWelcomeMode,
     SlackSettings,
     SlackUserProfileCache,
+    ThreadJoinMode,
     UntaggedFollowupMode,
 )
 from products.slack_app.backend.services.integration_resolver import load_integrations, resolve_from_candidates
@@ -72,9 +76,14 @@ from products.slack_app.backend.services.slack_settings import (
     AIPreferences,
     resolve_auto_model_choice,
     resolve_channel_welcome_mode,
+    resolve_thread_join_mode,
     resolve_untagged_followup_mode,
+    resolve_untagged_question_mode,
     set_auto_model_choice,
     set_channel_welcome_mode,
+    set_thread_join_mode,
+    set_untagged_followup_mode,
+    set_untagged_question_mode,
 )
 from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url, find_linked_posthog_user
@@ -99,8 +108,10 @@ ACTION_TASKS_REFRESH = "slack_app_home:tasks_refresh"
 ACTION_TASKS_PAGE_PREV = "slack_app_home:tasks_page_prev"
 ACTION_TASKS_PAGE_NEXT = "slack_app_home:tasks_page_next"
 ACTION_STATS_WINDOW = "slack_app_home:stats_window"
+ACTION_SET_THREAD_JOIN_MODE = "slack_app_home:set_thread_join_mode"
 ACTION_STATS_REFRESH = "slack_app_home:stats_refresh"
 ACTION_SET_UNTAGGED_FOLLOWUP_MODE = "slack_app_home:set_untagged_followup_mode"
+ACTION_SET_UNTAGGED_QUESTION_MODE = "slack_app_home:set_untagged_question_mode"
 ACTION_SET_CHANNEL_WELCOME_MODE = "slack_app_home:set_channel_welcome_mode"
 ACTION_SET_AUTO_MODEL_CHOICE = "slack_app_home:set_auto_model_choice"
 # URL buttons: Slack opens the link itself and posts a block_actions payload we
@@ -125,9 +136,11 @@ HOME_ACTION_IDS: frozenset[str] = frozenset(
         ACTION_TASKS_REFRESH,
         ACTION_TASKS_PAGE_PREV,
         ACTION_TASKS_PAGE_NEXT,
+        ACTION_SET_THREAD_JOIN_MODE,
         ACTION_STATS_WINDOW,
         ACTION_STATS_REFRESH,
         ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        ACTION_SET_UNTAGGED_QUESTION_MODE,
         ACTION_SET_CHANNEL_WELCOME_MODE,
         ACTION_SET_AUTO_MODEL_CHOICE,
         ACTION_GITHUB_SETTINGS,
@@ -410,6 +423,14 @@ class GitHubState:
 
 
 @dataclass(frozen=True)
+class OwnPlanState:
+    """Whether the Codex tasks this viewer starts from Slack bill to their ChatGPT plan."""
+
+    connected: bool
+    settings_url: str
+
+
+@dataclass(frozen=True)
 class RunDefaultsState:
     """The central PostHog default a Slack run resolves to; only a model named in
     the mention sits above it, and Slack's hardcoded floor below. The card reads
@@ -441,10 +462,14 @@ def render_home_view(
     tasks_state: TasksState | None = None,
     stats_state: StatsState | None = None,
     untagged_followup_mode: UntaggedFollowupMode | None = None,
+    untagged_question_mode: UntaggedFollowupMode | None = None,
     channel_welcome_mode: ChannelWelcomeMode | None = None,
     auto_model_choice: bool | None = None,
+    own_plan: OwnPlanState | None = None,
+    thread_join_mode: ThreadJoinMode | None = None,
     has_project_access: bool = True,
     account_settings_url: str | None = None,
+    interview_invite: dict | None = None,
 ) -> dict:
     """Render the Block Kit payload for `views.publish` on the App Home tab."""
 
@@ -480,15 +505,29 @@ def render_home_view(
     blocks.append({"type": "divider"})
     blocks.extend(_active_model_blocks(run_defaults))
     blocks.extend(_personal_section_blocks(run_defaults))
-    # `None` means the `slack-app-model-router` flag is off for this viewer.
+    # `None` means no PostHog user is linked to this viewer.
     if auto_model_choice is not None:
         blocks.extend(_auto_model_choice_blocks(auto_model_choice))
+    # A connected plan is described under Multiplayer, because people who join spend it too.
+    if own_plan is not None and not own_plan.connected:
+        blocks.extend(_own_plan_blocks(own_plan))
 
     # Section 4 — thread follow-ups: whether replies other people leave in the
     # threads you started reach PostHog on their own.
     if untagged_followup_mode is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_untagged_followups_section_blocks(untagged_followup_mode))
+
+    # Section 4a — multiplayer: who may join the threads you started, and whose plan pays.
+    uses_own_plan = bool(own_plan and own_plan.connected)
+    if thread_join_mode is not None or uses_own_plan:
+        blocks.append({"type": "divider"})
+        blocks.extend(_multiplayer_section_blocks(thread_join_mode, uses_own_plan=uses_own_plan))
+
+    # Section 4b — channel questions. `None` means the flag is off for this workspace.
+    if untagged_question_mode is not None:
+        blocks.append({"type": "divider"})
+        blocks.extend(_untagged_questions_section_blocks(untagged_question_mode))
 
     # Section 5 — channel welcome: a workspace setting, so only admins see it.
     if is_admin and channel_welcome_mode is not None:
@@ -501,6 +540,12 @@ def render_home_view(
     if (account_state and account_state.enabled) or github_state is not None:
         blocks.append({"type": "divider"})
         blocks.extend(_linked_accounts_section_blocks(account_state, github_state))
+
+    # Section 6a — interview invitation. `interview_invite` is the section block.
+    if interview_invite is not None:
+        blocks.append({"type": "divider"})
+        blocks.append(_section_title("💬 Talk to the team"))
+        blocks.append(interview_invite)
 
     # Section 7 — your tasks: a quiet list of tasks the calling user
     # started via @PostHog mentions, so they can see status without
@@ -945,40 +990,114 @@ def _auto_model_choice_blocks(enabled: bool) -> list[dict]:
     ]
 
 
+def _own_plan_blocks(state: OwnPlanState) -> list[dict]:
+    """The prompt to connect a ChatGPT plan, for a viewer who has not connected one."""
+    text = f"<{state.settings_url}|Connect your ChatGPT plan> in PostHog to use it for Codex tasks you start here."
+    return [
+        _subsection_label("ChatGPT plan"),
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]},
+    ]
+
+
 UNTAGGED_FOLLOWUP_MODE_LABELS: dict[str, str] = {
     UntaggedFollowupMode.AUTO: "Pick them up automatically",
     UntaggedFollowupMode.ASK: "Ask them first",
     UntaggedFollowupMode.NEVER: "Leave them alone",
 }
 
+UNTAGGED_QUESTION_MODE_LABELS: dict[str, str] = {
+    UntaggedFollowupMode.AUTO: "Answer automatically",
+    UntaggedFollowupMode.ASK: "Ask me first",
+    UntaggedFollowupMode.NEVER: "Never answer",
+}
 
-def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
-    """Picker for how untagged replies land in the threads you started.
 
-    Ask until picked. The choice covers every reply in those threads,
-    including the ones you write yourself.
+def _untagged_mode_section_blocks(
+    mode: UntaggedFollowupMode,
+    *,
+    action_id: str,
+    labels: dict[str, str],
+    title: str,
+    subtitle: str,
+    note: str,
+) -> list[dict]:
+    """One picker for what PostHog does with a kind of message nobody tagged it in.
+
+    Both pickers ask until the viewer picks, so nothing reaches the agent or the
+    channel on a default.
     """
     options = [
         {"text": {"type": "plain_text", "text": label, "emoji": True}, "value": value}
-        for value, label in UNTAGGED_FOLLOWUP_MODE_LABELS.items()
+        for value, label in labels.items()
     ]
     select: dict[str, Any] = {
         "type": "static_select",
-        "action_id": ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        "action_id": action_id,
         "options": options,
         "initial_option": next(o for o in options if o["value"] == mode.value),
     }
     return [
-        _section_title(
-            "💬 Thread follow-ups",
-            "What I do with replies in a thread you started, when nobody tags @PostHog.",
-        ),
+        _section_title(title, subtitle),
         {"type": "actions", "elements": [select]},
-        {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "Applies to every reply in those threads, yours included."}],
-        },
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": note}]},
     ]
+
+
+def _untagged_followups_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
+    return _untagged_mode_section_blocks(
+        mode,
+        action_id=ACTION_SET_UNTAGGED_FOLLOWUP_MODE,
+        labels=UNTAGGED_FOLLOWUP_MODE_LABELS,
+        title="💬 Thread follow-ups",
+        subtitle="What I do with replies in a thread you started, when nobody tags @PostHog.",
+        note="Applies to every reply in those threads, yours included.",
+    )
+
+
+def _untagged_questions_section_blocks(mode: UntaggedFollowupMode) -> list[dict]:
+    return _untagged_mode_section_blocks(
+        mode,
+        action_id=ACTION_SET_UNTAGGED_QUESTION_MODE,
+        labels=UNTAGGED_QUESTION_MODE_LABELS,
+        title="❓ Questions in channels",
+        subtitle=(
+            "What I do when you post a question in a channel without tagging @PostHog, "
+            "and your PostHog data can answer it."
+        ),
+        note="Only your own questions. Thread follow-ups keep the setting above.",
+    )
+
+
+def _multiplayer_section_blocks(mode: ThreadJoinMode | None, *, uses_own_plan: bool) -> list[dict]:
+    """Who may join the threads you started, and whose plan pays when they do.
+
+    ``mode`` is `None` when the join setting is not offered to this viewer.
+    """
+    blocks: list[dict] = [
+        _section_title("👥 Multiplayer", "What I do when someone else tags @PostHog in a thread you started."),
+    ]
+    if mode is not None:
+        select = _static_select(
+            action_id=ACTION_SET_THREAD_JOIN_MODE,
+            placeholder="Choose who can join",
+            pairs=ThreadJoinMode.choices,
+            selected=mode.value,
+        )
+        blocks.append({"type": "actions", "elements": [select]})
+    if uses_own_plan:
+        blocks.append(_subsection_label("ChatGPT plan"))
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "Codex tasks you start here use your ChatGPT plan, also when other people join your thread.",
+                    }
+                ],
+            }
+        )
+    return blocks
 
 
 CHANNEL_WELCOME_MODE_LABELS: dict[str, str] = {
@@ -1626,6 +1745,7 @@ def handle_app_home_opened(event: dict, slack_team_id: str, *, integration: Inte
             slack_user_id=slack_user_id,
             slack_team_id=slack_team_id,
         )
+        record_feature_used(slack_team_id, slack_user_id, SlackFeature.APP_HOME_TASKS)
         capture_slack_event(
             integration,
             "slack app home opened",
@@ -1695,13 +1815,29 @@ def handle_ai_preferences_block_action(payload: dict, action: dict) -> HttpRespo
         republish()
         return HttpResponse(status=200)
 
+    if action_id == ACTION_SET_THREAD_JOIN_MODE:
+        picked = (action.get("selected_option") or {}).get("value")
+        # An unrecognised value is ignored rather than stored.
+        if picked in ThreadJoinMode.values and _resolve_home_user(integration, slack_user_id) is not None:
+            set_thread_join_mode(integration.integration_id, slack_user_id, ThreadJoinMode(picked))
+            capture_slack_event(integration, "slack app thread join mode set", slack_user_id=slack_user_id, mode=picked)
+        republish()
+        return HttpResponse(status=200)
+
     if action_id == ACTION_SET_UNTAGGED_FOLLOWUP_MODE:
-        _apply_untagged_followup_mode_pick(integration, slack_user_id, action)
+        if (mode := _picked_untagged_mode(action)) is not None:
+            set_untagged_followup_mode(integration.integration_id, slack_user_id, mode)
+        republish()
+        return HttpResponse(status=200)
+
+    if action_id == ACTION_SET_UNTAGGED_QUESTION_MODE:
+        if (mode := _picked_untagged_mode(action)) is not None:
+            set_untagged_question_mode(integration.integration_id, slack_user_id, mode)
         republish()
         return HttpResponse(status=200)
 
     if action_id == ACTION_SET_AUTO_MODEL_CHOICE:
-        # A stale view must not turn the router on for someone the flag no longer covers.
+        # The router runs as a PostHog user, so a viewer with no linked user cannot turn it on.
         if _auto_model_choice_offered(integration, slack_user_id):
             enabled = any(
                 option.get("value") == AUTO_MODEL_CHOICE_VALUE for option in action.get("selected_options") or []
@@ -2070,17 +2206,11 @@ def _reset_personal_preferences(integration: Integration, slack_user_id: str) ->
     )
 
 
-def _apply_untagged_followup_mode_pick(integration: Integration, slack_user_id: str, action: dict) -> None:
-    """Persist the picked mode. An unrecognised value is ignored rather than stored."""
+def _picked_untagged_mode(action: dict) -> UntaggedFollowupMode | None:
+    """The mode a picker click carries. An unrecognised value is ignored rather than stored."""
 
     picked = (action.get("selected_option") or {}).get("value")
-    if picked not in UntaggedFollowupMode.values:
-        return
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=integration.integration_id,
-        slack_user_id=slack_user_id,
-        defaults={"untagged_followup_mode": picked},
-    )
+    return UntaggedFollowupMode(picked) if picked in UntaggedFollowupMode.values else None
 
 
 def _clear_project_personal(integration: Integration, slack_user_id: str) -> None:
@@ -2092,7 +2222,12 @@ def _clear_project_personal(integration: Integration, slack_user_id: str) -> Non
     ).first()
     if row is None:
         return
-    if not row.untagged_followup_mode and not row.auto_model_choice:
+    if (
+        not row.untagged_followup_mode
+        and not row.untagged_question_mode
+        and not row.auto_model_choice
+        and not row.thread_join_mode
+    ):
         row.delete()
         return
     row.default_integration = None
@@ -2137,6 +2272,8 @@ def _build_home_view(
         selected_status=view_state.selected_status,
         page=view_state.tasks_page,
     )
+    home_user = _resolve_home_user(integration, slack_user_id)
+    own_plan = _resolve_own_plan_state(integration, slack_user_id, home_user, accessible=accessible)
     stats_state = _resolve_stats_state(
         integration,
         accessible=accessible,
@@ -2153,15 +2290,17 @@ def _build_home_view(
         tasks_state=tasks_state,
         stats_state=stats_state,
         untagged_followup_mode=resolve_untagged_followup_mode(integration, slack_user_id),
+        untagged_question_mode=resolve_untagged_question_mode(integration.integration_id, slack_user_id),
         channel_welcome_mode=resolve_channel_welcome_mode(integration.integration_id) if is_admin else None,
         auto_model_choice=(
-            resolve_auto_model_choice(integration.integration_id, slack_user_id)
-            if _auto_model_choice_offered(integration, slack_user_id)
-            else None
+            resolve_auto_model_choice(integration.integration_id, slack_user_id) if home_user is not None else None
         ),
+        own_plan=own_plan,
+        thread_join_mode=(resolve_thread_join_mode(integration, slack_user_id) if home_user is not None else None),
         has_project_access=bool(accessible),
         # The same settings page the GitHub card deep-links to.
         account_settings_url=github_state.settings_url,
+        interview_invite=invite_section(INVITE_MESSAGE, book_button(integration.id, "home")),
     )
     return _HomeRender(
         view=view,
@@ -2406,11 +2545,31 @@ def _resolve_run_defaults_state(
     )
 
 
-def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:
-    home_user = _resolve_home_user(integration, slack_user_id)
+def _resolve_own_plan_state(
+    integration: Integration, slack_user_id: str, home_user: User | None, *, accessible: list[Integration]
+) -> OwnPlanState | None:
+    """The ChatGPT plan card for this viewer, or `None` when the card is not offered."""
+    from products.slack_app.backend.services.slack_messages import ai_subscriptions_url  # noqa: PLC0415
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
+
     if home_user is None:
-        return False
-    return is_slack_app_model_router_enabled(integration, distinct_id=home_user.distinct_id)
+        return None
+    try:
+        target = _routed_project_integration(integration, slack_user_id, accessible=accessible)
+        if target is None or not is_slack_app_byos_enabled(target, home_user.distinct_id):
+            return None
+        return OwnPlanState(
+            connected=tasks_facade.can_bill_plan_unattended(home_user, "codex"),
+            settings_url=ai_subscriptions_url(target.team_id),
+        )
+    except Exception:
+        # The card is optional; a lookup failure must not cost the whole Home tab.
+        logger.exception("slack_app_home_own_plan_resolution_failed", slack_user_id=slack_user_id)
+        return None
+
+
+def _auto_model_choice_offered(integration: Integration, slack_user_id: str) -> bool:
+    return _resolve_home_user(integration, slack_user_id) is not None
 
 
 def _resolve_account_state(integration: Integration, slack_user_id: str) -> AccountState:

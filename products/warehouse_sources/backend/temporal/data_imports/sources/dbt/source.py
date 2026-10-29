@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,27 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
+    # NOTE: these signals prove the project uses dbt, not that it uses dbt
+    # Cloud - the source needs dbt Cloud credentials. Local-only dbt users
+    # are a known false positive.
+    codebase_detection = detect(
+        env=("^DBT_",),
+        pypi=(
+            "dbt-core",
+            "dbt-snowflake",
+            "dbt-postgres",
+            "dbt-bigquery",
+            "dbt-redshift",
+            "dbt-databricks",
+            "dbt-spark",
+            "dbt-athena",
+            "dbt-fabric",
+            "dbt-trino",
+            "dbt-duckdb",
+            "dbt-clickhouse",
+        ),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://docs.getdbt.com/docs/dbt-cloud-apis/overview"  # coverage spans both Admin API v2 and v3
     supported_versions = DBT_SUPPORTED_VERSIONS
@@ -53,7 +75,7 @@ class DbtSource(ResumableSource[DbtSourceConfig, DbtResumeConfig]):
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="dbt",
             keywords=["dbt cloud", "dbt labs", "dbt platform"],
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your dbt platform (dbt Cloud) account ID and API token to pull your dbt projects, jobs, environments, and run history into the PostHog Data warehouse.
 
 You can create a service account token under **Account settings** → **API tokens** → **Service tokens** in dbt (Team and Enterprise plans), or use a personal access token. Read-only access to the resources you want to sync is enough.

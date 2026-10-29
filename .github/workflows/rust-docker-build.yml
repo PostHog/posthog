@@ -5,6 +5,7 @@ name: Build and deploy rust container images
 # workflow_dispatch builds all images unless image-filter names a subset (escape hatch).
 #
 # Image list: .github/rust-images.yml
+# PR images: .github/workflows/rust-smoke-test-build.yml (smoke_test labels)
 # Build steps: .github/workflows/_rust-build-images.yml
 # Affected-set computation: rust/affected-services (Rust binary crate)
 
@@ -25,33 +26,19 @@ on:
             - '.github/rust-images.yml'
         branches:
             - 'master'
-    pull_request:
-        paths:
-            - 'rust/**'
-            - 'proto/**'
-            - '.github/workflows/rust-docker-build.yml'
-            - '.github/workflows/_rust-build-images.yml'
-            - '.github/rust-images.yml'
-        branches:
-            - 'master'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
-    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    # Per-SHA: a shared group keeps one pending run, and the push that replaces it builds only the images its own diff affects.
+    group: ${{ github.workflow }}-${{ github.sha }}
+    cancel-in-progress: false
 
 jobs:
     affected:
         name: compute affected images
         runs-on: ubuntu-24.04
         timeout-minutes: 10
-        # Skip on workflow_dispatch — always build everything (escape hatch)
-        # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
-        # pulls images pushed for them, and each constituent PR already built its own.
-        if: >-
-            github.event_name != 'workflow_dispatch' &&
-            !startsWith(github.head_ref, 'trunk-merge/') &&
-            (github.event_name != 'pull_request' ||
-             github.event.pull_request.head.repo.full_name == github.repository)
+        # workflow_dispatch skips this job and builds everything.
+        if: github.event_name != 'workflow_dispatch'
         permissions:
             contents: read
         outputs:
@@ -78,37 +65,30 @@ jobs:
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
-                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
 
     build-images:
         needs: affected
-        # A status function is required because 'affected' may be skipped (workflow_dispatch)
-        # and a skipped need would otherwise cascade a skip here. !cancelled() covers that
-        # while still stopping the build after manual workflow cancellation.
-        # Run unless affected explicitly found zero images ('none') or failed.
-        # The trunk-merge guard is repeated here because a skipped 'affected' leaves
-        # image-filter empty, which this condition would otherwise treat as buildable.
+        # !cancelled() keeps this job alive when workflow_dispatch skips 'affected',
+        # and still stops it after a manual cancellation.
         if: |
             !cancelled() &&
-            !startsWith(github.head_ref, 'trunk-merge/') &&
-            (github.event_name != 'pull_request' ||
-             github.event.pull_request.head.repo.full_name == github.repository) &&
             needs.affected.result != 'failure' &&
             needs.affected.outputs.image-filter != 'none'
         uses: ./.github/workflows/_rust-build-images.yml
         with:
-            # Only the canonical deploy repo pushes prod images on master; PRs still push for validation.
-            push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
+            # Only the deploy repo pushes images.
+            push: ${{ vars.CD_DEPLOY_ENABLED == 'true' }}
             image-filter: ${{ needs.affected.outputs.image-filter || inputs.image-filter || '' }}
             tag-rules: |
-                type=ref,event=pr
                 type=ref,event=branch
                 type=semver,pattern={{version}}
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
             timeout-minutes: 30
+            require-ecr: ${{ vars.CD_DEPLOY_ENABLED == 'true' }}
         secrets:
+            AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
             POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
             # Deliberately reuses the frontend sourcemap upload key: sourcemaps and
@@ -143,6 +123,9 @@ jobs:
                       values_key: image
                     - release: property-vals-rs
                       digest_key: property-vals-rs
+                      values_key: image
+                    - release: replay-recorder-v4
+                      digest_key: replay-recorder-v4
                       values_key: image
                     - release: feature-flags
                       digest_key: feature-flags
@@ -201,6 +184,9 @@ jobs:
                     - release: personhog-identity
                       digest_key: personhog-identity
                       values_key: image
+                    - release: personhog-publisher
+                      digest_key: personhog-publisher
+                      values_key: image
                     - release: personhog-leader
                       digest_key: personhog-leader
                       values_key: image
@@ -213,8 +199,14 @@ jobs:
                     - release: personhog-writer
                       digest_key: personhog-writer
                       values_key: image
+                    - release: personhog-changelog-relay
+                      digest_key: personhog-changelog-relay
+                      values_key: image
                     - release: personhog-test-harness
                       digest_key: personhog-test-harness
+                      values_key: image
+                    - release: personhog-parity-monitor
+                      digest_key: personhog-parity-monitor
                       values_key: image
                     - release: kafka-assigner
                       digest_key: kafka-assigner
@@ -263,23 +255,29 @@ jobs:
                         "values": {"${{ matrix.values_key }}": {"sha": "${{ steps.check.outputs.digest }}"}},
                         "release": "${{ matrix.release }}",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": [],
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
     ordered_image_alias:
-        name: publish ordered image aliases
+        name: publish ordered image aliases (${{ matrix.registry }})
         needs: build-images
         # Freight cadence v2 sorts releases by this tag, so every deployable rust image
         # gets one. Mirrors the posthog_build alias job in container-images-cd.yml,
-        # against ghcr instead of ECR. Best effort: a missing alias delays Freight for
-        # that build and never fails the deploy.
+        # against ghcr and the shared-services ECR. Best effort: a missing alias delays
+        # Freight for that build and never fails the deploy.
+        # One job per registry, so a stalled registry cannot spend the other's timeout.
+        strategy:
+            fail-fast: false
+            matrix:
+                registry: [ghcr, ecr]
         if: ${{ needs.build-images.result == 'success' && needs.build-images.outputs.digests != '' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && vars.ORDERED_IMAGE_ALIAS_PAUSED != 'true' && github.ref == 'refs/heads/master' }}
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         continue-on-error: true
         permissions:
+            id-token: write
             contents: read
             packages: write
 
@@ -354,21 +352,35 @@ jobs:
               uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
             - name: Login to ghcr.io
-              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              if: ${{ steps.ordered-release.outputs.tag != '' && matrix.registry == 'ghcr' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            - name: Configure AWS credentials for the shared-services ECR
+              id: ecr-credentials
+              if: ${{ steps.ordered-release.outputs.tag != '' && matrix.registry == 'ecr' }}
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to the shared-services ECR
+              id: ecr
+              if: ${{ steps.ecr-credentials.outcome == 'success' }}
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
             - name: Publish and reconcile ordered image aliases
-              if: ${{ steps.ordered-release.outputs.tag != '' }}
+              if: ${{ steps.ordered-release.outputs.tag != '' && (matrix.registry == 'ghcr' || steps.ecr.outcome == 'success') }}
               timeout-minutes: 8
               shell: bash
               env:
                   DIGESTS: ${{ needs.build-images.outputs.digests }}
                   ORDERED_ALIAS: ${{ steps.ordered-release.outputs.tag }}
-                  REGISTRY: ghcr.io/posthog/posthog
+                  # The build pushed each digest to both registries, so each gets the alias.
+                  REGISTRY: ${{ matrix.registry == 'ghcr' && 'ghcr.io/posthog/posthog' || steps.ecr.outputs.registry }}
               # Same reconciliation as PostHog/shared-actions container-image-metadata: read
               # the alias before publishing, accept it when it already resolves to this
               # build, and never move it when it resolves elsewhere. Kargo caches the alias
@@ -433,7 +445,7 @@ jobs:
                               failures=$((failures + 1))
                               ;;
                           *)
-                              echo "::error title=Ordered image alias read-back unavailable::${image}:${ORDERED_ALIAS} could not be read back from ghcr."
+                              echo "::error title=Ordered image alias read-back unavailable::${image}:${ORDERED_ALIAS} could not be read back from ${REGISTRY}."
                               failures=$((failures + 1))
                               ;;
                       esac

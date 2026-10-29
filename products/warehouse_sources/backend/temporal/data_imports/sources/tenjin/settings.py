@@ -19,6 +19,23 @@ _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
 _SPEND_METRICS = "spend,impressions,clicks,installs,cpi,ctr,cvr,tcpi,tracked_installs"
 _AD_REVENUE_METRICS = "ad_revenue,clicks,impressions,ecpm,ecpc"
 _SK_AD_NETWORK_METRICS = "conversion_value_avg,conversion_value_count,conversion_value_total"
+# Spend and installs give the cohort size and cost; the N-day metrics follow that install cohort.
+_COHORT_DAYS = (1, 7, 30)
+_COHORT_METRICS = ",".join(
+    [
+        "spend",
+        "installs",
+        *(
+            f"{metric}_{days}d"
+            for days in _COHORT_DAYS
+            for metric in ("users", "sessions", "retention", "revenues", "total_rev", "roas")
+        ),
+    ]
+)
+
+# Tenjin keeps restating recent days (late SKAN postbacks, ad network cost corrections), so an
+# incremental run re-reads a trailing window; the merge dedupes on the dimension key.
+DEFAULT_LOOKBACK_DAYS = 7
 
 
 @frozen
@@ -33,6 +50,7 @@ class TenjinReportConfig:
     # natural key. Every key column must be a field the chosen group_by returns.
     primary_keys: list[str]
     description: str
+    lookback_days: int = DEFAULT_LOOKBACK_DAYS
 
 
 # One entry per report shape we expose. Each Reporting Metrics endpoint is a single report whose
@@ -84,6 +102,34 @@ TENJIN_REPORTS: dict[str, TenjinReportConfig] = {
             "conversion_value",
         ],
         description="Daily SKAdNetwork postback aggregates per app, channel, SKAN campaign, source app, and conversion value (iOS only).",
+    ),
+    "campaign_cohort_report": TenjinReportConfig(
+        name="campaign_cohort_report",
+        path="/reports/spend",
+        group_by="campaign",
+        metrics=_COHORT_METRICS,
+        primary_keys=["date", "campaign_id"],
+        description="Daily install cohorts per campaign: retained users, sessions, retention rate, revenue, and ROAS at day 1, 7, and 30.",
+        # A cohort's day-30 metrics keep changing for 30 days after its install date.
+        lookback_days=max(_COHORT_DAYS) + DEFAULT_LOOKBACK_DAYS,
+    ),
+    "campaign_country_report": TenjinReportConfig(
+        name="campaign_country_report",
+        path="/reports/spend",
+        group_by="campaign,country",
+        metrics=_SPEND_METRICS,
+        primary_keys=["date", "campaign_id", "country"],
+        description="Daily user-acquisition performance per campaign and country, including the campaign's app and channel.",
+    ),
+    "ad_placement_report": TenjinReportConfig(
+        name="ad_placement_report",
+        path="/reports/ad_revenue",
+        group_by="ad_placement",
+        metrics=_AD_REVENUE_METRICS,
+        # Tenjin documents ad_placement_id as a UUID but not whether it is unique across apps and
+        # channels, so the app and channel it belongs to are part of the key too.
+        primary_keys=["date", "app_id", "ad_network_id", "ad_placement_id"],
+        description="Daily ad monetization revenue per ad placement, including the placement's app and channel.",
     ),
 }
 

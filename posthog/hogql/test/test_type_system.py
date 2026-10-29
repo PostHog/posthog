@@ -884,6 +884,8 @@ class TestHogQLTypeSystem:
     def test_resolver_infers_common_string_function_types(self) -> None:
         self._assert_first_column_type("SELECT base64Encode('test')", ast.StringType(nullable=False))
         self._assert_first_column_type("SELECT hex(unhex('DEADBEEF'))", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT sha1('abc')", ast.StringType(nullable=False))
+        self._assert_first_column_type("SELECT sha1(toNullableString('abc'))", ast.StringType(nullable=True))
         self._assert_first_column_type(
             "SELECT splitByChar('.', '1.2.3')",
             ast.ArrayType(nullable=False, item_type=ast.StringType(nullable=False)),

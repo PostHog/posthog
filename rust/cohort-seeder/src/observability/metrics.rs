@@ -131,6 +131,13 @@ pub const CONDITIONS_EVALUATED: &str = "seeder_conditions_evaluated_total";
 pub const HOGVM_ERRORS: &str = "seeder_hogvm_errors_total";
 pub const AGGREGATE_ENTRIES: &str = "seeder_aggregate_entries";
 pub const TILES_PRODUCED: &str = "seeder_tiles_produced_total";
+/// Behavioral tiles not sent because their run already recorded a newer day for the same person
+/// and condition (counter).
+pub const TILES_SKIPPED: &str = "seeder_tiles_skipped_total";
+/// (person, condition) pairs all newest-day indexes hold together (gauge). At
+/// `SEEDER_NEWEST_DAY_INDEX_MAX_ENTRIES` the budget is full, and tiles for new pairs are sent for
+/// every day.
+pub const NEWEST_DAY_INDEX_ENTRIES: &str = "seeder_newest_day_index_entries";
 pub const TILE_PRODUCE_QUEUE_FULL: &str = "seeder_tile_produce_queue_full_total";
 pub const TILE_PRODUCE_ERRORS: &str = "seeder_tile_produce_errors_total";
 pub const PRODUCE_ACK_SECONDS: &str = "seeder_produce_ack_seconds";
@@ -169,6 +176,8 @@ pub const RECONCILE_COHORTS_PARTIAL: &str = "seeder_reconcile_cohorts_partial_to
 /// Cohort participations short of their markers with the pinned shape unchanged — the retryable
 /// half of the split — labelled by the run's `kind` (counter).
 pub const RECONCILE_COHORTS_SHORTFALL: &str = "seeder_reconcile_cohorts_shortfall_total";
+/// Participations superseded by a withheld marker, labelled by `kind` and `reason` (counter).
+pub const RECONCILE_COHORTS_WITHHELD: &str = "seeder_reconcile_cohorts_withheld_total";
 /// Runs that settled without a single marker — the shape a processor that cannot decode the
 /// tile's kind produces — labelled by the run's `kind` (counter).
 pub const RECONCILE_ZERO_MARKER_RUNS: &str = "seeder_reconcile_zero_marker_runs_total";

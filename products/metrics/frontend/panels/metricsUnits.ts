@@ -4,8 +4,14 @@
  * unit falls back to a compact number with the unit string appended, so a new
  * unit never breaks rendering — it just reads less cleanly until it is added here. */
 
-const compact = (value: number, fractionDigits = 2): string =>
-    new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: fractionDigits }).format(value)
+import { significantDecimalPlaces } from 'lib/utils/numbers'
+
+// A fixed two decimals renders every value below 0.005 as "0", so a small-valued axis repeats one label.
+const compact = (value: number): string =>
+    new Intl.NumberFormat('en-US', {
+        notation: 'compact',
+        maximumFractionDigits: significantDecimalPlaces(value),
+    }).format(value)
 
 const bytes = (value: number, base: 1000 | 1024): string => {
     const units = base === 1024 ? ['B', 'KiB', 'MiB', 'GiB', 'TiB', 'PiB'] : ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
@@ -19,7 +25,8 @@ const bytes = (value: number, base: 1000 | 1024): string => {
 
 const seconds = (value: number): string => {
     const abs = Math.abs(value)
-    if (abs >= 1) {
+    // Zero has no magnitude to scale, so it would otherwise fall through to the ns branch.
+    if (abs >= 1 || abs === 0) {
         return `${compact(value)} s`
     }
     if (abs >= 1e-3) {
@@ -34,6 +41,10 @@ const seconds = (value: number): string => {
 /** Whether a bare `1` (ratio) value reads as a percent. A ratio in 0..1 becomes a percent;
  * a count that happens to be in 0..1 is left alone by the caller passing a more specific unit. */
 const RATIO_AS_PERCENT_MAX = 1
+
+const fitsPercent = (value: number): boolean => Math.abs(value) <= RATIO_AS_PERCENT_MAX
+
+const ratio = (value: number, asPercent: boolean): string => (asPercent ? `${compact(value * 100)}%` : compact(value))
 
 /** Format one metric value with a UCUM unit. `unit` is the raw OTel string; `undefined`
  * or an unknown unit falls back to a compact number. */
@@ -66,13 +77,14 @@ export function formatMetricValue(value: number, unit: string | undefined): stri
     }
     if (unit === '1') {
         // UCUM "one": a dimensionless ratio. Render small ratios as a percent.
-        if (Math.abs(value) <= RATIO_AS_PERCENT_MAX) {
-            return `${compact(value * 100)}%`
-        }
-        return compact(value)
+        return ratio(value, fitsPercent(value))
     }
     if (unit === '1/s') {
         return `${compact(value)}/s`
+    }
+    if (unit === 'By/s') {
+        // A rate over a byte counter: scale through bytes so it reads as throughput.
+        return `${bytes(value, 1024)}/s`
     }
     if (unit.endsWith('/s')) {
         // "{request}/s", "{message}/s", etc. Show the count rate with the noun.
@@ -82,7 +94,13 @@ export function formatMetricValue(value: number, unit: string | undefined): stri
     return `${compact(value)} ${unit}`
 }
 
-/** An axis/tooltip formatter bound to a unit. */
-export function unitAxisFormatter(unit: string | undefined): (value: number) => string {
+/** A formatter for values one visual shows together: a chart's ticks and tooltips, a table, a bucket list.
+ * A ratio picks percent or bare numbers once from all `values`, so one visual never shows `100%` next
+ * to `1.5`. Every other unit formats each value on its own. */
+export function metricValuesFormatter(unit: string | undefined, values: readonly number[]): (value: number) => string {
+    if (unit === '1') {
+        const asPercent = values.every(fitsPercent)
+        return (value: number) => ratio(value, asPercent)
+    }
     return (value: number) => formatMetricValue(value, unit)
 }

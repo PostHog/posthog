@@ -189,7 +189,7 @@ class SearchTool(MaxTool):
             await database_sync_to_async(posthoganalytics.capture)(
                 distinct_id=str(self._team.uuid),
                 event="business knowledge searched",
-                properties={"result_count": len(results), "surface": "posthog_ai"},
+                properties={"result_count": len(results), "surface": "posthog_ai", "library_scoped": False},
                 groups=groups(team=self._team),
             )
         except Exception:

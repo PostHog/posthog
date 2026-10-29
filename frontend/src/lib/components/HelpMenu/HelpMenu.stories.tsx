@@ -5,6 +5,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { healthSummaryLogic } from './healthSummaryLogic'
 import { HelpMenu } from './HelpMenu'
 import { helpMenuLogic } from './helpMenuLogic'
 
@@ -35,7 +36,13 @@ const meta: Meta<typeof HelpMenu> = {
     component: HelpMenu,
     render: () => {
         const { setHelpMenuOpen } = useActions(helpMenuLogic)
-        useOnMountEffect(() => setHelpMenuOpen(true))
+        const { loadHealthSummary } = useActions(healthSummaryLogic)
+        useOnMountEffect(() => {
+            setHelpMenuOpen(true)
+            // The app waits for the browser to go idle before it loads the summary. Load it now so
+            // the snapshot does not depend on when that happens.
+            loadHealthSummary()
+        })
 
         return (
             <div className="flex h-[1400px] w-[600px]">

@@ -15,6 +15,9 @@ class SurveyRootTranslation(BaseModel):
     thankYouMessageHeader: str | None = None
     thankYouMessageDescription: str | None = None
     thankYouMessageCloseButtonText: str | None = None
+    introScreenHeader: str | None = None
+    introScreenDescription: str | None = None
+    introScreenButtonText: str | None = None
     submitButtonText: str | None = None
     backButtonText: str | None = None
 
@@ -59,6 +62,9 @@ def _root_source(survey: dict[str, Any]) -> dict[str, Any]:
         "thankYouMessageHeader": appearance.get("thankYouMessageHeader"),
         "thankYouMessageDescription": appearance.get("thankYouMessageDescription"),
         "thankYouMessageCloseButtonText": appearance.get("thankYouMessageCloseButtonText"),
+        "introScreenHeader": appearance.get("introScreenHeader"),
+        "introScreenDescription": appearance.get("introScreenDescription"),
+        "introScreenButtonText": appearance.get("introScreenButtonText"),
         "submitButtonText": appearance.get("submitButtonText"),
         "backButtonText": appearance.get("backButtonText"),
         "translations": survey.get("translations") or {},

@@ -377,7 +377,7 @@ export const manageFingerprintsLogic = kea<manageFingerprintsLogicType>([
     }),
 
     urlToAction(({ actions, props }) => ({
-        '/error_tracking/:id': ({ id }, searchParams) => {
+        '/error-tracking/:id': ({ id }, searchParams) => {
             if (id === props.issueId && searchParams.manageFingerprints === 'true') {
                 actions.openManage()
             }

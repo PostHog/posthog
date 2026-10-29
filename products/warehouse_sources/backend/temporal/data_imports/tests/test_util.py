@@ -1018,6 +1018,11 @@ async def test_delete_folder_treats_an_already_deleted_folder_as_done(mock_captu
             True,
         ),
         (
+            "connect_timeout",
+            DjangoOperationalError("connection timeout expired"),
+            True,
+        ),
+        (
             "rejected_password",
             DjangoOperationalError('connection failed: FATAL:  password authentication failed for user "fake_user"'),
             False,

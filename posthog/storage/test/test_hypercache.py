@@ -919,6 +919,29 @@ class TestHyperCacheSecondaryCache(BaseTest):
             getattr(call, client).delete(key) for client in ("secondary", "primary") for key in sequence
         ]
 
+    @parameterized.expand(
+        [
+            ("primary", "cache_client", False),
+            ("strict_secondary", "secondary_cache_client", True),
+        ]
+    )
+    def test_delete_raises_a_redis_failure_after_every_tier(self, _name, failing_client, strict_mirror):
+        hc = HyperCache(namespace="test", value="value", load_fn=lambda team: self.sample_data, enable_etag=True)
+        hc.cache_client = Mock()
+        hc.secondary_cache_client = Mock()
+        redis_error = ConnectionError("redis down")
+        getattr(hc, failing_client).delete.side_effect = redis_error
+        team_id = self.team.id
+
+        with patch.object(object_storage, "delete") as mock_s3_delete:
+            with pytest.raises(ConnectionError) as raised:
+                hc.delete_cache_entry(team_id, strict_mirror=strict_mirror)
+
+        assert raised.value is redis_error
+        assert hc.cache_client.delete.call_count == 3
+        assert hc.secondary_cache_client.delete.call_count == 3
+        mock_s3_delete.assert_called_once_with(hc.get_cache_key(team_id))
+
     def test_unknown_secondary_alias_falls_back_to_no_op(self):
         """A secondary_cache_alias not in settings.CACHES is silently ignored."""
 

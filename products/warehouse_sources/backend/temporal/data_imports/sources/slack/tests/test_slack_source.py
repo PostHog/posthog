@@ -58,6 +58,9 @@ class TestSlackSourceValidateCredentials:
             ("missing_scope", "missing_scope", "Add the bot scopes from the setup manifest"),
             ("invalid_auth", "invalid_auth", "token is invalid"),
             ("token_revoked", "token_revoked", "revoked"),
+            # Wrong token type (e.g. a user or app-level token pasted into the bot token field)
+            # can never succeed on retry — the customer must paste the correct token.
+            ("not_allowed_token_type", "not_allowed_token_type", "Bot User OAuth Token"),
             # An unmapped Slack error still surfaces the specific code rather than a generic string.
             ("unknown_code", "some_new_error", "some_new_error"),
         ]

@@ -2,7 +2,6 @@ import type { Schemas } from "@posthog/api-client/generated";
 import { describe, expect, it } from "vitest";
 import { summarizeNotificationDestinations } from "./loopDisplay";
 import {
-  defaultLoopContextOutputs,
   emptyLoopFormValues,
   type LoopFormValues,
   loopToFormValues,
@@ -185,11 +184,7 @@ describe("loopHogFlowMapping", () => {
   ])(
     "keeps the loop attached to %s across a write and a read",
     (_label, name, expectedInput) => {
-      const contextTarget = {
-        folderId: "folder-1",
-        name,
-        outputs: defaultLoopContextOutputs(),
-      };
+      const contextTarget = { folderId: "folder-1", name };
       const flow = flowFromWrite(scheduleValues({ contextTarget }));
 
       expect(taskAction(flow).config).toMatchObject({
@@ -197,11 +192,7 @@ describe("loopHogFlowMapping", () => {
       });
       expect(
         hogFlowToLoop(flow, { projectId: PROJECT_ID }).context_target,
-      ).toEqual({
-        channel_id: "folder-1",
-        name,
-        outputs: defaultLoopContextOutputs(),
-      });
+      ).toEqual({ channel_id: "folder-1", name });
     },
   );
 
@@ -226,12 +217,6 @@ describe("loopHogFlowMapping", () => {
   });
 
   it.each([
-    [
-      "an API trigger",
-      scheduleValues({
-        triggers: [{ key: "t1", type: "api", enabled: true, config: {} }],
-      }),
-    ],
     [
       "a cron outside the presets",
       scheduleValues({
@@ -278,8 +263,6 @@ describe("loopHogFlowMapping", () => {
         created_by_id: 5,
         name: "Morning triage",
         enabled: true,
-        visibility: "team",
-        origin_product: "loops",
       });
       const trigger = values.triggers[0];
       expect(loopToFormValues(loop)).toEqual({
@@ -287,11 +270,9 @@ describe("loopHogFlowMapping", () => {
         name: "Morning triage",
         description: "Look at overnight errors",
         instructions: "Triage the error tracking inbox.",
-        visibility: "team",
         triggers: [
           {
             key: "trigger",
-            id: "trigger",
             type: trigger.type,
             enabled: true,
             config:
@@ -490,7 +471,6 @@ describe("loopHogFlowMapping", () => {
     expect(taskToLoopRun(task)).toMatchObject({
       id: "run-1",
       task_id: "task-1",
-      loop_trigger_id: null,
       environment: "cloud",
       branch: "loop/run-1",
       created_at: "2026-09-02T09:00:30Z",

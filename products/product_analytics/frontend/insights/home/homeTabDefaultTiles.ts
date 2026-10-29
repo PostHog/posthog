@@ -1,5 +1,7 @@
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
-import { dateMapping, getDefaultInterval } from 'lib/utils/dateFilters'
+import { dayjs } from 'lib/dayjs'
+import { dateMapping, getDefaultInterval, startOfWeek } from 'lib/utils/dateFilters'
+import { BUCKET_FORMAT, lastBucketIsInProgress, normalizeBucket } from 'lib/utils/timeBuckets'
 import { urls } from 'scenes/urls'
 
 import {
@@ -16,6 +18,8 @@ import {
 import {
     BaseMathType,
     ChartDisplayType,
+    DashboardTemplateStoredInsightTile,
+    DashboardTemplateType,
     FilterLogicalOperator,
     IntervalType,
     PropertyMathType,
@@ -26,7 +30,7 @@ import {
     TrendResult,
 } from '~/types'
 
-import type { HomeTabMetricKey } from './homeTabDefaultLogic'
+import { HOME_TAB_DEFAULT_DATE_RANGE, type HomeTabMetricKey } from './homeTabDefaultLogic'
 
 /** A single-number stat shown in the compact tile row at the top of the Home tab. */
 export interface HomeTabStatQuery {
@@ -35,6 +39,8 @@ export interface HomeTabStatQuery {
     kind: WebAnalyticsItemKind
     isIncreaseBad?: boolean
     query: TrendsQuery
+    trendQuery?: TrendsQuery
+    trendKey?: HomeTabMetricKey
     summary?: 'daily_average'
     description?: string
 }
@@ -136,6 +142,7 @@ function statQuery(
         title,
         kind,
         isIncreaseBad,
+        trendQuery: trendsQuery(series, dateRange, false),
         query: {
             ...trendsQuery(series, dateRange, compare),
             trendsFilter: { display: ChartDisplayType.BoldNumber },
@@ -176,10 +183,51 @@ export function getHomeTabStatValue(stat: HomeTabStatQuery, result?: TrendResult
     return result?.aggregated_value
 }
 
+export function isHomeTabStatBucketInProgress(
+    result: TrendResult | undefined,
+    interval: IntervalType,
+    timezone: string,
+    weekStartDay?: number | null,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    const buckets = result?.days.map(normalizeBucket) ?? []
+    if (interval === 'week') {
+        const currentBucket = startOfWeek(now.tz(timezone), weekStartDay).format(BUCKET_FORMAT)
+        return buckets.length >= 2 && buckets[buckets.length - 1] === currentBucket
+    }
+    return lastBucketIsInProgress(buckets, timezone, interval, now)
+}
+
 /** Summary metrics for the compact tile row. */
 export function getHomeTabStatQueries(dateRange: DateRange, compare: boolean): HomeTabStatQuery[] {
+    const dailyActiveUsers: HomeTabStatQuery = {
+        key: 'daily_active_users',
+        title: 'Avg. DAU',
+        kind: 'unit',
+        summary: 'daily_average',
+        description:
+            'Average daily unique people with a page or screen view in the selected period, including days with no activity.',
+        query: {
+            ...trendsQuery(activityEvent(BaseMathType.UniqueUsers), dateRange, compare),
+            interval: 'day',
+            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+        },
+    }
+    const activeUsers = statQuery(
+        'active_users',
+        'Active users',
+        'unit',
+        activityEvent(BaseMathType.UniqueUsers),
+        dateRange,
+        compare
+    )
     return [
-        statQuery('active_users', 'Active users', 'unit', activityEvent(BaseMathType.UniqueUsers), dateRange, compare),
+        {
+            ...activeUsers,
+            ...(activeUsers.query.interval === 'day'
+                ? { trendQuery: dailyActiveUsers.query, trendKey: dailyActiveUsers.key }
+                : {}),
+        },
         statQuery('sessions', 'Sessions', 'unit', activityEvent(BaseMathType.UniqueSessions), dateRange, compare),
         statQuery(
             'new_users',
@@ -197,19 +245,7 @@ export function getHomeTabStatQueries(dateRange: DateRange, compare: boolean): H
             dateRange,
             compare
         ),
-        {
-            key: 'daily_active_users',
-            title: 'Avg. DAU',
-            kind: 'unit',
-            summary: 'daily_average',
-            description:
-                'Average daily unique people with a page or screen view in the selected period, including days with no activity.',
-            query: {
-                ...trendsQuery(activityEvent(BaseMathType.UniqueUsers), dateRange, compare),
-                interval: 'day',
-                trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-            },
-        },
+        dailyActiveUsers,
     ]
 }
 
@@ -434,7 +470,131 @@ export function getHomeTabBreakdownOptions(dateRange: DateRange): HomeTabChartOp
     ]
 }
 
+/** A metric tile as an insight. The tile averages daily points in React, so that summary moves into the query. */
+export function getHomeTabStatInsightQuery(stat: HomeTabStatQuery): InsightVizNode<TrendsQuery> {
+    return {
+        kind: NodeKind.InsightVizNode,
+        source:
+            stat.summary === 'daily_average'
+                ? {
+                      ...stat.query,
+                      trendsFilter: {
+                          ...stat.query.trendsFilter,
+                          display: ChartDisplayType.Metric,
+                          metricSummary: 'average',
+                      },
+                  }
+                : stat.query,
+    }
+}
+
 export function getHomeTabExploreUrl(query: HomeTabChartOption['query']): string {
     const insightQuery: HomeTabChartOption['query'] = { ...query, embedded: undefined }
     return urls.insightNew({ query: insightQuery })
+}
+
+interface HomeTabDashboardTile {
+    name: string
+    description: string
+    source: TrendsQuery | RetentionQuery
+    w: number
+    h: number
+}
+
+// The Metric display (number with a sparkline) sums the interval points, which counts a person once per
+// active day. Weekly active users on the latest day counts each person once and still has a daily trend.
+const HOME_TAB_STAT_METRIC_SUMMARIES: Record<HomeTabMetricKey, 'total' | 'average' | 'latest'> = {
+    active_users: 'latest',
+    sessions: 'total',
+    new_users: 'total',
+    session_duration: 'average',
+    daily_active_users: 'average',
+}
+
+const HOME_TAB_STAT_DASHBOARD_NAMES: Partial<Record<HomeTabMetricKey, string>> = {
+    active_users: 'Weekly active users',
+    session_duration: 'Avg. session duration',
+}
+
+/** PostHog Home as a dashboard template, so a copy keeps the Home charts and the user can edit them. */
+export function getHomeTabDashboardTemplate(): DashboardTemplateType {
+    const dateRange = HOME_TAB_DEFAULT_DATE_RANGE
+    const compare = true
+    const charts = new Map(
+        [
+            ...getHomeTabChartOptions(dateRange, compare),
+            ...getHomeTabBreakdownOptions(dateRange),
+            ...getHomeTabAudienceOptions(dateRange),
+        ].map((option) => [option.key, option])
+    )
+    const chartTile = (key: string, w: number, h: number): HomeTabDashboardTile => {
+        const chart = charts.get(key)
+        if (!chart) {
+            throw new Error(`Home chart ${key} does not exist`)
+        }
+        return { name: chart.title, description: chart.description, source: chart.query.source, w, h }
+    }
+    // A 12-column row holds four equal metric tiles, and the full-width Daily active users chart already shows Avg. DAU.
+    const statQueries = getHomeTabStatQueries(dateRange, compare).filter(({ key }) => key !== 'daily_active_users')
+    const statTiles = statQueries.map((stat): HomeTabDashboardTile => {
+        const weeklyActiveUsers = stat.key === 'active_users'
+        return {
+            name: HOME_TAB_STAT_DASHBOARD_NAMES[stat.key] ?? stat.title,
+            description: '',
+            source: {
+                ...stat.query,
+                ...(weeklyActiveUsers
+                    ? {
+                          series: [activityEvent(BaseMathType.WeeklyActiveUsers)],
+                          interval: 'day',
+                          compareFilter: { compare: false },
+                      }
+                    : {}),
+                trendsFilter: {
+                    ...stat.query.trendsFilter,
+                    display: ChartDisplayType.Metric,
+                    metricSummary: HOME_TAB_STAT_METRIC_SUMMARIES[stat.key],
+                    ...(stat.kind === 'duration_s' ? { aggregationAxisFormat: 'duration' } : {}),
+                },
+            },
+            w: 3,
+            h: 2,
+        }
+    })
+    const rows: HomeTabDashboardTile[][] = [
+        statTiles,
+        [chartTile('daily_active_users', 12, 3)],
+        [chartTile('top_pages', 6, 5), chartTile('top_screens', 6, 5)],
+        [chartTile('top_events', 6, 5), chartTile('retention', 6, 5)],
+        [chartTile('users_by_country', 8, 6), chartTile('sessions_by_device', 4, 6)],
+    ]
+
+    const tiles: DashboardTemplateStoredInsightTile[] = []
+    let y = 0
+    let stackedY = 0
+    for (const row of rows) {
+        let x = 0
+        for (const { name, description, source, w, h } of row) {
+            tiles.push({
+                type: 'INSIGHT',
+                name,
+                description,
+                query: { kind: NodeKind.InsightVizNode, source },
+                layouts: { sm: { x, y, w, h }, xs: { x: 0, y: stackedY, w: 1, h } },
+            })
+            x += w
+            stackedY += h
+        }
+        y += Math.max(...row.map(({ h }) => h))
+    }
+
+    return {
+        id: 'product-analytics-home',
+        template_name: 'My product analytics Home',
+        dashboard_description: 'A copy of the default product analytics dashboard. You can edit, add, or remove tiles.',
+        dashboard_filters: {},
+        tiles,
+        variables: [],
+        tags: [],
+    }
 }

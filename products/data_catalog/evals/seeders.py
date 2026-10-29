@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any
 
 from unittest.mock import patch
 
+from django.db import transaction
+
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.team import Team
@@ -33,11 +35,20 @@ from products.data_catalog.evals.constants import (
     ACTIVE_CUSTOMERS_METRIC_DESCRIPTION,
     ACTIVE_CUSTOMERS_METRIC_DISPLAY_NAME,
     ACTIVE_CUSTOMERS_METRIC_NAME,
+    ACV_CANDIDATES,
+    ANNOTATED_LEDGER_AMOUNT_DESCRIPTION,
+    ANNOTATED_LEDGER_STATUS_DESCRIPTION,
+    ANNOTATED_LEDGER_VIEW_DESCRIPTION,
+    ANNOTATED_LEDGER_VIEW_NAME,
+    ANNOTATED_LEDGER_VIEW_SQL,
     APPROVED_METRIC_DEFINITION,
     APPROVED_METRIC_DESCRIPTION,
     APPROVED_METRIC_DISTINGUISHING_FILTER,
     APPROVED_METRIC_NAME,
     CERTIFIED_SOURCE_NAME,
+    CLIENT_INVOICES_DESCRIPTIONS,
+    CLIENT_INVOICES_ROWS,
+    CLIENT_INVOICES_SCHEMA,
     CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION,
     CURRENT_TOP_CUSTOMERS_METRIC_DESCRIPTION,
     CURRENT_TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
@@ -57,15 +68,23 @@ from products.data_catalog.evals.constants import (
     DRIFTED_INSIGHT_ORIGINAL_QUERY,
     DRIFTED_METRIC_DESCRIPTION,
     DRIFTED_METRIC_NAME,
+    DRIFTED_MISMATCHED_INSIGHT_MUTATED_QUERY,
+    DRIFTED_MISMATCHED_INSIGHT_ORIGINAL_QUERY,
     FAILING_TOP_CUSTOMERS_METRIC_DEFINITION,
     FEEDBACK_BY_SURVEY_METRIC_DEFINITION,
     FEEDBACK_BY_SURVEY_METRIC_DESCRIPTION,
     FEEDBACK_BY_SURVEY_METRIC_DISPLAY_NAME,
     FEEDBACK_BY_SURVEY_METRIC_NAME,
+    INJECTION_LEDGER_STATUS_DESCRIPTION,
+    INJECTION_LEDGER_VIEW_NAME,
+    INJECTION_LEDGER_VIEW_SQL,
     INJECTION_RELATIONSHIP_FIELD,
     INJECTION_RELATIONSHIP_REASONING,
     INJECTION_RELATIONSHIP_SOURCE_NAME,
     INJECTION_RELATIONSHIP_TARGET_NAME,
+    INVOICE_LINES_ROWS,
+    INVOICE_LINES_SCHEMA_NAME,
+    INVOICE_LINES_TABLE_NAME,
     LONG_SERIES_METRIC_DEFINITION,
     LONG_SERIES_METRIC_DESCRIPTION,
     LONG_SERIES_METRIC_DISPLAY_NAME,
@@ -85,6 +104,10 @@ from products.data_catalog.evals.constants import (
     PROPOSED_METRIC_DEFINITION,
     PROPOSED_METRIC_DESCRIPTION,
     PROPOSED_METRIC_NAME,
+    PROPOSED_UPLOADERS_METRIC_DEFINITION,
+    PROPOSED_UPLOADERS_METRIC_DESCRIPTION,
+    PROPOSED_UPLOADERS_METRIC_NAME,
+    PROPOSED_UPLOADERS_MISMATCHED_DEFINITION,
     RELATIONSHIP_DECOY_TARGET_NAME,
     RELATIONSHIP_SOURCE_KEY,
     RELATIONSHIP_SOURCE_NAME,
@@ -97,6 +120,15 @@ from products.data_catalog.evals.constants import (
     SIGNED_UP_CUSTOMERS_METRIC_DESCRIPTION,
     SIGNED_UP_CUSTOMERS_METRIC_DISPLAY_NAME,
     SIGNED_UP_CUSTOMERS_METRIC_NAME,
+    SUBSCRIPTION_CANDIDATES,
+    SYNCED_INVOICES_DESCRIPTIONS,
+    SYNCED_INVOICES_ROWS,
+    SYNCED_INVOICES_SCHEMA_NAME,
+    SYNCED_INVOICES_TABLE_NAME,
+    SYNCED_TIME_OFF_DESCRIPTIONS,
+    SYNCED_TIME_OFF_ROWS,
+    SYNCED_TIME_OFF_SCHEMA_NAME,
+    SYNCED_TIME_OFF_TABLE_NAME,
     TOP_CUSTOMERS_METRIC_DEFINITION,
     TOP_CUSTOMERS_METRIC_DESCRIPTION,
     TOP_CUSTOMERS_METRIC_DISPLAY_NAME,
@@ -114,33 +146,56 @@ from products.data_catalog.evals.constants import (
     YOY_MRR_GROWTH_METRIC_DISPLAY_NAME,
     YOY_MRR_GROWTH_METRIC_NAME,
 )
+from products.data_modeling.backend.facade import api as modeling_api
+from products.data_modeling.backend.facade.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 from products.data_tools.backend.facade.models import DataWarehouseJoin
+from products.posthog_ai.evals.data_warehouse.seeder import seed_warehouse_schema
 from products.product_analytics.backend.facade.models import Insight
+from products.warehouse_sources.backend.facade.contracts import SyncedWarehouseTable
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-from products.warehouse_sources.backend.facade.types import DataWarehouseTableFormat
+from products.warehouse_sources.backend.facade.testing import create_synced_table_from_rows
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseTableFormat,
+    ExternalDataSourceType,
+    WarehouseColumnAnnotationDescriptionSource,
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 __all__ = [
     "seed_accepted_relationship_context",
+    "seed_acv_candidate_tables",
+    "seed_annotated_ledger_view",
     "seed_approved_metric",
     "seed_ambiguous_top_customers_metrics",
     "seed_certification_trust_sources",
+    "seed_client_invoices_table",
     "seed_daily_active_orgs_metric",
     "seed_definition_insight",
     "seed_deprecation_candidate_sources",
     "seed_drifted_metric",
     "seed_failing_top_customers_metric",
+    "seed_instruction_like_column_annotation",
     "seed_instruction_like_relationship_context",
     "seed_metric_listing_catalog",
     "seed_mcp_tool_call_fail_pct_metric",
+    "seed_mismatched_drifted_metric",
+    "seed_mismatched_proposed_uploaders_metric",
     "seed_operational_metric",
-    "seed_proposed_metric",
+    "seed_proposed_uploaders_metric",
+    "seed_subscription_snapshot_tables",
+    "seed_synced_invoices_table",
+    "seed_synced_time_off_table",
     "seed_top_customers_metric",
 ]
 
 _STRING_COLUMN = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+_INTEGER_COLUMN = {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True}
+_FLOAT_COLUMN = {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True}
 _INCIDENT_WAREHOUSE_QUERIES = {
     "paid_bills": "SELECT distinct_id, timestamp, amount_usd FROM paid_bills LIMIT 1",
     "extended_properties": ("SELECT hedgebox_user_id, account_kind, monthly_bill_usd FROM extended_properties LIMIT 1"),
@@ -160,6 +215,7 @@ def seed_approved_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
         description=APPROVED_METRIC_DESCRIPTION,
         unit="usd",
         definition=APPROVED_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(metric, user)
     return {
@@ -214,6 +270,7 @@ def _seed_top_customers_metric(
         description=TOP_CUSTOMERS_METRIC_DESCRIPTION,
         unit="usd",
         definition=definition,
+        overwrite=True,
     )
     approve_metric(metric, user)
     return team, user
@@ -242,6 +299,7 @@ def seed_ambiguous_top_customers_metrics(context: CustomPromptSandboxContext) ->
         description=CURRENT_TOP_CUSTOMERS_METRIC_DESCRIPTION,
         unit="usd",
         definition=CURRENT_TOP_CUSTOMERS_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(current_metric, user)
     return {
@@ -274,6 +332,7 @@ def seed_operational_metric(context: CustomPromptSandboxContext) -> dict[str, An
         description=OPERATIONAL_METRIC_DESCRIPTION,
         unit="percent",
         definition=OPERATIONAL_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(metric, user)
     return {
@@ -305,6 +364,7 @@ def _seed_named_operational_metric(
         description=description,
         unit=unit,
         definition=definition,
+        overwrite=True,
     )
     approve_metric(metric, user)
     return {"metric": {"name": name, "status": "approved", "is_drifted": False}}
@@ -417,6 +477,7 @@ def seed_ambiguous_customer_count_metrics(context: CustomPromptSandboxContext) -
             description=description,
             unit="customers",
             definition=definition,
+            overwrite=True,
         )
         approve_metric(metric, user)
     return {
@@ -437,6 +498,7 @@ def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) 
         description=APPROVED_METRIC_DESCRIPTION,
         unit="usd",
         definition=APPROVED_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(approved, user)
     upsert_metric(
@@ -447,6 +509,7 @@ def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) 
         description=YOY_MRR_GROWTH_METRIC_DESCRIPTION,
         unit="percent",
         definition=YOY_MRR_GROWTH_METRIC_DEFINITION,
+        overwrite=True,
     )
     return {
         "metrics": [
@@ -456,32 +519,67 @@ def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) 
     }
 
 
-def seed_proposed_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+def _seed_proposed_uploaders_metric(context: CustomPromptSandboxContext, definition: dict) -> dict[str, Any]:
     team, user = _team_and_user(context)
     upsert_metric(
         team=team,
         user=user,
-        name=PROPOSED_METRIC_NAME,
-        description=PROPOSED_METRIC_DESCRIPTION,
-        definition=PROPOSED_METRIC_DEFINITION,
+        name=PROPOSED_UPLOADERS_METRIC_NAME,
+        description=PROPOSED_UPLOADERS_METRIC_DESCRIPTION,
+        definition=definition,
+        overwrite=True,
     )
-    return {"metric": {"name": PROPOSED_METRIC_NAME, "status": "proposed"}}
+    return {
+        "metric": {
+            "name": PROPOSED_UPLOADERS_METRIC_NAME,
+            "status": "proposed",
+            "definition_query": definition["query"],
+        }
+    }
 
 
-def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+def seed_proposed_uploaders_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_proposed_uploaders_metric(context, PROPOSED_UPLOADERS_METRIC_DEFINITION)
+
+
+def seed_mismatched_proposed_uploaders_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_proposed_uploaders_metric(context, PROPOSED_UPLOADERS_MISMATCHED_DEFINITION)
+
+
+def _seed_drifted_metric(
+    context: CustomPromptSandboxContext, original_query: dict, mutated_query: dict
+) -> dict[str, Any]:
     team, user = _team_and_user(context)
-    insight = Insight.objects.create(team=team, created_by=user, query=DRIFTED_INSIGHT_ORIGINAL_QUERY)
+    insight = Insight.objects.create(team=team, created_by=user, query=original_query)
     metric = upsert_metric(
         team=team,
         user=user,
         name=DRIFTED_METRIC_NAME,
         description=DRIFTED_METRIC_DESCRIPTION,
         source_insight_short_id=insight.short_id,
+        overwrite=True,
     )
     approve_metric(metric, user)
     # Mutating the source insight after approval is what makes the metric read as drifted.
-    Insight.objects.filter(pk=insight.pk).update(query=DRIFTED_INSIGHT_MUTATED_QUERY)
-    return {"metric": {"name": DRIFTED_METRIC_NAME, "status": "approved", "is_drifted": True}}
+    Insight.objects.filter(pk=insight.pk).update(query=mutated_query)
+    return {
+        "metric": {
+            "name": DRIFTED_METRIC_NAME,
+            "status": "approved",
+            "is_drifted": True,
+            "definition_query": original_query["query"],
+        }
+    }
+
+
+def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_drifted_metric(context, DRIFTED_INSIGHT_ORIGINAL_QUERY, DRIFTED_INSIGHT_MUTATED_QUERY)
+
+
+def seed_mismatched_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_drifted_metric(
+        context, DRIFTED_MISMATCHED_INSIGHT_ORIGINAL_QUERY, DRIFTED_MISMATCHED_INSIGHT_MUTATED_QUERY
+    )
 
 
 def seed_definition_insight(context: CustomPromptSandboxContext) -> dict[str, Any]:
@@ -511,6 +609,7 @@ def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str
         description=APPROVED_METRIC_DESCRIPTION,
         unit="usd",
         definition=APPROVED_METRIC_DEFINITION,
+        overwrite=True,
     )
     approve_metric(approved, user)
     upsert_metric(
@@ -519,6 +618,7 @@ def seed_metric_listing_catalog(context: CustomPromptSandboxContext) -> dict[str
         name=PROPOSED_METRIC_NAME,
         description=PROPOSED_METRIC_DESCRIPTION,
         definition=PROPOSED_METRIC_DEFINITION,
+        overwrite=True,
     )
     for insight_name in DECOY_INSIGHT_NAMES:
         Insight.objects.create(team=team, created_by=user, name=insight_name, query=DRIFTED_INSIGHT_ORIGINAL_QUERY)
@@ -651,3 +751,204 @@ def seed_instruction_like_relationship_context(context: CustomPromptSandboxConte
             "reasoning": INJECTION_RELATIONSHIP_REASONING,
         }
     }
+
+
+def _synced_table(
+    team: Team,
+    user: User,
+    *,
+    source_type: ExternalDataSourceType,
+    schema_name: str,
+    table_name: str,
+    columns: dict[str, dict[str, Any]],
+    rows: tuple[tuple[Any, ...], ...],
+    descriptions: dict[str, str],
+    description_source: WarehouseColumnAnnotationDescriptionSource = WarehouseColumnAnnotationDescriptionSource.CANONICAL,
+) -> SyncedWarehouseTable:
+    synced = create_synced_table_from_rows(
+        team,
+        source_type=source_type,
+        schema_name=schema_name,
+        table_name=table_name,
+        columns=columns,
+        rows=rows,
+        descriptions=descriptions,
+        description_source=description_source,
+        test_bucket="eval_catalog",
+    )
+    # A table ClickHouse cannot read would score the agent 0 for an infrastructure fault, so fail the seed instead.
+    response = execute_hogql_query(f"SELECT count() FROM {table_name}", team=team, user=user)
+    if getattr(response, "error", None) or not response.results or response.results[0][0] != len(rows):
+        raise RuntimeError(f"Seeded synced table '{table_name}' did not return its {len(rows)} rows.")
+    return synced
+
+
+def _annotated_view(team: Team, user: User, *, name: str, sql: str, descriptions: dict[str, str]) -> None:
+    """Create a view over the synced invoice lines table and annotate it. ``""`` in ``descriptions`` is the view."""
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.POSTGRES,
+        schema_name=INVOICE_LINES_SCHEMA_NAME,
+        table_name=INVOICE_LINES_TABLE_NAME,
+        columns=dict.fromkeys(("line_id", "amount", "status"), _INTEGER_COLUMN),
+        rows=INVOICE_LINES_ROWS,
+        descriptions={},
+    )
+    view = DataWarehouseSavedQuery.objects.create(
+        team=team,
+        created_by=user,
+        name=name,
+        columns=dict.fromkeys(("line_id", "amount", "status"), _INTEGER_COLUMN),
+        query={"query": sql},
+        status=DataWarehouseSavedQuery.Status.COMPLETED,
+    )
+    # The view API registers every new view in the lineage DAG, so the agent can trace the view to its source table.
+    with transaction.atomic():
+        modeling_api.sync_saved_query_to_dag(view)
+    for column_name, description in descriptions.items():
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).create(
+            team=team,
+            saved_query=view,
+            column_name=column_name,
+            description=description,
+            description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
+            is_user_edited=True,
+        )
+
+
+def seed_annotated_ledger_view(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _annotated_view(
+        team,
+        user,
+        name=ANNOTATED_LEDGER_VIEW_NAME,
+        sql=ANNOTATED_LEDGER_VIEW_SQL,
+        descriptions={
+            "": ANNOTATED_LEDGER_VIEW_DESCRIPTION,
+            "amount": ANNOTATED_LEDGER_AMOUNT_DESCRIPTION,
+            "status": ANNOTATED_LEDGER_STATUS_DESCRIPTION,
+        },
+    )
+    return {"annotated_view": {"name": ANNOTATED_LEDGER_VIEW_NAME}}
+
+
+def seed_instruction_like_column_annotation(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _annotated_view(
+        team,
+        user,
+        name=INJECTION_LEDGER_VIEW_NAME,
+        sql=INJECTION_LEDGER_VIEW_SQL,
+        descriptions={"status": INJECTION_LEDGER_STATUS_DESCRIPTION},
+    )
+    return {"annotated_view": {"name": INJECTION_LEDGER_VIEW_NAME}}
+
+
+def seed_synced_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.ADOBECOMMERCE,
+        schema_name=SYNCED_INVOICES_SCHEMA_NAME,
+        table_name=SYNCED_INVOICES_TABLE_NAME,
+        columns={
+            "entity_id": _INTEGER_COLUMN,
+            "increment_id": _STRING_COLUMN,
+            "order_id": _INTEGER_COLUMN,
+            "state": _INTEGER_COLUMN,
+            "base_grand_total": _FLOAT_COLUMN,
+        },
+        rows=SYNCED_INVOICES_ROWS,
+        descriptions=SYNCED_INVOICES_DESCRIPTIONS,
+    )
+    return {"synced_table": {"name": SYNCED_INVOICES_TABLE_NAME}}
+
+
+def seed_synced_time_off_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.HOORAYHR,
+        schema_name=SYNCED_TIME_OFF_SCHEMA_NAME,
+        table_name=SYNCED_TIME_OFF_TABLE_NAME,
+        columns={
+            "id": _INTEGER_COLUMN,
+            "user_id": _INTEGER_COLUMN,
+            "status": _INTEGER_COLUMN,
+            "time_off_type": _STRING_COLUMN,
+        },
+        rows=SYNCED_TIME_OFF_ROWS,
+        descriptions=SYNCED_TIME_OFF_DESCRIPTIONS,
+    )
+    return {"synced_table": {"name": SYNCED_TIME_OFF_TABLE_NAME}}
+
+
+def _seed_candidate_tables(
+    context: CustomPromptSandboxContext,
+    *,
+    candidates: tuple[tuple[str, str, tuple[tuple[Any, ...], ...]], ...],
+    columns: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Install the information_schema suite's catalog, then queryable candidate tables from the team's Postgres."""
+    seed_warehouse_schema(context)
+    team, user = _team_and_user(context)
+    names = []
+    for schema_name, description, rows in candidates:
+        synced = _synced_table(
+            team,
+            user,
+            source_type=ExternalDataSourceType.POSTGRES,
+            schema_name=schema_name,
+            table_name=f"postgres_{schema_name}",
+            columns=columns,
+            rows=rows,
+            descriptions={"": description},
+            description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
+        )
+        names.append(synced.name)
+    return {"candidate_tables": names}
+
+
+def seed_acv_candidate_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_candidate_tables(
+        context,
+        candidates=ACV_CANDIDATES,
+        columns=dict.fromkeys(("contract_id", "account_id", "acv"), _INTEGER_COLUMN),
+    )
+
+
+def seed_subscription_snapshot_tables(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_candidate_tables(
+        context,
+        candidates=SUBSCRIPTION_CANDIDATES,
+        columns={
+            "subscription_id": _INTEGER_COLUMN,
+            "account_id": _INTEGER_COLUMN,
+            "plan": _STRING_COLUMN,
+            "is_active": _INTEGER_COLUMN,
+        },
+    )
+
+
+def seed_client_invoices_table(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    team, user = _team_and_user(context)
+    _synced_table(
+        team,
+        user,
+        source_type=ExternalDataSourceType.POSTGRES,
+        schema_name=CLIENT_INVOICES_SCHEMA,
+        table_name=f"postgres_{CLIENT_INVOICES_SCHEMA}",
+        columns={
+            "invoice_id": _INTEGER_COLUMN,
+            "client_id": _INTEGER_COLUMN,
+            "revenue": _FLOAT_COLUMN,
+            "client_revenue": _FLOAT_COLUMN,
+        },
+        rows=CLIENT_INVOICES_ROWS,
+        descriptions=CLIENT_INVOICES_DESCRIPTIONS,
+        description_source=WarehouseColumnAnnotationDescriptionSource.USER_EDITED,
+    )
+    return {"synced_table": {"name": f"postgres_{CLIENT_INVOICES_SCHEMA}"}}

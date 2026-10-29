@@ -5,7 +5,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration
-from posthog.user_permissions import UserPermissions
+from posthog.user_permissions import user_can_access_team
 
 from products.signals.backend.report_generation.select_repo import resolve_team_github_integration
 from products.tasks.backend.facade import api as tasks_facade
@@ -86,9 +86,7 @@ def _can_act_on_team(user_id: int, team: Team) -> bool:
     resolved as a user this returns False for is killed at dispatch and booked as failed.
     """
     user = User.objects.filter(id=user_id, is_active=True).first()
-    if user is None:
-        return False
-    return UserPermissions(user=user, team=team).current_team.effective_membership_level is not None
+    return user is not None and user_can_access_team(user, team)
 
 
 def resolve_acting_user_id_for_team(team_id: int) -> int | None:

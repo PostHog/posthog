@@ -582,6 +582,7 @@ mod tests {
                 crate::domain::BehavioralShapeHash::parse("behavioral-shape").unwrap(),
             ),
             RunId(Uuid::nil()),
+            crate::domain::RunBoundaryMs(0),
         )
     }
 

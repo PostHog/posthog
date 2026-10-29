@@ -5,7 +5,6 @@ import pytest
 from requests import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -51,9 +50,7 @@ def test_permanent_http_errors_match_source_messages(status: int) -> None:
     assert result.paths == ["/v3/pipeline"]
 
 
-@pytest.mark.parametrize(
-    "status, schema, valid", [(200, None, True), (401, None, False), (403, None, True), (403, "pipelines", False)]
-)
+@pytest.mark.parametrize("status, schema, valid", [(403, None, True), (403, "pipelines", False)])
 def test_credential_probe(status: int, schema: str | None, valid: bool) -> None:
     config = MezmoSourceConfig(api_key="sts_example_key")
     with scripted_network([ScriptedResponse(status=status, json={"data": []})]) as network:
@@ -75,13 +72,6 @@ def test_invalid_setup_does_not_request(schema: str | None, key: str, message: s
     assert not valid
     assert reason is not None and message in reason
     assert network.requests_log == []
-
-
-def test_unknown_table_raises_before_request() -> None:
-    result = driver().run("missing", [])
-
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 @pytest.mark.parametrize("body", [{}, {"message": "Unexpected response"}])

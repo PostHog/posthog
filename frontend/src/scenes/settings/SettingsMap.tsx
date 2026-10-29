@@ -37,7 +37,6 @@ import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
 import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
 import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
 import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
-import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
 import {
     TaskAgentMyPreferenceSettings,
     TaskAgentProjectDefaultSettings,
@@ -53,6 +52,8 @@ import {
 } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm } from '~/types'
 
+import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
+import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevModeTeamUsage'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
@@ -70,18 +71,23 @@ import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
+import { GeneralSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/general/GeneralSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
+import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/FeatureFlagRequestBlocklist'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
+import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
+import { WorkflowsDailyLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsDailyLimitsSettings'
 import { WorkflowsEmailTrackingConsentSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEmailTrackingConsentSettings'
 import { WorkflowsEngagementEventsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsEngagementEventsSettings'
 import { WorkflowsFrequencyCapSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsFrequencyCapSettings'
-import { WorkflowsTaskLimitsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsTaskLimitsSettings'
+import { WorkflowsUtmDefaultsSettings } from 'products/workflows/frontend/scenes/settings/WorkflowsUtmDefaultsSettings'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import { SettingScopeTag } from './components/SettingScopeTag'
@@ -94,7 +100,6 @@ import { AgentUsageSettings } from './environment/AgentUsageSettings'
 import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
 import { CloudEnvironmentsSettings } from './environment/CloudEnvironmentsSettings'
 import { CloudImagesSettings } from './environment/CloudImagesSettings'
-import { CorrelationConfig } from './environment/CorrelationConfig'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
@@ -143,7 +148,7 @@ import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConf
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import { ProjectTimezoneName } from './environment/ProjectTimezoneName'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
-import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
+import { SDKInstallOptions } from './environment/SDKInstallOptions'
 import {
     CanvasCaptureSettings,
     LogCaptureSettings,
@@ -203,13 +208,6 @@ import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/Pe
 import { ProfilePictureSettings } from './user/ProfilePictureSettings'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
-import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
-import {
-    HomepageSetting,
-    SidebarItemsSetting,
-    SidebarLayoutSetting,
-    SidebarMyProductsSetting,
-} from './user/SidebarSettings'
 import { TaskCommentSlackNotifications } from './user/TaskCommentSlackNotifications'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
 import { TwoFactorSettings } from './user/TwoFactorSettings'
@@ -245,9 +243,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'snippet',
                 title: 'SDK setup',
                 description:
-                    'Install PostHog in your app using one of our SDKs. Select your platform to see the setup instructions.',
+                    'Install PostHog in your app with Wizard, or set it up manually by following the instructions for your platform.',
                 docsUrl: 'https://posthog.com/docs/getting-started/install',
-                component: <SDKSetupInstructions />,
+                component: <SDKInstallOptions />,
                 keywords: [
                     'install',
                     'setup',
@@ -255,6 +253,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'code',
                     'sdk',
                     'snippet',
+                    'wizard',
+                    'setup agent',
                     'javascript',
                     'html',
                     'react',
@@ -315,9 +315,10 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'display-name',
                 title: 'Project details',
-                description: 'Name this project and label it so you can group and find it across your organization.',
+                description:
+                    'Name this project, add a logo and label it so you can group and find it across your organization.',
                 component: <ProjectDetails />,
-                keywords: ['name', 'rename', 'label', 'tag', 'tags'],
+                keywords: ['name', 'rename', 'logo', 'icon', 'image', 'label', 'tag', 'tags'],
             },
             {
                 id: 'date-and-time',
@@ -333,7 +334,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 description:
-                    'Define filters to exclude internal users and test accounts from your analytics. Filtered users will not appear in insights by default.',
+                    'Add filters that match the users you want to keep, for example "email does not contain yourcompany.com". When this filter is on, events that do not match every filter are hidden from insights. A destination applies these filters only when "Filter out internal and test users" is turned on in its filters.',
                 docsUrl: 'https://posthog.com/tutorials/filter-internal-users',
                 component: <ProjectAccountFiltersSetting />,
                 keywords: ['test account', 'internal', 'exclude', 'filter'],
@@ -711,6 +712,22 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
+        id: 'environment-ai-gateway-dev-mode',
+        title: 'AI gateway developer mode',
+        group: 'Products',
+        settings: [
+            {
+                id: 'ai-gateway-dev-mode-team-usage',
+                title: 'Team usage',
+                description: 'Developer mode minting, spend, and activity per user over the last 30 days.',
+                component: <DevModeTeamUsage />,
+                staffOnly: true,
+                keywords: ['ai gateway', 'llm gateway', 'developer mode', 'phe_', 'spend', 'audit'],
+            },
+        ],
+    },
+    {
+        level: 'environment',
         id: 'environment-csp-reporting',
         title: 'CSP reporting',
         group: 'Products',
@@ -729,7 +746,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-data-quality',
         title: 'Data quality',
-        flag: 'DATA_QUALITY_CHECKS',
         group: 'Products',
         settings: [
             {
@@ -872,14 +888,21 @@ export const SETTINGS_MAP: SettingSection[] = [
         },
         settings: [
             {
-                id: 'error-tracking-exception-autocapture',
-                title: 'Exception autocapture',
-                description:
-                    'Automatically capture frontend exceptions using onError and onUnhandledRejection listeners in the web JavaScript SDK.',
-                docsUrl: 'https://posthog.com/docs/error-tracking',
-                platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
-                component: <ExceptionAutocaptureToggle />,
-                keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                id: 'error-tracking-general',
+                title: 'General',
+                component: <GeneralSettings />,
+                keywords: [
+                    'kill switch',
+                    'disable',
+                    'stop',
+                    'ingestion',
+                    'drop',
+                    'autocapture',
+                    'crash',
+                    'bug',
+                    'exception',
+                    'stack trace',
+                ],
             },
             {
                 id: 'error-tracking-alerting',
@@ -926,7 +949,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Suppression rules',
                 description: 'Filter out exceptions that match the given filters.',
                 component: <SuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
+                keywords: [
+                    'filter',
+                    'ignore',
+                    'suppress',
+                    'exception',
+                    'type',
+                    'message',
+                    'automatic',
+                    'bot',
+                    'crawler',
+                    'localhost',
+                    'browser',
+                    'hydration',
+                    'chunk',
+                ],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -982,13 +1019,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Daily recalculation time',
                 description: (
                     <>
-                        Select the time of day when experiment metrics should be recalculated. This time is in your
+                        Select the time of day when experiment time series are recalculated. This time is in your
                         project's timezone (<ProjectTimezoneName />
                         ).
                     </>
                 ),
                 searchDescription:
-                    "Select the time of day when experiment metrics should be recalculated. This time is in your project's timezone.",
+                    "Select the time of day when experiment time series are recalculated. This time is in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
                 flag: '!EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
@@ -998,13 +1035,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Daily recalculation times',
                 description: (
                     <>
-                        Select up to two times of day when experiment metrics should be recalculated, at least 6 hours
+                        Select up to two times of day when experiment time series are recalculated, at least 6 hours
                         apart. Times are in your project's timezone (<ProjectTimezoneName />
                         ).
                     </>
                 ),
                 searchDescription:
-                    "Select up to two times of day when experiment metrics should be recalculated, at least 6 hours apart. Times are in your project's timezone.",
+                    "Select up to two times of day when experiment time series are recalculated, at least 6 hours apart. Times are in your project's timezone.",
                 component: <ExperimentRecalculationTime />,
                 keywords: ['schedule', 'refresh', 'update', 'time'],
                 flag: 'EXPERIMENT_MULTIPLE_RECALCULATION_TIMES',
@@ -1081,6 +1118,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'Require every new feature flag to have at least one tag, and stop a tagged flag losing its last one, so flags stay attributable to a team or workstream. Flags created for surveys, experiments, early access features, product tours, and web experiments are exempt.',
                 component: <RequireFeatureFlagTags />,
                 keywords: ['tag', 'tags', 'require', 'governance'],
+            },
+            {
+                id: 'feature-flag-request-blocklist',
+                title: 'Blocked domains and IP addresses',
+                description:
+                    'Feature flag requests from these domains or IP addresses get an empty response and are not billed. Use this when someone else uses your project token without permission.',
+                component: <FeatureFlagRequestBlocklist />,
+                keywords: ['block', 'blocklist', 'domain', 'ip', 'origin', 'abuse', 'token'],
             },
             {
                 id: 'feature-flag-require-evaluation-contexts',
@@ -1338,15 +1383,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['person', 'properties', 'join', 'query', 'performance'],
             },
             {
-                id: 'correlation-analysis',
-                title: 'Correlation analysis exclusions',
-                description:
-                    'Correlation analysis automatically surfaces relevant signals for conversion. Exclude events or properties that do not provide useful signals.',
-                docsUrl: 'https://posthog.com/docs/product-analytics/funnels#correlation-analysis',
-                component: <CorrelationConfig />,
-                keywords: ['funnel', 'conversion', 'exclude', 'property'],
-            },
-            {
                 id: 'person-display-name',
                 title: 'Person display name',
                 description:
@@ -1372,6 +1408,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 docsUrl: 'https://posthog.com/docs/product-analytics/paths#path-cleaning-rules',
                 component: <PathCleaningFiltersConfig />,
                 keywords: ['url', 'regex', 'normalize', 'path analysis'],
+            },
+            {
+                id: 'project-events-retention',
+                title: 'Events retention',
+                component: <ProjectEventsRetentionSetting />,
+                keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
             },
             {
                 id: 'human-friendly-comparison-periods',
@@ -1659,7 +1701,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
                 component: <GithubReposSetting />,
-                flag: 'BUSINESS_KNOWLEDGE_GITHUB_REPOS',
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
             },
         ],
@@ -1798,15 +1839,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['bounce', 'pageview', 'url', 'calculation'],
             },
             {
-                id: 'session-join-mode',
-                title: 'Session join mode',
-                description:
-                    "Choose which join mode to use for sessions. Don't change this unless you know what you're doing.",
-                component: <SessionsV2JoinModeSettings />,
-                flag: 'SETTINGS_SESSIONS_V2_JOIN',
-                keywords: ['session', 'join', 'string', 'uuid'],
-            },
-            {
                 id: 'web-analytics-pre-aggregated-tables',
                 title: 'Pre-aggregated tables',
                 description: 'Configure pre-aggregated tables to speed up web analytics queries.',
@@ -1863,6 +1895,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 ],
             },
             {
+                id: 'workflows-utm-defaults',
+                title: 'UTM tags on email links',
+                description:
+                    'Default UTM tags for new broadcasts and workflow emails, so visits from your emails show up as their own campaigns in web analytics. Each email can still change them.',
+                component: <WorkflowsUtmDefaultsSettings />,
+                keywords: ['workflows', 'broadcasts', 'email', 'utm', 'campaign', 'links', 'web analytics'],
+            },
+            {
                 id: 'workflows-email-tracking-consent',
                 title: 'Email tracking consent',
                 description:
@@ -1894,9 +1934,35 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'AI task limits',
                 description:
                     'How many AI tasks your workflows can create in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause task creation. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
-                component: <WorkflowsTaskLimitsSettings />,
+                component: (
+                    <WorkflowsDailyLimitsSettings
+                        perWorkflowField="workflow_task_rate_limit_per_day"
+                        perProjectField="workflow_task_team_rate_limit_per_day"
+                        defaultPerWorkflow={100}
+                        defaultPerProject={500}
+                        unit="tasks"
+                        attrPrefix="workflows-task"
+                    />
+                ),
                 flag: 'WORKFLOW_AI_TASK_ACTION',
                 keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
+            },
+            {
+                id: 'workflows-replay-vision-limits',
+                title: 'Replay Vision scan limits',
+                description:
+                    'How many Replay Vision scans your workflows can request in a rolling 24 hours. One limit applies to each workflow on its own, the other to every workflow in the project together. Leave a limit empty to use the default. Set it to zero to pause scans. Contact support to raise a limit above 500 per workflow or 2,500 per project.',
+                component: (
+                    <WorkflowsDailyLimitsSettings
+                        perWorkflowField="replay_vision_scan_rate_limit_per_day"
+                        perProjectField="replay_vision_scan_team_rate_limit_per_day"
+                        defaultPerWorkflow={100}
+                        defaultPerProject={500}
+                        unit="scans"
+                        attrPrefix="workflows-replay-vision"
+                    />
+                ),
+                keywords: ['workflows', 'replay', 'vision', 'scan', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
         ],
     },
@@ -1908,7 +1974,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'environment-access-control',
                 title: 'Access control',
-                description: 'Manage who has access to this environment and what they can do.',
+                description: 'Manage who has access to this project and what they can do.',
                 docsUrl: 'https://posthog.com/docs/settings/access-control',
                 component: <TeamAccessControl />,
                 keywords: ['permission', 'role', 'access', 'rbac', 'team'],
@@ -2277,6 +2343,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation'],
             },
             {
+                id: 'organization-events-retention',
+                title: 'Events retention',
+                component: <OrganizationEventsRetentionSetting />,
+                keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
+            },
+            {
                 id: 'organization-member-notice',
                 title: 'Member notice',
                 description:
@@ -2465,7 +2537,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'organization-roles',
                 title: 'Roles',
                 description:
-                    'Use roles to group your organization members and assign them permissions. Roles are used for access control across your organization.',
+                    'Use roles to group members across your organization for access control and issue assignment in Error tracking.',
                 docsUrl: 'https://posthog.com/docs/settings/access-control',
                 component: <RolesAccessControls />,
                 keywords: ['role', 'permission', 'rbac', 'access control'],
@@ -2543,7 +2615,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'organization',
         id: 'organization-danger-zone',
-        title: 'Danger zone',
+        title: 'Delete organization',
         settings: [
             {
                 id: 'organization-delete',
@@ -2619,6 +2691,21 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-ai-gateway-dev-mode',
+        title: 'AI gateway developer mode',
+        settings: [
+            {
+                id: 'ai-gateway-dev-mode',
+                title: 'Developer mode tokens',
+                description: 'AI gateway tokens for PostHog staff.',
+                component: <DevModeSetting />,
+                staffOnly: true,
+                keywords: ['ai gateway', 'llm gateway', 'token', 'developer mode', 'phe_'],
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -2643,16 +2730,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <AllowImpersonation />,
                 flag: 'CONTROL_SUPPORT_LOGIN',
                 keywords: ['impersonation', 'support login', 'debug'],
-            },
-            {
-                id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new products',
-                description:
-                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new one.",
-                component: <SidebarAutoSuggestSetting />,
-                // Suggestions land in custom products, which the simple sidebar does not show.
-                flag: '!SIMPLE_SIDEPANEL',
-                keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
                 id: 'web-analytics-achievements',
@@ -2682,46 +2759,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                         to customize yourself outside of the app
                     </div>
                 ),
-            },
-        ],
-    },
-    {
-        level: 'user',
-        id: 'user-navigation',
-        title: 'Navigation',
-        // The simple sidebar edits these inline, from its own customize dialog.
-        flag: ['UI_CUSTOMIZATION', '!SIMPLE_SIDEPANEL'],
-        settings: [
-            {
-                id: 'homepage',
-                title: 'Homepage',
-                description:
-                    'The page that opens when you open PostHog or select Home in the sidebar. This applies to the current project.',
-                component: <HomepageSetting />,
-                keywords: ['homepage', 'home', 'default page', 'landing page', 'launchpad', 'start'],
-            },
-            {
-                id: 'sidebar-layout',
-                title: 'Layout',
-                description: 'Control how dense the sidebar rows are.',
-                component: <SidebarLayoutSetting />,
-                keywords: ['sidebar', 'layout', 'density', 'compact', 'comfortable'],
-            },
-            {
-                id: 'sidebar-items',
-                title: 'Navigation items',
-                description:
-                    'Choose which items appear in your sidebar. These preferences only apply to you. Activity and Settings always stay visible.',
-                component: <SidebarItemsSetting />,
-                keywords: ['sidebar', 'navigation', 'navbar', 'menu', 'hide', 'show', 'customize', 'starred'],
-            },
-            {
-                id: 'sidebar-my-tools',
-                title: 'My products',
-                description:
-                    'Choose which products appear in the My products section of your sidebar. This selection applies to the current project.',
-                component: <SidebarMyProductsSetting />,
-                keywords: ['sidebar', 'tools', 'products', 'apps', 'my tools', 'my products', 'customize'],
             },
         ],
     },
@@ -2843,7 +2880,7 @@ export const SETTINGS_MAP: SettingSection[] = [
     {
         level: 'user',
         id: 'user-danger-zone',
-        title: 'Danger zone',
+        title: 'Delete account',
         settings: [
             {
                 id: 'user-delete',

@@ -3,24 +3,29 @@ import { useActions, useValues } from 'kea'
 import { type ChangeEvent, type KeyboardEvent, useState } from 'react'
 
 import { IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled, IconX } from '@posthog/icons'
-import { Text, Textarea } from '@posthog/quill'
+import { Button, Text, Textarea } from '@posthog/quill'
 
 import { useReportFeedbackCelebration } from 'products/signals/frontend/inbox/components/detail/ReportFeedbackCelebration'
 import { inboxReportDetailLogic } from 'products/signals/frontend/inbox/logics/inboxReportDetailLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 
-import { TodayActionButton } from './TodayActionButton'
-
 const NOTE_MAX_LENGTH = 4000
 
 export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.Element {
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
-    const { feedbackSentiment, feedbackNoteDraft, feedbackNoteSent, feedbackSentNote, feedbackNoteSubmitting } =
-        useValues(logic)
+    const {
+        feedbackSentiment,
+        feedbackNoteDraft,
+        feedbackNoteSent,
+        feedbackSentNote,
+        feedbackNoteSubmitting,
+        feedbackDisabledReason,
+    } = useValues(logic)
     const { rateReport, setFeedbackNoteDraft, submitFeedbackNote } = useActions(logic)
     const { celebrate, celebration } = useReportFeedbackCelebration()
     const isPositive = feedbackSentiment === 'positive'
     const isNegative = feedbackSentiment === 'negative'
+    const [askedHere, setAskedHere] = useState(false)
     const [questionDismissed, setQuestionDismissed] = useState(false)
     const sendNote = (): void => {
         if (feedbackNoteDraft.trim()) {
@@ -48,39 +53,38 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                     </span>
                 </Text>
                 <span className="relative inline-flex">
-                    <TodayActionButton
+                    <Button
                         size="icon-sm"
                         aria-label="This report was useful"
                         aria-pressed={isPositive}
-                        tooltip="Yes, this was useful"
+                        tooltip={feedbackDisabledReason ?? (isPositive ? 'Remove thumbs up' : 'Yes, this was useful')}
+                        disabled={!!feedbackDisabledReason}
                         onClick={() => {
-                            if (!isPositive) {
-                                rateReport('positive', 'today')
-                                setQuestionDismissed(false)
-                                celebrate()
-                            }
+                            rateReport(isPositive ? null : 'positive', 'today', !isPositive ? celebrate : undefined)
+                            setQuestionDismissed(false)
+                            setAskedHere(true)
                         }}
                         data-attr="today-report-feedback-up"
                     >
                         {isPositive ? <IconThumbsUpFilled /> : <IconThumbsUp />}
-                    </TodayActionButton>
+                    </Button>
                     {celebration}
                 </span>
-                <TodayActionButton
+                <Button
                     size="icon-sm"
                     aria-label="This report was not useful"
                     aria-pressed={isNegative}
-                    tooltip="No, this wasn't useful"
+                    tooltip={feedbackDisabledReason ?? (isNegative ? 'Remove thumbs down' : "No, this wasn't useful")}
+                    disabled={!!feedbackDisabledReason}
                     onClick={() => {
-                        if (!isNegative) {
-                            rateReport('negative', 'today')
-                            setQuestionDismissed(false)
-                        }
+                        rateReport(isNegative ? null : 'negative', 'today')
+                        setQuestionDismissed(false)
+                        setAskedHere(true)
                     }}
                     data-attr="today-report-feedback-down"
                 >
                     {isNegative ? <IconThumbsDownFilled /> : <IconThumbsDown />}
-                </TodayActionButton>
+                </Button>
             </div>
             {/* The question lives under the row so it never pushes the thumbs sideways. */}
             {askingWhy && (
@@ -92,18 +96,19 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                         <Text size="xs" weight="medium" render={<span />} className="grow">
                             {isPositive ? 'What made it useful?' : 'What was off?'}
                         </Text>
-                        <TodayActionButton
+                        <Button
                             size="icon-sm"
                             aria-label="Dismiss"
                             onClick={() => setQuestionDismissed(true)}
                             data-attr="today-report-feedback-question-dismiss"
                         >
                             <IconX />
-                        </TodayActionButton>
+                        </Button>
                     </div>
                     <div className="flex items-end gap-1.5">
                         <Textarea
                             value={feedbackNoteDraft}
+                            disabled={feedbackNoteSubmitting}
                             onChange={(event: ChangeEvent<HTMLTextAreaElement>) =>
                                 setFeedbackNoteDraft(event.target.value)
                             }
@@ -117,13 +122,13 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                             aria-label="Add a note about this report"
                             maxLength={NOTE_MAX_LENGTH}
                             rows={2}
-                            autoFocus
+                            autoFocus={askedHere}
                             className="max-h-48 min-h-14! min-w-0 flex-1 resize-none"
                             data-attr="today-report-feedback-note"
                         />
                         {/* Shown only once there is text, so there is never a disabled button to look at. */}
                         {feedbackNoteDraft.trim() && (
-                            <TodayActionButton
+                            <Button
                                 variant="primary"
                                 size="sm"
                                 loading={feedbackNoteSubmitting}
@@ -131,7 +136,7 @@ export function TodayReportFeedback({ report }: { report: SignalReport }): JSX.E
                                 data-attr="today-report-feedback-note-send"
                             >
                                 Send
-                            </TodayActionButton>
+                            </Button>
                         )}
                     </div>
                 </div>

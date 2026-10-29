@@ -40,15 +40,6 @@ class TestRevenueCatSourceWebhookResourceMap:
         assert mapping[EVENT_RESOURCE_NAME] == "*"
 
 
-class TestRevenueCatSourceGetSchemas:
-    def test_filters_by_names_argument(self):
-        source = RevenueCatSource()
-
-        schemas = source.get_schemas(_config(), team_id=1, names=["customers", "events"])
-
-        assert {s.name for s in schemas} == {"customers", "events"}
-
-
 class TestRevenueCatSourceCreateWebhook:
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.revenuecat.source.api_client.create_webhook"

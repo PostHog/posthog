@@ -77,7 +77,7 @@ class TestDueRefreshSelection(BaseTest):
         assert len(logic.list_due_refresh_sources(limit=2)) == 2
 
 
-class TestHostSerializedBatches(BaseTest):
+class TestHostSerializedBatches(SimpleTestCase):
     def test_same_host_never_shares_a_batch(self) -> None:
         # 3 sources on host A, 1 on host B, generous concurrency.
         due = [

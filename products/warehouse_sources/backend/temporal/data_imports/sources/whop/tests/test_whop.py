@@ -38,6 +38,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.whop.whop 
 
 COMPANY_ID = "biz_test"
 
+LEGACY = "2025-01-01"
+LATEST = "2026-10-13-1"
+
 SYNC_ENDPOINT = "payments"
 
 
@@ -78,9 +81,14 @@ class TestParseDatetime:
 
 class TestListParams:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
-    def test_company_and_page_size_always_sent(self, endpoint):
-        params = _list_params(endpoint, COMPANY_ID, None)
-        assert params["company_id"] == COMPANY_ID
+    @pytest.mark.parametrize(
+        "api_version, filter_param, other_param",
+        [(LEGACY, "company_id", "account_id"), (LATEST, "account_id", "company_id")],
+    )
+    def test_company_and_page_size_always_sent(self, endpoint, api_version, filter_param, other_param):
+        params = _list_params(endpoint, COMPANY_ID, None, api_version)
+        assert params[filter_param] == COMPANY_ID
+        assert other_param not in params
         assert params["first"] == PAGE_SIZE
 
     @pytest.mark.parametrize(
@@ -90,7 +98,27 @@ class TestListParams:
     def test_endpoints_without_the_filter_never_send_created_after(self, endpoint):
         # These resources carry no trackable `created_at`; sending the filter would silently drop
         # rows the pipeline would then never backfill.
-        assert "created_after" not in _list_params(endpoint, COMPANY_ID, datetime(2024, 5, 1, tzinfo=UTC))
+        assert "created_after" not in _list_params(endpoint, COMPANY_ID, datetime(2024, 5, 1, tzinfo=UTC), LEGACY)
+
+
+class TestApiVersion:
+    @pytest.mark.parametrize(
+        "pinned, sent_version, filter_param, endpoint, path",
+        [
+            (LEGACY, LEGACY, "company_id", "entries", "/api/v1/entries"),
+            (LATEST, LATEST, "account_id", "entries", "/api/v1/waitlist_entries"),
+            # A row created by a pod still on the unversioned code during the deploy.
+            ("v1", LEGACY, "company_id", "products", "/api/v1/products"),
+            (None, LATEST, "account_id", "products", "/api/v1/products"),
+        ],
+    )
+    def test_sync_sends_the_pinned_version(self, pinned, sent_version, filter_param, endpoint, path):
+        result = _driver().run(endpoint, [_page([], end_cursor=None, has_next_page=False)], api_version=pinned)
+
+        request = result.requests[0]
+        assert request.headers["api-version-date"] == sent_version
+        assert request.path == path
+        assert request.param(filter_param) == COMPANY_ID
 
 
 class TestPagination:
@@ -142,7 +170,7 @@ class TestSourceResponseMetadata:
         )
 
         assert result.requests[0].param("created_after") == "2024-05-01T10:00:00.000Z"
-        assert set(result.requests[0].query) == {"first", "company_id", "created_after", "order", "direction"}
+        assert set(result.requests[0].query) == {"first", "account_id", "created_after", "order", "direction"}
 
 
 class TestWebhookTableTransformer:
@@ -163,42 +191,56 @@ class TestWebhookTableTransformer:
 
 
 class TestValidateCredentials:
-    def test_probes_the_connected_company_with_a_bearer_token(self):
+    @pytest.mark.parametrize("api_version, resource", [(LEGACY, "companies"), (LATEST, "accounts")])
+    def test_probes_the_connected_company_with_a_bearer_token(self, api_version, resource):
         with scripted_network([ScriptedResponse(json={})]) as network:
-            validate_credentials("key", COMPANY_ID)
+            validate_credentials("key", COMPANY_ID, api_version)
 
         request = network.requests_log[0]
-        assert request.url == f"{BASE_URL}/companies/{COMPANY_ID}"
+        assert request.url == f"{BASE_URL}/{resource}/{COMPANY_ID}"
         assert request.headers["authorization"] == "Bearer key"
+        assert request.headers["api-version-date"] == api_version
 
     def test_transport_failure_never_raises(self):
         with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("key", COMPANY_ID) == (False, None)
+            assert validate_credentials("key", COMPANY_ID, LEGACY) == (False, None)
 
 
 WEBHOOK_URL = "https://ph.example/webhook"
 
 
 class TestCreateWebhook:
-    def test_returns_the_generated_signing_secret(self):
+    @pytest.mark.parametrize(
+        "api_version, version_fields",
+        [
+            # An unpinned v1 webhook delivers the "2025-01-01" shape the legacy pulls return.
+            (LEGACY, {"api_version": "v1"}),
+            # Later versions reject `api_version` with a 400, and the pin keeps deliveries in the
+            # shape the latest pulls return.
+            (LATEST, {"api_version_date": LATEST}),
+        ],
+    )
+    def test_returns_the_generated_signing_secret(self, api_version, version_fields):
         with scripted_network(
             [ScriptedResponse(status=201, json={"id": "hook_1", "webhook_secret": "whsec_abc"})]
         ) as network:
-            result = create_webhook("key", COMPANY_ID, WEBHOOK_URL)
+            result = create_webhook("key", COMPANY_ID, WEBHOOK_URL, api_version)
 
         assert result.success is True
         assert result.extra_inputs == {"signing_secret": "whsec_abc"}
         payload = network.requests_log[0].json()
-        assert payload["url"] == WEBHOOK_URL
-        assert payload["resource_id"] == COMPANY_ID
-        # Deliveries must use the v1 payload envelope the transformer unwraps.
-        assert payload["api_version"] == "v1"
-        assert payload["events"] == ALL_WEBHOOK_EVENTS
+        assert payload == {
+            "url": WEBHOOK_URL,
+            "events": ALL_WEBHOOK_EVENTS,
+            "resource_id": COMPANY_ID,
+            "enabled": True,
+            **version_fields,
+        }
 
     @pytest.mark.parametrize("status_code", [401, 403, 422, 500])
     def test_non_success_falls_back_to_manual_setup(self, status_code):
         with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
-            result = create_webhook("key", COMPANY_ID, WEBHOOK_URL)
+            result = create_webhook("key", COMPANY_ID, WEBHOOK_URL, LEGACY)
 
         assert result.success is False
         assert result.error is not None
@@ -209,13 +251,13 @@ class TestCreateWebhook:
         # Without a secret the hog function cannot verify deliveries, so reporting success would
         # silently leave the webhook rejecting every payload.
         with scripted_network([ScriptedResponse(status=201, json={"id": "hook_1"})]):
-            result = create_webhook("key", COMPANY_ID, WEBHOOK_URL)
+            result = create_webhook("key", COMPANY_ID, WEBHOOK_URL, LEGACY)
 
         assert result.success is False
 
     def test_transport_failure_is_reported_not_raised(self):
         with scripted_network(always(ConnectionError("boom"))):
-            assert create_webhook("key", COMPANY_ID, WEBHOOK_URL).success is False
+            assert create_webhook("key", COMPANY_ID, WEBHOOK_URL, LEGACY).success is False
 
 
 def _webhook_list_page(items: list[dict[str, Any]], end_cursor: str | None, has_next_page: bool) -> ScriptedResponse:
@@ -241,7 +283,8 @@ def _writes(requests_log: list[RecordedRequest], method: str) -> list[RecordedRe
 
 
 class TestWebhookManagement:
-    def test_lookup_pages_through_every_webhook(self):
+    @pytest.mark.parametrize("api_version, filter_param", [(LEGACY, "company_id"), (LATEST, "account_id")])
+    def test_lookup_pages_through_every_webhook(self, api_version, filter_param):
         with scripted_network(
             [
                 _webhook_list_page([{"id": "hook_1", "url": "https://other.example"}], "cursor-1", True),
@@ -252,22 +295,23 @@ class TestWebhookManagement:
                 ),
             ]
         ) as network:
-            info = get_external_webhook_info("key", COMPANY_ID, WEBHOOK_URL)
+            info = get_external_webhook_info("key", COMPANY_ID, WEBHOOK_URL, api_version)
 
         assert info.exists is True
         assert info.enabled_events == ["payment.succeeded"]
         assert info.status == "enabled"
         assert network.requests_log[1].param("after") == "cursor-1"
+        assert network.requests_log[0].param(filter_param) == COMPANY_ID
 
     def test_lookup_reports_absence(self):
         with scripted_network([_webhook_list_page([], None, False)]):
-            assert get_external_webhook_info("key", COMPANY_ID, WEBHOOK_URL).exists is False
+            assert get_external_webhook_info("key", COMPANY_ID, WEBHOOK_URL, LEGACY).exists is False
 
     def test_sync_merges_missing_events_and_keeps_existing_ones(self):
         webhooks = [{"id": "hook_1", "url": WEBHOOK_URL, "events": ["payment.created", "custom.event"]}]
 
         with scripted_network(_webhook_api(webhooks, always(ScriptedResponse(json={})))) as network:
-            result = sync_webhook_events("key", COMPANY_ID, WEBHOOK_URL, ["payment.succeeded"])
+            result = sync_webhook_events("key", COMPANY_ID, WEBHOOK_URL, ["payment.succeeded"], LEGACY)
 
         assert result.success is True
         assert _writes(network.requests_log, "PATCH")[0].json() == {
@@ -278,7 +322,7 @@ class TestWebhookManagement:
         webhooks = [{"id": "hook_1", "url": WEBHOOK_URL, "events": ["payment.succeeded"]}]
 
         with scripted_network(_webhook_api(webhooks)) as network:
-            assert sync_webhook_events("key", COMPANY_ID, WEBHOOK_URL, ["payment.succeeded"]).success
+            assert sync_webhook_events("key", COMPANY_ID, WEBHOOK_URL, ["payment.succeeded"], LEGACY).success
 
         assert _writes(network.requests_log, "PATCH") == []
 
@@ -289,7 +333,7 @@ class TestWebhookManagement:
         ]
 
         with scripted_network(_webhook_api(webhooks, always(ScriptedResponse(status=204)))) as network:
-            result = delete_webhook("key", COMPANY_ID, WEBHOOK_URL)
+            result = delete_webhook("key", COMPANY_ID, WEBHOOK_URL, LEGACY)
 
         assert result.success is True
         deletes = _writes(network.requests_log, "DELETE")
@@ -299,4 +343,4 @@ class TestWebhookManagement:
         webhooks = [{"id": "hook_2", "url": WEBHOOK_URL}]
 
         with scripted_network(_webhook_api(webhooks, always(ScriptedResponse(status=403)))):
-            assert delete_webhook("key", COMPANY_ID, WEBHOOK_URL).success is False
+            assert delete_webhook("key", COMPANY_ID, WEBHOOK_URL, LEGACY).success is False

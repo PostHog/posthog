@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -37,6 +38,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
+    codebase_detection = detect(env=("^(PEEC_AI|PEECAI)_",))
+
     supported_versions = ("v1",)
     default_version = "v1"
     api_docs_url = "https://docs.peec.ai/api/changelog"
@@ -80,6 +83,7 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
@@ -88,7 +92,7 @@ class PeecAISource(ResumableSource[PeecAISourceConfig, PeecAIResumeConfig]):
                     ),
                 ],
             ),
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
         )
 
     def get_schemas(

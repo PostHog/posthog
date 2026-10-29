@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -28,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz import (
     HOST_NOT_ALLOWED_ERROR,
+    NON_JSON_RESPONSE_ERROR,
     SIGNOZ_API_VERSION_V5,
     SigNozResumeConfig,
     signoz_source,
@@ -38,6 +40,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
+    codebase_detection = detect(env=("^SIGNOZ_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://signoz.io/api-reference/"
 
@@ -57,7 +61,7 @@ class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
             name=ExternalDataSourceType.SIGNOZ,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="SigNoz",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Connect your SigNoz workspace to sync logs, traces, alert rules, dashboards, and notification channels into the PostHog Data warehouse.
 
 Enter your SigNoz host (your SigNoz Cloud tenant, e.g. `example.signoz.io`, or your self-hosted URL) and an API key.
@@ -94,6 +98,7 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
             "401 Client Error": "Invalid SigNoz API key. Generate a new key from a service account and reconnect.",
             "403 Client Error": "Your SigNoz API key lacks the required permissions for this data. Check the service account's role and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The configured SigNoz host is not allowed. Check the host and try again.",
+            NON_JSON_RESPONSE_ERROR: "Your SigNoz host didn't return API data, for example it returned a web page. Check that the host points at your SigNoz instance, not a login or proxy page, then try again.",
         }
 
     def get_retryable_errors(self) -> set[str]:

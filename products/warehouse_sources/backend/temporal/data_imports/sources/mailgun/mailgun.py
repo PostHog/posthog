@@ -1,5 +1,6 @@
 import time
 import dataclasses
+from collections import Counter
 from collections.abc import AsyncIterable, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from email.utils import format_datetime, parsedate_to_datetime
@@ -12,7 +13,7 @@ import requests
 import structlog
 from asgiref.sync import async_to_sync
 from structlog.types import FilteringBoundLogger
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -21,7 +22,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
     WebhookDeletionResult,
     WebhookSyncResult,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
@@ -256,7 +260,7 @@ def _normalize_row(config: MailgunEndpointConfig, domain: Optional[str], item: d
     return row
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type((MailgunRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRIES),
     wait=_retry_wait,
@@ -307,6 +311,13 @@ SKIPPABLE_DOMAIN_STATUS_CODES = frozenset({400, 401, 403})
 
 class MailgunAllDomainsSkippedError(Exception):
     pass
+
+
+def _status_summary(status_counts: Counter[int]) -> str:
+    return ", ".join(
+        f"{status} on {count} {'domain' if count == 1 else 'domains'}"
+        for status, count in sorted(status_counts.items())
+    )
 
 
 def _is_skippable_domain_error(config: MailgunEndpointConfig, domain: Optional[str], error: requests.HTTPError) -> bool:
@@ -438,7 +449,7 @@ def get_rows(
     # A resumed run can't see the domains an earlier attempt already read, so it doesn't count.
     count_domains = resume_config is None and config.domain_scoped
     queried_domains = 0
-    skipped_domains = 0
+    skipped_statuses: Counter[int] = Counter()
 
     while current_url is not None or pending_domains:
         if current_url is None:
@@ -474,12 +485,12 @@ def get_rows(
         except requests.HTTPError as error:
             if not _is_skippable_domain_error(config, current_domain, error):
                 raise
+            assert error.response is not None
             logger.warning(
                 f"Mailgun: skipping domain {current_domain} for {endpoint}; "
-                f"request returned {error.response.status_code if error.response is not None else '?'}. "
-                f"url={current_url}"
+                f"request returned {error.response.status_code}. url={current_url}"
             )
-            skipped_domains += 1
+            skipped_statuses[error.response.status_code] += 1
             current_url = None
             current_domain = None
             resumable_source_manager.save_state(MailgunResumeConfig(pending_domains=pending_domains))
@@ -507,11 +518,14 @@ def get_rows(
             # A fan-out over many empty lists or domains yields nothing for a long stretch.
             resumable_source_manager.safe_point()
 
-    if count_domains and queried_domains > 0 and skipped_domains == queried_domains:
+    if count_domains and queried_domains > 0 and skipped_statuses.total() == queried_domains:
         # Without this, a request Mailgun rejects for every domain ends as a successful sync of 0 rows.
+        # A 400 points at disabled or unverified domains, a 401/403 at the API key's permissions.
         raise MailgunAllDomainsSkippedError(
-            f"Mailgun rejected the {endpoint} request for every sending domain ({skipped_domains} domains). "
-            "Check that your sending domains are active and that the API key can read them."
+            f"Mailgun rejected the request for every sending domain on the {endpoint} table ({_status_summary(skipped_statuses)}). "
+            "A 400 means the domains are disabled or unverified. "
+            "A 401 or 403 means the API key can't read them. "
+            "Fix this in Mailgun, then re-enable the table."
         )
 
 

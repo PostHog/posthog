@@ -1,5 +1,7 @@
-from typing import Optional
+from collections.abc import Mapping
+from typing import Any, Optional
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -48,12 +50,23 @@ _NEON_HOST_CAPTION = (
 
 @SourceRegistry.register
 class NeonSource(PostgresSource):
+    codebase_detection = detect(
+        env=("^NEON_",),
+        npm=("@neondatabase/serverless", "@neondatabase/api-client", "neonctl", "neon"),
+        pypi=("neon-api",),
+    )
+
     def __init__(self):
         super().__init__(source_name="Neon")
 
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.NEON
+
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `PostgresSource`.
+        return "neon"
 
     @staticmethod
     def _adjust_field(field: FieldType) -> FieldType:
@@ -97,8 +110,7 @@ class NeonSource(PostgresSource):
         config: PostgresSourceConfig,
         management_mode: str,
         tables: list[str],
-        slot_name: str | None = None,
-        publication_name: str | None = None,
+        setup: Mapping[str, Any],
         require_ssl: bool = True,
         team_id: int | None = None,
     ) -> list[str]:
@@ -110,8 +122,7 @@ class NeonSource(PostgresSource):
             config,
             management_mode=management_mode,
             tables=tables,
-            slot_name=slot_name,
-            publication_name=publication_name,
+            setup=setup,
             require_ssl=require_ssl,
             team_id=team_id,
         )

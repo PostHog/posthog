@@ -24,7 +24,8 @@ import {
 } from './homeTabDefaultTiles'
 import { HomeTabExplore } from './HomeTabExplore'
 import { homeTabLoadTimeLogic } from './homeTabLoadTimeLogic'
-import { homeTabChartInsightId, homeTabStatKey } from './homeTabQueryKeys'
+import { homeTabChartInsightId, homeTabStatKey, homeTabStatTrendKey } from './homeTabQueryKeys'
+import { HomeTabReloadButton } from './HomeTabReloadButton'
 import { HomeTabStatTiles } from './HomeTabStatTiles'
 
 const HOME_DATE_OPTIONS = dateMapping.filter((option) => option.key !== CUSTOM_OPTION_KEY)
@@ -49,7 +50,12 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
         homeTabLoadTimeLogic({
             teamId: currentTeamId,
             tileIds: [
-                ...getHomeTabStatQueries(dateRange, compare).map((stat) => homeTabStatKey(currentTeamId, stat.key)),
+                ...new Set(
+                    getHomeTabStatQueries(dateRange, compare).flatMap((stat) => [
+                        homeTabStatKey(currentTeamId, stat.key),
+                        homeTabStatTrendKey(currentTeamId, stat),
+                    ])
+                ),
                 ...[primaryChart, contentChart, eventsChart, ...audienceCharts, retentionChart].map((chart) =>
                     insightVizDataNodeKey({ dashboardItemId: homeTabChartInsightId(currentTeamId, chart.key) })
                 ),
@@ -71,7 +77,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                         {dashboardActions}
                     </div>
                 </div>
-                <div className="home-tab-date-controls grid w-full min-w-0 grid-cols-2 gap-2 [&_.LemonButton]:h-full [&_.LemonButton__content]:truncate @max-[32rem]/home-overview:[&_.LemonButton__content]:text-xs @min-[48rem]/home-overview:flex @min-[48rem]/home-overview:w-auto @min-[48rem]/home-overview:flex-wrap">
+                <div className="home-tab-date-controls grid w-full min-w-0 grid-cols-[1fr_1fr_auto] gap-2 [&_.LemonButton]:h-full [&_.LemonButton__content]:truncate @max-[32rem]/home-overview:[&_.LemonButton__content]:text-xs @min-[48rem]/home-overview:flex @min-[48rem]/home-overview:w-auto @min-[48rem]/home-overview:flex-wrap">
                     <div className="min-w-0 [&_.LemonButton]:w-full @min-[48rem]/home-overview:[&_.LemonButton]:w-auto">
                         <DateFilter
                             showCustom
@@ -96,6 +102,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                             allowCustomComparison={false}
                         />
                     </div>
+                    <HomeTabReloadButton />
                 </div>
             </div>
 
@@ -111,6 +118,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                 option={primaryChart}
                 size="primary"
                 source="Pageviews and screen views"
+                loadPriority={0}
             />
 
             <section className="flex flex-col gap-3" aria-label="What people do">
@@ -123,6 +131,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                         key={contentChart.key}
                         option={contentChart}
                         size="ranking"
+                        loadPriority={2}
                         source={selectedContentKey === 'top_pages' ? 'Pageviews' : 'Screen views'}
                         control={
                             <LemonSelect
@@ -138,7 +147,7 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                             />
                         }
                     />
-                    <HomeTabChartCard option={eventsChart} size="ranking" source="Captured events" />
+                    <HomeTabChartCard option={eventsChart} size="ranking" source="Captured events" loadPriority={2} />
                 </div>
             </section>
 
@@ -151,13 +160,14 @@ export function HomeTabDefault({ dashboardActions }: { dashboardActions?: ReactN
                             option={option}
                             size="supporting"
                             source="Pageviews and screen views"
+                            loadPriority={3}
                         />
                     ))}
                 </div>
             </section>
 
             <div className="grid min-w-0 grid-cols-1 gap-3 @min-[44rem]/home-overview:grid-cols-2">
-                <HomeTabChartCard option={retentionChart} size="supporting" source="Pageviews" />
+                <HomeTabChartCard option={retentionChart} size="supporting" source="Pageviews" loadPriority={4} />
                 <HomeTabExplore />
             </div>
         </div>

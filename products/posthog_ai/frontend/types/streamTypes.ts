@@ -174,6 +174,8 @@ export interface ThreadItem {
     toolCallId?: string
     /** For `error` items, and for `status` items whose status is a `*_failed` phase. */
     errorMessage?: string
+    /** For `status` items that carry a notice to show as-is, such as an extension's warning. */
+    message?: string
     /**
      * For `error` items — distinguishes a friendlier agent-crash affordance (`crash`) from a
      * raw error line (`error`, the default). Drives the copy/styling branch in the renderer.

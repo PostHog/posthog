@@ -38,6 +38,7 @@ tools:
             Get all cohorts that a specific person belongs to. Requires the person_id query parameter.
         exclude_params:
             - format
+        reads_ingested_data: events
     persons-list:
         operation: persons_list
         enabled: true
@@ -62,6 +63,7 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
+        reads_ingested_data: events
         response:
             include:
                 - id
@@ -99,10 +101,11 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Set person property
+        title: Set person properties
         description: >
-            Set a single property on a person. The property is updated asynchronously via the event pipeline ($set).
-            Returns 202 Accepted.
+            Set properties on a person. Pass key and value for one property, or properties for up to 1000 in a single
+            request, which is one call and one $set event instead of one call per property. Properties are updated
+            asynchronously via the event pipeline ($set). Returns 202 Accepted.
         exclude_params:
             - format
     persons-retrieve:
@@ -114,12 +117,13 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: '{id}'
+        enrich_url: '{uuid}'
         title: Get person
         description: |
             Retrieve a single person by numeric ID or UUID. Returns the person's properties, distinct IDs, and metadata.
         exclude_params:
             - format
+        reads_ingested_data: events
         response:
             include:
                 - id
@@ -145,3 +149,4 @@ tools:
         exclude_params:
             - format
             - force_refresh
+        reads_ingested_data: events

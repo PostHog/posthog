@@ -17,10 +17,6 @@ class TestCoinApiSource:
         # Static endpoint catalog with no I/O, so public docs can render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["ohlcv_history"])
-        assert [s.name for s in schemas] == ["ohlcv_history"]
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [

@@ -482,6 +482,18 @@ describe('featureFlagIntentWarningLogic', () => {
                 ],
                 expectedIssueCount: 0,
             },
+            {
+                name: 'geoip subdivision property does not trigger issue',
+                properties: [
+                    {
+                        key: '$geoip_subdivision_1_code',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: 'CA',
+                    },
+                ],
+                expectedIssueCount: 0,
+            },
         ])('$name', async ({ properties, expectedIssueCount }) => {
             enableIntentsFeatureFlag()
 

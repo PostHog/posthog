@@ -29,7 +29,7 @@ dependencies, a `posthog-setup-report.md` summary. It'll also possibly contain a
 `.posthog-events.json` plan and some skills definitions under a harness skills folder such as
 `.claude/skills/*` or `.agents/skills/*`.
 
-The wizard's full console output is saved to `/tmp/wizard-cloud-run/wizard-output.log` (outside the
+The wizard's full console output is saved to `/tmp/workspace/.posthog/wizard-cloud-run/wizard-output.log` (outside the
 repository, so it can never be committed). Read it whenever you need to understand what the wizard
 actually did - which files it touched, any warnings it printed, or why something in the working tree
 looks the way it does.

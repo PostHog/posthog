@@ -1,5 +1,18 @@
-import { Host, Picker, Text as SwiftText } from "@expo/ui/swift-ui";
-import { pickerStyle, tag } from "@expo/ui/swift-ui/modifiers";
+import {
+  Button,
+  Host,
+  Image,
+  Menu,
+  Picker,
+  Text as SwiftText,
+} from "@expo/ui/swift-ui";
+import {
+  accessibilityLabel,
+  frame,
+  glassEffect,
+  pickerStyle,
+  tag,
+} from "@expo/ui/swift-ui/modifiers";
 import { formatRelativeAge } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/domain-types";
 import * as Haptics from "expo-haptics";
@@ -20,10 +33,12 @@ import { MenuIcon } from "@/components/Icons";
 import { PriorityChip } from "@/components/ReportCard";
 import { TriageDeck } from "@/components/TriageDeck";
 import { REPORT_FILTERS, type ReportFilter } from "@/lib/reportFilters";
+import { REPORT_SCOPES, useReportScope } from "@/lib/reportScope";
 import {
   useDismissReport,
+  useMarkReportRead,
+  useReportReadStates,
   useReports,
-  useSeenReports,
   useStartReportTask,
 } from "@/lib/reports";
 import { colors, fonts, radius } from "@/lib/theme";
@@ -34,17 +49,23 @@ const EMPTY: Record<ReportFilter, string> = {
   dismissed: "Nothing dismissed",
 };
 
+const EMPTY_FOR_YOU: Record<ReportFilter, string> = {
+  attention: "Nothing for you right now.",
+  "pull-requests": "No pull requests ready for you.",
+  dismissed: "Nothing dismissed for you.",
+};
+
 export default function SelfDrivingScreen() {
   const navigation = useNavigation<{ openDrawer: () => void }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<ReportFilter>("attention");
+  const scope = useReportScope((s) => s.scope);
+  const setScope = useReportScope((s) => s.setScope);
   // The deck always works on the reports that need attention.
-  const reports = useReports();
-  const listed = useReports("", filter);
-  const seen = useSeenReports((s) => s.seen);
-  const seenHydrated = useSeenReports((s) => s.hydrated);
-  const markSeen = useSeenReports((s) => s.markSeen);
+  const reports = useReports("", "attention", { scope });
+  const listed = useReports("", filter, { scope });
+  const markRead = useMarkReportRead();
   const dismiss = useDismissReport();
   const startTask = useStartReportTask();
   // Locally swiped ids, so a card leaves the deck before the server catches up.
@@ -63,23 +84,23 @@ export default function SelfDrivingScreen() {
   );
   const rows = filter === "attention" ? all : (listed.data ?? []);
   const listFailed = listed.isError && !listed.data;
-  const unseen = useMemo(
-    () => all.filter((report) => !seen.has(report.id)),
-    [all, seen],
-  );
+  const allIds = useMemo(() => all.map((report) => report.id), [all]);
+  const rowIds = useMemo(() => rows.map((report) => report.id), [rows]);
+  const readStates = useReportReadStates(allIds);
+  const rowReadStates = useReportReadStates(rowIds);
 
-  // New reports since the last visit open the deck on their own.
+  // Unread reports open the deck on their own.
   useEffect(() => {
     if (
       deck === null &&
       filter === "attention" &&
-      seenHydrated &&
       reports.data &&
-      unseen.length > 0
+      readStates.settled
     ) {
-      setDeck(unseen.map((report) => report.id));
+      const unread = allIds.filter((id) => readStates.unread.has(id));
+      if (unread.length > 0) setDeck(unread);
     }
-  }, [deck, filter, seenHydrated, reports.data, unseen]);
+  }, [deck, filter, reports.data, readStates, allIds]);
 
   const deckReports = useMemo(
     () =>
@@ -89,15 +110,14 @@ export default function SelfDrivingScreen() {
     [deck, all],
   );
 
-  // Whatever surfaces at the top of the deck counts as seen.
+  // Whatever surfaces at the top of the deck counts as read.
   const topId = deckReports[0]?.id;
   useEffect(() => {
-    if (topId && !seen.has(topId)) markSeen([topId]);
-  }, [topId, seen, markSeen]);
+    if (topId) markRead(topId);
+  }, [topId, markRead]);
 
   const finish = (report: SignalReport): void => {
     setHandled((current) => new Set(current).add(report.id));
-    markSeen([report.id]);
   };
 
   // A failed action leaves the report open on the server, so put the card back
@@ -149,7 +169,40 @@ export default function SelfDrivingScreen() {
           </GlassCircleButton>
         )}
         <Text style={styles.title}>{showDeck ? "Triage" : "Reports"}</Text>
-        <View style={{ width: 46 }} />
+        {showDeck ? (
+          <View style={{ width: 46 }} />
+        ) : (
+          <Host matchContents>
+            <Menu
+              label={
+                <Image
+                  systemName="slider.horizontal.3"
+                  size={18}
+                  color={colors.ink}
+                />
+              }
+              modifiers={[
+                frame({ width: 46, height: 46 }),
+                glassEffect({
+                  glass: { variant: "regular", interactive: true },
+                  shape: "circle",
+                }),
+                accessibilityLabel("Report scope"),
+              ]}
+            >
+              {REPORT_SCOPES.map((option) => (
+                <Button
+                  key={option.value}
+                  label={option.label}
+                  systemImage={
+                    scope === option.value ? "checkmark" : option.icon
+                  }
+                  onPress={() => setScope(option.value)}
+                />
+              ))}
+            </Menu>
+          </Host>
+        )}
       </View>
 
       {showDeck ? (
@@ -200,7 +253,15 @@ export default function SelfDrivingScreen() {
             </Pressable>
           ) : null}
           {rows.length === 0 && !listed.isLoading && !listFailed ? (
-            <Text style={styles.sectionTitle}>{EMPTY[filter]}</Text>
+            scope === "for-you" ? (
+              <Pressable onPress={() => setScope("entire-project")}>
+                <Text style={styles.muted}>
+                  {EMPTY_FOR_YOU[filter]} Tap to show the entire project.
+                </Text>
+              </Pressable>
+            ) : (
+              <Text style={styles.sectionTitle}>{EMPTY[filter]}</Text>
+            )
           ) : null}
           {rows.map((report) => (
             <Pressable
@@ -221,7 +282,7 @@ export default function SelfDrivingScreen() {
                   {formatRelativeAge(report.updated_at)}
                 </Text>
               </View>
-              {filter === "attention" && !seen.has(report.id) ? (
+              {rowReadStates.unread.has(report.id) ? (
                 <View style={styles.newDot} />
               ) : null}
             </Pressable>

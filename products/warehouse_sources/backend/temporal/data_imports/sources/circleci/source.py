@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]):
+    codebase_detection = detect(env=("^CIRCLECI_", "^CIRCLE_TOKEN$"), npm=("@circleci/circleci-config-sdk",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     supported_versions = (CIRCLECI_V2, CIRCLECI_V3)
@@ -58,7 +61,7 @@ class CircleCISource(ResumableSource[CircleCISourceConfig, CircleCIResumeConfig]
             name=ExternalDataSourceType.CIRCLECI,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="CircleCI",
-            caption="""Enter your CircleCI personal API token to pull your CircleCI pipelines, workflows, jobs, projects, deploy components, and users into the PostHog Data warehouse.
+            caption="""Enter your CircleCI personal API token to pull your CircleCI pipelines, workflows, jobs, projects, deploy components and environments, organization groups, and users into the PostHog Data warehouse.
 
 You can create a personal API token in your [CircleCI user settings](https://app.circleci.com/settings/user/tokens). The token has the same access to organizations and projects as your user.""",
             iconPath="/static/services/circleci.png",

@@ -2,12 +2,13 @@ import { MakeLogicType, actions, afterMount, kea, key, listeners, path, props, r
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 
 import { MaxErrorTrackingIssuePreview } from '~/queries/schema/schema-assistant-error-tracking'
 import { ErrorTrackingQuery, NodeKind } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { type ErrorScope, sessionErrorsWindow, traceErrorsWindow, usableId } from '../../errorCorrelation'
+import { type ErrorScope, sessionErrorsWindow, traceErrorsWindow } from '../../errorCorrelation'
 
 // The issues limit is the same one the Logs product's Related errors surface uses. A trace with
 // more issues than this is already past the point where a list helps.

@@ -1019,7 +1019,7 @@ export interface NotebookKernelStatusResponseApi {
 }
 
 export interface NotebookRunStartRequestApi {
-    /** Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled. */
+    /** Include prepared embedded insights when refreshing a dashboard widget. */
     include_prepared_insights?: boolean
     /** Replace the notebook's variables with this list before the run starts, so the results match what the document declares. Omit it to run with the variables already saved. */
     variables?: NotebookVariableApi[]
@@ -1300,6 +1300,26 @@ export interface NotebookCellLastRunApi {
     error?: string | null
 }
 
+export interface NotebookCellVisualizationApi {
+    /** Chart type the cell opens on, a chart display value such as 'ActionsBar' or 'ActionsLineGraph'. */
+    display: string
+    /**
+     * Column on the X axis. Null means the chart picks it: the first date column, or the first column the Y series do not use when there is no date column.
+     * @nullable
+     */
+    x_axis: string | null
+    /**
+     * Columns plotted as Y series. Null means the chart picks them: every numeric column. An empty list means the author removed every series, so the chart plots nothing.
+     * @nullable
+     */
+    y_axis: string[] | null
+    /**
+     * Column that splits the Y series into one series per value, or null.
+     * @nullable
+     */
+    series_breakdown: string | null
+}
+
 export interface NotebookCellStateApi {
     /** Durable cell identity, used by the cell run and edit endpoints. */
     node_id: string
@@ -1321,6 +1341,8 @@ export interface NotebookCellStateApi {
     dependents: string[]
     /** Summary of the most recent run; null when never run. */
     last_run?: NotebookCellLastRunApi | null
+    /** SQL cells only: the chart the cell opens on, set in the editor or with the visualization parameter of notebooks-add-cell. Null when the cell opens on its results table. */
+    visualization?: NotebookCellVisualizationApi | null
 }
 
 export interface NotebookSQLV2StateResponseApi {

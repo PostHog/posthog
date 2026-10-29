@@ -6,16 +6,12 @@ import { panelLayoutLogic } from '../panelLayoutLogic'
 import { PanelLayoutPanels } from './PanelLayoutPanels'
 
 jest.mock('../ProjectTree/ProjectTree', () => ({
-    PROJECT_TREE_KEY: 'project-tree',
     ProjectTree: ({ root, isActiveInPanel }: { root: string; isActiveInPanel: boolean }) => (
         <div data-attr="mock-tree" data-root={root} data-active={isActiveInPanel} />
     ),
 }))
 jest.mock('lib/components/NotificationsMenu/NotificationsPanel', () => ({
     NotificationsPanel: () => <div data-attr="mock-notifications" />,
-}))
-jest.mock('./tabs/NavTabChat', () => ({
-    NavTabChat: () => <div data-attr="mock-chat" />,
 }))
 
 describe('PanelLayoutPanels', () => {
@@ -32,7 +28,7 @@ describe('PanelLayoutPanels', () => {
         }))
     }
 
-    it('keeps previously opened panels mounted but hidden when switching', () => {
+    it('keeps the project tree mounted but hidden after switching away from it', () => {
         const { container } = render(<PanelLayoutPanels />)
         expect(renderedTrees(container)).toEqual([])
 
@@ -41,17 +37,11 @@ describe('PanelLayoutPanels', () => {
         expect(renderedTrees(container)).toEqual([{ root: 'project://', hidden: false, active: true }])
 
         // Switching must not tear down the project tree — it stays in the DOM, hidden.
-        act(() => panelLayoutLogic.actions.setActivePanelIdentifier('Products'))
-        expect(renderedTrees(container)).toEqual([
-            { root: 'project://', hidden: true, active: false },
-            { root: 'products://', hidden: false, active: true },
-        ])
+        act(() => panelLayoutLogic.actions.setActivePanelIdentifier('Notifications'))
+        expect(renderedTrees(container)).toEqual([{ root: 'project://', hidden: true, active: false }])
 
         act(() => panelLayoutLogic.actions.clearActivePanelIdentifier())
-        expect(renderedTrees(container)).toEqual([
-            { root: 'project://', hidden: true, active: false },
-            { root: 'products://', hidden: true, active: false },
-        ])
+        expect(renderedTrees(container)).toEqual([{ root: 'project://', hidden: true, active: false }])
     })
 
     it('mounts the notifications panel only while it is the active panel', () => {

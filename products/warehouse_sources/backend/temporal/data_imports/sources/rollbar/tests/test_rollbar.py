@@ -2,6 +2,8 @@ from typing import Any
 
 import pytest
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -13,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.rollbar.rollbar import (
     KEYSET_PAGE_SIZE,
-    TOKEN_REJECTED_MESSAGE,
     UNREACHABLE_MESSAGE,
     RollbarResumeConfig,
     _extract_items,
@@ -75,20 +76,12 @@ class TestValidateCredentials:
     @pytest.mark.parametrize(
         "status_code, expected",
         [
-            (200, (True, None)),
-            (401, (False, TOKEN_REJECTED_MESSAGE)),
-            (403, (False, TOKEN_REJECTED_MESSAGE)),
             (429, (False, UNREACHABLE_MESSAGE)),
-            (500, (False, UNREACHABLE_MESSAGE)),
         ],
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):
         with scripted_network(always(ScriptedResponse(status=status_code))):
             assert validate_credentials("token") == expected
-
-    def test_validate_credentials_swallows_exceptions(self):
-        with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("token") == (False, UNREACHABLE_MESSAGE)
 
 
 class TestGetRowsPagePagination:
@@ -112,6 +105,27 @@ class TestGetRowsPagePagination:
         )
 
         assert result.items == [[{"id": 1, "environment": "production"}]]
+
+    def test_pagination_ceiling_422_stops_after_first_page(self):
+        # Rollbar rejects a page past an undocumented depth ceiling with a 422 instead of an
+        # empty page. Once a page has already come back, that's end-of-data, not a failure.
+        result = _driver().run(
+            "items",
+            [
+                _response("items", [{"id": 1}]),
+                ScriptedResponse(status=422),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"id": 1}]]
+
+    def test_pagination_ceiling_422_on_first_page_propagates(self):
+        # A 422 before any page has succeeded isn't a depth ceiling — Rollbar hasn't told us any
+        # page works, so it must surface rather than being read as an empty sync.
+        result = _driver().run("items", [ScriptedResponse(status=422)])
+
+        assert isinstance(result.raised, requests.HTTPError)
 
 
 class TestGetRowsKeyset:

@@ -9,10 +9,13 @@ from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kernel.settings import (
     BROWSER_TELEMETRY_EVENTS,
@@ -156,7 +159,7 @@ def _next_page(headers: Any, current_offset: int, page_len: int) -> tuple[bool, 
     return has_more, current_offset + page_len
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             KernelRetryableError,

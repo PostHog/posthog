@@ -387,12 +387,57 @@ def hog_function_filters_to_expr(filters: dict, team: Team, actions: dict[int, A
 
 
 def filter_action_ids(filters: Optional[dict]) -> list[int]:
-    if not filters:
+    if not isinstance(filters, dict):
         return []
     try:
         return [int(action["id"]) for action in filters.get("actions", [])]
-    except KeyError:
+    except (KeyError, TypeError, ValueError):
         return []
+
+
+def collect_property_cohort_ids(node: Any) -> set[int]:
+    """Cohort ids in a property tree (lists, AND/OR groups, and cohort leaves)."""
+    ids: set[int] = set()
+
+    def _walk(current: Any) -> None:
+        if isinstance(current, list):
+            for item in current:
+                _walk(item)
+            return
+        if not isinstance(current, dict):
+            return
+        if current.get("type") in ("AND", "OR"):
+            _walk(current.get("values") or [])
+            return
+        if _is_cohort_filter(current):
+            value = current.get("value")
+            if isinstance(value, str | int) and not isinstance(value, bool):
+                try:
+                    ids.add(int(value))
+                except ValueError:
+                    pass
+
+    _walk(node)
+    return ids
+
+
+def filter_cohort_ids(filters: Optional[dict]) -> list[int]:
+    """Cohort ids referenced by the filters' property tree, for save-time eligibility validation.
+
+    Total over untrusted input, like filter_action_ids: callers scan raw client filters
+    before DRF validation, so a malformed shape yields [] instead of raising.
+    """
+    if not isinstance(filters, dict):
+        return []
+
+    ids = collect_property_cohort_ids(filters.get("properties") or [])
+    for key in ("events", "actions"):
+        entries = filters.get(key)
+        if isinstance(entries, list):
+            for entry in entries:
+                if isinstance(entry, dict):
+                    ids |= collect_property_cohort_ids(entry.get("properties") or [])
+    return sorted(ids)
 
 
 def compile_filters_expr(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> ast.Expr:
@@ -424,6 +469,33 @@ class SelectFinder(TraversingVisitor):
         visitor = cls()
         visitor.visit(node)
         return visitor.found
+
+
+class _CohortMembershipFinder(TraversingVisitor):
+    found = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        if node.op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
+            self.found = True
+            return
+        super().visit_compare_operation(node)
+
+    @classmethod
+    def has_cohort_membership(cls, node: ast.Expr) -> bool:
+        visitor = cls()
+        visitor.visit(node)
+        return visitor.found
+
+
+def _test_account_filters_read_cohorts(filters: dict, team: Team) -> bool:
+    # A HogQL test account filter such as `person_id IN COHORT 5` is not a cohort-type filter, so it
+    # skips the inlining in _build_test_account_filters and fails later in the bytecode compiler.
+    # This runs while an error is being reported, so a failure here must not replace that error.
+    try:
+        team_exprs = _build_test_account_filters(filters, team)
+    except Exception:
+        return False
+    return any(_CohortMembershipFinder.has_cohort_membership(expr) for expr in team_exprs)
 
 
 def _internal_user_settings_url(team_id: int) -> str:
@@ -480,10 +552,21 @@ TEMPLATE_CALLABLES: set[str] = set(_RUNTIME["callables"])
 _UNKNOWN_GLOBAL = "Unknown global variable: "
 
 
-def _unknown_filter_globals(expr: ast.Expr) -> list[str]:
+def _declared_globals(cohort_membership_supported: bool) -> dict[str, None]:
+    declared = dict.fromkeys(FILTER_GLOBALS)
+    if cohort_membership_supported:
+        declared["cohort_ids"] = None
+    return declared
+
+
+def _unknown_filter_globals(expr: ast.Expr, cohort_membership_supported: bool = False) -> list[str]:
     """Compile once with the runtime's globals declared, and return the roots the runtime will not have."""
-    context = HogQLContext(team_id=None, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
-    create_bytecode(expr, context=context)
+    context = HogQLContext(
+        team_id=None,
+        globals=_declared_globals(cohort_membership_supported),
+        allowed_functions=FILTER_FUNCTIONS,
+    )
+    create_bytecode(expr, context=context, cohort_membership_supported=cohort_membership_supported)
     return sorted(
         {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
     )
@@ -497,39 +580,78 @@ class _RuntimeCompilation:
     context: HogQLContext
 
 
-def _compile_against_runtime(expr: ast.Expr, team: Team) -> _RuntimeCompilation:
+def _compile_against_runtime(
+    expr: ast.Expr,
+    team: Team,
+    cohort_membership_supported: bool = False,
+    allowed_cohort_ids: Optional[set[int]] = None,
+) -> _RuntimeCompilation:
     # Declaring the globals turns the compiler's field resolution into a check: it warns on a
     # root that is neither a local, an upvalue, nor one of ours.
-    context = HogQLContext(team_id=team.id, globals=dict.fromkeys(FILTER_GLOBALS), allowed_functions=FILTER_FUNCTIONS)
-    bytecode = create_bytecode(expr, context=context).bytecode
+    context = HogQLContext(
+        team_id=team.id,
+        globals=_declared_globals(cohort_membership_supported),
+        allowed_functions=FILTER_FUNCTIONS,
+    )
+    bytecode = create_bytecode(
+        expr,
+        context=context,
+        cohort_membership_supported=cohort_membership_supported,
+        allowed_cohort_ids=allowed_cohort_ids,
+    ).bytecode
     unknown = sorted(
         {w.message.removeprefix(_UNKNOWN_GLOBAL) for w in context.warnings if w.message.startswith(_UNKNOWN_GLOBAL)}
     )
     return _RuntimeCompilation(bytecode=bytecode, unknown_roots=unknown, context=context)
 
 
-def _own_filters_expr(filters: dict, team: Team, actions: Optional[dict[int, Action]]) -> ast.Expr:
+def _own_filters_expr(
+    filters: dict,
+    team: Team,
+    actions: Optional[dict[int, Action]],
+    cohort_membership_supported: bool = False,
+) -> ast.Expr:
     """The destination's filters without the team's test account filters, with warehouse columns resolved."""
     own = _LowerConstantMembership().visit(
         compile_filters_expr({**filters, "filter_test_accounts": False}, team, actions)
     )
     if filters.get("source") in DATA_WAREHOUSE_SOURCES:
-        own = _WarehouseRowFields(roots=set(_compile_against_runtime(own, team).unknown_roots)).visit(own)
+        own = _WarehouseRowFields(
+            roots=set(
+                _compile_against_runtime(
+                    own, team, cohort_membership_supported=cohort_membership_supported
+                ).unknown_roots
+            )
+        ).visit(own)
     return own
 
 
-def _resolve_warehouse_columns(filters: dict, team: Team, actions: Optional[dict[int, Action]]) -> ast.Expr:
+def _resolve_warehouse_columns(
+    filters: dict,
+    team: Team,
+    actions: Optional[dict[int, Action]],
+    cohort_membership_supported: bool = False,
+) -> ast.Expr:
     """
     Only the destination's own filters read the row. The team's test account filters are written
     against events, so a root they read that the runtime lacks stays an error rather than becoming
     a column.
     """
     return _combine_expressions(
-        [*_build_test_account_filters(filters, team), _own_filters_expr(filters, team, actions)]
+        [
+            *_build_test_account_filters(filters, team),
+            _own_filters_expr(filters, team, actions, cohort_membership_supported=cohort_membership_supported),
+        ]
     )
 
 
-def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
+def compile_filters_bytecode(
+    filters: Optional[dict],
+    team: Team,
+    actions: Optional[dict[int, Action]] = None,
+    cohort_membership_supported: bool = False,
+    allowed_cohort_ids: Optional[set[int]] = None,
+) -> dict:
     filters = filters or {}
     try:
         expr = compile_filters_expr(filters, team, actions)
@@ -537,9 +659,16 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             raise Exception("Select queries are not allowed in filters")
 
         expr = _LowerConstantMembership().visit(expr)
-        compiled = _compile_against_runtime(expr, team)
+        compiled = _compile_against_runtime(expr, team, cohort_membership_supported, allowed_cohort_ids)
         if compiled.unknown_roots and filters.get("source") in DATA_WAREHOUSE_SOURCES:
-            compiled = _compile_against_runtime(_resolve_warehouse_columns(filters, team, actions), team)
+            compiled = _compile_against_runtime(
+                _resolve_warehouse_columns(
+                    filters, team, actions, cohort_membership_supported=cohort_membership_supported
+                ),
+                team,
+                cohort_membership_supported,
+                allowed_cohort_ids,
+            )
         filters["bytecode"] = compiled.bytecode
         filters["bytecode_contract"] = RUNTIME_CONTRACT
         unknown = compiled.unknown_roots
@@ -552,7 +681,10 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             if from_team:
                 # Compile the destination's own filters alone rather than subtracting the team's
                 # roots: a field that both sources read drops out of the difference and goes unnamed.
-                own = _unknown_filter_globals(_own_filters_expr(filters, team, actions))
+                own = _unknown_filter_globals(
+                    _own_filters_expr(filters, team, actions, cohort_membership_supported=cohort_membership_supported),
+                    cohort_membership_supported,
+                )
                 raise Exception(
                     f"Your internal/test user filters read {', '.join(from_team)}, which real-time filters "
                     f"cannot read. Check the spelling, or use a field or function that real-time filters support. "
@@ -587,15 +719,20 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
     except Exception as e:
         error_msg = str(e)
 
-        # Cohort errors from sources other than test account filters (e.g. global
-        # property filters referencing a cohort) still hit the bytecode compiler's
-        # generic "Can't use cohorts in real-time filters" error.
-        if "Can't use cohorts in real-time filters" in error_msg:
-            settings_url = _internal_user_settings_url(team.id)
+        # Cohort errors that CohortInlineError does not catch (e.g. global property filters
+        # referencing a cohort, or a HogQL test account filter) still hit the bytecode
+        # compiler's generic "Can't use cohorts in real-time filters" error. Only link the
+        # internal user settings when the team's test account filters cause it.
+        if "Can't use cohorts in real-time filters" in error_msg and _test_account_filters_read_cohorts(filters, team):
             error_msg = (
-                f"Cohort membership can't be evaluated in real-time filters. "
-                f"Replace cohorts with equivalent inline person property filters. "
-                f"Update your filters at: {settings_url}"
+                "Your internal/test user filters use a cohort, and cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people. "
+                f"Update your filters at: {_internal_user_settings_url(team.id)}"
+            )
+        elif "Can't use cohorts in real-time filters" in error_msg:
+            error_msg = (
+                "Cohorts can't be used in real-time filters. "
+                "Replace the cohort with person property filters that match the same people."
             )
 
         filters["bytecode"] = None

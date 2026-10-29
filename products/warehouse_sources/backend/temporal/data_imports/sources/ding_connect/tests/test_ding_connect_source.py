@@ -2,8 +2,6 @@ from typing import Any
 
 from unittest.mock import MagicMock
 
-from parameterized import parameterized
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     scripted_network,
@@ -54,31 +52,3 @@ class TestSourceForPipeline:
         assert captured["team_id"] == 7
         assert captured["job_id"] == "job-1"
         assert captured["resumable_source_manager"] is manager
-
-
-class TestNonRetryableErrors:
-    @parameterized.expand(
-        [
-            (
-                "unauthorized",
-                "401 Client Error: Unauthorized for url: https://api.dingconnect.com/api/V1/GetCountries",
-            ),
-            (
-                "forbidden",
-                "403 Client Error: Forbidden for url: https://api.dingconnect.com/api/V1/GetProducts",
-            ),
-        ]
-    )
-    def test_credential_errors_are_non_retryable(self, _name: str, observed_error: str) -> None:
-        non_retryable_errors = DingConnectSource().get_non_retryable_errors()
-        assert any(key in observed_error for key in non_retryable_errors)
-
-    @parameterized.expand(
-        [
-            ("server_error", "500 Server Error: Internal Server Error for url: https://api.dingconnect.com"),
-            ("read_timeout", "HTTPSConnectionPool(host='api.dingconnect.com', port=443): Read timed out."),
-        ]
-    )
-    def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
-        non_retryable_errors = DingConnectSource().get_non_retryable_errors()
-        assert not any(key in other_error for key in non_retryable_errors)

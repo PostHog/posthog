@@ -5,7 +5,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 
 import { captureInboxReportAction, InboxReportActionSurface } from '../../inboxAnalytics'
-import { SignalReport } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
 import { hasOpenImplementationPr } from '../../utils/reportActions'
 import { openResolveReportDialog } from '../shell/ResolveReportDialog'
 
@@ -35,6 +35,7 @@ export function useReportResolve({
         openResolveReportDialog({
             reportTitle: report.title ?? 'Untitled report',
             hasOpenPr,
+            isMonitoring: report.status === SignalReportStatus.MONITORING,
             onConfirm: async ({ reason, note }) => {
                 // pinned: `dismissal_reason` is the persisted field the reason lands in, for both
                 // verdicts, so one breakdown reads dismissals and resolves alike.

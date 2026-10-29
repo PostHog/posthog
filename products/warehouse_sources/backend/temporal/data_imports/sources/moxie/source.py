@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class MoxieSource(SimpleSource[MoxieSourceConfig]):
+    codebase_detection = detect(env=("^MOXIE_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://help.withmoxie.com/en/collections/5482062-public-api-endpoints"
 
@@ -94,7 +97,7 @@ class MoxieSource(SimpleSource[MoxieSourceConfig]):
             name=ExternalDataSourceType.MOXIE,
             category=DataWarehouseSourceCategory.CRM,
             label="Moxie",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["freelance crm", "invoicing", "time tracking"],
             caption="""Enter your Moxie workspace base URL and API key to pull your clients, projects, invoices, and more into the PostHog Data warehouse.
 

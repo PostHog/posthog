@@ -1,7 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 
 import { Stage, useReactiveTheme } from '../../story-helpers'
-import { Heatmap } from './Heatmap'
+import { Heatmap, type HeatmapCellDatum } from './Heatmap'
 
 // A latency-over-time grid: x = 5-minute buckets, y = log 1-2-5 duration buckets. The data is
 // deterministic and bimodal — a fast band (cache hits) all day plus a slow band (cache misses)
@@ -54,6 +54,31 @@ export const LatencyOverTime: Story = {
                         xAxisLabel: 'Time',
                         yAxisLabel: 'Duration',
                     }}
+                />
+            </Stage>
+        )
+    },
+}
+
+const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const HOURS = Array.from({ length: 24 }, (_, h) => `${String(h).padStart(2, '0')}:00`)
+const ACTIVITY = WEEKDAYS.map((_, day) =>
+    HOURS.map((_, hour) =>
+        Math.round(80 + 140 * Math.max(0, Math.sin(((hour - 6) / 24) * Math.PI * 2)) + (day < 5 ? 60 : 0))
+    )
+)
+
+export const ActivityByDayAndHour: Story = {
+    render: function Render() {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={720} height={260}>
+                <Heatmap
+                    xLabels={HOURS}
+                    yLabels={WEEKDAYS}
+                    cells={ACTIVITY}
+                    theme={theme}
+                    config={{ xTickFormatter: (label, i) => (i % 3 === 0 ? label : null) }}
                 />
             </Stage>
         )
@@ -118,6 +143,48 @@ export const ClickableCells: Story = {
                     config={{ xTickFormatter: (label, i) => (i % 6 === 0 ? label : null) }}
                     // eslint-disable-next-line no-console
                     onCellClick={(cell) => console.info('cell clicked', cell)}
+                />
+            </Stage>
+        )
+    },
+}
+
+// A retention grid: few, large cells whose numbers matter as much as their density.
+const COHORT_LABELS = ['Week 4', 'Week 3', 'Week 2', 'Week 1']
+const INTERVAL_LABELS = ['Day 0', 'Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6']
+const RETENTION_CELLS = COHORT_LABELS.map((_, row) =>
+    INTERVAL_LABELS.map((_, col) => Math.round(100 * Math.exp(-col / (2.5 + row)) * 10) / 10)
+)
+const percentLabel = (cell: HeatmapCellDatum): string => `${cell.value.toFixed(1)}%`
+
+export const CellLabels: Story = {
+    render: function Render() {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={720} height={280}>
+                <Heatmap
+                    xLabels={INTERVAL_LABELS}
+                    yLabels={COHORT_LABELS}
+                    cells={RETENTION_CELLS}
+                    theme={theme}
+                    config={{ colorScale: 'linear', cellLabel: percentLabel }}
+                />
+            </Stage>
+        )
+    },
+}
+
+export const CellLabelsDroppedWhenCellsAreSmall: Story = {
+    render: function Render() {
+        const theme = useReactiveTheme()
+        return (
+            <Stage width={720} height={320}>
+                <Heatmap
+                    xLabels={X_LABELS}
+                    yLabels={Y_LABELS}
+                    cells={CELLS}
+                    theme={theme}
+                    config={{ xTickFormatter: (label, i) => (i % 6 === 0 ? label : null), cellLabel: percentLabel }}
                 />
             </Stage>
         )

@@ -7,10 +7,14 @@ from urllib.parse import urljoin, urlparse
 import requests
 from dateutil import parser as date_parser
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_session,
+    retry_with_deadline,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.persona.settings import (
@@ -21,6 +25,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.persona.se
 )
 
 PERSONA_BASE_URL = "https://api.withpersona.com/api/v1"
+
+PERSONA_API_VERSION_2026_09_29 = "2026-09-29"
+
+# `Persona-Version` header per supported label. The legacy label sends none, so its requests keep
+# resolving to the API key's dashboard-configured version exactly as before versioning existed.
+PERSONA_VERSION_HEADERS: dict[str, str | None] = {
+    UNVERSIONED_API_VERSION: None,
+    PERSONA_API_VERSION_2026_09_29: PERSONA_API_VERSION_2026_09_29,
+}
 
 # Persona's default rate limit is 300 req/min; it returns 429 with a reset header on excess.
 PAGE_SIZE = 100  # Persona caps page[size] at 100 (default 10).
@@ -50,15 +63,17 @@ class PersonaResumeConfig:
     after: str | None = None
 
 
-def _get_headers(api_key: str) -> dict[str, str]:
-    # No `Persona-Version` header is sent: omitting it applies the account's dashboard-configured
-    # default API version, which is always valid. Pinning a version we can't test risks a 400 if the
-    # value predates a field or is rejected. The attributes we read (`created-at`, `id`) are stable
-    # across versions.
-    return {
+def _get_headers(api_key: str, api_version: str) -> dict[str, str]:
+    if api_version not in PERSONA_VERSION_HEADERS:
+        raise ValueError(f"Unsupported Persona API version: {api_version}")
+    headers = {
         "Authorization": f"Bearer {api_key}",
         "Accept": "application/json",
     }
+    persona_version = PERSONA_VERSION_HEADERS[api_version]
+    if persona_version is not None:
+        headers["Persona-Version"] = persona_version
+    return headers
 
 
 def _build_url(base_url: str, params: dict[str, Any]) -> str:
@@ -117,7 +132,7 @@ def _flatten_item(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def validate_credentials(api_key: str) -> int:
+def validate_credentials(api_key: str, api_version: str) -> int:
     """Probe the cheapest core list endpoint and return the HTTP status (0 on network error).
 
     Callers map the status: 200 = valid, 401 = bad key, 403 = valid key missing a scope.
@@ -129,14 +144,14 @@ def validate_credentials(api_key: str) -> int:
         # capture, following the same pattern as gusto and workday. Redirects are refused so the key
         # is only ever sent to the API host.
         response = make_tracked_session(capture=False, allow_redirects=False).get(
-            url, headers=_get_headers(api_key), timeout=10
+            url, headers=_get_headers(api_key, api_version), timeout=10
         )
         return response.status_code
     except Exception:
         return 0
 
 
-@retry(
+@retry_with_deadline(
     retry=retry_if_exception_type(
         (
             PersonaRetryableError,
@@ -254,13 +269,14 @@ def _build_params(config: PersonaEndpointConfig, watermark: Optional[datetime], 
 def get_rows(
     api_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PersonaResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[Any]:
     config = PERSONA_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key)
+    headers = _get_headers(api_key, api_version)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive. Inquiry and
     # verification bodies carry KYC PII the name-based scrubber can't reliably strip, so keep them
@@ -339,6 +355,7 @@ def get_rows(
 def persona_source(
     api_key: str,
     endpoint: str,
+    api_version: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PersonaResumeConfig],
     should_use_incremental_field: bool = False,
@@ -351,6 +368,7 @@ def persona_source(
         items=lambda: get_rows(
             api_key=api_key,
             endpoint=endpoint,
+            api_version=api_version,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,

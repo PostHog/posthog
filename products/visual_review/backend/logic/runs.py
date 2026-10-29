@@ -5,7 +5,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, F, Q
+from django.db.models import Count, F
 from django.utils import timezone
 
 import structlog
@@ -17,9 +17,20 @@ from ..classifier import SnapshotClassifier
 from ..db import WRITER_DB
 from ..facade.contracts import CreateRunInput
 from ..facade.enums import RunStatus, SnapshotResult
-from ..models import Repo, Run, RunSnapshot, ToleratedHash
+from ..models import Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
-from . import artifact_store, baselines, ci_status, errors, gating, quarantine_lifts, repos, run_queries, uploads
+from . import (
+    artifact_store,
+    baselines,
+    ci_status,
+    errors,
+    gating,
+    quarantine_lifts,
+    repos,
+    run_queries,
+    toleration,
+    uploads,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -285,16 +296,9 @@ def complete_run(run_id: UUID) -> Run:
         run.save(using=WRITER_DB, update_fields=["metadata"])
 
     # Pre-load tolerated hashes scoped to this run's identifiers and baseline hashes
-    baseline_hashes_in_use = set(baseline.values())
-    tolerated_lookup: dict[tuple[str, str, str], ToleratedHash] = {}
-    if run_identifiers and baseline_hashes_in_use:
-        now = timezone.now()
-        for t in ToleratedHash.objects.filter(
-            repo=repo,
-            identifier__in=run_identifiers,
-            baseline_hash__in=baseline_hashes_in_use,
-        ).filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now)):
-            tolerated_lookup[(t.identifier, t.baseline_hash, t.alternate_hash)] = t
+    tolerated_lookup = toleration.build_tolerated_lookup(
+        repo.id, run_identifiers, set(baseline.values()), now=timezone.now()
+    )
 
     # is_partial is client-supplied and only suppresses removed-baseline
     # detection. Never honor it on the default branch (authoritative full

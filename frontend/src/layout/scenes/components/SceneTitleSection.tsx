@@ -17,7 +17,6 @@ import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
@@ -39,6 +38,8 @@ export type ResourceType = {
     forceIcon?: JSX.Element
     /** If your resource type matches a product in fileSystemTypes and has a color defined, you can use this to override the product's icon color */
     forceIconColorOverride?: FileSystemIconColor
+    /** Set when the icon depicts this resource, not its product, so it leads the name instead of the parent breadcrumb */
+    iconLeadsName?: boolean
 }
 
 export type SceneMainTitleProps = {
@@ -108,6 +109,11 @@ export type SceneMainTitleProps = {
      * @default undefined
      */
     forceBackTo?: Breadcrumb
+    /**
+     * A plain-text crumb before the name that says where the scene sits, for example a settings level.
+     * Only the rail navigation shows it.
+     */
+    scope?: string
 
     /**
      * Additional class name for the title section
@@ -134,11 +140,7 @@ export type SceneMainTitleProps = {
 }
 
 export function SceneTitleSection(props: SceneMainTitleProps): JSX.Element | null {
-    const { zenMode } = useValues(navigation3000Logic)
     const { todayRailEnabled } = useValues(todayShellLogic)
-    if (zenMode) {
-        return null
-    }
     return todayRailEnabled ? <QuillSceneTitleSection {...props} /> : <LemonSceneTitleSection {...props} />
 }
 

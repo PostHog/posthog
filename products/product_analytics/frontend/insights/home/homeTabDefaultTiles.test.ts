@@ -1,6 +1,7 @@
 import { combineUrl } from 'kea-router'
 
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 
 import { DateRange, NodeKind } from '~/queries/schema/schema-general'
 import {
@@ -17,11 +18,15 @@ import {
     getHomeTabAudienceOptions,
     getHomeTabBreakdownOptions,
     getHomeTabChartOptions,
+    getHomeTabDashboardTemplate,
     getHomeTabExploreUrl,
     getHomeTabInterval,
+    getHomeTabStatInsightQuery,
     getHomeTabStatQueries,
     getHomeTabStatValue,
+    isHomeTabStatBucketInProgress,
 } from './homeTabDefaultTiles'
+import { homeTabStatTrendKey } from './homeTabQueryKeys'
 
 describe('homeTabDefaultTiles', () => {
     const dateRange: DateRange = { date_from: '-14d', date_to: null }
@@ -92,6 +97,32 @@ describe('homeTabDefaultTiles', () => {
         ).toMatchObject({ interval: 'day', dateRange: hourlyRange, compareFilter: { compare: true } })
     })
 
+    it.each(['-7d', '-24h'])('reuses daily user data only when the interval matches for %s', (dateFrom) => {
+        const stats = getHomeTabStatQueries({ date_from: dateFrom }, true)
+        const activeUsers = stats.find(({ key }) => key === 'active_users')!
+        const dailyActiveUsers = stats.find(({ key }) => key === 'daily_active_users')!
+        if (dateFrom === '-7d') {
+            expect(activeUsers.trendQuery).toBe(dailyActiveUsers.query)
+            expect(homeTabStatTrendKey(2, activeUsers)).toBe(homeTabStatTrendKey(2, dailyActiveUsers))
+        } else {
+            expect(activeUsers.trendQuery?.interval).toBe('hour')
+            expect(activeUsers.trendQuery?.compareFilter?.compare).toBe(false)
+            expect(homeTabStatTrendKey(2, activeUsers)).not.toBe(homeTabStatTrendKey(2, dailyActiveUsers))
+        }
+        expect(activeUsers.query.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
+    })
+
+    it.each([
+        [0, 'UTC', '2026-06-28T12:00:00Z', '2026-06-28', true],
+        [1, 'UTC', '2026-06-28T12:00:00Z', '2026-06-22', true],
+        [0, 'UTC', '2026-06-29T12:00:00Z', '2026-06-21', false],
+        [0, 'America/Los_Angeles', '2026-06-29T01:00:00Z', '2026-06-28', true],
+        [1, 'America/Los_Angeles', '2026-06-29T01:00:00Z', '2026-06-22', true],
+    ])('detects incomplete weeks with week start %s in %s at %s', (weekStartDay, timezone, now, lastDay, expected) => {
+        const result = { days: ['2026-06-14', lastDay] } as TrendResult
+        expect(isHomeTabStatBucketInProgress(result, 'week', timezone, weekStartDay, dayjs(now))).toBe(expected)
+    })
+
     it('applies the selected range and comparison to stats and charts, including retention', () => {
         const stats = getHomeTabStatQueries(dateRange, false)
         const charts = getHomeTabChartOptions(dateRange, false)
@@ -99,6 +130,14 @@ describe('homeTabDefaultTiles', () => {
         for (const stat of stats) {
             expect(stat.query.dateRange).toEqual(dateRange)
             expect(stat.query.compareFilter?.compare).toBe(false)
+            if (stat.trendQuery) {
+                expect(stat.query.trendsFilter?.display).toBe(ChartDisplayType.BoldNumber)
+                expect(stat.trendQuery.dateRange).toEqual(dateRange)
+                expect(stat.trendQuery.interval).toBe(stat.query.interval)
+                expect(stat.trendQuery.series).toEqual(stat.query.series)
+                expect(stat.trendQuery.compareFilter?.compare).toBe(false)
+                expect(stat.trendQuery.trendsFilter?.display).not.toBe(ChartDisplayType.BoldNumber)
+            }
         }
 
         for (const chart of charts) {
@@ -248,5 +287,74 @@ describe('homeTabDefaultTiles', () => {
         expect(editorQuery.embedded).toBeUndefined()
         expect(editorQuery.source).toEqual(JSON.parse(JSON.stringify(chart!.query.source)))
         expect(editorQuery.source.dateRange).toEqual(dateRange)
+    })
+
+    it.each([
+        ['sessions', { display: ChartDisplayType.BoldNumber }],
+        ['daily_active_users', { display: ChartDisplayType.Metric, metricSummary: 'average' }],
+    ])('opens the %s tile as an insight that shows the same number', (key, trendsFilter) => {
+        const stat = getHomeTabStatQueries(dateRange, true).find((stat) => stat.key === key)!
+
+        expect(getHomeTabStatInsightQuery(stat)).toMatchObject({
+            kind: NodeKind.InsightVizNode,
+            source: { dateRange, compareFilter: { compare: true }, trendsFilter },
+        })
+    })
+
+    it('copies Home into a dashboard template with saved queries and a non-overlapping layout', () => {
+        const { tiles } = getHomeTabDashboardTemplate()
+
+        expect(tiles.map((tile) => tile.type === 'INSIGHT' && tile.name)).toEqual([
+            'Weekly active users',
+            'Sessions',
+            'First-time users',
+            'Avg. session duration',
+            'Daily active users',
+            'Top pages',
+            'Top screens',
+            'Top events',
+            'New user retention',
+            'Active users by country',
+            'Sessions by device',
+        ])
+        const cells = new Set<string>()
+        for (const tile of tiles) {
+            expect(tile.type === 'INSIGHT' && tile.query).toMatchObject({ kind: NodeKind.InsightVizNode })
+            expect(tile.type === 'INSIGHT' && tile.query).not.toHaveProperty('embedded')
+            const { x, y, w, h } = tile.layouts!.sm!
+            expect(x + w).toBeLessThanOrEqual(12)
+            for (let column = x; column < x + w; column++) {
+                for (let row = y; row < y + h; row++) {
+                    expect(cells.has(`${column},${row}`)).toBe(false)
+                    cells.add(`${column},${row}`)
+                }
+            }
+        }
+        expect(tiles.slice(0, 4).map((tile) => tile.layouts!.sm)).toMatchObject([
+            { x: 0, y: 0, w: 3 },
+            { x: 3, y: 0, w: 3 },
+            { x: 6, y: 0, w: 3 },
+            { x: 9, y: 0, w: 3 },
+        ])
+        expect(tiles.slice(0, 4).map((tile) => tile.type === 'INSIGHT' && tile.query)).toMatchObject([
+            {
+                source: {
+                    series: [{ math: BaseMathType.WeeklyActiveUsers }],
+                    interval: 'day',
+                    trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'latest' },
+                },
+            },
+            { source: { trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'total' } } },
+            { source: { trendsFilter: { display: ChartDisplayType.Metric, metricSummary: 'total' } } },
+            {
+                source: {
+                    trendsFilter: {
+                        display: ChartDisplayType.Metric,
+                        metricSummary: 'average',
+                        aggregationAxisFormat: 'duration',
+                    },
+                },
+            },
+        ])
     })
 })

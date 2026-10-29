@@ -3,6 +3,7 @@ from typing import Optional, cast
 import requests
 import structlog
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -88,6 +89,64 @@ _PAYMENTS_ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 @SourceRegistry.register
 class CheckoutComSource(ResumableSource[CheckoutComSourceConfig, CheckoutComResumeConfig]):
+    # Checkout.com's own convention is the CKO_ prefix.
+    codebase_detection = detect(
+        env=("^CKO_", "^CHECKOUT_COM_"),
+        script_hosts=("cdn.checkout.com", "checkout-web-components.checkout.com"),
+        npm=("checkout-sdk-node", "@checkout.com/checkout-web-components", "frames-react"),
+        pypi=("checkout-sdk",),
+        composer=("checkout/checkout-sdk-php", "checkout/checkout-php-api", "checkout/checkout-sdk-php-beta"),
+        go=("github.com/checkout/checkout-sdk-go",),
+        maven=(
+            "com.checkout:checkout-sdk-java",
+            "com.checkout:checkout-android-components",
+            "com.checkout:checkout-android-components-address",
+            "com.checkout:checkout-android-components-card",
+            "com.checkout:checkout-android-components-card-cvv",
+            "com.checkout:checkout-android-components-core",
+            "com.checkout:checkout-android-components-insight",
+            "com.checkout:checkout-android-components-interfaces",
+            "com.checkout:checkout-android-components-kmp-rememberme",
+            "com.checkout:checkout-android-components-merchant-stored-cards",
+            "com.checkout:checkout-android-components-payment-methods-core",
+            "com.checkout:checkout-android-components-payment-methods-klarna",
+            "com.checkout:checkout-android-components-payment-methods-redirect",
+            "com.checkout:checkout-android-components-reactnative",
+            "com.checkout:checkout-android-components-reactnative-address",
+            "com.checkout:checkout-android-components-reactnative-card",
+            "com.checkout:checkout-android-components-reactnative-card-cvv",
+            "com.checkout:checkout-android-components-reactnative-core",
+            "com.checkout:checkout-android-components-reactnative-insight",
+            "com.checkout:checkout-android-components-reactnative-interfaces",
+            "com.checkout:checkout-android-components-reactnative-merchant-stored-cards",
+            "com.checkout:checkout-android-components-reactnative-payment-methods-core",
+            "com.checkout:checkout-android-components-reactnative-payment-methods-klarna",
+            "com.checkout:checkout-android-components-reactnative-payment-methods-redirect",
+            "com.checkout:checkout-android-components-reactnative-redirect-handler",
+            "com.checkout:checkout-android-components-reactnative-rememberme",
+            "com.checkout:checkout-android-components-reactnative-ui",
+            "com.checkout:checkout-android-components-reactnative-wallet",
+            "com.checkout:checkout-android-components-redirect-handler",
+            "com.checkout:checkout-android-components-rememberme",
+            "com.checkout:checkout-android-components-ui",
+            "com.checkout:checkout-android-components-wallet",
+            "com.checkout:checkout-sdk-3ds-android",
+            "com.checkout:checkout-sdk-card-management-android",
+            "com.checkout:checkout-sdk-card-network-android",
+            "com.checkout:checkout-sdk-crash",
+            "com.checkout:checkout-sdk-event-logger-android",
+            "com.checkout:checkout-sdk-oob-android",
+        ),
+        rubygems=("checkout_sdk",),
+        swiftpm=(
+            "github.com/checkout/checkout-3ds-sdk-ios",
+            "github.com/checkout/checkout-event-logger-ios-framework",
+            "github.com/checkout/checkout-ios-components",
+            "github.com/checkout/checkout-risk-sdk-ios",
+            "github.com/checkout/checkoutcardmanagement-ios",
+        ),
+    )
+
     # The catalog listed without credentials is the static part (disputes + reports);
     # the per-report-type tables need credentials to discover, so `get_schemas` only
     # reaches the API when the config carries real keys.
@@ -189,7 +248,7 @@ Create an access key in the [Checkout.com dashboard](https://dashboard.checkout.
 Payments, payment actions, financial actions, customers and instruments sync from the payments search API. It reaches back 90 days by default. Set a start date to sync more history. Financial reporting data (financial actions, payouts, balances) syncs from your generated report files: each report type available for your account becomes a table. If no report tables show up, set up scheduled reports in your Checkout.com dashboard first.""",
             iconPath="/static/services/checkout_com.png",
             docsUrl="https://posthog.com/docs/cdp/sources/checkout-com",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [
@@ -221,6 +280,7 @@ Payments, payment actions, financial actions, customers and instruments sync fro
                     ),
                     SourceFieldInputConfig(
                         name="start_date",
+                        sync_setting=True,
                         label="Start date",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,

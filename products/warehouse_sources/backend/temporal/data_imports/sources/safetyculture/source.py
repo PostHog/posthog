@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SafetyCultureSource(ResumableSource[SafetyCultureSourceConfig, SafetyCultureResumeConfig]):
+    codebase_detection = detect(env=("^(SAFETY_CULTURE|SAFETYCULTURE)_",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://developer.safetyculture.com/"
 
@@ -49,7 +52,7 @@ class SafetyCultureSource(ResumableSource[SafetyCultureSourceConfig, SafetyCultu
             name=ExternalDataSourceType.SAFETYCULTURE,
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             label="SafetyCulture",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your SafetyCulture API token to pull your inspections, actions, issues, assets, and workplace-operations data into the PostHog Data warehouse.
 
 You can generate an API token under **Account settings → Integrations → Manage API tokens** in [SafetyCulture](https://app.safetyculture.com) (requires a Premium or Enterprise plan). Tokens expire after 30 days of inactivity, so SafetyCulture recommends a [service user](https://help.safetyculture.com/en-US/1064186-service-users) token with the **Data Access** permission for long-term integrations.

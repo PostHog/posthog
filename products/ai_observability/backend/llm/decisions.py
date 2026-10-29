@@ -13,8 +13,6 @@ from posthog.llm.system_one import (
     build_system_one_body,
     parse_system_one_response,
 )
-from posthog.models import Team
-from posthog.ph_client import get_feature_flag_or_none
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import UNRESOLVED_HOST_REASON, has_authority_bypass_chars, validate_url_and_pin_ips
 
@@ -35,38 +33,27 @@ from products.ai_observability.backend.llm.errors import (
     is_context_window_error_message,
 )
 from products.ai_observability.backend.llm.providers._diagnostics import tagged_http_client
+from products.ai_observability.backend.llm.providers.openai import OpenAIConfig
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_HEADERS, decision_model_ids
 
 
-def is_decision_model(provider: str | None, model: str | None, *, openrouter_enabled: bool) -> bool:
+def is_decision_model(
+    provider: str | None,
+    model: str | None,
+    *,
+    decision_only: bool = False,
+    openai_enabled: bool = False,
+) -> bool:
     if provider == "system_one":
         return True
-    # Disabled projects keep the chat path independent of catalogue availability.
-    if provider != "openrouter" or not model or not openrouter_enabled:
+    if provider == "openai":
+        return openai_enabled and model in OpenAIConfig.DECISION_MODELS
+    if provider != "openrouter" or not model:
         return False
-    models = decision_model_ids()
+    models = decision_model_ids(decision_only=decision_only)
     if models is None:
         raise ProviderConnectionError("Could not load OpenRouter model capabilities. Try again.")
     return model in models
-
-
-def decision_evaluations_enabled(team_id: int, *, base_url: str) -> bool:
-    try:
-        host = (urlsplit(base_url).hostname or "").encode("idna").decode("ascii").lower().rstrip(".")
-    except (ValueError, UnicodeError):
-        return False
-    if not host or host == "typesafe.ai" or host.endswith(".typesafe.ai"):
-        return False
-    team = Team.objects.only("uuid", "organization_id").get(id=team_id)
-    return (
-        get_feature_flag_or_none(
-            "llm-analytics-system-one-evaluations",
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.uuid)},
-            send_feature_flag_events=False,
-        )
-        is True
-    )
 
 
 class DecisionRequestRejectedError(ProviderRequestRejectedError):
@@ -78,8 +65,10 @@ class DecisionEndpointBlockedError(LLMError):
 
 
 class DecisionRateLimitError(RetryableRateLimitError):
-    def __init__(self, retry_after: str | None) -> None:
-        super().__init__("The decision endpoint is temporarily unavailable. Try again later.", retry_after)
+    def __init__(self, retry_after: str | None, *, status: int) -> None:
+        super().__init__(
+            "The decision endpoint is temporarily unavailable. Try again later.", retry_after, status=status
+        )
 
 
 class DecisionClient:
@@ -97,11 +86,9 @@ class DecisionClient:
         ):
             raise ValueError("Use an HTTPS base URL without credentials, a query, or a fragment.")
         try:
-            host = parsed.hostname.encode("idna").decode("ascii").lower().rstrip(".")
+            parsed.hostname.encode("idna")
         except UnicodeError as error:
             raise ValueError("Use a valid HTTPS hostname.") from error
-        if host == "typesafe.ai" or host.endswith(".typesafe.ai"):
-            raise ValueError("This hosted endpoint is not available for evaluations.")
         return base_url.rstrip("/")
 
     @staticmethod
@@ -122,7 +109,7 @@ class DecisionClient:
         try:
             verdict = validate_url_and_pin_ips(base_url)
             if not verdict.allowed:
-                if path == "decisions" and verdict.reason == UNRESOLVED_HOST_REASON:
+                if verdict.reason == UNRESOLVED_HOST_REASON:
                     raise ProviderHostUnresolvedError()
                 raise SSRFBlockedError(verdict.reason)
             headers = dict(OPENROUTER_HEADERS) if path == "decisions" else {}
@@ -163,7 +150,7 @@ class DecisionClient:
         if status == 404:
             raise ModelNotFoundError(model)
         if status in (408, 429, 503, 529):
-            raise DecisionRateLimitError(response.headers.get("Retry-After"))
+            raise DecisionRateLimitError(response.headers.get("Retry-After"), status=status)
         if status >= 500:
             raise ProviderConnectionError("The decision endpoint is temporarily unavailable. Try again.")
         if 300 <= status < 400:

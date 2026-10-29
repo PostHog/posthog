@@ -1,6 +1,7 @@
 from datetime import date
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -45,6 +46,13 @@ FOLLOW_UPS_V2_REMOVED_MESSAGE = "incident.io removed the follow-ups endpoint tha
 
 @SourceRegistry.register
 class IncidentIoSource(ResumableSource[IncidentIoSourceConfig, IncidentIoResumeConfig]):
+    codebase_detection = detect(
+        env=("^INCIDENT_IO_", "^INCIDENTIO_", "^INCIDENT_API_KEY$"),
+        npm=("@incident-io/sdk",),
+        pypi=("incident-io",),
+        go=("github.com/incident-io/sdk-go",),
+    )
+
     api_docs_url = "https://api-docs.incident.io"
     supported_versions = INCIDENT_IO_SUPPORTED_VERSIONS
     default_version = INCIDENT_IO_DEFAULT_API_VERSION

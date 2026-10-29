@@ -574,17 +574,30 @@ def _select_alias_conflict(select: ast.SelectQuery, vars_in_context: list[Materi
     return None
 
 
-def _context_select(
-    ast_node: ast.SelectQuery | ast.SelectSetQuery, cte_name: Optional[str]
-) -> Optional[ast.SelectQuery]:
-    """The SELECT a variable's columns get added to — the CTE body for CTE-bound variables,
-    else the top-level query — mirroring the contexts the transformer visits."""
-    if cte_name is None:
-        return ast_node if isinstance(ast_node, ast.SelectQuery) else None
-    if isinstance(ast_node, ast.SelectQuery) and ast_node.ctes and cte_name in ast_node.ctes:
-        body = ast_node.ctes[cte_name].expr
-        return body if isinstance(body, ast.SelectQuery) else None
-    return None
+class _AliasConflictFinder(TraversingVisitor):
+    def __init__(self, contexts: dict[Optional[str], list[MaterializableVariable]]) -> None:
+        super().__init__()
+        self._contexts = contexts
+        self._current_cte_name: Optional[str] = None
+        self.conflict: Optional[str] = None
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        for cte_name, cte in (node.ctes or {}).items():
+            prev_cte = self._current_cte_name
+            self._current_cte_name = cte_name
+            self.visit(cte.expr)
+            self._current_cte_name = prev_cte
+
+        original_ctes = node.ctes
+        node.ctes = None
+        try:
+            super().visit_select_query(node)
+        finally:
+            node.ctes = original_ctes
+
+        vars_in_context = self._contexts.get(self._current_cte_name)
+        if self.conflict is None and vars_in_context:
+            self.conflict = _select_alias_conflict(node, vars_in_context)
 
 
 def _find_alias_conflict(
@@ -601,11 +614,9 @@ def _find_alias_conflict(
     contexts: dict[Optional[str], list[MaterializableVariable]] = {}
     for var in result_vars:
         contexts.setdefault(var.cte_name, []).append(var)
-    for cte_name, vars_in_context in contexts.items():
-        select = _context_select(ast_node, cte_name)
-        if select is not None and (conflict := _select_alias_conflict(select, vars_in_context)) is not None:
-            return _alias_conflict_reason(conflict)
-    return None
+    finder = _AliasConflictFinder(contexts)
+    finder.visit(ast_node)
+    return _alias_conflict_reason(finder.conflict) if finder.conflict is not None else None
 
 
 def _has_joins(node: ast.SelectQuery) -> bool:
@@ -1292,28 +1303,51 @@ class MaterializedColumn:
     name: str  # the column name the endpoint declares, which a materialized read must keep
     reaggregate_fn: Optional[str] = None  # e.g. "sum" for count/sum, "min" for min, etc.
 
+    @property
+    def labeled_expr(self) -> ast.Expr:
+        if isinstance(self.expr, ast.Field) and self.expr.chain == [self.name]:
+            return self.expr
+        return ast.Alias(alias=self.name, expr=self.expr)
 
-def transform_select_for_materialized_table(select_exprs: list[ast.Expr], team: Team) -> list[MaterializedColumn]:
+
+def _declared_name(expr: ast.Expr) -> str:
+    return expr.alias if isinstance(expr, ast.Alias) else expr.to_hogql()
+
+
+def transform_select_for_materialized_table(
+    select_exprs: list[ast.Expr], output_names: list[str]
+) -> list[MaterializedColumn]:
     """
     Transform SELECT expressions to reference pre-computed columns in materialized table.
 
+    `output_names` are the names the materialized table stores, in SELECT order. When their
+    count does not match `select_exprs`, each column falls back to its alias or HogQL text.
+
     Returns list of MaterializedColumn with re-aggregation metadata.
 
-    Examples, given the name each expression contributes to the materialized table:
-    - count() -> name "count()", is_aggregate=True, reaggregate_fn="sum"
-    - count() as total -> name "total", is_aggregate=True, reaggregate_fn="sum"
-    - toStartOfDay(timestamp) as date -> name "date", is_aggregate=False
+    Examples, given the stored column each expression reads and the name it declares:
+    - count() -> reads "count()", name "count()", is_aggregate=True, reaggregate_fn="sum"
+    - count() as total -> reads "total", name "total", is_aggregate=True, reaggregate_fn="sum"
+    - toStartOfDay(timestamp) as date -> reads "date", name "date", is_aggregate=False
+    - toStartOfDay(timestamp) -> reads "toStartOfDay(toTimeZone(timestamp, 'UTC'))", name "toStartOfDay(timestamp)"
+    - e.event -> reads "event", name "event", is_aggregate=False
+    - properties.foo.bar -> reads "foo__bar", name "foo__bar", is_aggregate=False
     """
+    stored_names = (
+        output_names if len(output_names) == len(select_exprs) else [_declared_name(expr) for expr in select_exprs]
+    )
     result: list[MaterializedColumn] = []
-    for expr in select_exprs:
+    for expr, stored_name in zip(select_exprs, stored_names):
         agg_name = _extract_aggregate_name(expr)
         is_agg = agg_name is not None
         reagg = get_reaggregation(agg_name) if agg_name else None
         reaggregate_fn = reagg.reaggregate_fn if reagg else None
-        name = expr.alias if isinstance(expr, ast.Alias) else expr.to_hogql()
         result.append(
             MaterializedColumn(
-                expr=ast.Field(chain=[name]), is_aggregate=is_agg, name=name, reaggregate_fn=reaggregate_fn
+                expr=ast.Field(chain=[stored_name]),
+                is_aggregate=is_agg,
+                name=stored_name if isinstance(expr, ast.Field) else _declared_name(expr),
+                reaggregate_fn=reaggregate_fn,
             )
         )
 

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -34,6 +35,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResumeConfig]):
+    codebase_detection = detect(env=("^(CDC_OPEN_DATA|CDCOPENDATA)_",))
+
     api_docs_url = "https://dev.socrata.com/consumers/getting-started.html"
     supported_versions = (SODA2_API_VERSION, SODA3_API_VERSION)
     default_version = SODA3_API_VERSION
@@ -137,7 +140,7 @@ class CdcOpenDataSource(ResumableSource[CdcOpenDataSourceConfig, CdcOpenDataResu
             name=ExternalDataSourceType.CDCOPENDATA,
             category=DataWarehouseSourceCategory.ANALYTICS,
             label="CDC Open Data (data.cdc.gov)",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["cdc", "public health", "socrata", "covid"],
             caption="""Sync one or more datasets from [data.cdc.gov](https://data.cdc.gov) into the PostHog Data warehouse.
 
@@ -152,6 +155,7 @@ You need a free [Socrata app token](https://support.socrata.com/hc/en-us/article
                 [
                     SourceFieldInputConfig(
                         name="dataset_ids",
+                        sync_setting=True,
                         label="Dataset IDs",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

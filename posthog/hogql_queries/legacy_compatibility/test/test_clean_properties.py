@@ -1,9 +1,9 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 
 
-class TestCleanGlobalProperties(BaseTest):
+class TestCleanGlobalProperties(SimpleTestCase):
     def test_handles_empty_properties(self):
         properties: dict = {}
 
@@ -116,7 +116,7 @@ class TestCleanGlobalProperties(BaseTest):
         )
 
 
-class TestCleanEntityProperties(BaseTest):
+class TestCleanEntityProperties(SimpleTestCase):
     def test_handles_empty_properties(self):
         properties: dict = {}
 

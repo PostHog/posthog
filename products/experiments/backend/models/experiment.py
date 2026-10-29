@@ -168,6 +168,14 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
                 name="posthog_experiment_feature_flag_rule_id_uniq",
             )
         ]
+        indexes = [
+            # The hourly recalculation scans select running experiments across all teams.
+            models.Index(
+                fields=["start_date"],
+                name="posthog_exp_running_start_idx",
+                condition=models.Q(deleted=False, status="running"),
+            ),
+        ]
 
     def __str__(self):
         return self.name or "Untitled"
@@ -538,6 +546,8 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         MANUAL = "manual", "Manual"
         AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
+        # The frontend refreshes a running experiment on page load when its latest results are older than its
+        # staleness threshold. Advances the window to now, so every metric recomputes.
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         # Deprecated: feature no longer available.
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"
@@ -570,13 +580,13 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         """The subset of Trigger a client may send on POST. Each value must also exist on Trigger.
 
         The rest are set server side: agent_mcp by the view from the client header, timeseries_sync and
-        scheduled by their workflows. stale_refresh, auto_refresh and the deprecated values have no
-        sender.
+        scheduled by their workflows. auto_refresh and the deprecated values have no sender.
         """
 
         MANUAL = "manual", "Manual"
         MANUAL_RETRY = "manual_retry", "Manual Retry"
         COLD_RUN = "cold_run", "Cold Run"
+        STALE_REFRESH = "stale_refresh", "Stale Refresh"
         HEAL_LATEST_RUN = "heal_latest_run", "Heal Latest Run"
         EXPERIMENT_CONFIG_CHANGE = "experiment_config_change", "Experiment Config Change"
         METRIC_CONFIG_CHANGE = "metric_config_change", "Metric Config Change"

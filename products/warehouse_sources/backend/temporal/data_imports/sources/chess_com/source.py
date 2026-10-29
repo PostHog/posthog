@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -38,6 +39,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class ChessComSource(SimpleSource[ChessComSourceConfig]):
+    codebase_detection = detect(env=("^(CHESS_COM|CHESSCOM)_",), npm=("chess-web-api",), pypi=("chess-com",))
+
     api_docs_url = "https://www.chess.com/news/view/published-data-api"
 
     lists_tables_without_credentials = True
@@ -53,7 +56,7 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
             category=DataWarehouseSourceCategory.PRODUCTIVITY,
             keywords=["chess", "games", "gaming"],
             label="Chess.com",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             caption=(
                 "Sync the games and ratings of a list of Chess.com players.\n\n"
                 "Chess.com publishes this data without a key. "
@@ -67,6 +70,7 @@ class ChessComSource(SimpleSource[ChessComSourceConfig]):
                 [
                     SourceFieldInputConfig(
                         name="usernames",
+                        sync_setting=True,
                         label="Chess.com usernames",
                         type=SourceFieldInputConfigType.TEXTAREA,
                         required=True,

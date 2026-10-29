@@ -53,11 +53,7 @@ export function AdoptSkillModal(): JSX.Element {
             // and fires a success toast naming the wrong source.
             closable={!adoptingSkill}
             title={`Use an existing skill as your ${kindLabel}`}
-            description={
-                adoptSource
-                    ? undefined
-                    : 'Pick a skill from your team. A copy of it becomes a review skill; the original stays untouched.'
-            }
+            description={adoptSource ? undefined : 'A copy becomes your review skill. The original stays unchanged.'}
             width={720}
             data-attr="review-hog-adopt-skill-modal"
             footer={
@@ -89,7 +85,7 @@ export function AdoptSkillModal(): JSX.Element {
                 <div className="flex flex-col gap-4">
                     <p className="m-0 text-sm text-secondary">
                         This copies <span className="font-semibold">{adoptSource.name}</span> into a new {kindLabel}{' '}
-                        skill and switches it on for your PR reviews. Edits to the original won't change the copy.
+                        skill and switches it on. Later edits to the original do not change the copy.
                     </p>
                     {replacedSkillName && (
                         <LemonBanner type="info">
@@ -115,7 +111,7 @@ export function AdoptSkillModal(): JSX.Element {
                 <SkillPicker
                     groups={adoptSkillGroups}
                     loading={adoptableSkillsLoading}
-                    emptyMessage='Your team has no other skills to use yet. "Create your own" makes one with an agent.'
+                    emptyMessage='Your team has no other skills to use yet. "New skill" makes one with an agent.'
                     selectLabel="Use this skill"
                     onSelect={(skill) => chooseAdoptSource({ name: skill.name, description: skill.description })}
                     // Resolve returns the whole body; the plain name endpoint caps it at 8000 chars,

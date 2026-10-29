@@ -19,7 +19,7 @@ import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import { common, createLowlight } from 'lowlight'
 import posthog from 'posthog-js'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 
 import { IconCode, IconCopy, IconImage, IconList, IconTerminal } from '@posthog/icons'
 
@@ -157,6 +157,8 @@ export type SupportEditorProps = {
     onUploadingChange?: (uploading: boolean) => void
     disabled?: boolean
     minRows?: number
+    /** Past this, the text scrolls so the toolbar and send bar stay on screen. */
+    maxRows?: number
     className?: string
     autoFocus?: boolean
     /** Rendered inside the editor's frame, above the text */
@@ -479,6 +481,7 @@ export function SupportEditor({
     onUploadingChange,
     disabled = false,
     minRows,
+    maxRows = 12,
     className,
     autoFocus = false,
     header,
@@ -628,9 +631,14 @@ export function SupportEditor({
             {header}
             <EditorContent
                 editor={editor}
-                className="SupportEditor__content p-2"
+                className={cn('SupportEditor__content p-2', maxRows && 'SupportEditor__content--scroll')}
                 autoFocus={autoFocus}
-                style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
+                style={
+                    {
+                        ...(minRows ? { minHeight: `${minRows * 1.5}em` } : {}),
+                        ...(maxRows ? { '--support-editor-max-height': `${maxRows * 1.5}em` } : {}),
+                    } as CSSProperties
+                }
             />
             <div className="flex justify-between p-0.5">
                 <div className="flex items-center">

@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from products.web_analytics.backend.path_cleaning_suggestions import service
@@ -21,7 +23,7 @@ SAMPLE_PATHS = [
 ]
 
 
-class TestValidateAndAnnotateRules(BaseTest):
+class TestValidateAndAnnotateRules(SimpleTestCase):
     def test_keeps_valid_rule_with_dense_order_and_annotations(self) -> None:
         rules = [SuggestedRule(regex=r"/users/\d+/profile", alias="/users/<id>/profile", reason="user id")]
         annotated = validate_and_annotate_rules(rules, SAMPLE_PATHS)
@@ -56,7 +58,7 @@ class TestValidateAndAnnotateRules(BaseTest):
         self.assertEqual(annotated[0].order, 0)
 
 
-class TestExtractJson(BaseTest):
+class TestExtractJson(SimpleTestCase):
     @parameterized.expand(
         [
             ("plain", '{"rules": []}'),

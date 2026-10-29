@@ -14,6 +14,10 @@ class SQLiteSource(SimpleSource[SQLiteSourceConfig]):
         return ExternalDataSourceType.SQLITE
 
     @property
+    def credential_kind(self) -> str | None:
+        return "sqlite"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.SQLITE,

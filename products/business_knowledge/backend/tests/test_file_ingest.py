@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status as http_status
 
-from products.business_knowledge.backend.constants import MAX_FILE_SIZE_BYTES
+from products.business_knowledge.backend.constants import CHUNK_HARD_MAX_CHARS, MAX_FILE_SIZE_BYTES, MAX_TEXT_SIZE_BYTES
 from products.business_knowledge.backend.file_parse import (
     EncryptedPDFError,
     FileParseError,
@@ -19,6 +19,7 @@ from products.business_knowledge.backend.file_parse import (
     parse_file,
     sanitize_filename,
 )
+from products.business_knowledge.backend.logic import create_file_source
 from products.business_knowledge.backend.models import KnowledgeChunk, KnowledgeDocument, KnowledgeSource
 
 # ---------------------------------------------------------------------------
@@ -364,6 +365,42 @@ class TestFileSourceAPIIntegration(APIBaseTest):
         assert response.status_code == http_status.HTTP_201_CREATED
         body = response.json()
         assert body["file_content_type"] == "text/markdown"
+
+    def test_upload_markdown_above_pasted_text_cap(self, _ff: MagicMock) -> None:
+        uploaded = io.BytesIO(b"a" * (MAX_TEXT_SIZE_BYTES + 1))
+        uploaded.name = "handbook.md"
+        response = self.client.post(
+            self.url,
+            {"name": "Handbook", "file": uploaded, "source_type": "file"},
+            format="multipart",
+        )
+        assert response.status_code == http_status.HTTP_201_CREATED, response.content
+
+    def test_long_markdown_inserts_past_the_postgres_parameter_limit(self, _ff: MagicMock) -> None:
+        # One unbatched INSERT binds every column of every row. Postgres rejects
+        # more than 65535 parameters. No-space text is one chunk per hard max.
+        source = create_file_source(
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Long handbook",
+            file_data=b"a" * (CHUNK_HARD_MAX_CHARS * 7_000),
+            original_filename="handbook.md",
+        )
+        assert KnowledgeChunk.objects.unscoped().filter(source_id=source.id).count() > 6_000
+
+    def test_parsed_text_over_cap_names_the_real_limit(self, _ff: MagicMock) -> None:
+        with patch("products.business_knowledge.backend.logic.MAX_PARSED_FILE_TEXT_BYTES", 100):
+            uploaded = io.BytesIO(b"a" * 200)
+            uploaded.name = "notes.md"
+            response = self.client.post(
+                self.url,
+                {"name": "Notes", "file": uploaded, "source_type": "file"},
+                format="multipart",
+            )
+        assert response.status_code == http_status.HTTP_400_BAD_REQUEST
+        body = response.content.decode()
+        assert "0 MB" not in body
+        assert "100 bytes" in body
 
     def test_upload_docx_file(self, _ff: MagicMock) -> None:
         data = _make_minimal_docx("DOCX test content")

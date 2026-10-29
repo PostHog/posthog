@@ -95,7 +95,178 @@ def run_source(
     return [row for batch in cast(Iterable[Any], source.items()) for row in batch]
 
 
-@pytest.mark.parametrize("name", list(ENDPOINTS))
+FAN_OUT_ENDPOINTS = [name for name, endpoint in ENDPOINTS.items() if endpoint.fan_out]
+RECOMMENDED_OPTIONS = ("COMPUTE_SP", "ONE_YEAR", "NO_UPFRONT", "THIRTY_DAYS")
+
+
+def operation(request: RecordedRequest) -> str:
+    return request.headers.get("x-amz-target", request.path).rsplit(".", 1)[-1].lstrip("/")
+
+
+def assert_matches_service_model(request: RecordedRequest) -> None:
+    service = "ce" if "x-amz-target" in request.headers else "savingsplans"
+    input_shape = get_session().get_service_model(service).operation_model(operation(request)).input_shape
+    assert input_shape is not None
+    assert set(input_shape.required_members) <= set(request.json()) <= set(input_shape.members)
+
+
+def fan_out_answer(request: RecordedRequest) -> ScriptedResponse:
+    payload = request.json()
+    match operation(request):
+        case "DescribeSavingsPlans":
+            return ScriptedResponse(json={"savingsPlans": [{"savingsPlanId": "plan-b"}, {"savingsPlanId": "plan-a"}]})
+        case "DescribeSavingsPlanRates":
+            rate = {"rate": "0.05", "usageType": "USE1-BoxUsage:c5.large", "operation": "RunInstances"}
+            if "nextToken" in payload:
+                return ScriptedResponse(json={"searchResults": [{**rate, "usageType": "USE1-Fargate-vCPU-Hours"}]})
+            return ScriptedResponse(json={"searchResults": [rate], "nextToken": "page-2"})
+        case "GetSavingsPlansPurchaseRecommendation":
+            options = tuple(
+                payload[key] for key in ("SavingsPlansType", "TermInYears", "PaymentOption", "LookbackPeriodInDays")
+            )
+            if options != RECOMMENDED_OPTIONS:
+                return ScriptedResponse(json={"Metadata": {"RecommendationId": "empty"}})
+            detail_id = "detail-2" if "NextPageToken" in payload else "detail-1"
+            return ScriptedResponse(
+                json={
+                    "Metadata": {"RecommendationId": "rec", "GenerationTimestamp": "2025-01-11T00:00:00Z"},
+                    "SavingsPlansPurchaseRecommendation": {
+                        "SavingsPlansType": options[0],
+                        "LookbackPeriodInDays": options[3],
+                        "SavingsPlansPurchaseRecommendationSummary": {"EstimatedROI": "1"},
+                        "SavingsPlansPurchaseRecommendationDetails": [
+                            {
+                                "RecommendationDetailId": detail_id,
+                                "SavingsPlansDetails": {"Region": "us-east-1", "OfferingId": "offering"},
+                                "AccountId": "001234567890",
+                                "EstimatedROI": "12.5",
+                                "UpfrontCost": "",
+                            }
+                        ],
+                    },
+                    **({} if "NextPageToken" in payload else {"NextPageToken": "page-2"}),
+                }
+            )
+        case "GetSavingsPlanPurchaseRecommendationDetails":
+            return ScriptedResponse(
+                json={
+                    "RecommendationDetailId": payload["RecommendationDetailId"],
+                    "RecommendationDetailData": {
+                        "CurrentAverageCoverage": "40.5",
+                        "LatestUsageTimestamp": "2025-01-10T23:00:00Z",
+                        "MetricsOverLookbackPeriod": [{"StartTime": "2025-01-10T00:00:00Z", "CurrentCoverage": "40"}],
+                    },
+                }
+            )
+    raise AssertionError(f"unexpected request {request.path}")
+
+
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        (
+            "savings_plan_rates",
+            [
+                ("plan-a", "USE1-BoxUsage:c5.large", Decimal("0.05")),
+                ("plan-a", "USE1-Fargate-vCPU-Hours", Decimal("0.05")),
+                ("plan-b", "USE1-BoxUsage:c5.large", Decimal("0.05")),
+                ("plan-b", "USE1-Fargate-vCPU-Hours", Decimal("0.05")),
+            ],
+        ),
+        (
+            "purchase_recommendations",
+            [
+                ("detail-1", "COMPUTE_SP", "us-east-1", "001234567890", Decimal("12.5"), None, "rec"),
+                ("detail-2", "COMPUTE_SP", "us-east-1", "001234567890", Decimal("12.5"), None, "rec"),
+            ],
+        ),
+        (
+            "purchase_recommendation_details",
+            [
+                ("detail-1", Decimal("40.5"), dt.datetime(2025, 1, 10, 23, tzinfo=dt.UTC), "40"),
+                ("detail-2", Decimal("40.5"), dt.datetime(2025, 1, 10, 23, tzinfo=dt.UTC), "40"),
+            ],
+        ),
+    ],
+)
+def test_fan_out_walks_every_parent_and_child_page(name: str, expected: list[tuple[Any, ...]]) -> None:
+    result = driver().run(name, fan_out_answer)
+    assert result.raised is None
+    for request in result.requests:
+        assert_matches_service_model(request)
+    rows = result.rows
+    actual: list[tuple[Any, ...]]
+    if name == "savings_plan_rates":
+        actual = [(row["savings_plan_id"], row["usage_type"], row["rate"]) for row in rows]
+    elif name == "purchase_recommendations":
+        assert rows[0]["generation_timestamp"] == dt.datetime(2025, 1, 11, tzinfo=dt.UTC)
+        assert "savings_plans_purchase_recommendation_summary" not in rows[0]
+        actual = [
+            (
+                row["recommendation_detail_id"],
+                row["savings_plans_type"],
+                row["region"],
+                row["account_id"],
+                row["estimated_roi"],
+                row["upfront_cost"],
+                row["recommendation_id"],
+            )
+            for row in rows
+        ]
+    else:
+        actual = [
+            (
+                row["recommendation_detail_id"],
+                row["current_average_coverage"],
+                row["latest_usage_timestamp"],
+                row["metrics_over_lookback_period"][0]["CurrentCoverage"],
+            )
+            for row in rows
+        ]
+    assert actual == expected
+    assert result.committed_states[-1].completed
+
+
+@pytest.mark.parametrize(
+    "resume_token,expected",
+    [
+        ("page-2", [("plan-a", "page-2"), ("plan-b", None), ("plan-b", "page-2")]),
+        (None, [("plan-b", None), ("plan-b", "page-2")]),
+    ],
+)
+def test_fan_out_resumes_after_finished_parents(resume_token: str | None, expected: list[tuple[str, Any]]) -> None:
+    result = driver().run(
+        "savings_plan_rates",
+        fan_out_answer,
+        resume_state=AwsSavingsPlansResumeConfig(parent_id="plan-a", next_token=resume_token),
+    )
+    assert result.raised is None
+    rate_requests = [request.json() for request in result.requests if operation(request) == "DescribeSavingsPlanRates"]
+    assert [(payload["savingsPlanId"], payload.get("nextToken")) for payload in rate_requests] == expected
+
+
+@pytest.mark.parametrize(
+    "name,answer,expected",
+    [
+        ("savings_plan_rates", fan_out_answer, ["DescribeSavingsPlans", "DescribeSavingsPlanRates"]),
+        ("savings_plan_rates", lambda _: ScriptedResponse(json={}), ["DescribeSavingsPlans"]),
+        ("purchase_recommendations", fan_out_answer, ["GetSavingsPlansPurchaseRecommendation"]),
+        (
+            "purchase_recommendation_details",
+            lambda _: ScriptedResponse(json={}),
+            ["GetSavingsPlansPurchaseRecommendation"],
+        ),
+    ],
+)
+def test_fan_out_validation_probes_child_with_a_parent(name: str, answer: Any, expected: list[str]) -> None:
+    with scripted_network(answer) as network:
+        assert validate_credentials(config(), name) == (True, None)
+    assert [operation(request) for request in network.requests_log] == expected
+    for request in network.requests_log:
+        assert_matches_service_model(request)
+
+
+@pytest.mark.parametrize("name", [name for name in ENDPOINTS if name not in FAN_OUT_ENDPOINTS])
 def test_signed_protocol_and_payload_match_service_model(transport: MagicMock, manager: MagicMock, name: str) -> None:
     run_source(manager, name, start_date="2025-01-10")
     call = transport.return_value.post.call_args
@@ -112,10 +283,10 @@ def test_signed_protocol_and_payload_match_service_model(transport: MagicMock, m
     assert headers["X-Amz-Date"]
     assert call.kwargs["timeout"] == 60
     if endpoint.service == "savingsplans":
-        assert call.args[0] == "https://savingsplans.amazonaws.com/DescribeSavingsPlans"
+        assert call.args[0] == f"https://savingsplans.amazonaws.com/{endpoint.operation}"
         assert headers["Content-Type"] == "application/json"
         assert "X-Amz-Target" not in headers
-        assert payload == {"maxResults": 100}
+        assert payload == {"maxResults": endpoint.page_size}
     else:
         assert call.args[0] == "https://ce.us-east-1.amazonaws.com/"
         assert headers["Content-Type"] == "application/x-amz-json-1.1"
@@ -326,6 +497,7 @@ def test_error_parsing_and_no_duplicate_status_retry(
         ("AccessDeniedException", "coverage_daily", False, "ce:GetSavingsPlansCoverage"),
         ("UnauthorizedException", None, True, None),
         ("UnauthorizedException", "savings_plans", False, "savingsplans:DescribeSavingsPlans"),
+        ("AccessDeniedException", "savings_plan_rates", False, "savingsplans:DescribeSavingsPlans"),
         ("InvalidSignatureException", None, False, "signature"),
         ("UnrecognizedClientException", None, False, "credentials"),
         ("ExpiredTokenException", None, False, "expired"),

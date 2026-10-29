@@ -84,6 +84,20 @@ describe('formatPermissionErrorMessage', () => {
         expect(text).toContain('PostHog API permission denied')
         expect(text).toContain('HTTP 403')
     })
+
+    it('tells a project-scoped token to use organization access on an organization endpoint', () => {
+        const error = new PostHogPermissionError({
+            detail: 'API keys with scoped projects are only supported on project-based endpoints.',
+            url: 'https://us.posthog.com/api/organizations/abc/billing/subscription/',
+            method: 'GET',
+        })
+
+        const text = formatPermissionErrorMessage(error)
+
+        expect(text).toContain('organization endpoint')
+        expect(text).toContain('"All access"')
+        expect(text).not.toContain('have access to this project')
+    })
 })
 
 describe('buildInsufficientScopeChallenge', () => {

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,13 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class SmartwaiverSource(ResumableSource[SmartwaiverSourceConfig, SmartwaiverResumeConfig]):
+    codebase_detection = detect(
+        env=("^SMARTWAIVER_",),
+        pypi=("smartwaiver-sdk",),
+        composer=("smartwaiver/smartwaiver-sdk",),
+        rubygems=("smartwaiver-sdk", "smartwaiver"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v4",)
     default_version = "v4"
@@ -51,7 +59,7 @@ class SmartwaiverSource(ResumableSource[SmartwaiverSourceConfig, SmartwaiverResu
             name=ExternalDataSourceType.SMARTWAIVER,
             category=DataWarehouseSourceCategory.SALES,
             label="Smartwaiver",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Smartwaiver API key to pull your digital waiver data into the PostHog Data warehouse.
 
 You can create an API key under **My Account → API keys** in [Smartwaiver](https://app.smartwaiver.com). The key is account-wide and grants read access to your waiver templates, signed waivers, and check-ins.

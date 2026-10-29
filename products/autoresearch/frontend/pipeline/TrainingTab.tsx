@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { AgentSearchChart } from './AgentSearchChart'
@@ -10,36 +10,11 @@ import { EmptyTab } from './EmptyTab'
 import { ExperimentLog } from './ExperimentLog'
 
 export function TrainingTab(): JSX.Element {
-    const {
-        pipeline,
-        trainingRuns,
-        trainingRunsLoading,
-        trainingRunsError,
-        startTrainingResultLoading,
-        hasLiveTrainingRun,
-    } = useValues(autoresearchPipelineLogic)
-    const { startTraining, loadTrainingRuns } = useActions(autoresearchPipelineLogic)
-    const trainDisabledReason = startTrainingResultLoading
-        ? 'Starting…'
-        : pipeline?.status === 'paused'
-          ? 'Resume the model to train it'
-          : hasLiveTrainingRun
-            ? 'A training run is already in progress'
-            : undefined
+    const { trainingRuns, trainingRunsLoading, trainingRunsError } = useValues(autoresearchPipelineLogic)
+    const { loadTrainingRuns } = useActions(autoresearchPipelineLogic)
 
     return (
         <div className="space-y-4 min-w-0">
-            <div className="flex items-center gap-2">
-                <LemonButton
-                    type="primary"
-                    onClick={() => void startTraining()}
-                    data-attr="autoresearch-model-train"
-                    loading={startTrainingResultLoading}
-                    disabledReason={trainDisabledReason}
-                >
-                    Run training
-                </LemonButton>
-            </div>
             {/* Polling reloads the runs while one is live, so keep the loaded runs on screen during a reload. */}
             {trainingRuns.length === 0 && trainingRunsLoading ? (
                 <Spinner />

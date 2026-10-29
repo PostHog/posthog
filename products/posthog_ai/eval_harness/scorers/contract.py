@@ -1,22 +1,31 @@
 """The PostHog-owned scorer contract.
 
-Ships as a shim today: ``Score`` re-exports braintrust's and ``Scorer`` is an
-empty subclass of braintrust's base — zero behavior change. Both still satisfy
+``Score`` extends braintrust's normalized score with an optional reporting
+outcome. ``Scorer`` retains braintrust's execution behavior. Both still satisfy
 braintrust's duck-typed dispatch (``hasattr(scorer, "eval_async")``) and score
 check (``name``/``score``/``metadata``/``as_dict``), so scorers written against
 this module stay directly consumable by ``BraintrustEngine`` with no adapter.
 
-A later flip replaces these with pure PostHog classes carrying the same surface
-(``eval_async(output, expected, **kwargs)``, ``_name()``, ``Score.name/score/
-metadata/as_dict``) — a single-file change that no scorer has to follow.
+Set ``Score.result`` for categorical values, explicit statuses, or other
+reporting details. ``Score.score`` still controls the existing score averages;
+use ``None`` when the reporting outcome has no numeric aggregate.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from braintrust import Score as Score
+from braintrust import Score as BraintrustScore
 from braintrust_core.score import Scorer as _UpstreamScorer
+
+from posthog.dataclasses import frozen
+
+from ..engines.types import ScorerResult
+
+
+@frozen(frozen=False)
+class Score(BraintrustScore):
+    result: ScorerResult | None = None
 
 
 class Scorer(_UpstreamScorer):

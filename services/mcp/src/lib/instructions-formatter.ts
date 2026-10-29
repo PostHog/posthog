@@ -31,10 +31,12 @@ import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import NOTEBOOK_RUN from '@/templates/sections/notebook-run.md'
+import NOTEBOOK_SQL from '@/templates/sections/notebook-sql.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import SKILLS_FIRST from '@/templates/sections/skills-first.md'
@@ -50,6 +52,9 @@ const WHATS_NEW_CHANGELOG_ONLY = "Check what's new in the changelog (https://pos
 const PROJECT_LOOKUP =
     'Call `project-get` without an ID to read the active project: its name, id, organization, timezone, person-on-events mode, test account filter default, and enabled products. Call it before you rely on one of these, for example the timezone for a date range.'
 const GROUP_TYPES_LOOKUP = "For the project's group types, run `execute-sql` on `system.group_type_mappings`."
+const SWITCH_TOOLS = ['switch-project', 'switch-organization', 'projects-get', 'organizations-get']
+const SWITCH_LOOKUP =
+    'To work in another project or organization, call `switch-project` or `switch-organization`. `projects-get` and `organizations-get` resolve a name to the id they take. Do not search the tool list for this.'
 
 export interface InstructionsContext {
     guidelines: string
@@ -73,7 +78,14 @@ export interface InstructionsContext {
      *  resolve. Carried as a field rather than derived from `tools`, which
      *  `buildExecCommandReference` drops on purpose. */
     docsSearchEnabled?: boolean | undefined
+    /** Whether the Replay Vision scan tools are advertised to this client. Same reason
+     *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
+    replayVisionEnabled?: boolean | undefined
 }
+
+const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
+const REPLAY_VISION =
+    'To learn what happened inside session recordings (what users did, saw, or struggled with), use Replay Vision instead of SQL over the replay tables. Call `vision-scanners-inline-scan` with `session_ids` and a `prompt` for sessions you already have, or `vision-requests-create` for up to 200 sessions and read the result with `vision-requests-get`. SQL over `session_replay_events` returns recording metadata only, such as duration, URLs and event counts; use it to find candidate sessions.'
 
 function businessKnowledgeSearchLine(execSyntax: boolean): string {
     const search = execSyntax
@@ -93,16 +105,44 @@ function businessKnowledgeRepoSearchLine(execSyntax: boolean): string {
     return `- For this team's code, or when document search returns no chunks, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or topic words, not a sentence. Each repository includes its description. When a description names a handbook or docs, search that repository for those words, read the file, and cite its permalink.`
 }
 
+/** The SQL section's bullets that name a tool. Each one is left out when the connection
+ *  lacks a tool it names, so the guidance never sends the agent to a name it cannot call. */
+function notebookSqlVars(ctx: InstructionsContext): Record<string, string> {
+    const available = (tool: string): boolean => ctx.tools?.some(({ name }) => name === tool) ?? false
+    const runAll = available('notebooks-run') ? ', or all at once with `notebooks-run`' : ''
+    return {
+        throwaway_checks: available('execute-sql')
+            ? " Use `execute-sql` only for throwaway checks the notebook does not rely on, like confirming a table's columns."
+            : '',
+        fix_in_place:
+            available('notebooks-update-cell') && available('notebooks-delete-cell')
+                ? '- Fix a failing or wrong query in the same cell with `notebooks-update-cell`, and remove dead ends with `notebooks-delete-cell`, so the notebook keeps only the steps the conclusion rests on.'
+                : '',
+        run_later: available('notebooks-run-cell')
+            ? `- To lay out dependent cells before running them, add them with \`run: false\`, then run them in order with \`notebooks-run-cell\`${runAll}.`
+            : '',
+    }
+}
+
 /** Resolve the field, falling back to the advertised tool list for callers that
  *  build a context without it (the CLI's `--agent-help`). */
 function docsSearchAvailable(ctx: InstructionsContext): boolean {
     return ctx.docsSearchEnabled ?? ctx.tools?.some(({ name }) => name === 'docs-search') ?? false
 }
 
+function replayVisionAvailable(ctx: InstructionsContext): boolean {
+    return (
+        ctx.replayVisionEnabled ??
+        REPLAY_VISION_TOOLS.every((tool) => ctx.tools?.some(({ name }) => name === tool)) ??
+        false
+    )
+}
+
 function envContextSections(ctx: InstructionsContext): string[] {
     const available = (tool: string): boolean => ctx.tools?.some(({ name }) => name === tool) ?? false
     const lookups = [
         ...(available('project-get') ? [PROJECT_LOOKUP] : []),
+        ...(SWITCH_TOOLS.every(available) ? [SWITCH_LOOKUP] : []),
         ...(available('execute-sql') ? [GROUP_TYPES_LOOKUP] : []),
     ]
     return lookups.length > 0 ? [formatPrompt(ENV_CONTEXT, { env_lookups: lookups.join(' ') })] : []
@@ -161,12 +201,13 @@ export class InstructionsFormatter {
     }
 
     /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
-     *  Python-goes-in-a-cell rule when the notebook cell tools are available, and
+     *  SQL-and-Python-go-in-cells rules when the notebook cell tools are available, and
      *  the refresh-a-notebook rule when the run tool is. */
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
-            ...(ctx.notebookCellsEnabled ? [NOTEBOOK_PYTHON] : []),
+            ...(ctx.tools?.some(({ name }) => name === 'explain-chart') ? [EXPLAIN_CHART] : []),
+            ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]
     }
@@ -390,7 +431,12 @@ export class InstructionsFormatter {
             AGENT_FEEDBACK,
             EXAMPLES,
         ]
-        const renderCtx: InstructionsContext = { ...ctx, tools: undefined, docsSearchEnabled: docsSearchAvailable(ctx) }
+        const renderCtx: InstructionsContext = {
+            ...ctx,
+            tools: undefined,
+            docsSearchEnabled: docsSearchAvailable(ctx),
+            replayVisionEnabled: replayVisionAvailable(ctx),
+        }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
         // agents still discover domains at runtime via the `search` command, and
@@ -422,6 +468,7 @@ export class InstructionsFormatter {
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
+            replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
         }
@@ -429,6 +476,7 @@ export class InstructionsFormatter {
             .map((s) => s.trim())
             .filter((s) => s.length > 0)
             .join('\n\n')
-        return formatPrompt(body, vars)
+        // An empty placeholder on its own line would otherwise leave a double blank line.
+        return formatPrompt(body, vars).replace(/\n{3,}/g, '\n\n')
     }
 }

@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class WeightsAndBiasesSource(ResumableSource[WeightsAndBiasesSourceConfig, WeightsAndBiasesResumeConfig]):
+    codebase_detection = detect(env=("^WANDB_",), npm=("@wandb/sdk",), pypi=("wandb",), cargo=("wandb",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property
@@ -55,7 +58,7 @@ class WeightsAndBiasesSource(ResumableSource[WeightsAndBiasesSourceConfig, Weigh
             name=ExternalDataSourceType.WEIGHTSANDBIASES,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Weights & Biases",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.BETA,
             keywords=["wandb", "ml", "experiment tracking", "mlops"],
             caption="""Enter your Weights & Biases API key to pull your experiment tracking data into the PostHog Data warehouse.
 

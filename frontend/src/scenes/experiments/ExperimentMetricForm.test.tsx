@@ -18,24 +18,21 @@ jest.mock('~/layout/scenes/components/SceneContent', () => ({
 }))
 
 jest.mock('scenes/insights/filters/ActionFilter/ActionFilter', () => ({
-    ActionFilter: ({ dataWarehousePopoverFields, setFilters }: Record<string, any>) => (
+    SeriesActionFilter: ({ dataWarehousePopoverFields, dataWarehouseNodeKind, onChange }: Record<string, any>) => (
         <button
             data-attr="select-data-warehouse-step"
             onClick={() =>
-                setFilters({
-                    actions: [],
-                    events: [],
-                    data_warehouse: [
-                        {
-                            id: 'stripe_charges',
-                            name: 'Stripe charges',
-                            timestamp_field: 'created_at',
-                            data_warehouse_join_key: 'customer_id',
-                            events_join_key: 'distinct_id',
-                            order: 0,
-                        },
-                    ],
-                })
+                onChange([
+                    {
+                        kind: dataWarehouseNodeKind,
+                        id: 'stripe_charges',
+                        table_name: 'stripe_charges',
+                        name: 'Stripe charges',
+                        timestamp_field: 'created_at',
+                        data_warehouse_join_key: 'customer_id',
+                        events_join_key: 'distinct_id',
+                    },
+                ])
             }
         >
             {dataWarehousePopoverFields.map(({ key }: { key: string }) => key).join(',')}

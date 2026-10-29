@@ -114,7 +114,7 @@ def prepare_jobs(event_type: str, payload: dict[str, Any]) -> list[contracts.Git
 def _extract_posthog_issue_references(body: str) -> list[_PostHogIssueReference]:
     site_url = re.escape(settings.SITE_URL.rstrip("/"))
     pattern = re.compile(
-        rf"{site_url}/project/(?P<team_id>[1-9][0-9]*)/error_tracking/"
+        rf"{site_url}/project/(?P<team_id>[1-9][0-9]*)/error[_-]tracking/"
         rf"(?:fingerprint/(?P<fingerprint>[^/?#\s<>\]\)]+)|"
         rf"(?P<issue_id>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-"
         rf"[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}))"

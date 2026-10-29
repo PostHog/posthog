@@ -54,7 +54,7 @@
             "description": "Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs only), or `all` (both). Defaults to `all`."
         },
         "filters": {
-            "description": "Full release-condition object (replaces filters at the API). For group flags set aggregation_group_type_index and property type \"group\" + group_type_index. Omitted type / group_type_index / aggregation_group_type_index are filled from the existing flag to prevent silent person demotion (see #46501).",
+            "description": "Full release-condition object. It replaces the stored filters, so read the flag first and send every condition you want to keep. The tool description covers condition_id and group targeting.",
             "properties": {
                 "aggregation_group_type_index": {
                     "anyOf": [
@@ -97,6 +97,10 @@
                                     }
                                 ],
                                 "description": "Group type index for this condition set. None means person-level aggregation."
+                            },
+                            "condition_id": {
+                                "description": "The condition_id this condition had when you read the flag. Send it unchanged when you keep, edit, or move the condition. Leave it off a new condition or one copied from a different flag. The update is refused when no condition on the flag has this ID.",
+                                "type": "string"
                             },
                             "properties": {
                                 "description": "Property conditions for this release condition group.",
@@ -282,14 +286,14 @@
                                                     "type": "string"
                                                 },
                                                 "operator": {
-                                                    "description": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
+                                                    "description": "Semantic version comparison operator.\n\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard",
                                                     "enum": [
+                                                        "semver_eq",
+                                                        "semver_neq",
                                                         "semver_gt",
                                                         "semver_gte",
                                                         "semver_lt",
                                                         "semver_lte",
-                                                        "semver_eq",
-                                                        "semver_neq",
                                                         "semver_tilde",
                                                         "semver_caret",
                                                         "semver_wildcard"
@@ -360,6 +364,14 @@
                                         },
                                         {
                                             "properties": {
+                                                "cohort_deleted": {
+                                                    "description": "Set to true in responses when the cohort is deleted or does not exist. The flag cannot evaluate this condition. Ignored on write.",
+                                                    "type": "boolean"
+                                                },
+                                                "cohort_missing": {
+                                                    "description": "Set to true in responses when no cohort with this id exists in the project, so it cannot be restored. `cohort_deleted` is also true. Absent for a soft-deleted cohort. Ignored on write.",
+                                                    "type": "boolean"
+                                                },
                                                 "cohort_name": {
                                                     "anyOf": [
                                                         {
@@ -550,6 +562,11 @@
                 "type": "string"
             },
             "type": "array"
+        },
+        "version": {
+            "description": "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is 2: the update is then refused with 409 if anyone else changed the flag after that version. Other flags do not check it.",
+            "minimum": 0,
+            "type": "number"
         }
     },
     "required": ["id"],

@@ -63,6 +63,15 @@ describe("resolveModelConfigs", () => {
     vi.restoreAllMocks();
   });
 
+  it("lists the Go spelling of every @cf fallback model", () => {
+    const ids = new Set(fallbackModelConfigs("us").map((model) => model.id));
+    const cf = [...ids].filter((id) => id.startsWith("@cf/"));
+    expect(cf.length).toBeGreaterThan(0);
+    for (const id of cf) {
+      expect(ids).toContain(id.replace(/^@cf\//, ""));
+    }
+  });
+
   it("returns fallback models when PI_OFFLINE is set", async () => {
     process.env.PI_OFFLINE = "1";
     const fetchSpy = vi.fn();
@@ -229,6 +238,63 @@ describe("resolveModelConfigs", () => {
 
     expect(configs[0]?.api).toBe("openai-responses");
     expect(configs[0]?.maxTokens).toBe(128000);
+  });
+
+  it.each([
+    {
+      row: {
+        id: "claude-opus-5-5",
+        owned_by: "anthropic",
+        api_shapes: ["anthropic-messages"],
+      },
+      api: "anthropic-messages",
+      input: ["text", "image"],
+    },
+    {
+      row: {
+        id: "gpt-6-sol",
+        owned_by: "openai",
+        api_shapes: ["openai-chat-completions", "openai-responses"],
+      },
+      api: "openai-responses",
+      input: ["text", "image"],
+    },
+    {
+      row: {
+        id: "zai-org/glm-5.3",
+        owned_by: "posthog",
+        api_shapes: ["openai-chat-completions", "anthropic-messages"],
+      },
+      api: "openai-completions",
+      input: ["text"],
+    },
+    {
+      row: {
+        id: "moonshotai/kimi-k3",
+        owned_by: "posthog",
+        api_shapes: ["openai-chat-completions", "anthropic-messages"],
+      },
+      api: "anthropic-messages",
+      input: ["text"],
+    },
+    {
+      row: {
+        id: "zai-org/glm-next",
+        owned_by: "posthog",
+        api_shapes: ["anthropic-messages"],
+      },
+      api: "anthropic-messages",
+      input: ["text"],
+    },
+  ])("maps the Go gateway row for $row.id", async ({ row, api, input }) => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [row] }),
+    }) as unknown as typeof fetch;
+
+    const configs = await resolveModelConfigs("us");
+
+    expect(configs[0]).toMatchObject({ api, input });
   });
 });
 

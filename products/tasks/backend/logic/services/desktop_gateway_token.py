@@ -8,13 +8,11 @@ import json
 import logging
 import functools
 from collections.abc import Mapping
-from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
-from django.utils import timezone
 
 import requests
 import posthoganalytics
@@ -22,9 +20,8 @@ from prometheus_client import Counter
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import feature_enabled_or_false
 
-from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS
+from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS, gateway_pin
 
 if TYPE_CHECKING:
     from posthog.models.organization import Organization
@@ -82,6 +79,23 @@ DESKTOP_GATEWAY_MINTS = Counter(
     "PostHog Desktop gateway token mints, by outcome (ok/rate_limited/refused/unreachable/malformed)",
     labelnames=["outcome"],
 )
+
+# Which mint refused: the Desktop endpoint or a sandbox run's.
+GatewayRefusalSurface = Literal["desktop", "sandbox"]
+
+
+def record_gateway_token_refusal(surface: GatewayRefusalSurface, reason: str, *, ai_product: str) -> None:
+    try:
+        client = posthoganalytics.default_client
+        if client is None:
+            return
+        client.metrics.count(
+            "tasks.gateway_token.refused",
+            1,
+            attributes={"surface": surface, "ai_product": ai_product, "reason": reason},
+        )
+    except Exception:
+        pass
 
 
 def _team_credit_refusal(team_id: int, bucket: str) -> str | None:
@@ -170,27 +184,6 @@ def plan_allowed_models(plan: PosthogCodePlan) -> list[str]:
     return list(DESKTOP_AGENT_MODELS) if plan == "paid" else list(FREE_TIER_MODELS)
 
 
-def desktop_rollout_enabled(
-    organization: "Organization", team: "Team", distinct_id: str | None = None, email: str | None = None
-) -> bool:
-    """The rollout flag, targeted on the org. A flag outage reads as off, which keeps both legs on legacy."""
-    organization_id = str(organization.id)
-    try:
-        return feature_enabled_or_false(
-            settings.DESKTOP_GATEWAY_ROLLOUT_FLAG,
-            distinct_id or organization_id,
-            groups={"organization": organization_id, "project": str(team.id)},
-            # Always sent: the stored person email is client-writable ($set).
-            person_properties={"email": email or ""},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.warning("desktop_gateway_token: rollout flag unavailable, treating as off", exc_info=True)
-        return False
-
-
 def posthog_code_billing_synced(organization: "Organization") -> bool:
     """True once billing has synced posthog_code_credits usage and a period: the inputs quota
     limiting needs before it can limit the org (ee/billing/quota_limiting.py). Billing writes an
@@ -200,21 +193,15 @@ def posthog_code_billing_synced(organization: "Organization") -> bool:
     return bool(usage.get("period")) and isinstance(entry, dict) and ("usage" in entry or "limit" in entry)
 
 
-# (org age below, minimum highest product trust score); older orgs need none. Matches the
-# legacy gateway's PostHog Code account trust policy.
-_TRUST_MINIMUMS: tuple[tuple[timedelta, float], ...] = ((timedelta(days=7), 7), (timedelta(days=30), 3))
+# Billing's SUBSCRIBED_PAYING_TRUSTED (a paid invoice). Billing sets score 3 when a card subscribes, before any payment.
+_PAID_TRUST_MINIMUM = 7.0
 
 
 def posthog_code_trusted(organization: "Organization") -> bool:
-    """Whether the org's age and best product trust score clear the minimum; a missing or
-    malformed score counts as zero."""
+    """Whether the org's best trust score shows a paid invoice; a missing or malformed score counts as zero."""
     scores = organization.customer_trust_scores or {}
     best = max((float(v) for v in scores.values() if isinstance(v, int | float)), default=0.0)
-    age = timezone.now() - organization.created_at
-    for below_age, minimum in _TRUST_MINIMUMS:
-        if age < below_age:
-            return best >= minimum
-    return True
+    return best >= _PAID_TRUST_MINIMUM
 
 
 def _override_tier(raw: object) -> LimitTier | None:
@@ -310,7 +297,7 @@ def mint_desktop_gateway_token(
         "product": POSTHOG_CODE_PRODUCT,
         "obo": str(team_id),
         "user": user,
-        "allowed_models": allowed_models,
+        "allowed_models": gateway_pin(allowed_models),
         "limit_tier": limit_tier,
     }
     try:

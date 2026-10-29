@@ -136,6 +136,7 @@ describe('tracingDataLogic', () => {
                 },
                 createMockSpan('root-2', '2024-01-01T01:00:00Z'),
             ]
+            tracingFiltersLogic().actions.setViewMode('traces')
             logic.actions.fetchSpansSuccess(withChild)
             // listRows = [root-1, root-2] in traces mode; index 1 is root-2, never the child at 05:00.
             logic.actions.setVisibleRowRange(0, 1)
@@ -197,7 +198,32 @@ describe('tracingDataLogic', () => {
             },
         ])('captures the right event for $name', ({ dispatch, event, properties }) => {
             dispatch(logic)
-            expect(captureSpy).toHaveBeenCalledWith(event, properties)
+            expect(captureSpy).toHaveBeenCalledWith(event, ...(properties ? [properties] : []))
+        })
+
+        it('records that a service name filter scoped the trace lookup', () => {
+            logic.actions.setServiceNames(['checkout-api'])
+            logic.actions.loadTraceSpans({ traceId: 'trace-x' })
+            expect(logic.values.traceLoadFiltersActive).toBe(true)
+        })
+
+        // Filters changing mid-flight must not rescope or relabel a request made under the old filters.
+        it('keeps the filters active at request time through the widened lookup', async () => {
+            type TraceResponse = Awaited<ReturnType<typeof api.tracing.getTrace>>
+            const empty: TraceResponse = { results: [], hasMore: false, nextOffset: null }
+            let releaseBoundedLookup: (response: TraceResponse) => void = () => {}
+            const getTraceSpy = jest
+                .spyOn(api.tracing, 'getTrace')
+                .mockImplementationOnce(() => new Promise((resolve) => (releaseBoundedLookup = resolve)))
+                .mockResolvedValueOnce(empty)
+
+            logic.actions.loadTraceSpans({ traceId: 'trace-x', ts: '2024-01-01T00:00:00Z' })
+            logic.actions.setServiceNames(['checkout-api'])
+            releaseBoundedLookup(empty)
+            await expectLogic(logic).toDispatchActions(['loadTraceSpansSuccess'])
+
+            expect(getTraceSpy.mock.calls.map(([, params]) => params?.serviceNames)).toEqual([undefined, undefined])
+            expect(logic.values.traceLoadFiltersActive).toBe(false)
         })
     })
 
@@ -213,9 +239,10 @@ describe('tracingDataLogic', () => {
             createMockSpan('root-2', '2024-01-01T01:00:00Z'),
         ]
 
-        it('lists only root spans in traces mode (default)', () => {
-            logic = mountWithSpans(withChildSpans)
-            expect(logic.values.filters.viewMode).toBe('traces')
+        it('lists only root spans in traces mode', () => {
+            logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('traces')
+            logic.actions.fetchSpansSuccess(withChildSpans)
             expect(logic.values.listRows.map((s) => s.uuid)).toEqual(['root-1', 'root-2'])
         })
 
@@ -240,8 +267,9 @@ describe('tracingDataLogic', () => {
         it('requests grouped traces from the API in traces mode', async () => {
             const listSpansSpy = jest.spyOn(api.tracing, 'listSpans').mockResolvedValue({ results: [], hasMore: false })
             logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('traces')
             await logic.asyncActions.fetchSpans()
-            expect(listSpansSpy).toHaveBeenCalledWith(
+            expect(listSpansSpy).toHaveBeenLastCalledWith(
                 expect.objectContaining({ flatSpans: false, rootSpans: false }),
                 expect.anything()
             )
@@ -250,6 +278,7 @@ describe('tracingDataLogic', () => {
 
         it('totalMatchingFilters reports trace count in traces mode and span count in spans mode', () => {
             logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('traces')
             logic.actions.fetchMatchingCountsSuccess({ count: 5000, traceCount: 100 })
             expect(logic.values.totalMatchingFilters).toBe(100)
             tracingFiltersLogic().actions.setViewMode('spans')
@@ -259,8 +288,12 @@ describe('tracingDataLogic', () => {
         it('sparkline counts root spans in traces mode and all spans in spans mode', async () => {
             const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
             logic = mountWithSpans([])
+            tracingFiltersLogic().actions.setViewMode('traces')
             await logic.asyncActions.fetchSparkline()
-            expect(sparklineSpy).toHaveBeenCalledWith(expect.objectContaining({ rootSpans: true }), expect.anything())
+            expect(sparklineSpy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ rootSpans: true }),
+                expect.anything()
+            )
             tracingFiltersLogic().actions.setViewMode('spans')
             await logic.asyncActions.fetchSparkline()
             expect(sparklineSpy).toHaveBeenLastCalledWith(
@@ -315,7 +348,7 @@ describe('tracingDataLogic', () => {
             // The sparkline counts root spans in 'traces' mode and all spans in 'spans' mode, so a
             // view-mode toggle changes its scope and the auto re-query must re-fetch it.
             await expectLogic(logic, () => {
-                tracingFiltersLogic().actions.setViewMode('spans')
+                tracingFiltersLogic().actions.setViewMode('traces')
             }).toDispatchActions(['fetchSparklineSuccess'])
             expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
@@ -471,6 +504,45 @@ describe('tracingDataLogic', () => {
             logic.actions.fetchSpans()
 
             expect(logic.values.spansError).toBeNull()
+        })
+
+        it('flags a failed trace load and clears the flag once the next trace load starts', () => {
+            logic = mountWithSpans([])
+            logic.actions.loadTraceSpansFailure('boom')
+            expect(logic.values.traceSpansLoadFailed).toBe(true)
+
+            // Reopening a trace (even a different one) must not inherit the previous failure.
+            logic.actions.loadTraceSpans({ traceId: 'trace-1' })
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+        })
+
+        it('does not flag a failure when a superseded trace load rejects after the newer one resolved', async () => {
+            const flushPromises = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+            let rejectA: (error: Error) => void = () => {}
+            let resolveB: (value: { results: Span[]; hasMore: boolean; nextOffset: number | null }) => void = () => {}
+            const apiSpy = jest
+                .spyOn(api.tracing, 'getTrace')
+                .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectA = reject)))
+                .mockImplementationOnce(() => new Promise((resolve) => (resolveB = resolve)))
+            logic = mountWithSpans([])
+
+            logic.actions.loadTraceSpans({ traceId: 'trace-a' })
+            logic.actions.loadTraceSpans({ traceId: 'trace-b' })
+
+            const bSpans = [createMockSpan('span-b', '2024-01-01T04:00:00Z')]
+            resolveB({ results: bSpans, hasMore: false, nextOffset: null })
+            await flushPromises()
+
+            expect(logic.values.traceSpans).toEqual(bSpans)
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+
+            // trace A's late rejection must not mark trace B's spans as failed.
+            rejectA(new Error('boom'))
+            await flushPromises()
+
+            expect(logic.values.traceSpansLoadFailed).toBe(false)
+            expect(logic.values.traceSpans).toEqual(bSpans)
+            apiSpy.mockRestore()
         })
     })
 
