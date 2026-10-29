@@ -94,17 +94,6 @@ if (empty(logs)) {
     }
 }
 
-// Technical limitation: Hog functions can only call postHogCapture once per invocation.
-// If Vercel batches multiple logs in one request, we emit only one (the first, or the
-// first page-route log when page_routes_only is enabled — see the selection below).
-// Configure Vercel to send logs individually for complete coverage.
-let droppedCount := length(logs) - 1
-if (droppedCount > 0) {
-    print(f'Warning: Dropped {droppedCount} additional log(s). Hog functions can only emit one event per invocation.')
-}
-
-let log := logs[1]
-
 let limit := toInt(inputs.max_message_len ?? 262144)
 
 fun truncateIfNeeded(s) {
@@ -185,18 +174,17 @@ fun logPathname(l) {
     return extractPathname(p.path ?? l.path ?? '')
 }
 
-// With page_routes_only enabled, emit the first page-route log in the batch, so a page
-// view is not lost when an asset request happens to come first in the same batch. Vercel
-// can send several logs per request but only one event can be emitted per invocation.
+// With page_routes_only enabled, keep only top-level document requests. A batch with no
+// page-route log is acknowledged with 200 so Vercel does not retry it.
+let selectedLogs := logs
 if (inputs.page_routes_only) {
-    let selected := null
+    selectedLogs := []
     for (let _, candidate in logs) {
-        if (selected == null and isPageRoute(logPathname(candidate))) {
-            selected := candidate
+        if (isPageRoute(logPathname(candidate))) {
+            selectedLogs := arrayPushBack(selectedLogs, candidate)
         }
     }
-    if (selected == null) {
-        // No page-route request in this batch — ack with 200 so Vercel does not retry.
+    if (empty(selectedLogs)) {
         return {
             'httpResponse': {
                 'status': 200,
@@ -204,24 +192,11 @@ if (inputs.page_routes_only) {
             }
         }
     }
-    log := selected
 }
-let proxy := log.proxy ?? {}
-
-// Distinct ID: configurable strategy. Default is a fixed salted hash of (ip, host, ua) —
-// one stable ID per client. The active strategy is recorded as $distinct_id_strategy
-// on the event for diagnostics — it is not an analytical breakdown dimension.
-let host := proxy.host ?? log.host ?? ''
-let clientIp := proxy.clientIp ?? ''
-let userAgent := proxy.userAgent[1] ?? ''
-let scheme := proxy.scheme ?? 'https'
-let path := proxy.path ?? log.path ?? ''
 
 let day := formatDateTime(now(), '%Y-%m-%d')
 let salt := inputs.salt_secret ?? ''
 let strategy := inputs.distinct_id_strategy ?? 'fixed_salt'
-let activeStrategy := strategy
-let distinctId := ''
 
 // Hashed strategies emit a 22-char unpadded base64 prefix of sha256, matching
 // the visual format of PostHog cookieless distinct IDs (132 bits of entropy —
@@ -230,143 +205,163 @@ fun shortHash(input) {
     return substring(sha256(input, 'base64'), 1, 22)
 }
 
-if (strategy == 'rotating_salt') {
-    distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
-} else if (strategy == 'fixed_salt') {
-    distinctId := f'http_log_{shortHash(f'{salt}:{clientIp}:{host}:{userAgent}')}'
-} else if (strategy == 'ip') {
-    distinctId := f'http_log_{clientIp}'
-} else if (strategy == 'custom') {
-    let customTemplate := inputs.custom_template ?? ''
-    if (empty(customTemplate)) {
-        print('vercel log drain: custom_template empty, falling back to rotating_salt')
+fun captureLog(log) {
+    let proxy := log.proxy ?? {}
+
+    // Distinct ID: configurable strategy. Default is a fixed salted hash of (ip, host, ua) —
+    // one stable ID per client. The active strategy is recorded as $distinct_id_strategy
+    // on the event for diagnostics — it is not an analytical breakdown dimension.
+    let host := proxy.host ?? log.host ?? ''
+    let clientIp := proxy.clientIp ?? ''
+    let userAgent := proxy.userAgent[1] ?? ''
+    let scheme := proxy.scheme ?? 'https'
+    let path := proxy.path ?? log.path ?? ''
+
+    let activeStrategy := strategy
+    let distinctId := ''
+
+    if (strategy == 'rotating_salt') {
         distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
-        activeStrategy := 'rotating_salt_fallback'
-    } else {
-        let result := customTemplate
-        // Note: {salt} is intentionally NOT a placeholder — exposing the secret
-        // in distinct_ids would defeat its purpose (events are stored in plain text).
-        result := replaceAll(result, '{day}', day)
-        result := replaceAll(result, '{ip}', clientIp)
-        result := replaceAll(result, '{host}', host)
-        result := replaceAll(result, '{ua}', userAgent)
-        result := replaceAll(result, '{path}', path)
-        result := replaceAll(result, '{project_id}', toString(log.projectId))
-        // Guard: if every placeholder resolved to empty, fall back to rotating_salt
-        // so we don't collapse all such requests onto a single 'http_log_' id.
-        if (empty(result)) {
-            print('vercel log drain: custom_template substituted to empty, falling back to rotating_salt')
+    } else if (strategy == 'fixed_salt') {
+        distinctId := f'http_log_{shortHash(f'{salt}:{clientIp}:{host}:{userAgent}')}'
+    } else if (strategy == 'ip') {
+        distinctId := f'http_log_{clientIp}'
+    } else if (strategy == 'custom') {
+        let customTemplate := inputs.custom_template ?? ''
+        if (empty(customTemplate)) {
+            print('vercel log drain: custom_template empty, falling back to rotating_salt')
             distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
             activeStrategy := 'rotating_salt_fallback'
         } else {
-            distinctId := f'http_log_{result}'
+            let result := customTemplate
+            // Note: {salt} is intentionally NOT a placeholder — exposing the secret
+            // in distinct_ids would defeat its purpose (events are stored in plain text).
+            result := replaceAll(result, '{day}', day)
+            result := replaceAll(result, '{ip}', clientIp)
+            result := replaceAll(result, '{host}', host)
+            result := replaceAll(result, '{ua}', userAgent)
+            result := replaceAll(result, '{path}', path)
+            result := replaceAll(result, '{project_id}', toString(log.projectId))
+            // Guard: if every placeholder resolved to empty, fall back to rotating_salt
+            // so we don't collapse all such requests onto a single 'http_log_' id.
+            if (empty(result)) {
+                print('vercel log drain: custom_template substituted to empty, falling back to rotating_salt')
+                distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+                activeStrategy := 'rotating_salt_fallback'
+            } else {
+                distinctId := f'http_log_{result}'
+            }
         }
+    } else {
+        // Unknown strategy value — treat as rotating_salt
+        distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
+        activeStrategy := 'rotating_salt'
     }
-} else {
-    // Unknown strategy value — treat as rotating_salt
-    distinctId := f'http_log_{shortHash(f'{salt}:{day}:{clientIp}:{host}:{userAgent}')}'
-    activeStrategy := 'rotating_salt'
+
+    // Parse URL for pathname and UTM parameters
+    let queryParams := parseQueryParams(path)
+    let pathname := extractPathname(path)
+
+    let props := {
+        // Person processing. Anonymous by default ($process_person_profile = false) so high-cardinality
+        // log traffic does not create a person profile per distinct ID — cheaper and faster to query.
+        // Set the "Person processing" input to "identified" to create person profiles for stitching.
+        '$process_person_profile': inputs.person_processing == 'identified',
+
+        // PostHog standard properties. $ip and $raw_user_agent are appended
+        // below when forward_ip_and_user_agent is enabled (default on, since
+        // PostHog's GeoIP and UA enrichment depend on them); flip the toggle
+        // off to keep raw client identifiers off the emitted event.
+        '$distinct_id_strategy': activeStrategy,
+        '$current_url': f'{scheme}://{host}{path}',
+        '$host': host,
+        '$pathname': pathname,
+        '$referrer': proxy.referer,
+
+        // UTM parameters (extracted from URL query string)
+        'utm_source': queryParams['utm_source'],
+        'utm_medium': queryParams['utm_medium'],
+        'utm_campaign': queryParams['utm_campaign'],
+        'utm_term': queryParams['utm_term'],
+        'utm_content': queryParams['utm_content'],
+
+        // Core log fields
+        'vercel_log_id': log.id,
+        'deployment_id': log.deploymentId,
+        'project_id': log.projectId,
+        'project_name': log.projectName,
+        'source': log.source,
+        'environment': log.environment,
+        'level': log.level,
+        'type': log.type,
+        'message': truncateIfNeeded(log.message),
+        'message_truncated': typeof(log.message) == 'string' and length(log.message ?? '') > limit,
+        'vercel_timestamp_ms': log.timestamp,
+
+        // Request info
+        'host': log.host,
+        'path': log.path,
+        'entrypoint': log.entrypoint,
+        'status_code': log.statusCode,
+        'request_id': log.requestId,
+        'execution_region': log.executionRegion,
+        'invocation_id': log.invocationId,
+        'instance_id': log.instanceId,
+
+        // Build/deploy info
+        'build_id': log.buildId,
+        'branch': log.branch,
+        'destination': log.destination,
+
+        // Edge/middleware
+        'edge_type': log.edgeType,
+
+        // Tracing
+        'trace_id': log.traceId ?? log['trace.id'],
+        'span_id': log.spanId ?? log['span.id'],
+
+        // Security fingerprints
+        'ja3_digest': log.ja3Digest,
+        'ja4_digest': log.ja4Digest,
+
+        // Proxy fields (flattened)
+        'proxy_timestamp_ms': proxy.timestamp,
+        'proxy_method': proxy.method,
+        'proxy_host': proxy.host,
+        'proxy_path': proxy.path,
+        // proxy_user_agent and proxy_client_ip are gated on forward_ip_and_user_agent below.
+        'proxy_region': proxy.region,
+        'proxy_referer': proxy.referer,
+        'proxy_status_code': proxy.statusCode,
+        'proxy_scheme': proxy.scheme,
+        'proxy_response_byte_size': proxy.responseByteSize,
+        'proxy_cache_id': proxy.cacheId,
+        'proxy_path_type': proxy.pathType,
+        'proxy_path_type_variant': proxy.pathTypeVariant,
+        'proxy_vercel_id': proxy.vercelId,
+        'proxy_vercel_cache': proxy.vercelCache,
+        'proxy_lambda_region': proxy.lambdaRegion,
+        'proxy_waf_action': proxy.wafAction,
+        'proxy_waf_rule_id': proxy.wafRuleId
+    }
+
+    if (inputs.forward_ip_and_user_agent) {
+        props['$ip'] := clientIp
+        props['$raw_user_agent'] := userAgent
+        props['proxy_client_ip'] := proxy.clientIp
+        props['proxy_user_agent'] := proxy.userAgent
+    }
+
+    postHogCapture({
+        'event': '$http_log',
+        'distinct_id': distinctId,
+        'properties': props
+    })
 }
 
-// Parse URL for pathname and UTM parameters
-let queryParams := parseQueryParams(path)
-let pathname := extractPathname(path)
-
-let props := {
-    // Person processing. Anonymous by default ($process_person_profile = false) so high-cardinality
-    // log traffic does not create a person profile per distinct ID — cheaper and faster to query.
-    // Set the "Person processing" input to "identified" to create person profiles for stitching.
-    '$process_person_profile': inputs.person_processing == 'identified',
-
-    // PostHog standard properties. $ip and $raw_user_agent are appended
-    // below when forward_ip_and_user_agent is enabled (default on, since
-    // PostHog's GeoIP and UA enrichment depend on them); flip the toggle
-    // off to keep raw client identifiers off the emitted event.
-    '$distinct_id_strategy': activeStrategy,
-    '$current_url': f'{scheme}://{host}{path}',
-    '$host': host,
-    '$pathname': pathname,
-    '$referrer': proxy.referer,
-
-    // UTM parameters (extracted from URL query string)
-    'utm_source': queryParams['utm_source'],
-    'utm_medium': queryParams['utm_medium'],
-    'utm_campaign': queryParams['utm_campaign'],
-    'utm_term': queryParams['utm_term'],
-    'utm_content': queryParams['utm_content'],
-
-    // Core log fields
-    'vercel_log_id': log.id,
-    'deployment_id': log.deploymentId,
-    'project_id': log.projectId,
-    'project_name': log.projectName,
-    'source': log.source,
-    'environment': log.environment,
-    'level': log.level,
-    'type': log.type,
-    'message': truncateIfNeeded(log.message),
-    'message_truncated': typeof(log.message) == 'string' and length(log.message ?? '') > limit,
-    'vercel_timestamp_ms': log.timestamp,
-
-    // Request info
-    'host': log.host,
-    'path': log.path,
-    'entrypoint': log.entrypoint,
-    'status_code': log.statusCode,
-    'request_id': log.requestId,
-    'execution_region': log.executionRegion,
-    'invocation_id': log.invocationId,
-    'instance_id': log.instanceId,
-
-    // Build/deploy info
-    'build_id': log.buildId,
-    'branch': log.branch,
-    'destination': log.destination,
-
-    // Edge/middleware
-    'edge_type': log.edgeType,
-
-    // Tracing
-    'trace_id': log.traceId ?? log['trace.id'],
-    'span_id': log.spanId ?? log['span.id'],
-
-    // Security fingerprints
-    'ja3_digest': log.ja3Digest,
-    'ja4_digest': log.ja4Digest,
-
-    // Proxy fields (flattened)
-    'proxy_timestamp_ms': proxy.timestamp,
-    'proxy_method': proxy.method,
-    'proxy_host': proxy.host,
-    'proxy_path': proxy.path,
-    // proxy_user_agent and proxy_client_ip are gated on forward_ip_and_user_agent below.
-    'proxy_region': proxy.region,
-    'proxy_referer': proxy.referer,
-    'proxy_status_code': proxy.statusCode,
-    'proxy_scheme': proxy.scheme,
-    'proxy_response_byte_size': proxy.responseByteSize,
-    'proxy_cache_id': proxy.cacheId,
-    'proxy_path_type': proxy.pathType,
-    'proxy_path_type_variant': proxy.pathTypeVariant,
-    'proxy_vercel_id': proxy.vercelId,
-    'proxy_vercel_cache': proxy.vercelCache,
-    'proxy_lambda_region': proxy.lambdaRegion,
-    'proxy_waf_action': proxy.wafAction,
-    'proxy_waf_rule_id': proxy.wafRuleId
+for (let _, log in selectedLogs) {
+    captureLog(log)
 }
-
-if (inputs.forward_ip_and_user_agent) {
-    props['$ip'] := clientIp
-    props['$raw_user_agent'] := userAgent
-    props['proxy_client_ip'] := proxy.clientIp
-    props['proxy_user_agent'] := proxy.userAgent
-}
-
-postHogCapture({
-    'event': '$http_log',
-    'distinct_id': distinctId,
-    'properties': props
-})
 
 return {
     'httpResponse': {

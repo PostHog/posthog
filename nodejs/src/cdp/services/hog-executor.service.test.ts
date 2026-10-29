@@ -13,7 +13,7 @@ import { logger } from '~/common/utils/logger'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { HogExecutorAsyncService } from '../../../src/cdp/services/hog-executor-async.service'
-import { HogExecutorService } from '../../../src/cdp/services/hog-executor.service'
+import { HogExecutorService, MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS } from '../../../src/cdp/services/hog-executor.service'
 import { HogInputsService } from '../../../src/cdp/services/hog-inputs.service'
 import { RecipientsManagerService } from '../../../src/cdp/services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../../../src/cdp/services/managers/team-workflows-config.service'
@@ -648,6 +648,47 @@ describe('Hog Executor', () => {
                   "Function completed in REPLACEDms. Sync: 0ms. Mem: 0.1kb. Ops: 15. Event: 'http://localhost:8000/events/1'",
                 ]
             `)
+        })
+
+        it('rejects a second postHogCapture from a destination', async () => {
+            const hog = `postHogCapture({'event': 'one', 'distinct_id': 'd'})
+postHogCapture({'event': 'two', 'distinct_id': 'd'})`
+            const fn = createHogFunction({
+                type: 'destination',
+                hog,
+                bytecode: await compileHog(hog),
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            const result = await executor.execute(createExampleInvocation(fn))
+            expect(result.error).toContain('postHogCapture was called more than once')
+            expect(result.capturedPostHogEvents.map((e) => e.event)).toEqual(['one'])
+        })
+
+        it('captures every event from a source webhook up to the cap and warns once', async () => {
+            const overflow = MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS + 3
+            const hog = `for (let i := 0; i < ${overflow}; i := i + 1) {
+    postHogCapture({'event': f'line {i}', 'distinct_id': 'd'})
+}`
+            const fn = createHogFunction({
+                type: 'source_webhook',
+                hog,
+                bytecode: await compileHog(hog),
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            const result = await executor.execute(createExampleInvocation(fn))
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents).toHaveLength(MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS)
+            expect(result.capturedPostHogEvents[0].event).toBe('line 0')
+            expect(result.capturedPostHogEvents[MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS - 1].event).toBe(
+                `line ${MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS - 1}`
+            )
+            expect(
+                result.logs.filter((log) =>
+                    log.message.includes(`more than ${MAX_SOURCE_WEBHOOK_CAPTURED_EVENTS} times`)
+                )
+            ).toHaveLength(1)
         })
     })
 
