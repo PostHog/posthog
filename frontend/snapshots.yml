@@ -7390,46 +7390,70 @@ snapshots:
         hash: v1.k794b7964.727a524bea080ccdd40b9d0d0d24fa11124956af6de43b8d1c7c55ecac8396fe.65eGhlez_kvcvkBca8RfUE_Vaw5E2KlZeBOB4vTHpgE
     products-data-modeling-model-view-summary--one-dependent-model--light:
         hash: v1.k794b7964.dfec6463b360d4256744023dcd168e8d00f4a15b49d0ab102389e63b73a16365.u5HZ_NMmZXGGMkfZG2ggcYyw--1BmBQ3OINd9m_arTE
+    products-data-modeling-models-overview--checks-failed-to-load--dark:
+        hash: v1.k794b7964.ed05fd90d410a18167c2759bf9d0956da767d8b02cab716ae85063ed58147461.sZSPK9zK9PKm4MqEhS7k_BbfyrIA1HU8wCeK-MA8HH0
+    products-data-modeling-models-overview--checks-failed-to-load--light:
+        hash: v1.k794b7964.1df0ef96b93802f8884e5e4660c5e796ac32a7856f702b6b6ec7afb7deae5106.jcy4Y1cd_WjBqQD88ic5nQgj9rjm1h3wOhvzP5z0PCs
     products-data-modeling-models-overview--first-view--dark:
-        hash: v1.k794b7964.4662f3b1f56358510a0df8317b0ccc1d3433e0d1463756c2f36206e59a23a209.p0Zm_YMIsUxgtbz6aZzyIB-h56I6y2KJG8hMyP2gPBk
+        hash: v1.k794b7964.881651fb9fde37f123bcca20a1bdf3865701d2310d8d874c066336002e451cdf.RbHb2rPxLLb3L2PrbmTuE0NOgHiFq3c0TuSbWwXx61E
     products-data-modeling-models-overview--first-view--light:
-        hash: v1.k794b7964.53c852464a09daa99f4fbc932e7baebb997f3e9bc5703d6e96b1d1bd765d1672.Kimk7IzdviRzmLHXyCJEPD81s0ftcoVGW87PAJNxl8k
+        hash: v1.k794b7964.4740ceeb5f918041e64206ce2ea69e82d94620ae2726e476db1935ae24262835.hSsr9dHeytXZtXweKe9cICSlVI2GTmj7nvrIkNLsFmQ
+    products-data-modeling-models-overview--first-view-narrow--dark:
+        hash: v1.k794b7964.3cc2f3591fd1f1e6217a7f32a0b3a18f97b3ded5971a177500ca58c0267435fe.Bf6vV5CIS8USyzInggPuyc4-CaJ486W6RP7X7dDEHVg
+    products-data-modeling-models-overview--first-view-narrow--light:
+        hash: v1.k794b7964.2b29b7cbc56d6f0df8c124b611f7554d273b5d80dd9f1451354d7a3739f1dc92.hUUMmCi0jnZh43aL9P9HBW5cehai9H2viR3oIYkOCmc
     products-data-modeling-models-overview--healthy--dark:
-        hash: v1.k794b7964.33a4e6635e379244b282fcdac6dcbc1b921a81c0bf107b722a6b28e209a04b61.FzcG1UAipCRC080eSXU-kP6EjDBd5FcBIfXxB03ASzA
+        hash: v1.k794b7964.e58b3541f33c2bec6c7857910a5cbdf4c6ff14a235662ff4e9388f3447b67920.gBMQ9tP9zbgoXjOl-PI6qpczZC9425m8s8LD8YkQW_Q
     products-data-modeling-models-overview--healthy--light:
-        hash: v1.k794b7964.a0f971eeeb05d6b7c69fb46da41202a3818ad1fd8dbb1dddd00823bb3f03a3f7.WsGaxY4f-EiIAWk8N3pybmLGR4DroahIXuP3obb0Wzk
+        hash: v1.k794b7964.e05dccac18431c43b07c41edcc3959658f1c77d722fcd1929c86795c633dee78.uZ9vuDcyBt1TO-_qcot9h1a9_YJGjCOxQSGu04Z9ruo
     products-data-modeling-models-overview--healthy-narrow--dark:
-        hash: v1.k794b7964.afba425b824ad7c8ec470d3a36754c5737dcb83a92354e2136da9e830fde5fc9.01diZppOafpB1fgzk2RrDqLnDbDyZMm5Rx-mfJeZ0Mo
+        hash: v1.k794b7964.352955ccc223b27454a7bc5362908e9c6e43e9df7b5e6ee8c2f162f4bd2cde28.1mxwLnml9hF0QXuhlR81knOnwzmtxUMUSFmQDR12YcI
     products-data-modeling-models-overview--healthy-narrow--light:
-        hash: v1.k794b7964.bce82ef74f0174eba639d728902e23ceac2cbc06b326ed89afbeb89e5611c384.KgqSdeQ9G6RzxEvDSG9Hv7SNG5uQfxzAPNyDdJLBHks
+        hash: v1.k794b7964.4bd5b244e8907a86222433f4a8f9ff27a083aee4d65c207c297c4a6d27accbf0.iNjV5VrjG5hu6CU8uIP6RAKF3sa0xWuL3Q53OaXVDVI
     products-data-modeling-models-overview--healthy-with-checks-not-run--dark:
-        hash: v1.k794b7964.3f2fd53b9be376fa33ce37c805a522cc67f917ff670447c5cc4bf2ef4038273f.LBo7z2BbqtmXZ25linp5FztXqPOM6b_81NJZ_hr28zM
+        hash: v1.k794b7964.d7fa9ca9786c51e62d9b7d22fa67b2dd66a4266d5e1854b4e1e6f9bedbd9f8b7.1Wowawdn-samshTDbWWK3L-txhkZe6yIROOgB28rC0Q
     products-data-modeling-models-overview--healthy-with-checks-not-run--light:
-        hash: v1.k794b7964.4259355f7d4ff729576d40af282d74a44b5065db2a05ea27542e0c23329d8d7f.-sEbjEO0wpUjCES2bDvCOmADt-Kd21vvdgv9G6068rU
+        hash: v1.k794b7964.08bff9300756ab7067f092aa32708fcc4b70d6cd4d260be2e4f1f01c4ebd06f5.5M6cLPUmaDIaYsIkAD8_v5Xi2z1is-gPCUqnOscaZ_8
     products-data-modeling-models-overview--healthy-with-data-quality-disabled--dark:
-        hash: v1.k794b7964.33a4e6635e379244b282fcdac6dcbc1b921a81c0bf107b722a6b28e209a04b61._nPT1AhJbd7zKpbFxVkQ9aBnv59QxQ80kkbVdF4og0M
+        hash: v1.k794b7964.e58b3541f33c2bec6c7857910a5cbdf4c6ff14a235662ff4e9388f3447b67920.ljLvEr18sZdZoE4fV6kScqxgCVfvaWV1BN0IfEhwsBQ
     products-data-modeling-models-overview--healthy-with-data-quality-disabled--light:
-        hash: v1.k794b7964.a0f971eeeb05d6b7c69fb46da41202a3818ad1fd8dbb1dddd00823bb3f03a3f7.PnyDGtm-NNxYtWcHJpILocI_zrHOSEvu5GZTEE7-omQ
+        hash: v1.k794b7964.e05dccac18431c43b07c41edcc3959658f1c77d722fcd1929c86795c633dee78.JzJglePgRASlA3uSw7QV37XKDXPfP7AOLbq8v-aqZdg
     products-data-modeling-models-overview--healthy-without-checks--dark:
-        hash: v1.k794b7964.fa41cba0989fef0a2c838801d3644c1e4ca8eac937bb3dbf725a7f6a7ef604aa.kelUPDbmBhJYptOGC9w-g3iE44re-pPeiVlL78ezLeU
+        hash: v1.k794b7964.2ba00127d250b37f0e9c17734c90bf00ea0baa873523f92564eb417e87a40557.ZNpw1ZwHsdQBwQIa3VuqXRBdKG6x8qWXpoz2MsTbBps
     products-data-modeling-models-overview--healthy-without-checks--light:
-        hash: v1.k794b7964.80a51ff1336207682dd9fbe4157ea086f18974ceebb841ea0df8a6c43cbc9a84.NdRL-UCZH1KSqc-cXsLgMFmO78BtuRY2SOvo8p4dr2c
+        hash: v1.k794b7964.451d3ac909dba5fa52129d03b64e80e08144f7b931817ad0a0209c5fc0ff330d.PTtdd1yN7XQvZ20GrY9O6aleRClwyFu5QJ9mSVQZGEU
+    products-data-modeling-models-overview--models-failed-to-load--dark:
+        hash: v1.k794b7964.ce45a58b23963d3a39180a7b6289ac3cf708d94124d38660baab0c513ef8c1ab.Z1z0PIH-hcBLZEavdT-b4X3NgilEfJGMbYllip_yvUM
+    products-data-modeling-models-overview--models-failed-to-load--light:
+        hash: v1.k794b7964.ce60b8247267c64dd2af60cf61f9aa23381ffce922f734d6a64cf6d8958f1471.ABO2DP8VyGn1WhPorvFpiIdIuvJY0o3QS4Rk-EVfQP0
     products-data-modeling-models-overview--narrow--dark:
-        hash: v1.k794b7964.b05ce52737a3aafe04e7bf7219f0cf117abe1ddf8e4324032638a2217275e8b0.l_KcmfKVER-Bg-A4q9C7tT6boC18cfFhdQ5LuoPYpH0
+        hash: v1.k794b7964.da64b79031e0fa071beb17cc960b46355cc4166693087a1a08a6371807d5a9a6.YLvPN_gTtfGi-leHrerSE0hWeEa7-ZjGySG1-gEvB4c
     products-data-modeling-models-overview--narrow--light:
-        hash: v1.k794b7964.8de8341c1349f8cb5552472ba0e31c9a3056aa38d8b0d080ddf6b3926df163ad.dnf-HokaWWpeRhejbFuoAtanPjQrZt8Siu89-G1BHCg
+        hash: v1.k794b7964.3caba2ce60f3f426133b0b73232ad9107da274130b9925c09c264ed94faf8909.2Ylw7KyC3x8zI0tAUrBTmX31pB7QEfJkP_fd-XANn24
     products-data-modeling-models-overview--narrow-partial-last-page--dark:
-        hash: v1.k794b7964.d7b4e0ddd20acfa6b10cef2ec04ed2b9aa0fbd21e4c78ce4a2056ea60c104228.mNhLlTtZzkVmNDmMyf4IFbB3NDvTp_ZoRThjwrdEts4
+        hash: v1.k794b7964.c7888b88d7a8b68d8e9e5417488206f9b112ab84e9790bf8933444f711e51266.ur7-fSbbcuiNUattrj-jlkDVn_ZIg3giKrHNX7cPL-s
     products-data-modeling-models-overview--narrow-partial-last-page--light:
-        hash: v1.k794b7964.d337628955e3ce769a33f45d97ce51958a8db287b1a4344fbf06bd72f172248b.CKw4zIA6QRuweF82g9IMxGqJYkFkxMG-6rAeJ-FExW0
+        hash: v1.k794b7964.ae34cc85e7ed9427f0f6f017c250e2e5b9f84d1a168a66cef899ddfc46462ab4.HKcS_9E3Dyal-NBr1cgl-OfezsGDdvwZkh_4CX7jrKg
+    products-data-modeling-models-overview--no-models-with-failing-check--dark:
+        hash: v1.k794b7964.59932621d773bed6feab24c8a3a1b4a73d580f7dcb63cd936a0c436716df22be.uyYta1mHJNHPdgB1ezPqIdJWCfXEddbXsr1m18rcyc0
+    products-data-modeling-models-overview--no-models-with-failing-check--light:
+        hash: v1.k794b7964.30f934e86e5900dd9e555ec7e4d267af05a1594f4fea0d59e2ace326db6eb78f.wT-X2harrnYn5WGo4EsoKeJd3D7tyBcLInemZkRg3Cw
     products-data-modeling-models-overview--paginated--dark:
-        hash: v1.k794b7964.8cac888d0fad47cbd5c4c4092010e2b62ceee02dfd1fed95f577498577cb6474.xae-ilaOzklSJOP6aVJJZKIHqNNukIpgMDve-n1XZUE
+        hash: v1.k794b7964.74fc5aa79f65b7985d007c2ac2b104005b4c1ca040bd30808b27ee6b1a2a43f9.7fcQsBlytxNgDW7wksE6PDPTvz1pjyiD-ybGhWttxDs
     products-data-modeling-models-overview--paginated--light:
-        hash: v1.k794b7964.f80388b1c73a52fb6412a33a4666f8f2df1bab209232a313c306a0990c9a3fca.8If9Zb3m9t5VtbIk5BMEGJ3uvzP5pGRsPFV_PIm_wjA
+        hash: v1.k794b7964.d2aae080e3390adeabb2a26f9d81f063c48850ab5ccda8eefe4caaa4753ef13e.dApwbKyiB43M060jR4Myr7gGJ06PkGhe63PHHOwB2Gk
     products-data-modeling-models-overview--partial-last-page--dark:
-        hash: v1.k794b7964.1a4ce304197dd14d4151ca1083e7ae7039f9908200c34f7378465025b79d7e08.94Li-jYAcO0uRnZLtl2_PHZpM-CXBrx24-RLOofaY_E
+        hash: v1.k794b7964.7f1da1e9919ab487bbd6d06a59cc2aa74295fcd9788fb0c6095075bd518eff7c.2ifxwc6sbSRlcXLZWi4bXhJgspOfKE2z6_U4ol58ZX8
     products-data-modeling-models-overview--partial-last-page--light:
-        hash: v1.k794b7964.0a510efc77afae6a02c52831583c4c38870a6e9c1a1dcd78c2905ff05933c085.KSDQ61iPt91mJjAozciHJ7_p5ed-dd3IkN5KPYxR204
+        hash: v1.k794b7964.88a65a98215c5f5fd99e8f5c48d656eb14736b1240d486f79bbab1660318ad64.BImEZpgLtkQnmiHZkdculQtX4qAWC3PP9rRpDKC40aU
+    products-data-modeling-models-overview--with-suggestions--dark:
+        hash: v1.k794b7964.135dfc121f9ac6ffa1bf815ccba1161852ee8caa9e31e6a7bc373bb7d7c6ef73.w22y5ZWxtrKD-xwWGAnOHSDuQkH6CAwpGwAgGhgkBbg
+    products-data-modeling-models-overview--with-suggestions--light:
+        hash: v1.k794b7964.56fa4417e94df6813fc3274461c532b42b347e4ee130c989b5917c2ed68477f9.eSaiT64ib_crVQykupqmfLkU9CVSFS0yM3S3saWNPZ4
+    products-data-modeling-models-overview--with-suggestions-narrow--dark:
+        hash: v1.k794b7964.9b1714ea82e50f20f102a54055cae4d2d532937896ccb41334ddaef9df98b18c.3PskYeE0lVQhZ9yb91e0eK8flOS0bTWfAM7Z2nDn8hs
+    products-data-modeling-models-overview--with-suggestions-narrow--light:
+        hash: v1.k794b7964.3b28f23bfe87eba12478323837e8ffdeda039bdcae5171ace8a8ea88def3db36.MaUVuZkDc1tSXv10rIIcizBMsAXq-TYwSMdMOV6pOWE
     products-data-modeling-models-usage--empty--dark:
         hash: v1.k794b7964.794122ef01e1cbdf612c6e898d2746c0edd22f4091d653e611ff9463eec1ab1e.NMB-O3Bzpz-wX1Ehg0HAAq22qfuQtYFyTYRMXj9uCqY
     products-data-modeling-models-usage--empty--light:
