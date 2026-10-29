@@ -609,7 +609,6 @@ export const FEATURE_FLAGS = {
     WIZARD_RUN_SYNC: 'wizard-run-sync', // owner: #team-growth multivariate=wizard-session,wizard-run — selects the Wizard sync widget
     WIZARD_UI_ENABLED: 'wizard-ui-enabled', // owner: @fercgomes #team-growth — gates the /wizard/runs interface
     WORKFLOW_ADD_TO_STATIC_COHORT_ACTION: 'workflow-add-to-static-cohort-action', // owner: #team-workflows
-    WORKFLOW_AI_TASK_ACTION: 'workflow-ai-task-action', // owner: @mayteio #team-workflows
     WORKFLOW_CLASSIFY_ACTION: 'workflow-classify-action', // owner: #team-workflows
     WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION: 'workflow-opt-out-of-messages-action', // owner: #team-workflows
     WORKFLOWS_AI_FIRST_NEW: 'workflows-ai-first-new', // owner: @mayteio #team-workflows

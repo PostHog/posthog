@@ -1944,7 +1944,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                         attrPrefix="workflows-task"
                     />
                 ),
-                flag: 'WORKFLOW_AI_TASK_ACTION',
                 keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
             {

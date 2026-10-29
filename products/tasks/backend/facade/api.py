@@ -11288,7 +11288,7 @@ def start_space_setup(
     ):
         raise SpaceSetupUnavailableError(
             "Goal setup is not available because the Create AI task workflow action is unavailable. "
-            "Ask an administrator to sync workflow templates and enable the action, then retry setup."
+            "Ask an administrator to sync workflow templates, then retry setup."
         )
     with transaction.atomic():
         channel = _locked_visible_channel(channel_id, team.id, user_id)
