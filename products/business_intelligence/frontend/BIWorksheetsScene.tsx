@@ -48,7 +48,7 @@ export function BIWorksheetsScene(): JSX.Element {
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Business Intelligence"
+                name="Business intelligence"
                 description="Explore your data with visual worksheets."
                 resourceType={{ type: 'business_intelligence' }}
                 actions={
@@ -67,6 +67,17 @@ export function BIWorksheetsScene(): JSX.Element {
                     )
                 }
             />
+            <LemonBanner
+                type="info"
+                dismissKey="business-intelligence-beta-banner"
+                action={{
+                    children: 'Send feedback',
+                    id: 'business-intelligence-feedback-button',
+                    'data-attr': 'business-intelligence-feedback-button',
+                }}
+            >
+                <p>Business intelligence is in beta. Tell us what you'd like to see here, or report any issues.</p>
+            </LemonBanner>
             <BIStarters />
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
