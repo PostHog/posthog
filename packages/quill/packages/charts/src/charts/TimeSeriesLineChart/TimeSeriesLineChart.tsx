@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     AxisLinesConfig,
     ChartLegendConfig,
@@ -71,7 +72,8 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
      *  collapses onto the first occurrence's position and draws the series backwards. Display
      *  formatting belongs in `xAxis.timezone`/`interval` (auto tick formatter) or `tickFormatter`. */
     labels: string[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: TimeSeriesLineChartConfig
     tooltip?: (ctx: TooltipContext<Meta>) => React.ReactNode
     onPointClick?: (data: PointClickData<Meta>) => void
@@ -87,7 +89,7 @@ export interface TimeSeriesLineChartProps<Meta = unknown> {
 export function TimeSeriesLineChart<Meta = unknown>({
     series,
     labels,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onPointClick,
@@ -98,6 +100,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
     children,
     onError,
 }: TimeSeriesLineChartProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         xAxis,
         yAxis,

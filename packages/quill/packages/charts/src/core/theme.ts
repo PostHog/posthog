@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useState } from 'react'
 
 import type { ChartTheme } from './types'
 
@@ -124,11 +124,15 @@ export function themeFromCssVars(options: ThemeFromCssOptions = {}): ChartTheme 
  * one or the other) and re-reads the vars whenever they flip.
  */
 export function useChartTheme(options: ThemeFromCssOptions = {}): ChartTheme {
+    return useCssVarTheme(options, true)
+}
+
+function useCssVarTheme(options: ThemeFromCssOptions, enabled: boolean): ChartTheme {
     const { root, colorCount } = options
-    const [theme, setTheme] = useState<ChartTheme>(() => themeFromCssVars(options))
+    const [theme, setTheme] = useState<ChartTheme>(() => (enabled ? themeFromCssVars(options) : FALLBACK_THEME))
 
     useEffect(() => {
-        if (typeof document === 'undefined' || typeof MutationObserver !== 'function') {
+        if (!enabled || typeof document === 'undefined' || typeof MutationObserver !== 'function') {
             return
         }
         const reread = (): void => setTheme(themeFromCssVars({ root, colorCount }))
@@ -139,7 +143,24 @@ export function useChartTheme(options: ThemeFromCssOptions = {}): ChartTheme {
         observer.observe(document.body, opts)
         return () => observer.disconnect()
         // root/colorCount are the only inputs; options identity is intentionally ignored.
-    }, [root, colorCount])
+    }, [root, colorCount, enabled])
 
     return theme
+}
+
+const FALLBACK_THEME: ChartTheme = { colors: [...DEFAULT_CHART_COLORS] }
+
+const ChartThemeContext = createContext<ChartTheme | null>(null)
+
+/** Gives every chart below it a theme, so a chart can omit its `theme` prop. Pass the result of
+ *  {@link useChartTheme} (or the host's own theme hook) as `value`. A new `value` object repaints
+ *  every chart below, so keep it stable. */
+export const ChartThemeProvider = ChartThemeContext.Provider
+
+/** The theme a chart draws with: its own `theme` prop, else the nearest {@link ChartThemeProvider},
+ *  else the quill CSS vars. Only the last case reads and watches the CSS vars. */
+export function useResolvedChartTheme(theme?: ChartTheme): ChartTheme {
+    const provided = useContext(ChartThemeContext)
+    const fallback = useCssVarTheme({}, !theme && !provided)
+    return theme ?? provided ?? fallback
 }
