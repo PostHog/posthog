@@ -2353,8 +2353,18 @@ class SignalReportViewSet(
             if annotation not in ordered_fields or annotation in annotated:
                 continue
             annotated.add(annotation)
-            queryset = queryset.annotate(**{annotation: self._latest_ranking_value(head, "scores")})
+            latest_score = self._latest_ranking_value(head, "scores")
+            if self._inbox_ranker is not None:
+                queryset = queryset.annotate(
+                    **{self._ranking_decile_annotation(annotation): score_decile(latest_score)}
+                )
+            else:
+                queryset = queryset.annotate(**{annotation: latest_score})
         return queryset
+
+    @staticmethod
+    def _ranking_decile_annotation(score_annotation: str) -> str:
+        return f"{score_annotation}_decile"
 
     @staticmethod
     def _latest_ranking_value(head: str, key: Literal["scores", "lifts"]) -> Subquery:
@@ -2622,7 +2632,7 @@ class SignalReportViewSet(
             name = clause.lstrip("-")
             if name in ranking_annotations:
                 # The recommended preset sorts by the score decile, so the order shows no more than `inbox_merge_key`.
-                expression = score_decile(name) if self._inbox_ranker is not None else F(name)
+                expression = F(self._ranking_decile_annotation(name) if self._inbox_ranker is not None else name)
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
                     expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)
