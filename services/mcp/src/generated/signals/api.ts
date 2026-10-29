@@ -333,7 +333,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .enum(['me', 'mine'])
         .optional()
         .describe(
-            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started."
+            "'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included."
         ),
     channel_id: zod
         .string()
