@@ -1,6 +1,6 @@
 # Agent notes: inbox_ranking dags
 
-Read `README.md` first for what the dataset is and how partitions behave. This file is the guardrails for changing code here.
+Read `README.md` first for what the dataset is and how partitions behave. Read `ARCHITECTURE.md` before you change a network input, a feature set or the network's widths, and update it in the same PR. This file is the guardrails for changing code here.
 
 ## Extending
 

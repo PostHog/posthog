@@ -25,6 +25,8 @@ Per-person activity summaries are not a dag. They live in `products/signals/back
 
 Registered via `posthog/dags/locations/signals.py` (US only) and loaded locally through `.dagster_home/workspace.yaml`. The `nn` family is registered via `posthog/dags/locations/signals_ml.py` instead, because it needs torch (see [The nn family](#the-nn-family)).
 
+This README is the operating guide. [ARCHITECTURE.md](ARCHITECTURE.md) describes what the network sees: every input, the project and user vectors, and the trunk width of each family.
+
 ## The dataset dag
 
 `inbox_ranking_dataset_job` runs daily at 02:30 UTC (schedule default: running on prod US, stopped everywhere else — including hosted DEV and E2E, which have no dogfood project to read labels from) and builds ten assets on one daily partition, each a Parquet object in S3:
@@ -406,7 +408,7 @@ The network leaves out every report that is in any head's holdout, so the compar
 
 ### The nn family
 
-`nn` is one multi-head network (`multihead/network.py`) over the report vector and the team's `typical`, `open`, `action` and `dismiss` project vectors, with the heads `open`, `action` and `fixed`. It is a model family like the per-head ones: it has its own prefix, the main job's serving manifest names a served, challenger or cross-family `nn` model as an `onnx` entry, and the online grader grades it. The main location fits no model.
+`nn` is one multi-head network (`multihead/network.py`) over the report vector and the team's `typical`, `open`, `action` and `dismiss` project vectors, with the heads `open`, `action` and `fixed`. It is a model family like the per-head ones: it has its own prefix, the main job's serving manifest names a served, challenger or cross-family `nn` model as an `onnx` entry, and the online grader grades it. The main location fits no model. [ARCHITECTURE.md](ARCHITECTURE.md) has its inputs and widths.
 
 Two `nn` families train every day. `nn_v3` reads the `report_embeddings` set. `nn_with_prio_v2` reads `report_embeddings_priority`: its `report` input carries the 1536 vector components and then the five priority levels, and those five columns skip the shared projection and go straight into the trunk input. Neither is served by default; a person serves one with `inbox_ranking_promote_job` after comparing their online grades.
 
@@ -485,7 +487,7 @@ A family with `grain="pair"` scores one row per (report, impressed user) from `i
 
 #### User-history families
 
-`nn_pair_user_v1` and `nn_pair_base_v1` ask whether a user's own inbox history improves the ranking. Both train until 2026-11-25, with heads `open` and `action` and `nn_with_prio_v2` as the reference. `nn_pair_user_v1` names `nn_pair_base_v1` as its baseline, and the base has no pair baseline.
+`nn_pair_user_v1` and `nn_pair_base_v1` ask whether a user's own inbox history improves the ranking. Both train until 2026-11-25, with heads `open` and `action` and `nn_with_prio_v2` as the reference. `nn_pair_user_v1` names `nn_pair_base_v1` as its baseline, and the base has no pair baseline. [ARCHITECTURE.md](ARCHITECTURE.md) shows the user offsets and the pair inputs next to the report and team inputs.
 
 - **Same network.** Both read the `report_embeddings_priority` columns, the team's project vectors, `is_suggested_reviewer` and the same user-history inputs, in one input shape, on the same pairs and seeds.
 - **User inputs** (`PairUserHistoryFeatureSet` in `products/signals/backend/ranking/features.py`): `log1p` of `user_open_reports` and `user_dismiss_reports`, `days_since_last_view` over its 90-day cap, `has_user_history`, and a `user` graph input. That input holds, per kind (`open`, `dismiss`), the user's vector minus the team's project vector of the kind (`user_offsets`). An offset is zero when the user has no report of the kind or the team's kind has too thin a history. A cold-start user reads zero offsets, zero counts and the capped recency, and gets a finite score from the same network.
@@ -535,6 +537,7 @@ The dags train only on reports from organizations whose `Organization.is_ai_trai
 - `inbox_report_state` keeps only the spine reports of those teams. A label event that names another team's report does not pull it back in. That report's labels still land in `inbox_report_model_data` as a label-only row, which training skips.
 - `inbox_report_embeddings`, `inbox_report_title_embeddings`, `inbox_signal_embeddings` and `inbox_activity_summary_vectors` read only those teams, through `team_id IN (...)` in the ClickHouse query.
 - The `nn` examples asset drops every state row whose `report_team_id` is not in the current set, before it builds examples. The lookback window reaches partitions written before an organization opted out, so this filter is what makes an opt-out take effect on the next training run.
+- A stored `inbox_ranking_nn_examples` object keeps the consent set of the run that wrote it. The `nn` candidates and the report-grain experiments read it as stored, so before a run on an older partition, re-run the examples asset for that partition. The pair examples apply the current set again when they build.
 
 The filter follows the current setting, so an organization that opts back in is trained on again.
 The state asset and the `nn` examples asset record `excluded_no_training_consent_reports` and `excluded_no_training_consent_teams` as metadata. They are counts, never ids.
