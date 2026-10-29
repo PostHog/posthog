@@ -66,7 +66,6 @@ from products.warehouse_sources.backend.facade.source_inputs import SourceInputs
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
     CDC_RESET_PENDING_KEY,
-    CDC_SEQ_COLUMN,
     AnySource,
     RowFilterValidationError,
     SourceRegistry,
@@ -75,10 +74,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
-    history_column_collisions,
     is_history_table_mode,
     purge_buffer_prefix,
     repair_is_running,
+    reserved_column_collisions,
+    reserved_column_names,
     resnapshot_stays_in_buffer,
     source_type_supports_cdc,
     tables_wait_for_repair,
@@ -457,17 +457,7 @@ def _source_column_names(instance: ExternalDataSchema) -> set[str]:
     return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
 
 
-def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
-    """Capture stamps each change with this column, so a source column of the same name would fail
-    the source's sync."""
-    if CDC_SEQ_COLUMN in _source_column_names(instance):
-        raise ValidationError(
-            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses that name. "
-            "Rename the column on your database, or choose another sync method for this table."
-        )
-
-
-def _refuse_reserved_history_columns(
+def _refuse_reserved_columns(
     instance: ExternalDataSchema,
     *,
     previous_mode: str | None,
@@ -477,23 +467,31 @@ def _refuse_reserved_history_columns(
     new_enabled_columns: list[str] | None,
     new_primary_keys: list[str] | None,
 ) -> None:
-    """The history table stamps each row version with `valid_from` and `valid_to`, so a synced source
-    column of the same name fails every load into it. Only a collision this request adds is refused,
-    so a table that already has one can still be edited or switched back."""
-    if not is_history_table_mode(new_mode):
-        return
+    """Capture and the history table write their own columns next to the source's, so a synced source
+    column that loads under one of those names fails the sync. Only a collision this request adds is
+    refused, so a table that already has one can still be edited or switched back."""
     columns = _source_column_names(instance)
-    taken = history_column_collisions(columns, new_enabled_columns, new_primary_keys, instance.incremental_field)
-    if instance.sync_type == ExternalDataSchema.SyncType.CDC and is_history_table_mode(previous_mode):
-        existing = history_column_collisions(
-            columns, previous_enabled_columns, previous_primary_keys, instance.incremental_field
+    taken = reserved_column_collisions(
+        columns,
+        reserved_column_names(history=is_history_table_mode(new_mode)),
+        enabled_columns=new_enabled_columns,
+        primary_keys=new_primary_keys,
+        incremental_field=instance.incremental_field,
+    )
+    if taken and instance.sync_type == ExternalDataSchema.SyncType.CDC:
+        existing = reserved_column_collisions(
+            columns,
+            reserved_column_names(history=is_history_table_mode(previous_mode)),
+            enabled_columns=previous_enabled_columns,
+            primary_keys=previous_primary_keys,
+            incremental_field=instance.incremental_field,
         )
         taken = [column for column in taken if column not in existing]
     if taken:
         raise ValidationError(
-            f"A history table can't store the column {' or '.join(taken)}, because PostHog uses valid_from and "
-            "valid_to to record when each version was current. Rename the column on your database, or choose "
-            "the consolidated table only for this table."
+            f"Change data capture can't sync the column {' or '.join(taken)}, because it loads under a name "
+            "PostHog writes. Rename the column on your database, leave it out of the synced columns, or change "
+            "this table's sync method or output tables."
         )
 
 
@@ -1331,7 +1329,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             # discovery already stored; refuse the switch when neither is set.
             _apply_primary_key_columns(data, payload, instance, "CDC")
             if instance.sync_type != ExternalDataSchema.SyncType.CDC:
-                _refuse_reserved_cdc_column(instance)
                 # A table joining CDC starts from a fresh snapshot, even when an earlier sync
                 # method or an earlier CDC period already loaded it. The snapshot moves to
                 # streaming only when initial_sync_complete goes from False to True, so a table
@@ -1369,7 +1366,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # can also bring a validity column into the history table.
         if (sync_type if "sync_type" in data else instance.sync_type) == ExternalDataSchema.SyncType.CDC:
             resulting_config = validated_data.get("sync_type_config", instance.sync_type_config) or {}
-            _refuse_reserved_history_columns(
+            _refuse_reserved_columns(
                 instance,
                 previous_mode=previous_cdc_table_mode,
                 previous_enabled_columns=instance.enabled_columns,

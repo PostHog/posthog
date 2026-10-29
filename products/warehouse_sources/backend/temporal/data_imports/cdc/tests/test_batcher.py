@@ -22,8 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     build_scd2_table,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
-    history_column_collisions,
     is_history_table_mode,
+    reserved_column_collisions,
+    reserved_column_names,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
@@ -615,19 +616,17 @@ class TestSeqColumn:
 
         assert CDC_SEQ_COLUMN not in table.column_names
 
-    def test_source_column_named_like_seq_wins_and_append_is_skipped(self):
-        # A user column literally named _ph_cdc_seq must pass through with its own
-        # values; the engine seq append is skipped rather than shadowing it.
+    @parameterized.expand([(CDC_SEQ_COLUMN,), ("_PH_CDC_SEQ",), ("_phDeletedAt",)])
+    def test_a_source_column_that_loads_like_a_capture_column_is_refused(self, column: str) -> None:
+        # The load renames `_PH_CDC_SEQ` to `_ph_cdc_seq`, so the snapshot would put customer values
+        # in the column every position decision reads.
         batcher = ChangeEventBatcher(position_to_seq=_pg_position_to_seq)
-        batcher.add(_make_event(op="I", position="0/100", columns={"id": 1, CDC_SEQ_COLUMN: 42}))
-        table = batcher.flush()["users"]
+        batcher.add(_make_event(op="I", position="0/100", columns={"id": 1, column: 42}))
 
-        assert table.column_names.count(CDC_SEQ_COLUMN) == 1
-        assert table.column(CDC_SEQ_COLUMN).to_pylist() == [42]
-        # Not last: the caller's strip-by-last-field rule must not remove it.
-        assert table.schema.field(table.num_columns - 1).name != CDC_SEQ_COLUMN
-        # Unstamped, so the load side cannot mistake these user values for engine positions.
-        assert table.schema.field(CDC_SEQ_COLUMN).metadata is None
+        tables = batcher.flush()
+
+        assert "users" not in tables
+        assert column in str(batcher.reserved_collisions["users"])
 
     def test_engine_seq_stamp_survives_the_whole_transform_chain(self):
         # The load side gates every position decision on this stamp, and each transform below
@@ -713,24 +712,36 @@ class TestScd2TimestampType:
         assert result.column(SCD2_VALID_TO_COLUMN).to_pylist()[0] is not None
 
 
-class TestHistoryColumnCollisions:
+class TestReservedColumnCollisions:
     @parameterized.expand(
         [
-            ("exact_name", ["id", "valid_to"], None, None, ["valid_to"]),
-            ("name_the_load_renames", ["id", "validFrom", "VALID_TO"], None, None, ["VALID_TO", "validFrom"]),
-            ("left_out_of_enabled_columns", ["id", "validFrom"], ["id"], None, []),
-            ("kept_as_the_incremental_field", ["id", "valid_from"], [], "valid_from", ["valid_from"]),
+            ("exact_name", ["id", "valid_to"], True, None, None, ["valid_to"]),
+            ("name_the_load_renames", ["id", "validFrom", "VALID_TO"], True, None, None, ["VALID_TO", "validFrom"]),
+            ("capture_name_the_load_renames", ["id", "_PH_CDC_SEQ"], False, None, None, ["_PH_CDC_SEQ"]),
+            ("validity_name_without_history", ["id", "valid_from"], False, None, None, []),
+            ("left_out_of_enabled_columns", ["id", "validFrom"], True, ["id"], None, []),
+            ("kept_as_the_incremental_field", ["id", "valid_from"], True, [], "valid_from", ["valid_from"]),
         ]
     )
     def test_names_the_source_columns_that_collide(
         self,
         _name: str,
         column_names: list[str],
+        history: bool,
         enabled_columns: list[str] | None,
         incremental_field: str | None,
         expected: list[str],
     ) -> None:
-        assert history_column_collisions(column_names, enabled_columns, ["id"], incremental_field) == expected
+        assert (
+            reserved_column_collisions(
+                column_names,
+                reserved_column_names(history=history),
+                enabled_columns=enabled_columns,
+                primary_keys=["id"],
+                incremental_field=incremental_field,
+            )
+            == expected
+        )
 
 
 class TestIsHistoryTableMode:

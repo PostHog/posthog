@@ -5037,6 +5037,14 @@ class TestExternalDataSource(APIBaseTest):
                 None,
             ),
             (
+                "capture_column_the_load_renames",
+                [("id", "uuid", False), ("_PH_DELETED", "boolean", True)],
+                {"tracking_link": ["id"]},
+                "tracking_link (_ph_deleted)",
+                "consolidated",
+                None,
+            ),
+            (
                 "validity_column_with_a_history_table",
                 [("id", "uuid", False), ("valid_to", "timestamp", True)],
                 {"tracking_link": ["id"]},

@@ -46,9 +46,12 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters impor
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_SEQ_COLUMN,
+    HISTORY_COLUMNS,
     ChangeEventBatcher,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    is_history_table_mode,
+    reserved_column_collisions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.billing_expiry import (
     blocked_past_buffer_retention,
@@ -350,23 +353,38 @@ class CDCExtractActivity:
     # ------------------------------------------------------------------
     # Per-flush processing
     # ------------------------------------------------------------------
+    def _writes_buffer_for(self, table_name: str) -> bool:
+        return (
+            table_name in self.schema_by_name
+            and table_name in self._buffered_table_names
+            and table_name not in self._tables_awaiting_reset
+        )
+
     def _process_flush(self, tables: dict[str, pa.Table]) -> None:
         """Enrich one micro-batch and write each captured table's changes to the S3 change buffer."""
         events_extracted = 0
 
+        assert self.batcher is not None
+        for table_name, error in self.batcher.reserved_collisions.items():
+            if self._writes_buffer_for(table_name):
+                raise error
+
         for table_name, raw_table in tables.items():
             schema = self.schema_by_name.get(table_name)
-            if (
-                schema is None
-                or table_name not in self._buffered_table_names
-                or table_name in self._tables_awaiting_reset
-            ):
+            if schema is None or not self._writes_buffer_for(table_name):
                 continue
 
             self._safe_heartbeat()
 
             # raw_table has one row per source change event.
             events_extracted += raw_table.num_rows
+
+            # The batcher already refused the capture columns. The history table's own columns are
+            # checked here, because only the schema says whether this table keeps history.
+            if is_history_table_mode(schema.cdc_table_mode):
+                taken = reserved_column_collisions(raw_table.column_names, HISTORY_COLUMNS)
+                if taken:
+                    raise CDCReservedColumnError(f"Table {table_name} has history table column(s) {taken}")
 
             key_columns = self.pk_columns_by_table.get(table_name, [])
 
@@ -377,11 +395,10 @@ class CDCExtractActivity:
             if not enriched_table.num_rows:
                 continue
 
-            # A source column named _ph_cdc_seq means the batcher could not append the
-            # engine position; writing anyway would name, order, and clean up files by
-            # customer data — cleanup can then delete unconsumed files (see errors.py).
+            # The batcher refuses a source column of this name, so only a capture bug gets here. Writing
+            # without the engine position could make cleanup delete unconsumed files (see errors.py).
             if not has_engine_seq(enriched_table):
-                raise CDCReservedColumnError(f"Table {table_name} has a source column named {CDC_SEQ_COLUMN}")
+                raise RuntimeError(f"Table {table_name} reached the buffer without the engine position")
             self._write_buffer_file(schema, table_name, enriched_table)
 
         if events_extracted:

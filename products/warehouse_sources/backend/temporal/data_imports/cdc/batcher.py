@@ -21,7 +21,7 @@ DELETED_AT_COLUMN = "_ph_deleted_at"
 # and (in Phase B) drives the merge's monotonicity guard.
 CDC_SEQ_COLUMN = "_ph_cdc_seq"
 # Marks CDC_SEQ_COLUMN as engine-produced, so readers can tell it from a source column of the same
-# name (see the collision skip in _events_to_table).
+# name.
 CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 
 # Suffix of the SCD2 companion table's resource name ({schema.name}_cdc).
@@ -57,22 +57,36 @@ def is_history_table_mode(cdc_table_mode: object) -> bool:
     return isinstance(cdc_table_mode, str) and cdc_table_mode in CDC_HISTORY_TABLE_MODES
 
 
-def history_column_collisions(
+# Every column capture stamps onto a change row. The consolidated table and the history table both store them.
+CAPTURE_COLUMNS: frozenset[str] = frozenset(
+    {CDC_OP_COLUMN, CDC_TIMESTAMP_COLUMN, CDC_SEQ_COLUMN, DELETED_COLUMN, DELETED_AT_COLUMN, TOAST_OMITTED_COLUMN}
+)
+# The columns that only the history table adds.
+HISTORY_COLUMNS: frozenset[str] = frozenset({SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN})
+
+
+def reserved_column_names(*, history: bool) -> frozenset[str]:
+    """Every name a CDC sync writes next to the source's own columns."""
+    return CAPTURE_COLUMNS | HISTORY_COLUMNS if history else CAPTURE_COLUMNS
+
+
+def reserved_column_collisions(
     column_names: Iterable[str],
-    enabled_columns: list[str] | None,
-    primary_keys: list[str] | None,
+    reserved: frozenset[str],
+    *,
+    enabled_columns: list[str] | None = None,
+    primary_keys: list[str] | None = None,
     incremental_field: str | None = None,
 ) -> list[str]:
-    """Source columns that the history table would receive under its validity column names."""
+    """Source columns that would load under a name in `reserved`."""
     synced = set(column_names)
     # The same projection capture applies (`filter_columns_by_enabled_columns`), kept inline because
     # that module's package imports Django models and this one sits on the capture path.
     if enabled_columns is not None:
         synced &= {*enabled_columns, *(primary_keys or []), *([incremental_field] if incremental_field else [])}
-    # The load renames columns to snake_case before the history transform adds the validity columns,
-    # so `validFrom` collides too. The source names are returned, because those are what a user renames.
-    validity_columns = {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN}
-    return sorted(name for name in synced if NamingConvention.normalize_identifier(name) in validity_columns)
+    # The load renames columns to snake_case, so `validFrom` and `_PH_CDC_SEQ` collide too. The source
+    # names are returned, because those are what a user renames.
+    return sorted(name for name in synced if NamingConvention.normalize_identifier(name) in reserved)
 
 
 # Columns that are CDC/SCD2 metadata — always filled from the event itself,
@@ -124,6 +138,10 @@ class ChangeEventBatcher:
         # Engine adapter's position_serialized → int converter. When set, flushed
         # tables carry CDC_SEQ_COLUMN; when None the column is absent entirely.
         self._position_to_seq = position_to_seq
+        # Tables the last flush could not build, because a source column collides with a capture column.
+        # The caller raises for them only once it knows the table is not waiting for a reset, because a
+        # reset discards the table's changes.
+        self.reserved_collisions: dict[str, CDCReservedColumnError] = {}
 
     def add(self, event: ChangeEvent) -> None:
         size = self._estimate_event_bytes(event)
@@ -142,11 +160,15 @@ class ChangeEventBatcher:
         Returns empty dict if no events buffered.
         """
         result: dict[str, pa.Table] = {}
+        self.reserved_collisions = {}
 
         for table_name, events in self._events.items():
             if not events:
                 continue
-            result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
+            try:
+                result[table_name] = _events_to_table(events, position_to_seq=self._position_to_seq)
+            except CDCReservedColumnError as error:
+                self.reserved_collisions[table_name] = error
 
         self._events.clear()
         self._table_bytes.clear()
@@ -453,13 +475,11 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     A two-step merge + append in the load processor closes previous "current"
     rows (sets valid_to) when a new batch is written for the same PK.
     """
-    taken = {SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN} & set(pa_table.column_names)
+    taken = reserved_column_collisions(pa_table.column_names, HISTORY_COLUMNS)
     if taken:
         # Delta refuses a duplicate column name at write time; failing here names the column and
         # keeps a half-built batch out of the writer.
-        raise CDCReservedColumnError(
-            f"Source column(s) {sorted(taken)} collide with the history table's validity columns"
-        )
+        raise CDCReservedColumnError(f"Source column(s) {taken} collide with the history table's validity columns")
     # Taken from the batch rather than assumed: `valid_from` is the timestamp column's own values,
     # and declaring a type it does not have makes pyarrow reject the append outright.
     ts_type = (
@@ -517,6 +537,12 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
         for col_name in event.omitted_columns:
             all_columns[col_name] = None
     column_names = list(all_columns.keys())
+    taken = reserved_column_collisions(column_names, CAPTURE_COLUMNS)
+    if taken:
+        raise CDCReservedColumnError(
+            f"Table {events[0].table_name} has source column(s) {taken} that collide with the columns change data "
+            "capture writes"
+        )
 
     # Authoritative Arrow type per column from the source schema (same for every event
     # of a relation). Lets all-null micro-batches keep the column's real type.
@@ -583,9 +609,7 @@ def _events_to_table(events: list[ChangeEvent], position_to_seq: Callable[[str],
         arrays.append(pa.array(omitted_lists, type=pa.list_(pa.string())))
         fields.append(pa.field(TOAST_OMITTED_COLUMN, pa.list_(pa.string())))
 
-    # Skip on collision: a source column literally named _ph_cdc_seq is never overwritten. The batch
-    # then carries no engine seq, and capture refuses to write it to the buffer.
-    if position_to_seq is not None and CDC_SEQ_COLUMN not in column_names:
+    if position_to_seq is not None:
         seq_values = [position_to_seq(event.position_serialized) for event in events]
         arrays.append(pa.array(seq_values, type=pa.int64()))
         fields.append(pa.field(CDC_SEQ_COLUMN, pa.int64(), metadata=CDC_SEQ_PROVENANCE))
