@@ -11,6 +11,7 @@ from products.replay_vision.backend.scanner_query import (
     NarrowingRefusal,
     QueryReferences,
     ScannerQueryError,
+    chosen_scope,
     narrow_chosen_query,
     query_references,
     unresolved_references,
@@ -74,6 +75,23 @@ class TestNarrowChosenQuery:
         assert narrowing.query == {**_CHOSEN, "events": [_EVENT]}
         assert narrowing.additions == {"kind": "RecordingsQuery", "events": [_EVENT]}
         assert narrowing.refusal is None
+
+
+class TestChosenScope:
+    @parameterized.expand(
+        [
+            ("every variant", {}, None),
+            # An empty name is a variant to check against the experiment, not a request for every variant.
+            ("an empty variant name", {"variant": ""}, [""]),
+            ("repeated variants", {"variants": ["test", "control", "test"]}, ["test", "control"]),
+        ]
+    )
+    def test_reads_the_exposure_variants_the_way_the_replay_list_does(self, _name, variant_fields, expected):
+        exposure = {"experiment_id": 1, **variant_fields}
+
+        scope = chosen_scope({"kind": "RecordingsQuery", "experiment_exposure": exposure}, experiment_id=None)
+
+        assert scope.experiment_variants == expected
 
 
 class TestUnresolvedReferences(BaseTest):

@@ -275,8 +275,12 @@ def chosen_scope(value: object, *, experiment_id: int | None) -> ChosenScope:
         raise ScannerQueryError("A scanner can't keep the in-session exposure condition. Remove it and try again.")
     if experiment_id is not None and experiment_id != exposure.experiment_id:
         raise ScannerQueryError("This is not the experiment the recording filter is scoped to.", field="experiment_id")
-    # In order and without repeats, as the replay list resolves them: a scanner refuses repeated variants.
-    variants = list(dict.fromkeys(exposure.variants or ([exposure.variant] if exposure.variant else []))) or None
+    # Read by presence, not truthiness, as the replay list resolves them, so an empty name is checked as a
+    # variant rather than read as every variant. In order and without repeats, since a scanner refuses repeats.
+    requested = exposure.variants if exposure.variants is not None else None
+    if requested is None and exposure.variant is not None:
+        requested = [exposure.variant]
+    variants = list(dict.fromkeys(requested)) if requested is not None else None
     return ChosenScope(
         query=query,
         experiment_id=exposure.experiment_id,
