@@ -4,6 +4,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.metrics import failure_streak_label
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     FAILING_SCHEMA_MAX_IMPORT_ATTEMPTS,
     FAILING_SCHEMA_RUN_GAP_BASE,
@@ -49,3 +51,37 @@ class TestMinGapBetweenRuns(SimpleTestCase):
             gap = min_gap_between_runs(failed_runs)
             assert gap is not None
             assert gap <= FAILING_SCHEMA_RUN_GAP_CAP
+
+
+class TestFailureStreakLabel(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("first_failure_is_new", ExternalDataJob.Status.FAILED, 0, "new"),
+            (
+                "last_failure_before_the_threshold_is_new",
+                ExternalDataJob.Status.FAILED,
+                GIVE_UP_AFTER_FAILED_RUNS - 1,
+                "new",
+            ),
+            (
+                "failure_at_the_threshold_is_ongoing",
+                ExternalDataJob.Status.FAILED,
+                GIVE_UP_AFTER_FAILED_RUNS,
+                "ongoing",
+            ),
+            (
+                "lowercased_status_matches_too",
+                ExternalDataJob.Status.FAILED.lower(),
+                GIVE_UP_AFTER_FAILED_RUNS,
+                "ongoing",
+            ),
+            (
+                "completed_run_after_a_streak_is_none",
+                ExternalDataJob.Status.COMPLETED,
+                GIVE_UP_AFTER_FAILED_RUNS,
+                "none",
+            ),
+        ]
+    )
+    def test_label(self, _name: str, status: str, failed_runs_in_a_row: int, expected: str) -> None:
+        assert failure_streak_label(status, failed_runs_in_a_row) == expected

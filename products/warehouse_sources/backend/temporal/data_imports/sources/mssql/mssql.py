@@ -171,6 +171,20 @@ def run_metadata_with_deadline(operation: Callable[[], _T], *, action: str, time
 _TRANSIENT_CONNECTION_ERROR = "DBPROCESS is dead or not enabled"
 _MAX_DISCOVERY_CONNECTION_ATTEMPTS = 5
 
+# SQL Server error 9002 raised while running `sp_spaceused` for table stats. The transaction log
+# for the shared `tempdb` database filled up because another session's active transaction is
+# holding it open, so it can't be truncated — this clears once that transaction ends or is rolled
+# back and a later attempt can succeed. `fetch_table_stats` is best-effort, so this is matched like
+# `_is_transient_connection_error` below and skipped rather than captured as tracked noise.
+_TEMPDB_LOG_FULL_ERROR = "The transaction log for database 'tempdb' is full"
+
+
+def _is_tempdb_log_full_error(error: BaseException) -> bool:
+    """True for a SQL Server 9002 tempdb-log-full error that clears once the holding transaction ends."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _TEMPDB_LOG_FULL_ERROR in message
+
+
 # SQL Server error 1205 — this session was picked as the deadlock victim and its transaction was
 # rolled back to break a lock cycle with a concurrent process. SQL Server's own guidance is to
 # rerun the transaction: lock contention is momentary, so re-running the identical query usually
@@ -605,7 +619,8 @@ class MSSQLColumn(Column):
             case "smallint":
                 arrow_type = pa.int16()
             case "tinyint":
-                arrow_type = pa.int8()
+                # MSSQL's tinyint is unsigned (0 to 255), unlike every other integer type here.
+                arrow_type = pa.uint8()
             case "decimal" | "numeric" | "money":
                 if not self.numeric_precision or not self.numeric_scale:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
@@ -1135,10 +1150,11 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             return TableStats(table_size_bytes=total_bytes, row_count=total_rows)
         except Exception as e:
             # A transient connection death recovers on the next sync attempt with a fresh
-            # connection (see `retry_on_transient_connection_error`); table stats are best-effort,
-            # so skip capturing this known, self-recovering error as tracked noise.
-            if isinstance(e, pymssql.Error) and _is_transient_connection_error(e):
-                logger.debug(f"fetch_table_stats: transient MSSQL connection death, returning None: {e}")
+            # connection (see `retry_on_transient_connection_error`); a tempdb-log-full error
+            # recovers once the other session's transaction ends; table stats are best-effort, so
+            # both are skipped rather than captured as tracked noise.
+            if isinstance(e, pymssql.Error) and (_is_transient_connection_error(e) or _is_tempdb_log_full_error(e)):
+                logger.debug(f"fetch_table_stats: known self-recovering MSSQL error, returning None: {e}")
                 return None
             logger.debug(f"fetch_table_stats: Error: {e}. Returning None", exc_info=e)
             capture_exception(e)

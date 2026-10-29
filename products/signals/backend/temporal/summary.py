@@ -44,6 +44,7 @@ from products.signals.backend.auto_start import (
     start_requested_implementation,
 )
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
 from products.signals.backend.models import (
     SIGNALS_AT_RUN_INCREMENT,
     SignalReport,
@@ -89,6 +90,7 @@ from products.signals.backend.temporal.agentic.report import (
 )
 from products.signals.backend.temporal.agentic.select_repository import (
     SelectRepositoryInput,
+    github_optional_pilot_activity,
     select_repository_activity,
 )
 from products.signals.backend.temporal.inbox_notification import (
@@ -119,7 +121,7 @@ EMPTY_FETCH_RETRY_ATTEMPTS = 6
 EMPTY_FETCH_RETRY_INTERVAL = timedelta(seconds=10)
 
 
-def _capture_report_event(
+async def _capture_report_event(
     event: str,
     team: Team,
     organization: Organization,
@@ -163,6 +165,20 @@ def _capture_report_event(
         metrics.increment_report_completed(result, failure_reason=failure_reason, error_type=error_type)
 
     try:
+        if event == "signal_report_completed":
+            content = (
+                await SignalReportArtefact.objects.filter(
+                    team_id=team.pk, report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
+                )
+                .order_by("-created_at")
+                .values_list("content", flat=True)
+                .afirst()
+            )
+            context = json.loads(content).get("research_context") if content else None
+            if context:
+                properties.update(
+                    github_optional=True, research_mode=context["mode"], repository_status=context["repository_status"]
+                )
         posthoganalytics.capture(
             event=event,
             distinct_id=str(team.uuid),
@@ -593,6 +609,14 @@ class SignalReportSummaryWorkflow:
             # Captured before the selection is resolved, so the research activity can tell whether
             # a reviewer rewrote the report's repo selection while this run was in flight.
             repo_selection_as_of = workflow.now()
+            github_optional = False
+            if workflow.patched("self-driving-github-optional"):
+                github_optional = await workflow.execute_activity(
+                    github_optional_pilot_activity,
+                    inputs.team_id,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             repo_result: RepoSelectionResult = await workflow.execute_activity(
                 select_repository_activity,
                 SelectRepositoryInput(
@@ -600,6 +624,7 @@ class SignalReportSummaryWorkflow:
                     report_id=inputs.report_id,
                     signal_id=inputs.signal_id,
                     signals=fetch_result.signals,
+                    github_optional=github_optional,
                 ),
                 # Budget = heavy-cache warmup (cold, ≤1000 repos, rate-limit backoffs) +
                 # follower lock wait (≤20m) + agent poll window (≤30m). 45m fits all three.
@@ -609,7 +634,7 @@ class SignalReportSummaryWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
             await self._wait_for_task_settlement(inputs)
-            if repo_result.repository is None:
+            if repo_result.repository is None and not github_optional:
                 log.warning(
                     "Report has no repository selected",
                     reason=repo_result.reason,
@@ -642,6 +667,7 @@ class SignalReportSummaryWorkflow:
                         signals=fetch_result.signals,
                         repo_selection=repo_result,
                         repo_selection_as_of=repo_selection_as_of,
+                        github_optional=github_optional,
                     ),
                 )
                 await self._wait_for_task_settlement(inputs)
@@ -1031,7 +1057,7 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
 
     assert input.signal_count is not None
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_started",
         team=team,
         organization=team.organization,
@@ -1260,7 +1286,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
         return transition.has_new_signals
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_completed",
         team=team,
         organization=team.organization,
@@ -1364,13 +1390,19 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
             ch_user=ClickHouseUser.SIGNALS,
         )
     else:
-        await maybe_autostart_from_report_artefacts(
-            team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
-        )
-        # A plan never starts its own run, so its first layers start here, at the same settle point.
-        await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
-            team_id=input.team_id, parent_report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
-        )
+        try:
+            await maybe_autostart_from_report_artefacts(
+                team_id=input.team_id, report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+            )
+            # A plan never starts its own run, so its first layers start here, at the same settle point.
+            await database_sync_to_async(start_unblocked_layers_of_plan, thread_sensitive=False)(
+                team_id=input.team_id, parent_report_id=input.report_id, ch_user=ClickHouseUser.SIGNALS
+            )
+        except RepositoryAccessTemporarilyUnavailable as error:
+            raise ApplicationError(
+                str(error),
+                next_retry_delay=timedelta(seconds=error.wait) if error.wait else None,
+            ) from error
 
 
 @dataclass(frozen=True)
@@ -1447,7 +1479,7 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_completed",
         team=team,
         organization=team.organization,
@@ -1567,7 +1599,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
         return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_completed",
         team=team,
         organization=team.organization,
@@ -1628,7 +1660,7 @@ async def reset_report_to_potential_activity(input: ResetReportToPotentialInput)
         return
 
     team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    _capture_report_event(
+    await _capture_report_event(
         event="signal_report_completed",
         team=team,
         organization=team.organization,
@@ -1662,7 +1694,6 @@ async def dispatch_inbox_slack_notifications_activity(input: DispatchInboxSlackN
     return await database_sync_to_async(dispatch_inbox_item_notifications, thread_sensitive=False)(
         report_id=input.report_id,
         team_id=input.team_id,
-        source_products=input.source_products,
     )
 
 

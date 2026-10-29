@@ -77,7 +77,6 @@ function mockOnboarding(firstReport: FirstReportStateApi, notify: boolean): void
     useMocks({
         get: {
             '/api/projects/:id/signals/onboarding/': {
-                variant: 'test-ui',
                 completed_at: new Date().toISOString(),
                 draft: null,
                 jobs: { scout: 'started', recommendations: 'skipped' },
@@ -286,14 +285,23 @@ describe('ReportsTab', () => {
 
     // All the states load at once, so the naive wiring fires one `Inbox viewed` per state and
     // multiplies every visit in the activation funnel.
-    it('fires Inbox viewed once for the whole list', async () => {
+    it.each([
+        { name: 'the visible sections', counts: COUNT_BY_FILTER, total: 14, empty: false },
+        {
+            name: 'only hidden Closed reports',
+            counts: [{ match: (params: URLSearchParams) => params.get('status') === 'closed', count: 3 }],
+            total: 0,
+            empty: true,
+        },
+    ])('fires Inbox viewed once for $name', async ({ counts, total, empty }) => {
+        mockReportCounts(counts)
         render(<ReportsTab />)
 
         await waitFor(() => {
             const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
             expect(viewed).toHaveLength(1)
             // Needs decision + Review and merge + Resolved + Dismissed + Held back. Not actionable is staff-only triage.
-            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: 14, is_empty: false })
+            expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: total, is_empty: empty })
         })
     })
 

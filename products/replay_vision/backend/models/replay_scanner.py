@@ -7,7 +7,6 @@ from django.db import models, transaction
 from django.utils import timezone
 from django.utils.functional import Promise
 
-from posthog.migration_helpers import deprecate_field
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UUIDModel
@@ -282,31 +281,6 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         null=True,
         blank=True,
         help_text="When an estimate was last attempted, success or failure. Backs off the refresher on scanners whose estimate query keeps failing.",
-    )
-
-    # Retired with the scheduled search suggestion refresher; the columns stay until a later drop.
-    search_suggestions = deprecate_field(
-        models.JSONField(
-            default=list,
-            null=True,
-            blank=True,
-            help_text="Example searches drawn from recent observations, shown on the Search tab's empty state.",
-        )
-    )
-    search_suggestions_watermark = deprecate_field(
-        models.DateTimeField(
-            null=True,
-            blank=True,
-            help_text="created_at of the newest observation the suggestions were drawn from.",
-        )
-    )
-    search_suggestions_generated_at = deprecate_field(models.DateTimeField(null=True, blank=True))
-    search_last_viewed_at = deprecate_field(
-        models.DateTimeField(
-            null=True,
-            blank=True,
-            help_text="When the Search tab last asked for this scanner's suggestions. Only viewed scanners refresh.",
-        )
     )
 
     # Written with the prompt by every path that sets one, see `prompt_questions`; inline scanners keep only a

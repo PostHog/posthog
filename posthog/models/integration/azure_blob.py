@@ -6,6 +6,7 @@ from itertools import groupby
 from operator import itemgetter
 from urllib.parse import urlsplit
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.security.url_validation import (
     ResolvedIPs,
@@ -33,12 +34,12 @@ class AzureBlobIntegration:
     integration: model.Integration
     connection_string: str
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.AZURE_BLOB.value:
             raise AzureBlobIntegrationError(
                 f"Integration provided is not an Azure Blob integration (got kind='{integration.kind}')"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
         try:
             self.connection_string = self.integration.sensitive_config["connection_string"]
