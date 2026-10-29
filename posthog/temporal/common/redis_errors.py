@@ -5,7 +5,10 @@ import redis.exceptions
 # EAI_NONAME ("Name or service not known") and EAI_NODATA ("No address associated with hostname")
 # stay unmatched, because both can mean a host that never resolves — a real misconfiguration that
 # must keep reaching error tracking. Mirrors the equivalent Postgres marker in db_errors.py.
-_TRANSIENT_REDIS_ERROR_MARKERS = ("Temporary failure in name resolution",)
+# redis-py raises "Timeout connecting to server" when the TCP connect exceeds socket_connect_timeout,
+# for example while Redis is briefly saturated or failing over. A timeout that outlives the retries
+# still fails the workflow, so it stays visible there.
+_TRANSIENT_REDIS_ERROR_MARKERS = ("Temporary failure in name resolution", "Timeout connecting to server")
 
 # Count the raised error toward the limit so cyclic or very long chains stay bounded.
 _MAX_CAUSE_CHAIN_DEPTH = 10
@@ -15,7 +18,7 @@ def is_transient_redis_error(error: BaseException) -> bool:
     """Check this error and its explicit causes for a transient Redis connectivity failure.
 
     Only a connect-time ConnectionError/TimeoutError whose message matches a marker above
-    qualifies — a refused connection or a bad password is a real defect, not a DNS blip, and
+    qualifies — a refused connection or a bad password is a real defect, not a blip, and
     must keep reaching error tracking. Ignores `__context__`: an unrelated failure inside an
     `except` block must stay reportable.
     """

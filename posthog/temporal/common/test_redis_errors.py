@@ -22,6 +22,9 @@ def _raised_from(error: BaseException, cause: BaseException) -> BaseException:
             True,
         ),
         (redis.exceptions.TimeoutError("Timeout connecting to server: Temporary failure in name resolution"), True),
+        (redis.exceptions.TimeoutError("Timeout connecting to server"), True),
+        # A read timeout on an open connection can mean a slow command, not a connect blip.
+        (redis.exceptions.TimeoutError("Timeout reading from socket"), False),
         # A host that never resolves is a real misconfiguration, not a blip — must keep reaching
         # error tracking.
         (
