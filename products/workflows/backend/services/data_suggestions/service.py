@@ -510,6 +510,8 @@ def _build_event_workflows(
                 user=user,
                 suggestion=suggestion,
                 events=planning_events,
+                # Picked events get an email workflow each, so push stays out whatever the project's app is.
+                mobile_first=False,
                 validate_draft=validate_draft,
                 picked_events=True,
             )
