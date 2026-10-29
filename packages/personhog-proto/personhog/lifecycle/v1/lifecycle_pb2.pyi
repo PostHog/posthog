@@ -44,13 +44,18 @@ class DeletePersonsRequest(_message.Message):
     ) -> None: ...
 
 class DeletePersonResult(_message.Message):
-    __slots__ = ("person_id", "outcome")
+    __slots__ = ("person_id", "outcome", "person_version")
     PERSON_ID_FIELD_NUMBER: _ClassVar[int]
     OUTCOME_FIELD_NUMBER: _ClassVar[int]
+    PERSON_VERSION_FIELD_NUMBER: _ClassVar[int]
     person_id: int
     outcome: DeletePersonOutcome
+    person_version: int
     def __init__(
-        self, person_id: _Optional[int] = ..., outcome: _Optional[_Union[DeletePersonOutcome, str]] = ...
+        self,
+        person_id: _Optional[int] = ...,
+        outcome: _Optional[_Union[DeletePersonOutcome, str]] = ...,
+        person_version: _Optional[int] = ...,
     ) -> None: ...
 
 class DeletePersonsResponse(_message.Message):
