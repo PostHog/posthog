@@ -38,7 +38,7 @@ Details:
 - pnpm comes from `packageManager` in `products/mobile/package.json`, not from the repo root.
 - Node comes from `products/mobile/.node-version`. Keep it equal to the repo's `.nvmrc` and to `node` in `eas.json`.
 - The pnpm store cache is keyed on `products/mobile/pnpm-lock.yaml`. Pull requests only restore it. Pushes to `master` save it.
-- Change detection uses the existing paths-filter GitHub App. Both reusable-workflow callers pass `GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY` by name. The workflow creates a token with pull-request read access only for same-repository PRs; fork PRs use `GITHUB_TOKEN`. No credential value belongs in the repository.
+- Change detection uses the existing paths-filter GitHub App. Both reusable-workflow callers pass `GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY` by name. The workflow creates a token with pull-request read access only for same-repository PRs; fork and Dependabot PRs use `GITHUB_TOKEN` because they do not receive the app secret. No credential value belongs in the repository.
 - A newer push to the same pull request cancels the older run.
 - Push runs use a separate concurrency group for each commit, so a later release cannot replace an earlier pending validation run. Publication stays serialized; see [release ordering and retries](RELEASING.md#receipts-ordering-and-retries).
 - After this workflow reaches `master`, ask a repository administrator through `@PostHog/team-devex` to add `mobile-ci / Mobile CI Pass` to the `master` ruleset's required status checks with GitHub Actions as its source. Keep the other required checks. YAML comments do not configure repository rules.

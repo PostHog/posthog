@@ -571,6 +571,14 @@ describe('CI workflow run plans', () => {
             install: true,
             appToken: false,
         },
+        {
+            name: 'Dependabot PR',
+            github: { ...pullRequest(), actor: 'dependabot[bot]' },
+            mobile: true,
+            validate: true,
+            install: true,
+            appToken: false,
+        },
         { name: 'unrelated PR', github: pullRequest(), mobile: false, validate: false, install: false, appToken: true },
         {
             name: 'master cache warmer',
