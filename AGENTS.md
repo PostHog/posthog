@@ -104,7 +104,7 @@ Every PR gets a `🤖 CI report` comment.
 Its warn-only sections, such as eager graph budgets, bundle size, complexity and duplication, never fail a check, so a green PR can still carry open warnings.
 
 - **An agent reads the CI report after every push, and before it calls a PR ready.** Run `gh pr view <number> --comments`. A section that is not ✅ is an open finding.
-- **An agent resolves each open finding in its own diff, or states in the PR body why the finding does not apply.** A positive "Δ vs base" counts against the PR even when the base branch already shows the warning.
+- **An agent considers each open finding.** It fixes the finding in its own diff, states in the PR body why the finding does not apply, or escalates to a person when it cannot decide. A positive "Δ vs base" counts against the PR even when the base branch already shows the warning.
 - **An agent never silences a finding.** Do not raise a budget, add an ignore, or drop a check. A budget goes up only in a reviewed PR that needs the bytes.
 
 These rules bind agents. A person reads the same report and decides for themselves.
