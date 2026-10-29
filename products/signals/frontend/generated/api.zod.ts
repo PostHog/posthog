@@ -1421,6 +1421,30 @@ export const SignalsReportsBulkStateCreateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Claim many reports for the current user, internal task, or external agent in one call. Each id is claimed independently, and the call is 200 even when some claims are refused: inspect `results` and the counts. Use the single-report claim endpoint to release a claim or to add pull requests.
+ * @summary Claim many signal reports
+ */
+export const signalsReportsBulkClaimBodyIdsMax = 100
+
+export const signalsReportsBulkClaimBodyTakeoverAgentClaimsDefault = false
+
+export const SignalsReportsBulkClaimBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(signalsReportsBulkClaimBodyIdsMax)
+        .describe(
+            'Report ids to claim for the caller in one call (1–100). Duplicates are de-duplicated. Each id is claimed independently, so a report that cannot be claimed does not block the rest.'
+        ),
+    takeover_agent_claims: zod
+        .boolean()
+        .default(signalsReportsBulkClaimBodyTakeoverAgentClaimsDefault)
+        .describe(
+            'Take over a report that an agent or an internal task holds. A report that a person holds directly is never taken over and comes back as a conflict.'
+        ),
+})
+
 export const signalsReportsReadStateCreateBodyReportIdsMax = 100
 
 export const SignalsReportsReadStateCreateBody = /* @__PURE__ */ zod.object({
