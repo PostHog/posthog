@@ -351,6 +351,8 @@ def _build_repo_selection_prompt(
     # So is `autostart_eligible`: it records how the repo was chosen, which is the caller's fact,
     # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
     schema.get("properties", {}).pop("autostart_eligible", None)
+    schema.get("properties", {}).pop("research_context", None)
+    schema.get("$defs", {}).pop("ReportResearchContext", None)
     schema_json = json.dumps(schema, indent=2)
     visibility = visibility or {}
     repo_list = "\n".join(
@@ -627,6 +629,7 @@ async def select_repository(
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
     signal_report_id: str | None = None,
+    spend_signal_id: str | None = None,
     sandbox_environment_id: str | None = None,
     verbose: bool = False,
     output_fn: OutputFn = None,
@@ -766,6 +769,7 @@ async def select_repository(
             output_fn=output_fn,
             origin_product=origin_product,
             signal_report_id=signal_report_id,
+            spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
             internal=True,
             # An unreadable end turn used to fail the whole selection, and the caller then dropped the
@@ -785,6 +789,7 @@ async def select_repository(
     # A selection this agent made is a candidate-list pick for a caller that asked for one, so it
     # carries full autostart authority no matter what the model emitted.
     result.autostart_eligible = True
+    result.research_context = None
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

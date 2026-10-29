@@ -12,8 +12,9 @@ from products.warehouse_sources.backend.types import IncrementalField
 # paginated requests (and thus stay well under the ~1,000 requests/hour and ~20 requests/minute
 # per-key rate limits).
 PAGE_SIZE = 1000
-# `/costs` documents a higher cap than the other list endpoints.
+# `/costs` and `/business_metrics/{token}/values` document a higher cap than the other list endpoints.
 COSTS_PAGE_SIZE = 5000
+BUSINESS_METRIC_VALUES_PAGE_SIZE = 5000
 
 
 @frozen
@@ -37,6 +38,8 @@ class VantageEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
     page_size: int = PAGE_SIZE
+    # None for endpoints that document no page-size param at all.
+    page_size_param: Optional[str] = "limit"
     # Set for endpoints that need a parent row (a report token or a tag key) to build each request.
     fanout: Optional[DependentEndpointConfig] = None
     # Child-request params that are not page size, e.g. a fixed sort order.
@@ -119,6 +122,56 @@ VANTAGE_ENDPOINTS: dict[str, VantageEndpointConfig] = {
         primary_keys=None,
         partition_key="created_at",
     ),
+    "business_metrics": VantageEndpointConfig(
+        name="business_metrics", path="/business_metrics", data_key="business_metrics"
+    ),
+    # These lookups take `workspace_token`, which Vantage requires when the API token can see more
+    # than one workspace, so they fan out over workspaces. An account has few workspaces, so they
+    # stay on by default.
+    "cost_providers": VantageEndpointConfig(
+        name="cost_providers",
+        path="/cost_providers?workspace_token={workspace_token}",
+        data_key="cost_providers",
+        primary_keys=["workspace_token", "key"],
+        fanout=DependentEndpointConfig(
+            parent_name="workspaces",
+            resolve_param="workspace_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "workspace_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "cost_provider_accounts": VantageEndpointConfig(
+        name="cost_provider_accounts",
+        path="/cost_provider_accounts?workspace_token={workspace_token}",
+        data_key="cost_provider_accounts",
+        primary_keys=["workspace_token", "provider", "provider_uuid"],
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="workspaces",
+            resolve_param="workspace_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "workspace_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "cost_services": VantageEndpointConfig(
+        name="cost_services",
+        path="/cost_services?workspace_token={workspace_token}",
+        data_key="cost_services",
+        primary_keys=["workspace_token", "provider", "name"],
+        page_size_param=None,
+        fanout=DependentEndpointConfig(
+            parent_name="workspaces",
+            resolve_param="workspace_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "workspace_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
     # The fan-out tables below make one request series per parent row. They are off by default
     # because a large account can have many reports or tag keys, and the cost endpoints have
     # stricter rate limits than the config endpoints.
@@ -172,6 +225,59 @@ VANTAGE_ENDPOINTS: dict[str, VantageEndpointConfig] = {
             resolve_field="token",
             include_from_parent=["token"],
             parent_field_renames={"token": "resource_report_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Unit cost rows have no identifier, and their dates follow each report's saved date range and
+    # date bin, so the table is replaced on every sync.
+    "unit_costs": VantageEndpointConfig(
+        name="unit_costs",
+        path="/unit_costs?cost_report_token={cost_report_token}",
+        data_key="unit_costs",
+        primary_keys=None,
+        should_sync_default=False,
+        params={"order": "asc"},
+        fanout=DependentEndpointConfig(
+            parent_name="cost_reports",
+            resolve_param="cost_report_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "cost_report_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Values can carry a null label and are re-imported by the metric's integration, so the table
+    # is replaced on every sync. No `date_bin` is sent, so the values keep their imported timestamps.
+    "business_metric_values": VantageEndpointConfig(
+        name="business_metric_values",
+        path="/business_metrics/{business_metric_token}/values",
+        data_key="values",
+        primary_keys=None,
+        should_sync_default=False,
+        page_size=BUSINESS_METRIC_VALUES_PAGE_SIZE,
+        fanout=DependentEndpointConfig(
+            parent_name="business_metrics",
+            resolve_param="business_metric_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "business_metric_token"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Flow log rows are aggregates over each report's saved date interval and groupings, with no
+    # identifier, so the table is replaced on every sync.
+    "network_flow_logs": VantageEndpointConfig(
+        name="network_flow_logs",
+        path="/network_flow_logs?network_flow_report_token={network_flow_report_token}",
+        data_key="network_flow_logs",
+        primary_keys=None,
+        should_sync_default=False,
+        fanout=DependentEndpointConfig(
+            parent_name="network_flow_reports",
+            resolve_param="network_flow_report_token",
+            resolve_field="token",
+            include_from_parent=["token"],
+            parent_field_renames={"token": "network_flow_report_token"},
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),

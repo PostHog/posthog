@@ -39,6 +39,8 @@ class ParentFanout:
     stamp_field: Optional[str] = None
     # Cursor-paginated list endpoint the parent ids come from.
     parent_path: str = "/campaigns"
+    # The parent id fills the `{param}` placeholder in the path instead of a query param.
+    in_path: bool = False
 
 
 @dataclass(frozen=True)
@@ -234,6 +236,33 @@ INSTANTLY_ENDPOINTS: dict[str, InstantlyEndpointConfig] = {
         # The API documents no sort order for audit logs and has no sort param.
         sort_mode="desc",
         description="Workspace activity history: who changed what, when, and from where.",
+    ),
+    "campaign_analytics_overview": InstantlyEndpointConfig(
+        name="campaign_analytics_overview",
+        path="/campaigns/analytics/overview",
+        pagination="single",
+        data_selector=None,
+        # Without an id the API returns one rollup of every campaign; one request per campaign
+        # keeps the rows joinable to campaigns.
+        fanout=ParentFanout(param="id", stamp_field="campaign_id"),
+        primary_keys=["campaign_id"],
+        partition_key=None,
+        description="Analytics overview per campaign: sends, opens, replies, clicks, bounces, opportunities, and lead interest status totals.",
+    ),
+    "workspace_members": InstantlyEndpointConfig(
+        name="workspace_members",
+        path="/workspace-members",
+        description="Members of the workspace with their roles, permissions, and invitation status.",
+    ),
+    "lead_list_verification_stats": InstantlyEndpointConfig(
+        name="lead_list_verification_stats",
+        path="/lead-lists/{id}/verification-stats",
+        pagination="single",
+        data_selector=None,
+        fanout=ParentFanout(param="id", stamp_field="lead_list_id", parent_path="/lead-lists", in_path=True),
+        primary_keys=["lead_list_id"],
+        partition_key=None,
+        description="Email verification results per lead list: counts of verified, invalid, risky, catch-all, and pending leads.",
     ),
 }
 

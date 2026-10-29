@@ -73,6 +73,24 @@ class TestParseUrl:
                 StorageUrl(bucket="acme-exports", key="my files/a.csv", region="us-east-1"),
             ),
             (
+                "s3_without_region_virtual_hosted",
+                parse_s3_url,
+                "https://acme-exports.s3.amazonaws.com/raw/orders/",
+                StorageUrl(bucket="acme-exports", key="raw/orders/"),
+            ),
+            (
+                "s3_without_region_path_style",
+                parse_s3_url,
+                "https://s3.amazonaws.com/acme-exports/raw/*.csv",
+                StorageUrl(bucket="acme-exports", key="raw/*.csv"),
+            ),
+            (
+                "s3_uri",
+                parse_s3_url,
+                "s3://acme-exports/raw/orders/**/*.parquet",
+                StorageUrl(bucket="acme-exports", key="raw/orders/**/*.parquet"),
+            ),
+            (
                 "gcs_https",
                 parse_gcs_url,
                 "https://storage.googleapis.com/acme_exports/orders/{2024..2026}/*.jsonl",
@@ -103,8 +121,6 @@ class TestParseUrl:
 
     @parameterized.expand(
         [
-            ("s3_without_region_virtual_hosted", parse_s3_url, "https://acme.s3.amazonaws.com/a.csv", "region"),
-            ("s3_without_region_path_style", parse_s3_url, "https://s3.amazonaws.com/acme/a.csv", "region"),
             ("s3_other_host", parse_s3_url, "https://acme.example.com/a.csv", "isn't an Amazon S3 URL"),
             (
                 "s3_host_suffix",
@@ -124,6 +140,10 @@ class TestParseUrl:
             ("s3_empty_folder", parse_s3_url, "https://acme.s3.us-east-1.amazonaws.com/a//b.csv", "'//'"),
             ("s3_control_character", parse_s3_url, "https://acme.s3.us-east-1.amazonaws.com/a%0A.csv", "control"),
             ("s3_glob_in_bucket", parse_s3_url, "https://s3.us-east-1.amazonaws.com/acme-*/a.csv", "exact"),
+            ("s3_uri_glob_in_bucket", parse_s3_url, "s3://acme-*/a.csv", "special characters"),
+            ("s3_uri_parent_folder", parse_s3_url, "s3://acme/a/../b.csv", "'..'"),
+            ("s3_gs_scheme", parse_s3_url, "gs://acme/a.csv", "s3://"),
+            ("s3_without_region_no_bucket", parse_s3_url, "https://s3.amazonaws.com/", "doesn't name a bucket"),
             ("s3_encoded_bucket", parse_s3_url, "https://s3.us-east-1.amazonaws.com/acme%2Fx/a.csv", "exact"),
             ("s3_no_bucket", parse_s3_url, "https://s3.us-east-1.amazonaws.com/", "doesn't name a bucket"),
             ("s3_not_a_url", parse_s3_url, "acme-exports/a.csv", "full URL"),
@@ -144,10 +164,6 @@ class TestParseUrl:
         message = str(error.value)
         assert message.startswith(INVALID_CONFIG_ERROR)
         assert detail in message
-
-    def test_a_url_without_a_region_gives_an_example(self) -> None:
-        with pytest.raises(ObjectStorageError, match=r"such as https://[a-z-]+\.s3\.us-east-1\.amazonaws\.com/"):
-            parse_s3_url("https://acme-exports.s3.amazonaws.com/a.csv")
 
 
 class TestSelectKeys:
