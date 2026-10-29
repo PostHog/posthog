@@ -1225,7 +1225,7 @@ class SignalReportListPagination(LimitOffsetPagination):
         self.offset = self.get_offset(request)
         self.request = request
         if request.query_params.get("search"):
-            page, window_count = self._search_page(queryset)
+            page, window_count = self._search_page(queryset, self.offset, self.limit)
         else:
             page, window_count = list(queryset[self.offset : self.offset + self.limit]), None
         if len(page) < self.limit and (page or self.offset == 0):
@@ -1238,13 +1238,13 @@ class SignalReportListPagination(LimitOffsetPagination):
             self.display_page_controls = True
         return page
 
-    def _search_page(self, queryset) -> tuple[list[SignalReport], int | None]:
+    def _search_page(self, queryset, offset: int, limit: int) -> tuple[list[SignalReport], int | None]:
         # The trigram index cannot order the matches, so the page query already rechecks and sorts
         # every match. COUNT(*) OVER () takes the total from that same scan. Only the ids go through
         # the window, because the window buffers every match and full report rows spill to disk.
         rows = list(
             queryset.annotate(search_total=Window(Count("*"))).values_list("pk", "search_total")[
-                self.offset : self.offset + self.limit
+                offset : offset + limit
             ]
         )
         if not rows:
