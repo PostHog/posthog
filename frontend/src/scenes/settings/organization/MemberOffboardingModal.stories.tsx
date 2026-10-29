@@ -66,6 +66,16 @@ const resources = [
         project_name: 'Website',
         created_at: '2026-10-20T10:00:00Z',
     },
+    {
+        id: 'alert:1',
+        kind: 'alert',
+        name: 'Weekly usage drop',
+        url: '/project/1/alerts?alert_type=insights&alert_id=1',
+        password_required: false,
+        team_id: 1,
+        project_name: 'Website',
+        created_at: '2026-10-20T10:00:00Z',
+    },
 ]
 
 const meta: Meta<typeof MemberOffboardingModal> = {

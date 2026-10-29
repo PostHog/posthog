@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.models import Organization, OrganizationMembership, SessionRecording, SharingConfiguration, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 
+from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -290,3 +291,49 @@ class TestOrganizationOffboarding(APIBaseTest):
         subscription.refresh_from_db()
         assert subscription.enabled
         assert subscription.target_value == self.departing.email
+
+    def test_ai_subscriptions_are_included(self) -> None:
+        subscription = self.subscription(creator=self.departing, recipients="reports@example.com")
+        subscription.prompt = "Summarize weekly product usage"
+        subscription.save(update_fields=["prompt"])
+        response = self.client.get(self.url + "offboarding/")
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()] == [f"subscription:{subscription.pk}"]
+
+    def test_alerts_can_be_kept_or_disabled_without_changing_recipients(self) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.departing)
+        kept = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, created_by=self.departing, name="Keep"
+        )
+        disabled = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, created_by=self.departing, name="Disable"
+        )
+        unrelated = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, created_by=self.user, name="Other"
+        )
+        kept.subscribed_users.add(self.user)
+        response = self.client.get(self.url + "offboarding/")
+        assert response.status_code == 200
+        assert {item["id"] for item in response.json()} == {f"alert:{kept.pk}", f"alert:{disabled.pk}"}
+        assert all(item["kind"] == "alert" for item in response.json())
+        response = self.client.post(self.url + "offboard/", {"keep": [f"alert:{kept.pk}"]}, format="json")
+        assert response.status_code == 204
+        kept.refresh_from_db()
+        disabled.refresh_from_db()
+        unrelated.refresh_from_db()
+        assert kept.enabled
+        assert not disabled.enabled
+        assert unrelated.enabled
+        assert kept.subscribed_users.filter(pk=self.user.pk).exists()
+
+    @patch("products.alerts.backend.platform_ownership.write_moved_alert_edit")
+    def test_platform_owned_alert_disables_its_platform_copy(self, write_moved_alert_edit: MagicMock) -> None:
+        insight = Insight.objects.create(team=self.team, created_by=self.departing)
+        alert = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, created_by=self.departing, owner="platform"
+        )
+        response = self.client.post(self.url + "offboard/", {}, format="json")
+        assert response.status_code == 204
+        alert.refresh_from_db()
+        assert not alert.enabled
+        write_moved_alert_edit.assert_called_once_with(team_id=self.team.pk, alert_id=alert.pk, snooze_changed=False)

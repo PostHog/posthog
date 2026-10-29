@@ -491,6 +491,7 @@ export interface MemberOffboardingRequestApi {
  * * `notebook` - Notebook
  * * `recording` - Session recording
  * * `subscription` - Subscription
+ * * `alert` - Alert
  */
 export type MemberOffboardingResourceKindEnumApi =
     (typeof MemberOffboardingResourceKindEnumApi)[keyof typeof MemberOffboardingResourceKindEnumApi]
@@ -501,6 +502,7 @@ export const MemberOffboardingResourceKindEnumApi = {
     Notebook: 'notebook',
     Recording: 'recording',
     Subscription: 'subscription',
+    Alert: 'alert',
 } as const
 
 export interface MemberOffboardingResourceApi {
@@ -512,7 +514,8 @@ export interface MemberOffboardingResourceApi {
      * * `insight` - Insight
      * * `notebook` - Notebook
      * * `recording` - Session recording
-     * * `subscription` - Subscription */
+     * * `subscription` - Subscription
+     * * `alert` - Alert */
     kind: MemberOffboardingResourceKindEnumApi
     /** The resource's display name. */
     name: string

@@ -72163,6 +72163,7 @@ export namespace Schemas {
      * * `notebook` - Notebook
      * * `recording` - Session recording
      * * `subscription` - Subscription
+     * * `alert` - Alert
      */
     export type MemberOffboardingResourceKindEnum = typeof MemberOffboardingResourceKindEnum[keyof typeof MemberOffboardingResourceKindEnum];
 
@@ -72173,6 +72174,7 @@ export namespace Schemas {
       Notebook: 'notebook',
       Recording: 'recording',
       Subscription: 'subscription',
+      Alert: 'alert',
     } as const;
 
     export interface MemberOffboardingResource {
@@ -72184,7 +72186,8 @@ export namespace Schemas {
        * * `insight` - Insight
        * * `notebook` - Notebook
        * * `recording` - Session recording
-       * * `subscription` - Subscription */
+       * * `subscription` - Subscription
+       * * `alert` - Alert */
       kind: MemberOffboardingResourceKindEnum;
       /** The resource's display name. */
       name: string;

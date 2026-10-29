@@ -81,18 +81,19 @@ describe('memberOffboardingLogic', () => {
         ).toBe('3 dashboards, 1 insight, 1 notebook, 1 recording')
     })
 
-    it('reviews public links and subscriptions together and keeps both enabled by default', async () => {
+    it('reviews public links, subscriptions and alerts together and keeps them enabled by default', async () => {
         const subscription = { ...resources[0], id: 'subscription:1', kind: 'subscription', name: 'Weekly report' }
+        const alert = { ...resources[0], id: 'alert:1', kind: 'alert', name: 'Usage alert' }
         useMocks({
-            get: { '/api/organizations/:organization/members/:user/offboarding/': [...resources, subscription] },
+            get: { '/api/organizations/:organization/members/:user/offboarding/': [...resources, subscription, alert] },
         })
         await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
         expect(logic.values.publicResources).toEqual(resources)
-        expect(logic.values.subscriptions).toEqual([subscription])
-        expect(logic.values.keep).toEqual([...resources.map((resource) => resource.id), subscription.id])
+        expect(logic.values.subscriptions).toEqual([subscription, alert])
+        expect(logic.values.keep).toEqual([...resources.map((resource) => resource.id), subscription.id, alert.id])
         logic.actions.disableResources([subscription.id])
         await expectLogic(logic, () => logic.actions.remove()).toDispatchActions(['removeSuccess'])
-        expect(submitted).toEqual([{ keep: resources.map((resource) => resource.id) }])
+        expect(submitted).toEqual([{ keep: [...resources.map((resource) => resource.id), alert.id] }])
     })
 
     it('does not retain public links when leaving the organization yourself', async () => {

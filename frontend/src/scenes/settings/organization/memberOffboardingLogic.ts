@@ -194,12 +194,12 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
         publicResources: [
             (s) => [s.resources],
             (resources: MemberOffboardingResourceApi[] | null): MemberOffboardingResourceApi[] =>
-                (resources ?? []).filter((resource) => resource.kind !== 'subscription'),
+                (resources ?? []).filter((resource) => resource.kind !== 'subscription' && resource.kind !== 'alert'),
         ],
         subscriptions: [
             (s) => [s.resources],
             (resources: MemberOffboardingResourceApi[] | null): MemberOffboardingResourceApi[] =>
-                (resources ?? []).filter((resource) => resource.kind === 'subscription'),
+                (resources ?? []).filter((resource) => resource.kind === 'subscription' || resource.kind === 'alert'),
         ],
         getSelectionLabel: [
             (s) => [s.resources],
@@ -212,7 +212,7 @@ export const memberOffboardingLogic = kea<memberOffboardingLogicType>([
                             counts.set(resource.kind, (counts.get(resource.kind) ?? 0) + 1)
                         }
                     }
-                    const labels = ['dashboard', 'insight', 'notebook', 'recording', 'subscription']
+                    const labels = ['dashboard', 'insight', 'notebook', 'recording', 'subscription', 'alert']
                         .filter((kind) => counts.has(kind))
                         .map((kind) => pluralize(counts.get(kind)!, kind))
                     return labels.join(', ')

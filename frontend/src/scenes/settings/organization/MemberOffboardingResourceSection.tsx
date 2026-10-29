@@ -27,6 +27,7 @@ const RESOURCE_ICONS = {
     notebook: <IconNotebook />,
     recording: <IconRewindPlay />,
     subscription: <IconBell />,
+    alert: <IconBell />,
 }
 
 export function MemberOffboardingResourceSection({
@@ -44,10 +45,10 @@ export function MemberOffboardingResourceSection({
     const isSubscription = kind === 'subscriptions'
     return (
         <section className="space-y-3">
-            <h3>{isSubscription ? 'Subscriptions' : 'Publicly shared resources'}</h3>
+            <h3>{isSubscription ? 'Subscriptions and alerts' : 'Publicly shared resources'}</h3>
             <p>
                 {isSubscription
-                    ? 'These subscriptions were created by this member. You can keep or disable them when removing the member.'
+                    ? 'These subscriptions and alerts were created by this member. You can keep or disable them when removing the member.'
                     : "These resources were shared by this member and are accessible to anyone with the link. You can disable public sharing. This won't delete them."}
             </p>
             {!isSelf && (
@@ -66,10 +67,12 @@ export function MemberOffboardingResourceSection({
                         ? undefined
                         : {
                               getKey: (resource) => resource.id,
-                              noun: isSubscription ? ['subscription', 'subscriptions'] : ['resource', 'resources'],
+                              noun: isSubscription
+                                  ? ['subscription or alert', 'subscriptions and alerts']
+                                  : ['resource', 'resources'],
                               rowAriaLabel: (resource) => `Select ${resource.name}`,
                               headerAriaLabel: isSubscription
-                                  ? 'Select all subscriptions on this page'
+                                  ? 'Select all subscriptions and alerts on this page'
                                   : 'Select all resources on this page',
                               clearSelectionKey: member?.user.uuid,
                               isRowSelectable: () => (removedLoading ? { disabledReason: 'Removing member…' } : true),
@@ -96,7 +99,7 @@ export function MemberOffboardingResourceSection({
                 pagination={resources.length > 5 ? { pageSize: 5 } : undefined}
                 columns={[
                     {
-                        title: isSubscription ? 'Subscription name' : 'Resource name',
+                        title: isSubscription ? 'Name' : 'Resource name',
                         key: 'name',
                         render: (_, resource) => (
                             <div className="flex items-center gap-2 min-w-0">
@@ -173,7 +176,7 @@ export function MemberOffboardingResourceSection({
                                               checked={keep.includes(resource.id)}
                                               onChange={(enabled) => setKeep(resource.id, enabled)}
                                               disabledReason={removedLoading ? 'Removing member…' : undefined}
-                                              aria-label={`${isSubscription ? 'Enable subscription' : 'Public sharing for'} ${resource.name}`}
+                                              aria-label={`${isSubscription ? 'Enable' : 'Public sharing for'} ${resource.name}`}
                                               data-attr={
                                                   isSubscription
                                                       ? 'offboarding-disable-subscription'
@@ -201,7 +204,7 @@ export function MemberOffboardingResourceSection({
             {isSelf && (
                 <p>
                     {isSubscription
-                        ? 'These subscriptions will be disabled when you leave.'
+                        ? 'These subscriptions and alerts will be disabled when you leave.'
                         : 'Public sharing will be disabled for these resources when you leave.'}
                 </p>
             )}

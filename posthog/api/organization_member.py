@@ -159,6 +159,7 @@ class MemberOffboardingResourceKind(TextChoices):
     NOTEBOOK = "notebook", "Notebook"
     RECORDING = "recording", "Session recording"
     SUBSCRIPTION = "subscription", "Subscription"
+    ALERT = "alert", "Alert"
 
 
 class MemberOffboardingResourceSerializer(serializers.Serializer):
