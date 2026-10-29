@@ -123,6 +123,36 @@ def test_snapshot_resume_requires_a_resume_marker_and_snapshot(state: dict[str, 
     assert context.is_snapshot_resume is expected
 
 
+@pytest.mark.parametrize(
+    "origin_product,model,expected",
+    [
+        ("posthog_ai", "deepseek-ai/deepseek-v4-flash-0731", None),
+        ("posthog_ai", "zai-org/glm-5.3", None),
+        ("posthog_ai", "claude-opus-5-5", "claude-opus-5-5"),
+        ("posthog_ai", "gpt-6-sol", "gpt-6-sol"),
+        ("user_created", "deepseek-ai/deepseek-v4-flash-0731", "deepseek-ai/deepseek-v4-flash-0731"),
+        ("posthog_ai", None, None),
+    ],
+)
+def test_posthog_ai_run_drops_a_model_outside_its_gateway_pin(
+    origin_product: str, model: str | None, expected: str | None
+):
+    context = TaskProcessingContext(
+        task_id="task-id",
+        run_id="run-id",
+        team_id=1,
+        team_uuid="team-uuid",
+        organization_id="organization-id",
+        github_integration_id=None,
+        repository=None,
+        distinct_id="distinct-id",
+        origin_product=origin_product,
+        state={"model": model},
+    )
+
+    assert context.model == expected
+
+
 @pytest.mark.parametrize("flag_value,expected", [(True, True), (False, False), (None, False)])
 def test_desktop_workspace_warm_flag_uses_organization_rollout(flag_value, expected):
     assert (
