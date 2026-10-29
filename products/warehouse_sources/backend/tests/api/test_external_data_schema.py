@@ -4715,6 +4715,10 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert self.schema.enabled_columns == (
             initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
         )
+        # Capture must use the naming these columns were checked against, whatever the flag says later.
+        keeps_history = not refused and self.schema.cdc_table_mode in ("cdc_only", "both")
+        expected_pin = ("legacy" if legacy_table else "ph_validity") if keeps_history else None
+        assert self.schema.sync_type_config.get("history_naming") == expected_pin
 
     def _save_through_serializer(self, schema: ExternalDataSchema, request_body: dict) -> None:
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (

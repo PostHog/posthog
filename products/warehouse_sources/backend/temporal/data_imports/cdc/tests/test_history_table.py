@@ -12,13 +12,18 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import HISTORY_NAMING, LEGACY_HISTORY_NAMING
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
+    HistoryNaming,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
     history_naming,
     history_tables,
     is_another_schemas_history_table,
     new_history_names_taken,
+    pin_history_naming,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
@@ -77,6 +82,17 @@ class TestHistoryNaming(BaseTest):
         with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: False):
             assert history_naming(self.schema) == LEGACY_HISTORY_NAMING
 
+    # The API checked the columns against the pinned naming, so a later flag value must not move it.
+    @parameterized.expand(
+        [("pinned_new_flag_off", HISTORY_NAMING, False), ("pinned_legacy_flag_on", LEGACY_HISTORY_NAMING, True)]
+    )
+    def test_a_pinned_naming_wins_over_the_flag(self, _name: str, pinned: HistoryNaming, flag_on: bool) -> None:
+        pin_history_naming(self.schema.sync_type_config, pinned)
+        self.schema.save()
+
+        with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: flag_on):
+            assert history_naming(self.schema) == pinned
+
     def test_a_stamped_new_table_wins_over_a_legacy_named_table(self) -> None:
         # An unlinked `orders_cdc` can be a source table that has not synced yet. Taking the legacy naming
         # for it would stop writing the stamped history table.
@@ -91,12 +107,13 @@ class TestHistoryNaming(BaseTest):
 
         assert history_naming(self.schema) == HISTORY_NAMING
 
-    @parameterized.expand([("new_naming", True, "orders_history"), ("legacy_naming", False, "orders_cdc")])
+    @parameterized.expand(
+        [("new_naming", HISTORY_NAMING, "orders_history"), ("legacy_naming", LEGACY_HISTORY_NAMING, "orders_cdc")]
+    )
     def test_new_history_names_taken_compares_the_payload_of_a_new_source(
-        self, _name: str, ph_naming: bool, sibling: str
+        self, _name: str, naming: HistoryNaming, sibling: str
     ) -> None:
-        with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: ph_naming):
-            taken = new_history_names_taken(self.source, ["orders", "items"], ["orders", sibling, "items"])
+        taken = new_history_names_taken(self.source, naming, ["orders", "items"], ["orders", sibling, "items"])
 
         assert taken == ["orders"]
 

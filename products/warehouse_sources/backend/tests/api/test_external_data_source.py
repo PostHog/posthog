@@ -5007,6 +5007,8 @@ class TestExternalDataSource(APIBaseTest):
         assert enabled.sync_type == ExternalDataSchema.SyncType.CDC
         assert enabled.sync_type_config["cdc_mode"] == "snapshot"
         assert enabled.sync_type_config["cdc_table_mode"] == (events_table_mode or "consolidated")
+        # Capture must use the naming the columns were checked against, whatever the flag says later.
+        assert enabled.sync_type_config.get("history_naming") == ("legacy" if expected_history_modes else None)
         history_events = [
             c.kwargs["properties"]
             for c in mock_capture.call_args_list
