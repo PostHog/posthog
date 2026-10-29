@@ -26004,7 +26004,7 @@
                     "description": "Stable identifier of the check."
                 },
                 "name": {
-                    "description": "What the check looks at, as the health panel lists it.",
+                    "description": "The problem the check looks for, as the health panel lists it.",
                     "type": "string"
                 },
                 "reason": {
