@@ -14,7 +14,7 @@ from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.ai_observability.backend.facade.api import BlobPointer
+from products.ai_observability.backend.facade.blobs import BlobPointer
 from products.ai_observability.backend.llm.images import IMAGE_MIME_TYPES, MAX_IMAGE_BYTES, ImagePart, image_transport
 from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, MediaMarker
 
