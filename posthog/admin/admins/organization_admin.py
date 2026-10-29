@@ -401,11 +401,13 @@ class OrganizationAdmin(admin.ModelAdmin):
         # Format numbers with thousand separators
         formatted_data = {}
         for product, data in usage_data.items():
-            if product == "period":
+            # `period` and the billing status stamps sit next to the products and are not dicts.
+            if not isinstance(data, dict):
                 continue
+            limit = data.get("limit")
             formatted_data[product] = {
                 "usage": f"{int(data.get('usage', 0)):,}" if data.get("usage") is not None else "-",
-                "limit": f"{int(data.get('limit')):,}" if data.get("limit") else None,
+                "limit": f"{int(limit):,}" if limit else None,
                 "todays_usage": f"{int(data.get('todays_usage', 0)):,}"
                 if data.get("todays_usage") is not None
                 else "-",
