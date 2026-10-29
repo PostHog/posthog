@@ -1,3 +1,4 @@
+import copy
 import hmac
 import json
 import math
@@ -1011,9 +1012,13 @@ class TestBillingManager(BaseTest):
         assert organization.usage["billing_status_computed_at"] == expected_computed_at
         assert organization.usage.get("billing_latest_usage_report_date") == expected_report_date
 
-    def test_update_org_details_does_not_count_a_new_stamp_as_a_usage_change(self):
+    def test_update_org_details_writes_nothing_for_a_status_that_changes_only_the_stamp(self):
         manager = BillingManager(license=None)
         manager.update_org_details(self.organization, self._billing_status("2026-08-02T00:00:00Z", events_usage=1000))
+        assert self.organization.usage is not None
+        usage_written_by_quota_run = copy.deepcopy(self.organization.usage)
+        usage_written_by_quota_run["events"]["todays_usage"] = 25
+        Organization.objects.filter(id=self.organization.id).update(usage=usage_written_by_quota_run)
 
         with patch("ee.billing.billing_manager.update_org_billing_quotas") as update_org_billing_quotas:
             manager.update_org_details(
@@ -1023,7 +1028,7 @@ class TestBillingManager(BaseTest):
         update_org_billing_quotas.assert_not_called()
         self.organization.refresh_from_db()
         assert self.organization.usage is not None
-        assert self.organization.usage["billing_status_computed_at"] == "2026-08-03T00:00:00+00:00"
+        assert self.organization.usage["events"]["todays_usage"] == 25
 
 
 class TestBillingSession(SimpleTestCase):

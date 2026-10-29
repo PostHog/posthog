@@ -763,12 +763,6 @@ class BillingManager:
 
             should_update_org_billing_quotas = usage_changed or had_quota_limiting_markers
 
-        # Written after set_org_usage_summary, so a new stamp alone does not count as a usage change.
-        if computed_at is not None and organization.usage is not None:
-            organization.usage["billing_status_computed_at"] = computed_at.isoformat()
-            organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
-            org_modified = True
-
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
@@ -826,6 +820,13 @@ class BillingManager:
             if updated_customer_trust_scores != current_customer_trust_scores:
                 organization.customer_trust_scores = updated_customer_trust_scores
                 org_modified = True
+
+        # The stamp goes out only with a save that a change already needs. A save for the stamp
+        # alone writes this in-memory copy back over counters and quota markers that the quota
+        # run wrote in the meantime.
+        if org_modified and computed_at is not None and organization.usage is not None:
+            organization.usage["billing_status_computed_at"] = computed_at.isoformat()
+            organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         if org_modified:
             organization.save()
