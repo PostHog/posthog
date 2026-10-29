@@ -47,9 +47,9 @@ describe('HarnessLogo', () => {
             </Provider>
         )
         if (expectedSrc) {
-            await waitFor(() => expect(screen.getByRole('img', { name: harness })).toHaveAttribute('src', expectedSrc))
+            await waitFor(() => expect(screen.getByAltText(harness)).toHaveAttribute('src', expectedSrc))
         } else {
-            expect(screen.getByRole('img', { name: harness }).tagName.toLowerCase()).not.toBe('img')
+            expect(screen.getByLabelText(harness).tagName.toLowerCase()).not.toBe('img')
         }
     })
 })
