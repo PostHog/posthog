@@ -19,6 +19,7 @@ from posthog.models import Team, User
 from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
 from ee.hogai.context.context import AssistantContextManager
@@ -345,16 +346,22 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
         Raises MaxToolAccessDeniedError if user lacks required access.
 
         Args:
-            obj: The model instance to check access for (Insight, Dashboard, etc.)
+            obj: The model instance to check access for (Insight, Dashboard, etc.), or an ObjectAccessRef for an
+                object that a facade returns as a contract
             required_level: Minimum access level required ("viewer", "editor", etc.)
             resource: Resource name for error message. If None, derived from model._meta.model_name.
             action: Verb for error message ("read", "edit", "delete")
         """
-        has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_object)(
-            obj, required_level
-        )
+        if isinstance(obj, ObjectAccessRef):
+            has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_ref)(
+                obj, required_level
+            )
+        else:
+            has_access = await database_sync_to_async(self.user_access_control.check_access_level_for_object)(
+                obj, required_level
+            )
         if not has_access:
-            resource_name = resource or obj._meta.model_name
+            resource_name = resource or (obj.resource if isinstance(obj, ObjectAccessRef) else obj._meta.model_name)
             raise MaxToolAccessDeniedError(resource_name, required_level, action=action)
 
     async def _check_dangerous_operation(self, kwargs: dict[str, Any]) -> tuple[str, Any] | None:

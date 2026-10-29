@@ -3,6 +3,7 @@
 #   UPDATE_SETUP_RECEIVERS_BASELINE=1 pytest posthog/test/repo_invariants/test_startup_import_budget.py -k receivers_match
 # A receiver disappearing from this set means it connects in NO process (silent audit/cache loss):
 # restore its AppConfig.ready() wiring instead of deleting the line.
+experiment_changed:ee.vercel.receivers.sync_experiment_experimentation_item
 model_activity:posthog.models.activity_logging.signal_handlers.handle_identity_provider_config_change
 model_activity:posthog.models.activity_logging.signal_handlers.handle_oauth_application_scopes_change
 model_activity:posthog.models.activity_logging.signal_handlers.handle_organization_change
@@ -61,7 +62,6 @@ model_activity:products.tracing.backend.activity_logging.handle_traces_retention
 model_activity:products.warehouse_sources.backend.activity_logging.handle_external_data_schema_change
 model_activity:products.warehouse_sources.backend.activity_logging.handle_external_data_source_change
 model_activity:products.warehouse_suggestions.backend.activity_logging.handle_warehouse_suggestion_activity
-post_delete:ee.vercel.receivers.delete_experiment_experimentation_item
 post_delete:ee.vercel.receivers.delete_resource_experimentation_item
 post_delete:posthog.caching.organization_serializer_cache._connect_invalidation.<locals>.receiver_fn
 post_delete:posthog.models.event_ingestion_restriction_config.delete_redis_cache_with_config
@@ -136,7 +136,6 @@ post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_secret_ke
 post_init:posthog.storage.gateway_credential_signal_handlers._snapshot_user
 post_init:posthog.storage.team_llm_gateway_policy_signal_handlers._snapshot_loaded_state
 post_save:ee.models.license.license_saved
-post_save:ee.vercel.receivers.sync_experiment_experimentation_item
 post_save:ee.vercel.receivers.sync_feature_flag_experimentation_item
 post_save:posthog.caching.organization_serializer_cache._connect_invalidation.<locals>.receiver_fn
 post_save:posthog.models.activity_logging.activity_log.activity_log_created

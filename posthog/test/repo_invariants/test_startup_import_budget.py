@@ -154,6 +154,7 @@ django.setup()
 from django.contrib.auth import signals as auth_signals
 from django.db.models import signals
 from posthog.models.signals import model_activity_signal
+from products.experiments.backend.facade.change_signals import experiment_changed
 
 _SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed", "pre_init", "post_init"]
 # model_activity_signal is PostHog's custom audit-log signal, not a django.db.models one. Its
@@ -161,8 +162,11 @@ _SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed",
 # router used to wire as a side effect — include it or this whole class of regression is invisible.
 # Auth signals are included for parity with the setup-receivers baseline: an auth receiver wired
 # only via a viewset import would otherwise slip past both guards.
+# experiment_changed is the experiments facade's hook for experiment saves and deletes. Its receivers take the place
+# of model-signal receivers on the experiment model, so they need the same guard.
 _CUSTOM_SIGNALS = {
     "model_activity": model_activity_signal,
+    "experiment_changed": experiment_changed,
     "user_logged_in": auth_signals.user_logged_in,
     "user_logged_out": auth_signals.user_logged_out,
     "user_login_failed": auth_signals.user_login_failed,
@@ -234,6 +238,7 @@ _RECEIVERS_BASELINE = Path(__file__).parent / "setup_receivers_baseline.txt"
 
 _SETUP_RECEIVERS_CAPTURE = """
 import os
+import sys
 import weakref
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -251,6 +256,9 @@ _SIGNALS = {
 }
 _SIGNALS |= {name: getattr(auth_signals, name) for name in ("user_logged_in", "user_logged_out", "user_login_failed")}
 _SIGNALS["model_activity"] = model_activity_signal
+# Looked up instead of imported: an import here would connect the experiments save receivers itself, which would hide
+# a dropped import from an AppConfig.ready().
+_SIGNALS["experiment_changed"] = sys.modules["products.experiments.backend.facade.change_signals"].experiment_changed
 
 out = set()
 for signal_name, signal in _SIGNALS.items():

@@ -1271,7 +1271,6 @@ expose = [
     "backend\\.experiment_service.*",
     "backend\\.hogql_queries.*",
     "backend\\.llm_metric_templates.*",
-    "backend\\.max_tools.*",
     "backend\\.metric_utils.*",
     "backend\\.models.*",
     "stats\\..*",

@@ -1,11 +1,10 @@
 from posthog.schema import MaxExperimentMetricResult
 
 from posthog.models import Team
-from posthog.sync import database_sync_to_async
 
-from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
-from products.experiments.backend.models.experiment import Experiment
+from products.access_control.backend.facade.contracts import ObjectAccessRef
+from products.experiments.backend.facade.api import aget_experiment_assistant_context
+from products.experiments.backend.facade.contracts import MAX_METRICS_TO_SUMMARIZE, ExperimentAssistantContext
 
 from .prompts import (
     EXPERIMENT_CONCLUSION_COMMENT_TEMPLATE,
@@ -35,20 +34,20 @@ class ExperimentContext:
         self._experiment_id = experiment_id
         self._feature_flag_key = feature_flag_key
 
-    async def aget_experiment(self) -> Experiment | None:
+    async def aget_experiment(self) -> ExperimentAssistantContext | None:
         """Fetch the experiment from the database."""
-        try:
-            if self._experiment_id is not None:
-                return await Experiment.objects.select_related("feature_flag").aget(
-                    id=self._experiment_id, team=self._team, deleted=False
-                )
-            elif self._feature_flag_key is not None:
-                return await Experiment.objects.select_related("feature_flag").aget(
-                    feature_flag__key=self._feature_flag_key, team=self._team, deleted=False
-                )
-            return None
-        except Experiment.DoesNotExist:
-            return None
+        return await aget_experiment_assistant_context(
+            self._team.id, experiment_id=self._experiment_id, feature_flag_key=self._feature_flag_key
+        )
+
+    @staticmethod
+    def object_access_ref(experiment: ExperimentAssistantContext) -> ObjectAccessRef:
+        return ObjectAccessRef(
+            resource="experiment",
+            id=str(experiment.id),
+            team_id=experiment.team_id,
+            created_by_id=experiment.created_by_id,
+        )
 
     def get_not_found_message(self) -> str:
         """Return a formatted not found message."""
@@ -57,17 +56,16 @@ class ExperimentContext:
         )
         return EXPERIMENT_NOT_FOUND_TEMPLATE.format(identifier=identifier)
 
-    def _get_experiment_status(self, experiment: Experiment) -> str:
+    def _get_experiment_status(self, experiment: ExperimentAssistantContext) -> str:
         """Determine the experiment status."""
-        if experiment.is_draft:
+        if experiment.start_date is None:
             return "Draft"
         elif not experiment.end_date:
             return "Running"
         else:
             return "Completed"
 
-    @database_sync_to_async
-    def format_experiment(self, experiment: Experiment) -> str:
+    def format_experiment(self, experiment: ExperimentAssistantContext) -> str:
         """Format experiment data for AI consumption."""
         dates_section = ""
         if experiment.start_date or experiment.end_date:
@@ -91,17 +89,15 @@ class ExperimentContext:
             )
 
         variants_section = ""
-        if experiment.variants:
-            variants_list = "\n".join(
-                f"- {key}: {variant.get('name', key)}" for key, variant in experiment.variants.items()
-            )
+        if experiment.variant_names:
+            variants_list = "\n".join(f"- {key}: {name}" for key, name in experiment.variant_names.items())
             variants_section = EXPERIMENT_VARIANTS_TEMPLATE.format(variants_list=variants_list)
 
         feature_flag_variants_section = ""
-        flag_variants = experiment.feature_flag.variants if experiment.feature_flag else []
+        flag_variants = experiment.feature_flag_variants
         if flag_variants:
             variants_list = "\n".join(
-                f"- {v.get('key', 'unknown')}: {v.get('rollout_percentage', 0)}%" for v in flag_variants
+                f"- {v.key if v.key is not None else 'unknown'}: {v.rollout_percentage}%" for v in flag_variants
             )
             feature_flag_variants_section = EXPERIMENT_FEATURE_FLAG_VARIANTS_TEMPLATE.format(
                 variants_list=variants_list
@@ -111,20 +107,19 @@ class ExperimentContext:
             experiment_name=experiment.name,
             experiment_id=experiment.id,
             experiment_description=experiment.description or "No description",
-            feature_flag_key=experiment.feature_flag.key,
+            feature_flag_key=experiment.feature_flag_key,
             experiment_type=experiment.type or "product",
             experiment_status=self._get_experiment_status(experiment),
             dates_section=dates_section,
             conclusion_section=conclusion_section,
             variants_section=variants_section,
             feature_flag_variants_section=feature_flag_variants_section,
-            experiment_created_at=experiment.created_at.isoformat() if experiment.created_at else "Unknown",
+            experiment_created_at=experiment.created_at.isoformat(),
         ).strip()
 
-    @database_sync_to_async
     def format_experiment_results_data(
         self,
-        experiment: Experiment,
+        experiment: ExperimentAssistantContext,
         exposures: dict[str, float] | None = None,
         primary_metrics_results: list[MaxExperimentMetricResult] | None = None,
         secondary_metrics_results: list[MaxExperimentMetricResult] | None = None,
@@ -132,9 +127,9 @@ class ExperimentContext:
         """Format experiment results data including metrics for AI analysis."""
         lines: list[str] = []
 
-        stats_method = get_experiment_stats_method(experiment)
+        stats_method = experiment.stats_method
 
-        variants = [v.get("key") for v in experiment.feature_flag.variants if v.get("key")]
+        variants = [v.key for v in experiment.feature_flag_variants if v.key]
 
         lines.append(f"## Experiment: {experiment.name}")
         lines.append(f"**ID:** {experiment.id}")
@@ -228,4 +223,4 @@ class ExperimentContext:
         if experiment is None:
             return self.get_not_found_message()
 
-        return await self.format_experiment(experiment)
+        return self.format_experiment(experiment)

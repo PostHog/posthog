@@ -3,7 +3,7 @@ import hmac
 import hashlib
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from typing import Any, Literal, Union
+from typing import Any, Literal
 from urllib.parse import quote, urlencode
 
 from django.conf import settings
@@ -37,7 +37,8 @@ from posthog.models.user import User
 from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.utils import absolute_uri
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.api import get_experiment_team_id
+from products.experiments.backend.facade.contracts import ExperimentChanged
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.security.backend.facade.api import REFUSAL_CODE as SECURITY_REFUSAL_CODE
 
@@ -137,9 +138,15 @@ class VercelSetupResult:
     resource_id: str
 
 
+def _get_feature_flag_team_id(flag_id: int) -> int | None:
+    # nosemgrep: idor-lookup-without-team (the SSO redirect checks the user's membership in the returned team)
+    return FeatureFlag.objects.filter(pk=flag_id).values_list("team_id", flat=True).first()
+
+
 @dataclass
 class SSOExperimentationConfig:
-    model: Union[type[FeatureFlag], type[Experiment]]
+    # The team of the item with this id, or None when there is no such item.
+    get_team_id: Callable[[int], int | None]
     url_template: str
 
 
@@ -175,11 +182,11 @@ class VercelIntegration:
     # this could be handled in the frontend instead.
     SSO_EXPERIMENTATION_CONFIG: dict[str, SSOExperimentationConfig] = {
         "flag": SSOExperimentationConfig(
-            model=FeatureFlag,
+            get_team_id=_get_feature_flag_team_id,
             url_template="/project/{team_id}/feature-flags/{item_pk}",
         ),
         "experiment": SSOExperimentationConfig(
-            model=Experiment,
+            get_team_id=get_experiment_team_id,
             url_template="/project/{team_id}/experiments/{item_pk}",
         ),
     }
@@ -885,22 +892,22 @@ class VercelIntegration:
         )
 
     @staticmethod
-    def sync_experiment_to_vercel(experiment: Experiment, created: bool) -> None:
-        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment, created)
+    def sync_experiment_to_vercel(team: Team, experiment: ExperimentChanged) -> None:
+        vercel_item = VercelIntegration._convert_experiment_to_vercel_item(experiment)
         VercelIntegration._sync_item_to_vercel(
-            team=experiment.team,
+            team=team,
             item_type="experiment",
-            item_pk=experiment.pk,
+            item_pk=experiment.experiment_id,
             vercel_item=vercel_item,
-            created=created,
+            created=experiment.created,
         )
 
     @staticmethod
-    def delete_experiment_from_vercel(experiment: Experiment) -> None:
+    def delete_experiment_from_vercel(team: Team, experiment_id: int) -> None:
         VercelIntegration._delete_item_from_vercel(
-            team=experiment.team,
+            team=team,
             item_type="experiment",
-            item_id=VercelIntegration._get_vercel_item_id("experiment", experiment.pk),
+            item_id=VercelIntegration._get_vercel_item_id("experiment", experiment_id),
         )
 
     @staticmethod
@@ -918,11 +925,14 @@ class VercelIntegration:
         }
 
     @staticmethod
-    def _convert_experiment_to_vercel_item(experiment: Experiment, created: bool) -> dict:
+    def _convert_experiment_to_vercel_item(experiment: ExperimentChanged) -> dict:
+        experiment_id = experiment.experiment_id
         return {
-            **({"id": VercelIntegration._get_vercel_item_id("experiment", experiment.pk)} if created else {}),
-            "slug": slugify(experiment.name) or f"experiment-{experiment.pk}",
-            "origin": absolute_uri(f"/project/{experiment.team.id}/experiments/{experiment.pk}"),
+            **(
+                {"id": VercelIntegration._get_vercel_item_id("experiment", experiment_id)} if experiment.created else {}
+            ),
+            "slug": slugify(experiment.name) or f"experiment-{experiment_id}",
+            "origin": absolute_uri(f"/project/{experiment.team_id}/experiments/{experiment_id}"),
             "category": "experiment",
             "name": experiment.name,
             "description": experiment.description or "",
@@ -1338,16 +1348,15 @@ class VercelIntegration:
         if not config:
             return None
 
-        model_class = config.model
-        item = model_class.objects.filter(pk=item_pk).first()
-        if not item:
+        team_id = config.get_team_id(item_pk)
+        if team_id is None:
             return None
 
         # Sanity check to ensure the user has access to the item's team
-        if not user.teams.filter(pk=item.team.pk).exists():
+        if not user.teams.filter(pk=team_id).exists():
             return None
 
-        return config.url_template.format(team_id=item.team.id, item_pk=item.pk)
+        return config.url_template.format(team_id=team_id, item_pk=item_pk)
 
     @staticmethod
     def _parse_sso_item_id(item_id: str) -> tuple[str | None, int | None]:

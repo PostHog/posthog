@@ -24,6 +24,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PropertyDefinition
 from posthog.models.scoping import team_scope
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -38,7 +39,7 @@ from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import acreate_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -1425,11 +1426,11 @@ class TestReadDataTool(BaseTest):
             },
         )
 
-        experiment = await Experiment.objects.acreate(
-            team=self.team,
+        experiment_id = await acreate_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
             name="Test Experiment",
             description="An A/B test experiment",
-            feature_flag=flag,
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
@@ -1450,7 +1451,7 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
         )
 
-        result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+        result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment_id})
 
         assert "Test Experiment" in result
         assert "An A/B test experiment" in result
@@ -1469,11 +1470,11 @@ class TestReadDataTool(BaseTest):
             filters={},
         )
 
-        await Experiment.objects.acreate(
-            team=self.team,
+        await acreate_experiment(
+            team_id=self.team.id,
+            feature_flag_id=flag.id,
             name="Another Experiment",
             description="Second A/B test",
-            feature_flag=flag,
         )
 
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -1767,8 +1768,8 @@ class TestReadDataTool(BaseTest):
 
     async def test_read_experiment_denied_when_user_lacks_object_access(self):
         flag = await FeatureFlag.objects.acreate(team=self.team, key="exp-flag", name="Exp Flag", created_by=self.user)
-        experiment = await Experiment.objects.acreate(
-            team=self.team, name="Secret Experiment", feature_flag=flag, created_by=self.user
+        experiment_id = await acreate_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, name="Secret Experiment", created_by_id=self.user.id
         )
 
         user = MagicMock()
@@ -1782,19 +1783,24 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = False
+            mock_uac.check_access_level_for_ref.return_value = False
 
             with pytest.raises(MaxToolAccessDeniedError):
-                await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+                await tool._arun_impl({"kind": "experiment", "id": experiment_id})
 
-            mock_uac.check_access_level_for_object.assert_called_once()
+            mock_uac.check_access_level_for_ref.assert_called_once_with(
+                ObjectAccessRef(
+                    resource="experiment", id=str(experiment_id), team_id=self.team.id, created_by_id=self.user.id
+                ),
+                "viewer",
+            )
 
     async def test_read_experiment_allowed_when_user_has_object_access(self):
         flag = await FeatureFlag.objects.acreate(
             team=self.team, key="allowed-exp-flag", name="Allowed Exp Flag", created_by=self.user
         )
-        experiment = await Experiment.objects.acreate(
-            team=self.team, name="Allowed Experiment", feature_flag=flag, created_by=self.user
+        experiment_id = await acreate_experiment(
+            team_id=self.team.id, feature_flag_id=flag.id, name="Allowed Experiment", created_by_id=self.user.id
         )
 
         user = MagicMock()
@@ -1808,12 +1814,12 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = True
+            mock_uac.check_access_level_for_ref.return_value = True
 
-            result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment.id})
+            result, artifact = await tool._arun_impl({"kind": "experiment", "id": experiment_id})
 
             assert "Allowed Experiment" in result
-            mock_uac.check_access_level_for_object.assert_called_once()
+            mock_uac.check_access_level_for_ref.assert_called_once()
 
     async def test_read_activity_log_delegates_to_activity_log_context(self):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
