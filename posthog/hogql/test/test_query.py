@@ -2449,6 +2449,16 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [("A\ufffd", ["B\ufffd"], {"key": "C\ufffd"})])
 
+    def test_invalid_utf8_map_keys_that_collide_after_decoding_raise_instead_of_dropping_entries(self):
+        with self.assertRaises(QueryError) as error:
+            execute_hogql_query("SELECT map(unhex('FF'), 1, unhex('FE'), 2)", team=self.team)
+
+        self.assertEqual(
+            str(error.exception),
+            "Some keys in a map column contain bytes that are not valid UTF-8, and they can't be told apart once "
+            "those bytes are replaced. Convert the keys with `hex()` or `base64Encode()` to keep every entry.",
+        )
+
     def test_non_transient_errors_are_not_retried(self):
         with (
             patch(

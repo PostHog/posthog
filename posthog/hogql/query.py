@@ -122,7 +122,13 @@ def _decode_invalid_utf8(value: Any) -> Any:
     if isinstance(value, tuple):
         return tuple(_decode_invalid_utf8(item) for item in value)
     if isinstance(value, dict):
-        return {_decode_invalid_utf8(key): _decode_invalid_utf8(item) for key, item in value.items()}
+        decoded = {_decode_invalid_utf8(key): _decode_invalid_utf8(item) for key, item in value.items()}
+        if len(decoded) < len(value):
+            raise QueryError(
+                "Some keys in a map column contain bytes that are not valid UTF-8, and they can't be told apart once "
+                "those bytes are replaced. Convert the keys with `hex()` or `base64Encode()` to keep every entry."
+            )
+        return decoded
     return value
 
 
