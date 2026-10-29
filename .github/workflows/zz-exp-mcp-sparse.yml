@@ -49,6 +49,8 @@ jobs:
                       /products/*/mcp/
                       /products/*/frontend/
                       /products/notebooks/
+                      /products/*/skills/
+                      /products/ai_observability/backend/prompts/
                       /frontend/src/queries/
                       /frontend/src/mocks/fixtures/
                       /frontend/bin/
