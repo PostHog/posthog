@@ -1,6 +1,7 @@
-from datetime import UTC, date, datetime, timedelta
+import dataclasses
+from datetime import UTC, date, datetime, timedelta, tzinfo
 from enum import StrEnum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from zoneinfo import ZoneInfo
 
 from dateutil.parser import isoparse
@@ -9,11 +10,14 @@ from dateutil.relativedelta import relativedelta
 from posthog.hogql import ast
 from posthog.hogql.database.models import DatabaseField, ExpressionField
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
 from posthog.hogql.functions.clickhouse.datetime import DATE_GENERATOR_FUNCTIONS
 from posthog.hogql.functions.mapping import find_hogql_function
+from posthog.hogql.transforms.order_by_pushdown import unwrap_alias
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
+from posthog.interval_specs import INTERVAL_SPECS, PERIOD_MAP
 
 
 class SqlWindowClass(StrEnum):
@@ -36,38 +40,19 @@ LIVE_WINDOW_MAX_LENGTH = timedelta(hours=1)
 SHORT_WINDOW_MAX_LENGTH = timedelta(days=1)
 FIXED_PAST_SETTLE_TIME = timedelta(hours=1)
 
-_UTC = ZoneInfo("UTC")
+_MONDAY = 1
 _DATE_PREFIX_LENGTH = len("2026-01-01")
 _TIMESTAMP_COLUMN = "timestamp"
 _TIMESTAMP_WRAPPERS = frozenset({"toDateTime", "toDateTime64", "parseDateTimeBestEffort", "parseDateTime64BestEffort"})
-_DATE_RESULT_FUNCTIONS = frozenset({"toDate"})
-_TRUNCATE_FUNCTIONS = {
+_TRUNCATE_FUNCTIONS = {spec.trunc_func: unit for unit, spec in INTERVAL_SPECS.items() if spec.trunc_func} | {
     "toDate": "day",
-    "toStartOfDay": "day",
-    "toStartOfHour": "hour",
-    "toStartOfMinute": "minute",
     "toMonday": "week",
-    "toStartOfWeek": "week",
-    "toStartOfMonth": "month",
-    "toStartOfQuarter": "quarter",
-    "toStartOfYear": "year",
-}
-_UNIT_DELTAS = {
-    "second": relativedelta(seconds=1),
-    "minute": relativedelta(minutes=1),
-    "hour": relativedelta(hours=1),
-    "day": relativedelta(days=1),
-    "week": relativedelta(weeks=1),
-    "month": relativedelta(months=1),
-    "quarter": relativedelta(months=3),
-    "year": relativedelta(years=1),
 }
 _SHIFT_FUNCTIONS = {
-    f"{verb}{unit.capitalize()}s": (sign, unit)
-    for verb, sign in (("subtract", -1), ("add", 1))
-    for unit in _UNIT_DELTAS
+    f"{verb}{unit.capitalize()}s": (sign, unit) for verb, sign in (("subtract", -1), ("add", 1)) for unit in PERIOD_MAP
 }
 _DATE_SHIFT_FUNCTIONS = {"dateSub": -1, "date_sub": -1, "dateAdd": 1, "date_add": 1}
+_CLOCK_FUNCTIONS = {id(meta): meta.clickhouse_name for meta in DATE_GENERATOR_FUNCTIONS.values()}
 _LOWER_BOUND_OPS = frozenset({ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq})
 _UPPER_BOUND_OPS = frozenset({ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq})
 _TRUNCATION_SHIFTED_OPS = frozenset({ast.CompareOperationOp.LtEq, ast.CompareOperationOp.Gt})
@@ -99,9 +84,7 @@ class _Unqualified(Exception):
 
 def _clock_name(call: ast.Call) -> Optional[str]:
     meta = find_hogql_function(call.name)
-    if meta is None or not any(meta is generator for generator in DATE_GENERATOR_FUNCTIONS.values()):
-        return None
-    return meta.clickhouse_name
+    return _CLOCK_FUNCTIONS.get(id(meta)) if meta is not None else None
 
 
 def _events_table_type(table_type: Any) -> Optional[ast.TableType]:
@@ -134,14 +117,8 @@ def _is_immutable_field_type(field_type: Any) -> bool:
     return isinstance(database_field, DatabaseField) and not isinstance(database_field, ExpressionField)
 
 
-def _unwrap_alias(expr: ast.Expr) -> ast.Expr:
-    while isinstance(expr, ast.Alias):
-        expr = expr.expr
-    return expr
-
-
 def _is_events_timestamp(expr: ast.Expr) -> bool:
-    expr = _unwrap_alias(expr)
+    expr = unwrap_alias(expr)
     field_type = expr.type if isinstance(expr, ast.Field) else None
     return (
         isinstance(field_type, ast.FieldType)
@@ -171,22 +148,22 @@ def _looks_like_date(value: str) -> bool:
     )
 
 
-def _truncate(value: datetime, unit: str, timezone: ZoneInfo) -> datetime:
-    local = value.astimezone(timezone)
-    if unit == "minute":
-        return local.replace(second=0, microsecond=0)
-    if unit == "hour":
-        return local.replace(minute=0, second=0, microsecond=0)
-    day = local.replace(hour=0, minute=0, second=0, microsecond=0)
-    if unit == "day":
-        return day
-    if unit == "week":
-        return day - timedelta(days=day.weekday())
-    if unit == "month":
-        return day.replace(day=1)
-    if unit == "quarter":
-        return day.replace(month=3 * ((day.month - 1) // 3) + 1, day=1)
-    return day.replace(month=1, day=1)
+def _parse_string(value: str, timezone: tzinfo) -> Optional[_Value]:
+    try:
+        parsed = isoparse(value)
+    except ValueError:
+        return None
+    return _Value(
+        at=parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone), is_date=len(value) == _DATE_PREFIX_LENGTH
+    )
+
+
+def _start_of_day(value: datetime, timezone: tzinfo) -> datetime:
+    return INTERVAL_SPECS["day"].align(value.astimezone(timezone), None)
+
+
+def _period(unit: str, amount: int = 1) -> Union[timedelta, relativedelta]:
+    return PERIOD_MAP[unit] * amount
 
 
 class _TimestampFinder(TraversingVisitor):
@@ -230,23 +207,21 @@ class _QueryScan(TraversingVisitor):
 
 
 class SqlFreshnessClassifier:
-    def __init__(self, *, now: datetime, timezone: ZoneInfo, relative_date_range: bool) -> None:
+    def __init__(
+        self, *, now: datetime, timezone: tzinfo, week_start_day: Optional[int], relative_date_range: bool
+    ) -> None:
         self._now = now.astimezone(timezone)
         self._timezone = timezone
+        self._week_start_day = week_start_day
         self._relative_date_range = relative_date_range
-        self._start_of_today = _truncate(self._now, "day", timezone)
-        self._start_of_utc_today = _truncate(self._now, "day", _UTC)
+        self._start_of_today = _start_of_day(self._now, timezone)
+        self._start_of_utc_today = _start_of_day(self._now, UTC)
         self._consumed_clock_calls: set[int] = set()
         self._reads_now = False
 
-    def _parse_string(self, value: str, timezone: ZoneInfo) -> Optional[_Value]:
-        try:
-            parsed = isoparse(value)
-        except ValueError:
-            return None
-        return _Value(
-            at=parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone), is_date=len(value) == _DATE_PREFIX_LENGTH
-        )
+    def _truncate(self, value: datetime, function: str) -> datetime:
+        week_start_day = _MONDAY if function == "toMonday" else self._week_start_day
+        return INTERVAL_SPECS[_TRUNCATE_FUNCTIONS[function]].align(value.astimezone(self._timezone), week_start_day)
 
     def _constant_value(self, value: object) -> Optional[_Value]:
         if isinstance(value, datetime):
@@ -254,18 +229,18 @@ class SqlFreshnessClassifier:
         if isinstance(value, date):
             return _Value(at=datetime(value.year, value.month, value.day, tzinfo=self._timezone), is_date=True)
         if isinstance(value, str) and _looks_like_date(value):
-            return self._parse_string(value, self._timezone)
+            return _parse_string(value, self._timezone)
         return None
 
-    def _evaluate_delta(self, expr: ast.Expr, base: _Value) -> Optional[relativedelta]:
+    def _evaluate_delta(self, expr: ast.Expr, base: _Value) -> Optional[Union[timedelta, relativedelta]]:
         amount = _int_constant(expr)
         if amount is not None:
-            return _UNIT_DELTAS["day" if base.is_date else "second"] * amount
+            return _period("day" if base.is_date else "second", amount)
         if isinstance(expr, ast.Call) and expr.name.startswith("toInterval") and len(expr.args) == 1:
             unit = expr.name.removeprefix("toInterval").lower()
             interval_amount = _int_constant(expr.args[0])
-            if unit in _UNIT_DELTAS and interval_amount is not None:
-                return _UNIT_DELTAS[unit] * interval_amount
+            if unit in PERIOD_MAP and interval_amount is not None:
+                return _period(unit, interval_amount)
         return None
 
     def _evaluate_wrapper(self, call: ast.Call) -> Optional[_Value]:
@@ -276,12 +251,25 @@ class SqlFreshnessClassifier:
                 timezone = ZoneInfo(timezone_arg) if timezone_arg else self._timezone
             except (KeyError, ValueError):
                 return None
-            value = self._parse_string(literal, timezone)
-            return _Value(at=value.at, is_date=False) if value else None
+            value = _parse_string(literal, timezone)
+            return dataclasses.replace(value, is_date=False) if value else None
         if timezone_arg is not None:
             return None
         inner = self._evaluate(call.args[0])
-        return _Value(at=inner.at, is_date=False) if inner else None
+        return dataclasses.replace(inner, is_date=False) if inner else None
+
+    def _evaluate_shift(self, call: ast.Call) -> Optional[_Value]:
+        if call.name in _SHIFT_FUNCTIONS and len(call.args) == 2:
+            sign, unit = _SHIFT_FUNCTIONS[call.name]
+            inner, amount = self._evaluate(call.args[0]), _int_constant(call.args[1])
+        elif call.name in _DATE_SHIFT_FUNCTIONS and len(call.args) == 3:
+            sign, unit = _DATE_SHIFT_FUNCTIONS[call.name], (_string_constant(call.args[0]) or "").lower().rstrip("s")
+            inner, amount = self._evaluate(call.args[2]), _int_constant(call.args[1])
+        else:
+            return None
+        if unit not in PERIOD_MAP or inner is None or amount is None:
+            return None
+        return dataclasses.replace(inner, at=inner.at + _period(unit, sign * amount))
 
     def _evaluate_call(self, call: ast.Call) -> Optional[_Value]:
         clock = _clock_name(call)
@@ -305,31 +293,11 @@ class SqlFreshnessClassifier:
             inner = self._evaluate(call.args[0])
             if inner is None or inner.utc_day:
                 return None
-            truncated = _truncate(inner.at, _TRUNCATE_FUNCTIONS[call.name], self._timezone)
-            return _Value(at=truncated, is_date=call.name in _DATE_RESULT_FUNCTIONS)
-        if call.name in _SHIFT_FUNCTIONS and len(call.args) == 2:
-            sign, unit = _SHIFT_FUNCTIONS[call.name]
-            inner = self._evaluate(call.args[0])
-            amount = _int_constant(call.args[1])
-            if inner is None or amount is None:
-                return None
-            return _Value(
-                at=inner.at + _UNIT_DELTAS[unit] * (sign * amount), is_date=inner.is_date, utc_day=inner.utc_day
-            )
-        if call.name in _DATE_SHIFT_FUNCTIONS and len(call.args) == 3:
-            unit = (_string_constant(call.args[0]) or "").lower().rstrip("s")
-            amount = _int_constant(call.args[1])
-            inner = self._evaluate(call.args[2])
-            if unit not in _UNIT_DELTAS or amount is None or inner is None:
-                return None
-            sign = _DATE_SHIFT_FUNCTIONS[call.name]
-            return _Value(
-                at=inner.at + _UNIT_DELTAS[unit] * (sign * amount), is_date=inner.is_date, utc_day=inner.utc_day
-            )
-        return None
+            return _Value(at=self._truncate(inner.at, call.name), is_date=call.name == "toDate")
+        return self._evaluate_shift(call)
 
     def _evaluate(self, expr: ast.Expr) -> Optional[_Value]:
-        expr = _unwrap_alias(expr)
+        expr = unwrap_alias(expr)
         if isinstance(expr, ast.Constant):
             return self._constant_value(expr.value)
         if isinstance(expr, ast.Call):
@@ -339,17 +307,16 @@ class SqlFreshnessClassifier:
             ast.ArithmeticOperationOp.Sub,
         ):
             base = self._evaluate(expr.left)
-            if base is None:
+            delta = self._evaluate_delta(expr.right, base) if base is not None else None
+            if base is None or delta is None:
                 return None
-            delta = self._evaluate_delta(expr.right, base)
-            if delta is None:
-                return None
-            sign = 1 if expr.op == ast.ArithmeticOperationOp.Add else -1
-            return _Value(at=base.at + delta * sign, is_date=base.is_date, utc_day=base.utc_day)
+            return dataclasses.replace(
+                base, at=base.at + delta if expr.op == ast.ArithmeticOperationOp.Add else base.at - delta
+            )
         return None
 
     def _column_unit(self, expr: ast.Expr) -> tuple[bool, Optional[str]]:
-        expr = _unwrap_alias(expr)
+        expr = unwrap_alias(expr)
         if _is_events_timestamp(expr):
             return True, None
         if (
@@ -364,7 +331,7 @@ class SqlFreshnessClassifier:
     def _anchor(self, value: _Value, unit: Optional[str]) -> datetime:
         if not value.utc_day or unit is None:
             return value.at
-        day = value.at.astimezone(_UTC).date()
+        day = value.at.astimezone(UTC).date()
         return datetime(day.year, day.month, day.day, tzinfo=self._timezone)
 
     def _bound(
@@ -377,12 +344,11 @@ class SqlFreshnessClassifier:
         if value is None:
             raise _Unqualified()
         at = self._anchor(value, unit)
-        step = _UNIT_DELTAS[unit] if unit else relativedelta()
-        if op in _LOWER_BOUND_OPS:
-            return (at + step if unit and op in _TRUNCATION_SHIFTED_OPS else at), None
-        if op in _UPPER_BOUND_OPS:
-            return None, (at + step if unit and op in _TRUNCATION_SHIFTED_OPS else at)
-        return at, at + step
+        step = _period(unit) if unit else timedelta()
+        if op == ast.CompareOperationOp.Eq:
+            return at, at + step
+        edge = at + step if op in _TRUNCATION_SHIFTED_OPS else at
+        return (edge, None) if op in _LOWER_BOUND_OPS else (None, edge)
 
     def _bounds_from_conjunct(self, conjunct: ast.Expr) -> tuple[Optional[datetime], Optional[datetime]]:
         if isinstance(conjunct, ast.CompareOperation) and conjunct.op in _FLIPPED_OPS:
@@ -392,23 +358,11 @@ class SqlFreshnessClassifier:
             if bound is not None:
                 return bound
         if isinstance(conjunct, ast.BetweenExpr) and not conjunct.negated:
-            is_column, unit = self._column_unit(conjunct.expr)
-            if is_column:
-                low = self._evaluate(conjunct.low)
-                high = self._evaluate(conjunct.high)
-                if low is None or high is None:
-                    raise _Unqualified()
-                return self._anchor(low, unit), self._anchor(high, unit) + (
-                    _UNIT_DELTAS[unit] if unit else relativedelta()
-                )
+            low = self._bound(conjunct.expr, ast.CompareOperationOp.GtEq, conjunct.low)
+            high = self._bound(conjunct.expr, ast.CompareOperationOp.LtEq, conjunct.high)
+            if low is not None and high is not None:
+                return low[0], high[1]
         raise _Unqualified()
-
-    def _conjuncts(self, expr: Optional[ast.Expr]) -> list[ast.Expr]:
-        if expr is None:
-            return []
-        if isinstance(expr, ast.And):
-            return [conjunct for inner in expr.exprs for conjunct in self._conjuncts(inner)]
-        return [expr]
 
     def _reads_events_directly(self, select: ast.SelectQuery) -> bool:
         join = select.select_from
@@ -427,28 +381,27 @@ class SqlFreshnessClassifier:
             return None
         starts: list[datetime] = []
         ends: list[datetime] = []
-        for conjunct in self._conjuncts(select.where) + self._conjuncts(select.prewhere):
-            if not _mentions_events_timestamp(conjunct):
-                continue
-            start, end = self._bounds_from_conjunct(conjunct)
-            if start is not None:
-                starts.append(start)
-            if end is not None:
-                ends.append(end)
+        for clause in (select.where, select.prewhere):
+            for conjunct in top_level_conjuncts(clause) if clause is not None else []:
+                if not _mentions_events_timestamp(conjunct):
+                    continue
+                start, end = self._bounds_from_conjunct(conjunct)
+                if start is not None:
+                    starts.append(start)
+                if end is not None:
+                    ends.append(end)
         if not starts:
             raise _Unqualified()
         return max(starts), min(ends) if ends else None
 
-    def _freshness_for(self, start: datetime, end: Optional[datetime], clock_derived: bool) -> SqlFreshness:
+    def _freshness_for(self, start: datetime, end: Optional[datetime]) -> SqlFreshness:
         if end is not None and end <= self._start_of_today and end <= self._now - FIXED_PAST_SETTLE_TIME:
-            fresh_until = self._now + SQL_WINDOW_MAX_AGE[SqlWindowClass.FIXED_PAST]
-            if clock_derived:
-                fresh_until = min(
-                    fresh_until, self._start_of_today + timedelta(days=1), self._start_of_utc_today + timedelta(days=1)
-                )
+            caps = [self._now + SQL_WINDOW_MAX_AGE[SqlWindowClass.FIXED_PAST]]
+            if self._relative_date_range or self._consumed_clock_calls:
+                caps += [self._start_of_today + timedelta(days=1), self._start_of_utc_today + timedelta(days=1)]
             if self._reads_now:
-                fresh_until = min(fresh_until, self._now + SQL_WINDOW_MAX_AGE[SqlWindowClass.UP_TO_NOW_LONG])
-            return SqlFreshness(window=SqlWindowClass.FIXED_PAST, fresh_until=fresh_until.astimezone(UTC))
+                caps.append(self._now + SQL_WINDOW_MAX_AGE[SqlWindowClass.UP_TO_NOW_LONG])
+            return SqlFreshness(window=SqlWindowClass.FIXED_PAST, fresh_until=min(caps).astimezone(UTC))
         length = self._now - start
         if length <= LIVE_WINDOW_MAX_LENGTH:
             window = SqlWindowClass.LIVE
@@ -463,23 +416,17 @@ class SqlFreshnessClassifier:
         scan.visit(resolved_query)
         if scan.mutable_fields:
             return None
-        self._consumed_clock_calls = set()
-        self._reads_now = False
         try:
             windows = [window for select in scan.selects if (window := self._select_window(select)) is not None]
         except _Unqualified:
             return None
         if not windows or scan.clock_calls - self._consumed_clock_calls:
             return None
-        clock_derived = self._relative_date_range or bool(self._consumed_clock_calls)
-        return min(
-            (self._freshness_for(start, end, clock_derived) for start, end in windows),
-            key=lambda freshness: freshness.fresh_until,
-        )
+        return min((self._freshness_for(start, end) for start, end in windows), key=lambda f: f.fresh_until)
 
 
 def freshness_record(freshness: SqlFreshness) -> dict[str, str]:
-    return {"window": freshness.window.value, "fresh_until": freshness.fresh_until.astimezone(UTC).isoformat()}
+    return {"window": freshness.window.value, "fresh_until": freshness.fresh_until.isoformat()}
 
 
 def freshness_from_record(record: Any) -> Optional[SqlFreshness]:

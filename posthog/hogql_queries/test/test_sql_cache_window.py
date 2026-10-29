@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest
@@ -10,12 +11,13 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 
-from posthog.hogql_queries.sql_cache_window import SqlFreshness, SqlFreshnessClassifier, SqlWindowClass
+from posthog.hogql_queries.sql_cache_window import SQL_WINDOW_MAX_AGE, SqlFreshnessClassifier, SqlWindowClass
 
 NOW = datetime(2026, 10, 29, 15, 0, tzinfo=UTC)
-JUST_AFTER_MIDNIGHT = datetime(2026, 10, 29, 0, 30, tzinfo=UTC)
 NEXT_MIDNIGHT = datetime(2026, 10, 30, tzinfo=UTC)
+LOS_ANGELES = ZoneInfo("America/Los_Angeles")
 PAST_DAY = "select count() from events where timestamp >= '2026-10-28' and timestamp < '2026-10-29'"
+YESTERDAY = "select count() from events where toDate(timestamp) = yesterday()"
 
 
 class TestSqlFreshnessClassifier(BaseTest):
@@ -26,15 +28,15 @@ class TestSqlFreshnessClassifier(BaseTest):
         super().setUpClass()
         cls.database = Database.create_for(team=cls.team)
 
-    def _classify(
-        self, sql: str, now: datetime = NOW, relative_date_range: bool = False, timezone: ZoneInfo | None = None
-    ) -> SqlFreshness | None:
+    def _classify(self, sql: str, now: datetime = NOW, relative_date_range: bool = False, timezone: Any = None):
         context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
-        resolved = resolve_types(parse_select(sql), context, dialect="hogql")
         classifier = SqlFreshnessClassifier(
-            now=now, timezone=timezone or self.team.timezone_info, relative_date_range=relative_date_range
+            now=now,
+            timezone=timezone or self.team.timezone_info,
+            week_start_day=self.team.week_start_day,
+            relative_date_range=relative_date_range,
         )
-        return classifier.classify(resolved)
+        return classifier.classify(resolve_types(parse_select(sql), context, dialect="hogql"))
 
     @parameterized.expand(
         [
@@ -42,83 +44,106 @@ class TestSqlFreshnessClassifier(BaseTest):
                 "last_30_minutes",
                 "select count() from events where timestamp > now() - interval 30 minute",
                 SqlWindowClass.LIVE,
-                NOW + timedelta(minutes=5),
             ),
             (
                 "numeric_offset_is_seconds",
                 "select count() from events where timestamp >= now() - 3600",
                 SqlWindowClass.LIVE,
-                NOW + timedelta(minutes=5),
             ),
             (
                 "last_6_hours_with_alias",
                 "select count() as c from events where timestamp >= now() - interval 6 hour order by c",
                 SqlWindowClass.UP_TO_NOW_SHORT,
-                NOW + timedelta(minutes=30),
             ),
             (
-                "today",
-                "select count() from events where toDate(timestamp) = today()",
+                "date_sub",
+                "select count() from events where timestamp >= dateSub('hour', 2, now())",
                 SqlWindowClass.UP_TO_NOW_SHORT,
-                NOW + timedelta(minutes=30),
             ),
+            ("today", "select count() from events where toDate(timestamp) = today()", SqlWindowClass.UP_TO_NOW_SHORT),
             (
                 "last_7_days",
                 "select event, count() from events where timestamp > now() - interval 7 day group by event",
                 SqlWindowClass.UP_TO_NOW_LONG,
-                NOW + timedelta(hours=1),
+            ),
+            (
+                "subtract_days",
+                "select count() from events where timestamp >= subtractDays(now(), 3)",
+                SqlWindowClass.UP_TO_NOW_LONG,
             ),
             (
                 "through_today_is_not_past",
                 "select count() from events where toDate(timestamp) <= today() and timestamp >= '2026-10-01'",
                 SqlWindowClass.UP_TO_NOW_LONG,
-                NOW + timedelta(hours=1),
             ),
             (
                 "cte_of_events",
                 "with recent as (select event from events where timestamp > now() - interval 7 day) "
                 "select count() from recent",
                 SqlWindowClass.UP_TO_NOW_LONG,
-                NOW + timedelta(hours=1),
             ),
             (
                 "or_without_time",
                 "select count() from events where (event = 'a' or event = 'b') and timestamp > now() - interval 2 day",
                 SqlWindowClass.UP_TO_NOW_LONG,
-                NOW + timedelta(hours=1),
             ),
             (
                 "absolute_past_range",
                 "select count() from events where timestamp between '2026-10-01' and '2026-10-15'",
                 SqlWindowClass.FIXED_PAST,
-                NOW + timedelta(hours=24),
             ),
-            (
-                "yesterday_expires_at_midnight",
-                "select count() from events where toDate(timestamp) = yesterday()",
-                SqlWindowClass.FIXED_PAST,
-                NEXT_MIDNIGHT,
-            ),
+            ("yesterday_expires_at_midnight", YESTERDAY, SqlWindowClass.FIXED_PAST, {"fresh_until": NEXT_MIDNIGHT}),
             (
                 "now_anchored_past_window_moves",
                 "select count() from events where timestamp > now() - interval 9 day and timestamp < now() - interval 2 day",
                 SqlWindowClass.FIXED_PAST,
-                NOW + timedelta(hours=1),
+                {"fresh_until": NOW + timedelta(hours=1)},
             ),
             (
                 "union_takes_the_freshest",
                 "select count() from events where timestamp < '2026-10-01' and timestamp >= '2026-09-01' "
                 "union all select count() from events where timestamp > now() - interval 10 minute",
                 SqlWindowClass.LIVE,
-                NOW + timedelta(minutes=5),
+            ),
+            (
+                "unsettled_past_range",
+                PAST_DAY,
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"now": datetime(2026, 10, 29, 0, 30, tzinfo=UTC)},
+            ),
+            (
+                "relative_filters_expire_at_midnight",
+                PAST_DAY,
+                SqlWindowClass.FIXED_PAST,
+                {"relative_date_range": True, "fresh_until": NEXT_MIDNIGHT},
+            ),
+            (
+                "utc_yesterday_is_closed_in_the_morning",
+                YESTERDAY,
+                SqlWindowClass.FIXED_PAST,
+                {"timezone": LOS_ANGELES, "fresh_until": NEXT_MIDNIGHT},
+            ),
+            (
+                "utc_yesterday_is_the_local_today_in_the_evening",
+                YESTERDAY,
+                SqlWindowClass.UP_TO_NOW_SHORT,
+                {"timezone": LOS_ANGELES, "now": datetime(2026, 10, 30, 3, 0, tzinfo=UTC)},
             ),
         ]
     )
     def test_grants_window_age(
-        self, _name: str, sql: str, expected_window: SqlWindowClass, expected_fresh_until: datetime
+        self, _name: str, sql: str, expected_window: SqlWindowClass, options: dict[str, Any] | None = None
     ) -> None:
-        freshness = self._classify(sql)
+        options = options or {}
+        now = options.get("now", NOW)
+        freshness = self._classify(
+            sql,
+            now=now,
+            relative_date_range=options.get("relative_date_range", False),
+            timezone=options.get("timezone"),
+        )
         assert freshness is not None
+        expected_fresh_until = options.get("fresh_until", now + SQL_WINDOW_MAX_AGE[expected_window])
         assert (freshness.window, freshness.fresh_until) == (expected_window, expected_fresh_until)
 
     @parameterized.expand(
@@ -155,31 +180,3 @@ class TestSqlFreshnessClassifier(BaseTest):
     )
     def test_keeps_default_age(self, _name: str, sql: str) -> None:
         assert self._classify(sql) is None
-
-    def test_unsettled_past_range_is_not_fixed(self) -> None:
-        freshness = self._classify(PAST_DAY, now=JUST_AFTER_MIDNIGHT)
-        assert freshness is not None
-        assert freshness.window == SqlWindowClass.UP_TO_NOW_LONG
-
-    def test_relative_filters_expire_at_midnight(self) -> None:
-        freshness = self._classify(PAST_DAY, relative_date_range=True)
-        assert freshness == SqlFreshness(window=SqlWindowClass.FIXED_PAST, fresh_until=NEXT_MIDNIGHT)
-
-    @parameterized.expand(
-        [
-            ("morning_utc_yesterday_is_closed", datetime(2026, 10, 29, 15, 0, tzinfo=UTC), SqlWindowClass.FIXED_PAST),
-            (
-                "evening_utc_yesterday_is_the_local_today",
-                datetime(2026, 10, 30, 3, 0, tzinfo=UTC),
-                SqlWindowClass.UP_TO_NOW_SHORT,
-            ),
-        ]
-    )
-    def test_today_and_yesterday_follow_the_utc_day(self, _name: str, now: datetime, expected: SqlWindowClass) -> None:
-        freshness = self._classify(
-            "select count() from events where toDate(timestamp) = yesterday()",
-            now=now,
-            timezone=ZoneInfo("America/Los_Angeles"),
-        )
-        assert freshness is not None
-        assert freshness.window == expected
