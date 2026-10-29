@@ -63,19 +63,23 @@ Offer to let the person name two or three topics they care about, and use those 
 Report rows are large (often 3 to 4 KB each, mostly the summary), so pull several small pools rather than one big page.
 Keep `limit` at 20 or below per call.
 Pass `exclude` with ids you already hold to keep later pools fresh.
+`exclude` takes at most 100 ids and the API rejects a longer list, so send the 100 you most want to skip (the strongest candidates so far) and dedupe the rest locally.
 Pools overlap; dedupe by `id` and remember which pools each report came from.
 
-| Pool                    | Call                                                                                                            | Why                                                 |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| For you                 | `view: "for_you"`, `sort: "recommended"`, `created_after: <window>`                                             | Routed to them, waiting on them, or claimed by them |
-| Mine                    | `assignee: "mine"`                                                                                              | Work they or their agents already own               |
-| Likely action           | `view: "actionable"`, `ordering: "-ranking_action"`, `created_after: <window>`                                  | What the model thinks someone will act on           |
-| New and likely opened   | `created_after: <last 3 to 7 days>`, `ordering: "-ranking_open"`                                                | Fresh reports worth a look                          |
-| Theme searches          | `search: "<specific term>"`, `created_after: <window>`, one call per top theme (3 to 5 calls, `limit` 10 to 15) | Personal relevance the routing misses               |
-| Needs my input (option) | `view: "needs_input"`, `scope: "for_me"`, `created_after: <window>`                                             | Decisions only they can make                        |
+| Pool                    | Call                                                                                                            | Why                                                                    |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| For you                 | `view: "for_you"`, `sort: "recommended"`, `created_after: <window>`                                             | Routed to them, waiting on them, or claimed by them                    |
+| Recently updated        | `view: "for_you"`, `ordering: "-updated_at"`, no `created_after`                                                | Older reports with new activity, such as a new PR approval or question |
+| Mine                    | `assignee: "mine"`                                                                                              | Work they or their agents already own                                  |
+| Likely action           | `view: "actionable"`, `ordering: "-ranking_action"`, `created_after: <window>`                                  | What the model thinks someone will act on                              |
+| New and likely opened   | `created_after: <last 3 to 7 days>`, `ordering: "-ranking_open"`                                                | Fresh reports worth a look                                             |
+| Theme searches          | `search: "<specific term>"`, `created_after: <window>`, one call per top theme (3 to 5 calls, `limit` 10 to 15) | Personal relevance the routing misses                                  |
+| Needs my input (option) | `view: "needs_input"`, `scope: "for_me"`, `created_after: <window>`                                             | Decisions only they can make                                           |
 
 All pools use `inbox-reports-list`.
 Always bound `for_you` and `needs_input` by a window.
+`created_after` filters on creation time only, so a report created before the window but updated inside it reaches you only through the recently updated pool.
+That pool uses `updated_at` as its window: page it until `updated_at` falls outside the window, and stop after 3 pages.
 `assignee: "mine"` takes no window because claims never expire, so it can return hundreds of rows. Keep its default order and read only the first page.
 On an active project these views can hold a thousand reports, and the oldest `pending_input` rows carry stale scores that look strong.
 
