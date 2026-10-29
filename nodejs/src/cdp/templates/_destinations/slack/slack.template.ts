@@ -53,7 +53,9 @@ if (res.status != 200 or res.body.ok == false) {
   throw Error(f'Failed to post message to Slack: {res.status}: {res.body}');
 }
 
-return {'channel': res.body.channel, 'ts': res.body.ts};
+// Saved workflow output variables read the ts with result path body.ts, so status and body
+// keep the shape of the raw fetch response.
+return {'channel': res.body.channel, 'ts': res.body.ts, 'status': res.status, 'body': res.body};
 `.trim(),
     inputs_schema: [
         {
