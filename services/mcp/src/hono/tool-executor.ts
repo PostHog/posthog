@@ -191,7 +191,9 @@ export class ToolExecutor {
 
     private buildAdvertisedTools(state: ResolvedState): ListToolsResult['tools'] {
         if (state.useSingleExec) {
-            const renderUiEntry = state.renderUiEnabled ? this.instructionsBuilder.buildRenderUiToolEntry(state) : null
+            const renderUiEntry = state.renderUiEnabled
+                ? this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries())
+                : null
             return [this.instructionsBuilder.buildExecToolEntry(state), ...(renderUiEntry ? [renderUiEntry] : [])]
         }
 
@@ -215,7 +217,7 @@ export class ToolExecutor {
                 return this.instructionsBuilder.buildExecToolEntry(state)
             }
             if (toolName === 'render-ui' && state.renderUiEnabled) {
-                return this.instructionsBuilder.buildRenderUiToolEntry(state) ?? undefined
+                return this.instructionsBuilder.buildRenderUiToolEntry(this.catalog.getPreBuiltEntries()) ?? undefined
             }
             return undefined
         }
