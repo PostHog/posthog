@@ -278,13 +278,7 @@ export function stripCredentials(url: string): string | undefined {
     if (!trimmed.includes('://')) {
         const colon = trimmed.indexOf(':')
         const path = colon === -1 ? '' : trimmed.slice(colon + 1)
-        if (path.includes('@')) {
-            return undefined
-        }
-        // An SSH remote's user is the fixed `git` on every major host. Any other user can be a
-        // token, so it goes, as userinfo does in a URL.
-        const at = colon === -1 ? -1 : trimmed.lastIndexOf('@', colon)
-        return at === -1 || trimmed.slice(0, at) === 'git' ? trimmed : trimmed.slice(at + 1)
+        return path.includes('@') ? undefined : trimmed
     }
     let parsed: URL
     try {

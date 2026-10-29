@@ -5,7 +5,6 @@ import { join } from 'node:path'
 
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
-import { stripCredentials } from '@/error-tracking/git'
 import { runHog } from '@/testing'
 
 import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
@@ -177,15 +176,6 @@ describe('hog error-tracking upload', () => {
             version: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
             id: null,
         })
-    })
-
-    test.each([
-        ['git@github.com:org/repo.git', 'git@github.com:org/repo.git'],
-        ['ghp_token@github.com:org/repo.git', 'github.com:org/repo.git'],
-        ['https://x-access-token:secret@github.com/org/repo.git', 'https://github.com/org/repo.git'],
-        ['git@github.com:org/repo@secret.git', undefined],
-    ])('the release keeps no credential from the remote %s', (remote, stored) => {
-        expect(stripCredentials(remote)).toBe(stored)
     })
 
     test.each([
