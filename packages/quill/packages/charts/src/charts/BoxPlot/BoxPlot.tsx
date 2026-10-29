@@ -11,6 +11,7 @@ import {
     type DrawContext,
 } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
+import { applyChartDefaults } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { dimColor } from '../../core/color-utils'
 import { createBarScales, type BarScaleSet, yTickCountForHeight } from '../../core/scales'
@@ -118,17 +119,18 @@ function BoxPlotInner<Meta = unknown>({
     series,
     labels,
     theme,
-    config,
+    config: rawConfig,
     tooltip,
     onBoxClick,
     className,
     dataAttr,
     children,
 }: Omit<BoxPlotProps<Meta>, 'onError'>): React.ReactElement {
+    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
     const {
         yScaleType = 'linear',
-        showGrid = false,
-        showAxisLines = false,
+        showGrid,
+        showAxisLines,
         meanRadius = 3,
         whiskerCapRatio = 0.6,
         boxStrokeWidth = 1,
