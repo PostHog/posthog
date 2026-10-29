@@ -86,7 +86,7 @@ export function SearchPerformanceDetail(): JSX.Element {
                         <LemonBanner
                             key={sourceId}
                             type="info"
-                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(sourceId) }}
+                            action={{ children: 'Manage source', to: urls.dataWarehouseSource(`managed-${sourceId}`) }}
                         >
                             {`${name}: ${message}`}
                         </LemonBanner>
