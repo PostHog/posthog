@@ -864,6 +864,9 @@ class MCPMissingCapabilityCreateSerializer(MCPAnalyticsSubmissionContextSerializ
     )
 
 
+DUPLICATE_MATCH_PATTERN_ERROR = "A custom harness already uses this pattern."
+
+
 class MCPCustomHarnessSerializer(serializers.ModelSerializer):
     match_pattern = serializers.CharField(
         max_length=100,
@@ -899,7 +902,7 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
         if self.instance is not None:
             others = others.exclude(pk=self.instance.pk)
         if "match_pattern" in attrs and others.filter(match_pattern=attrs["match_pattern"]).exists():
-            raise serializers.ValidationError({"match_pattern": "A custom harness already uses this pattern."})
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
         if self.instance is None and others.count() >= MAX_CUSTOM_HARNESSES:
             raise serializers.ValidationError(f"A project can have at most {MAX_CUSTOM_HARNESSES} custom harnesses.")
         return attrs
@@ -912,11 +915,11 @@ class MCPCustomHarnessSerializer(serializers.ModelSerializer):
             with transaction.atomic():
                 return MCPCustomHarness.objects.create(team_id=self.context["get_team"]().id, **validated_data)
         except IntegrityError:
-            raise serializers.ValidationError({"match_pattern": "A custom harness already uses this pattern."})
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
 
     def update(self, instance: MCPCustomHarness, validated_data: dict[str, Any]) -> MCPCustomHarness:
         try:
             with transaction.atomic():
                 return super().update(instance, validated_data)
         except IntegrityError:
-            raise serializers.ValidationError({"match_pattern": "A custom harness already uses this pattern."})
+            raise serializers.ValidationError({"match_pattern": DUPLICATE_MATCH_PATTERN_ERROR})
