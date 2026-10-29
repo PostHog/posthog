@@ -585,7 +585,6 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
             actions.requestSummary({ regenerate, timestampHint: values.createdAt })
         }
         return {
-            setMode: (_, __, ___, previousState) => syncSummary(selectors.mode(previousState)),
             viewInThread: (_, __, ___, previousState) => syncSummary(selectors.mode(previousState)),
             selectNode: select,
             selectAndShowSpans: (payload, __, ___, previousState) => {
@@ -615,9 +614,14 @@ export const traceViewAdapterLogic = kea<traceViewAdapterLogicType>([
                 actions.selectAndShowSpans(firstFailingNodeId(values.tree, values.evalOutcomesByNode) ?? props.traceId)
                 actions.setDetailTab('evals')
             },
-            showFeedback: ({ entry }) => captureFeedbackViewed(entry),
-            setMode: ({ mode }, _, __, previousState) => {
-                if (mode === 'feedback' && selectors.mode(previousState) !== 'feedback') {
+            showFeedback: ({ entry }, __, ___, previousState) => {
+                captureFeedbackViewed(entry)
+                syncSummary(selectors.mode(previousState))
+            },
+            setMode: ({ mode }, __, ___, previousState) => {
+                const previousMode = selectors.mode(previousState)
+                syncSummary(previousMode)
+                if (mode === 'feedback' && previousMode !== 'feedback') {
                     captureFeedbackViewed('tab')
                 }
             },

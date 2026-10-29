@@ -327,6 +327,19 @@ describe('traceViewAdapterLogic', () => {
         expect(capture).toHaveBeenCalledWith('llma trace view summary step clicked', { kind: 'bullet' })
     })
 
+    it('leaving the Summary mode for the Feedback mode closes the summary', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        const summary = traceSummaryLogic({ traceId: 'trace-1' })
+
+        logic.actions.setMode('summary')
+        await expectLogic(summary).toDispatchActions([summary.actionCreators.openSummary('tab'), 'loadSummarySuccess'])
+        logic.actions.showFeedback(null, 'chip')
+
+        expect(logic.values.mode).toBe('feedback')
+        await expectLogic(summary).toDispatchActions(['closeSummary']).toMatchValues({ isOpen: false })
+    })
+
     it('a trace-level summary link opens the Summary mode without requesting a summary', async () => {
         mountAt({ tab: 'summary' })
         const summary = traceSummaryLogic({ traceId: 'trace-1' })
