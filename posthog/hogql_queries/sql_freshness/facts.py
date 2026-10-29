@@ -56,6 +56,7 @@ class QueryFacts:
     start_of_utc_today: datetime
     windows: tuple[Window, ...]
     relative_date_range: bool
+    rolling_filters: bool
     mutable_field: bool = False
     join: bool = False
     foreign_source: bool = False
@@ -231,8 +232,8 @@ class _Evaluator:
             return dataclasses.replace(base, at=moved)
         return None
 
-    def anchor(self, value: _Value, unit: Optional[str]) -> datetime:
-        if not value.utc_day or unit is None:
+    def anchor(self, value: _Value) -> datetime:
+        if not value.utc_day:
             return value.at
         day = value.at.astimezone(UTC).date()
         return datetime(day.year, day.month, day.day, tzinfo=self.timezone)
@@ -343,7 +344,7 @@ def _bound(
     value = evaluator.evaluate(value_expr)
     if value is None:
         raise _UnsupportedBound()
-    at = evaluator.anchor(value, unit)
+    at = evaluator.anchor(value)
     step = _period(unit) if unit else timedelta()
     if op == ast.CompareOperationOp.Eq:
         return at, at + step
@@ -385,6 +386,7 @@ def extract_facts(
     timezone: tzinfo,
     week_start_day: Optional[int],
     relative_date_range: bool,
+    rolling_filters: bool,
 ) -> QueryFacts:
     now = now.astimezone(timezone)
     scan = _QueryScan()
@@ -415,6 +417,7 @@ def extract_facts(
         start_of_utc_today=evaluator.start_of_utc_today,
         windows=tuple(windows),
         relative_date_range=relative_date_range,
+        rolling_filters=rolling_filters,
         mutable_field=scan.mutable_field,
         join=has_join,
         foreign_source=foreign_source,

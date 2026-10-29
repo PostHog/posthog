@@ -114,7 +114,7 @@ def clock_days_end_at_midnight(facts: QueryFacts) -> Verdict:
 
 
 def now_anchored_past_moves(facts: QueryFacts) -> Verdict:
-    if not facts.reads_now or not _reads_fixed_past(facts):
+    if not (facts.reads_now or facts.rolling_filters) or not _reads_fixed_past(facts):
         return None
     return Cap(until=facts.now + SQL_WINDOW_MAX_AGE[SqlWindowClass.UP_TO_NOW_LONG], reason=FreshnessReason.NOW_ANCHORED)
 

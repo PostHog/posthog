@@ -3,6 +3,8 @@ from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Optional, cast
 
+from dateutil.parser import isoparse
+
 from posthog.schema import (
     CachedHogQLQueryResponse,
     CacheMissResponse,
@@ -29,7 +31,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.user_query_validator import validate_user_query
-from posthog.hogql.variables import is_relative_date_value, replace_variables
+from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 
 from posthog import settings as app_settings
@@ -58,6 +60,14 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+
+
+def _is_absolute_date(value: str) -> bool:
+    try:
+        isoparse(value)
+    except ValueError:
+        return False
+    return True
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -131,8 +141,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     def _classify_sql_freshness(self, query: ast.SelectQuery | ast.SelectSetQuery) -> SqlFreshness | Reject:
         if "events" not in {name.lower() for name in self._queried_table_names}:
             return Reject(reason=FreshnessReason.NO_EVENTS)
-        date_range = self.query.filters.dateRange if self.query.filters else None
-        bounds = [date_range.date_from, date_range.date_to] if date_range else []
+        filters = self.query.filters
+        date_range = filters.dateRange if filters else None
+        bounds = [bound for bound in (date_range.date_from, date_range.date_to) if bound] if date_range else []
         try:
             context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
             resolved = resolve_types(clone_expr(query), context, dialect="hogql")
@@ -143,7 +154,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             now=datetime.now(UTC),
             timezone=UTC if self.modifiers.convertToProjectTimezone is False else self.team.timezone_info,
             week_start_day=self.team.week_start_day,
-            relative_date_range=any(bound and is_relative_date_value(bound) for bound in bounds),
+            relative_date_range=not all(_is_absolute_date(bound) for bound in bounds),
+            rolling_filters=bool(filters and (filters.properties or filters.filterTestAccounts)),
         )
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:

@@ -26,6 +26,7 @@ def classify(
     timezone: tzinfo,
     week_start_day: Optional[int],
     relative_date_range: bool,
+    rolling_filters: bool,
 ) -> SqlFreshness | Reject:
     """Any rejecting rule keeps the default age, otherwise the earliest cap wins, so rule order never changes the age."""
     try:
@@ -35,6 +36,7 @@ def classify(
             timezone=timezone,
             week_start_day=week_start_day,
             relative_date_range=relative_date_range,
+            rolling_filters=rolling_filters,
         )
     except Exception:
         return Reject(reason=FreshnessReason.UNPARSEABLE)

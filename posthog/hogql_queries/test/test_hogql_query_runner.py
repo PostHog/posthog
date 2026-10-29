@@ -16,6 +16,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
+    DateRange,
     HogQLFilters,
     HogQLPropertyFilter,
     HogQLQuery,
@@ -628,6 +629,32 @@ class TestHogQLQueryRunnerApiSqlFreshness(BaseTest):
             runner._read_cache_entry_freshness(freshness_record(window) if entry_has_window else None)
             stale = runner._is_stale_for_request(last_refresh=datetime.now(UTC) - timedelta(minutes=10))
         assert stale is expected_stale
+
+    @parameterized.expand(
+        [
+            (
+                "padded_relative_date_range",
+                HogQLFilters(dateRange=DateRange(date_from="-3d ", date_to="-2d ")),
+                datetime(2026, 10, 30, tzinfo=UTC),
+            ),
+            (
+                "property_filters",
+                HogQLFilters(properties=[HogQLPropertyFilter(key="event = 'x'")]),
+                datetime(2026, 10, 29, 16, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_filters_that_roll_cap_a_past_window(self, _name: str, filters: HogQLFilters, latest: datetime) -> None:
+        query = HogQLQuery(
+            query="select count() from events where timestamp >= '2026-10-01' and timestamp < '2026-10-20' and {filters}",
+            filters=filters,
+        )
+        with time_machine.travel(datetime(2026, 10, 29, 15, 0, tzinfo=UTC), tick=False):
+            runner = HogQLQueryRunner(team=self.team, query=query)
+            freshness = runner._classify_sql_freshness(runner.to_query())
+        assert isinstance(freshness, SqlFreshness)
+        assert freshness.window == SqlWindowClass.FIXED_PAST
+        assert freshness.fresh_until <= latest
 
     @parameterized.expand([("project_timezone", None, "fixed_past"), ("utc", False, "up_to_now_long")])
     def test_bounds_follow_the_query_timezone(

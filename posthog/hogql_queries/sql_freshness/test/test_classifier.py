@@ -29,7 +29,14 @@ class TestClassify(BaseTest):
         super().setUpClass()
         cls.database = Database.create_for(team=cls.team)
 
-    def _classify(self, sql: str, now: datetime = NOW, relative_date_range: bool = False, timezone: Any = None):
+    def _classify(
+        self,
+        sql: str,
+        now: datetime = NOW,
+        relative_date_range: bool = False,
+        rolling_filters: bool = False,
+        timezone: Any = None,
+    ):
         context = HogQLContext(team_id=self.team.pk, database=self.database, enable_select_queries=True)
         return classify(
             resolve_types(parse_select(sql), context, dialect="hogql"),
@@ -37,6 +44,7 @@ class TestClassify(BaseTest):
             timezone=timezone or self.team.timezone_info,
             week_start_day=self.team.week_start_day,
             relative_date_range=relative_date_range,
+            rolling_filters=rolling_filters,
         )
 
     @parameterized.expand(
@@ -119,6 +127,18 @@ class TestClassify(BaseTest):
                 {"relative_date_range": True, "fresh_until": NEXT_MIDNIGHT},
             ),
             (
+                "rolling_filter_values_expire_within_the_hour",
+                PAST_DAY,
+                SqlWindowClass.FIXED_PAST,
+                {"rolling_filters": True, "fresh_until": NOW + timedelta(hours=1)},
+            ),
+            (
+                "today_bound_ends_at_the_project_midnight",
+                "select count() from events where timestamp <= today() and timestamp >= '2026-10-01'",
+                SqlWindowClass.UP_TO_NOW_LONG,
+                {"timezone": LOS_ANGELES, "now": datetime(2026, 10, 29, 7, 5, tzinfo=UTC)},
+            ),
+            (
                 "utc_yesterday_is_closed_in_the_morning",
                 YESTERDAY,
                 SqlWindowClass.FIXED_PAST,
@@ -141,6 +161,7 @@ class TestClassify(BaseTest):
             sql,
             now=now,
             relative_date_range=options.get("relative_date_range", False),
+            rolling_filters=options.get("rolling_filters", False),
             timezone=options.get("timezone"),
         )
         assert isinstance(freshness, SqlFreshness)
