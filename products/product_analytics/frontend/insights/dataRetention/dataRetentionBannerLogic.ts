@@ -6,10 +6,9 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
+import type { OrganizationType } from '~/types'
 
 import { eventsRetentionRetrieve } from 'products/product_analytics/frontend/generated/api'
-
-import type { OrganizationType } from '../../../types'
 
 const SNOOZE_DAYS = 30
 // Don't nag accounts that can't yet have at-risk data: only warn once the account is within 90 days of its

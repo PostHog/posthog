@@ -1,9 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 
-import {
-    BreakdownTag as BreakdownTagComponent,
-    BreakdownTagProps,
-} from 'scenes/insights/filters/BreakdownFilter/BreakdownTag'
+import { BreakdownTag as BreakdownTagComponent, BreakdownTagProps } from './BreakdownTag'
 
 const meta: Meta<BreakdownTagProps> = {
     title: 'Filters/Breakdown Tag',

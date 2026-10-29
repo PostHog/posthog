@@ -2,11 +2,11 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { SavedInsightsTable } from 'scenes/saved-insights/SavedInsightsTable'
 
 import { InsightModel } from '~/types'
 
 import { insightDashboardModalLogic } from './insightDashboardModalLogic'
-import { SavedInsightsTable } from './SavedInsightsTable'
 
 export function AddSavedInsightsToDashboard(): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)
