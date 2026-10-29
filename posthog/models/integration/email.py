@@ -68,6 +68,17 @@ class EmailIntegration:
                 f"A sender for {email_address} already exists. Edit that sender instead of adding it again."
             )
 
+        # SES keeps one MAIL FROM per domain identity, shared by every sender on it, so a new
+        # sender must not bring its own: that would repoint bounce handling for the senders
+        # already using the domain, in this team and in the organization's other projects.
+        existing_on_domain = (
+            model.Integration.objects.filter(kind="email", config__domain=domain)
+            .exclude(config__mail_from_subdomain=None)
+            .first()
+        )
+        if existing_on_domain:
+            mail_from_subdomain = existing_on_domain.config.get("mail_from_subdomain", mail_from_subdomain)
+
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
         same_domain_integrations = model.Integration.objects.filter(kind="email", config__domain=domain)

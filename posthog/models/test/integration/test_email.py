@@ -53,6 +53,26 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert first.config["name"] == "Test User"
 
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_second_sender_keeps_the_domains_mail_from_subdomain(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        EmailIntegration.create_native_integration(
+            {"email": "first@successdomain.com", "name": "First", "provider": "ses", "mail_from_subdomain": "bounces"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        second = EmailIntegration.create_native_integration(
+            {"email": "second@successdomain.com", "name": "Second", "provider": "ses"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        assert second.config["mail_from_subdomain"] == "bounces"
+        assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == "bounces"
+
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_sender_created_during_the_provider_call_is_not_overwritten(self, mock_create_email_domain):
         config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
 
