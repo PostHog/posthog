@@ -23,7 +23,6 @@ from posthog.ph_client import PH_US_API_KEY
 from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
-from posthog.usage_counters import UsageCounter, UsageCounterService
 from posthog.utils import DayRange, get_instance_region, get_previous_day
 
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
@@ -1026,12 +1025,6 @@ def _get_all_ai_observability_reports(
         (str(org.id), org.name)
         for org in Organization.objects.filter(id__in=offline_usage, for_internal_metrics=False).only("id", "name")
     )
-    counter_service = UsageCounterService()
-    counter_plan = counter_service.resolve_plan(
-        period, caller="daily_report", complete=True, counters=(UsageCounter.AI_EVENTS,)
-    )
-    ingested_usage = dict(counter_service.fetch_report(period, plan=counter_plan).counts[UsageCounter.AI_EVENTS])
-    billable_team_ids = {team.id for team in teams if not team.is_demo and not team.organization.for_internal_metrics}
 
     # Aggregate by organization
     org_reports: dict[str, dict[str, Any]] = {}
@@ -1043,9 +1036,7 @@ def _get_all_ai_observability_reports(
                 "organization_name": org_id_to_name.get(org_id, ""),
                 "period_start": period.start.isoformat(),
                 "period_end": period.end.isoformat(),
-                "ai_ingested_event_count_in_period": 0,
                 "ai_offline_eval_metric_count_in_period": sum(offline_usage.get(org_id, {}).values()),
-                "ai_event_count_in_period": 0,
                 "ai_generation_count": 0,
                 "ai_embedding_count": 0,
                 "ai_span_count": 0,
@@ -1091,8 +1082,6 @@ def _get_all_ai_observability_reports(
 
     for team_id, org_id in team_to_org.items():
         report = org_reports[org_id]
-        if team_id in billable_team_ids:
-            report["ai_ingested_event_count_in_period"] += ingested_usage.get(team_id, 0)
 
         # Add metrics from TeamMetrics dataclass
         metrics = all_metrics.get(team_id)
@@ -1172,10 +1161,6 @@ def _get_all_ai_observability_reports(
                 )
 
     logger.info(f"Generated AI observability reports for {len(org_reports)} organizations")
-    for report in org_reports.values():
-        report["ai_event_count_in_period"] = (
-            report["ai_ingested_event_count_in_period"] + report["ai_offline_eval_metric_count_in_period"]
-        )
     return org_reports
 
 

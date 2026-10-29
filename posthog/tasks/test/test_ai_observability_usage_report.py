@@ -621,12 +621,18 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             self.assertEqual({key: getattr(report.teams[str(self.team.id)], key) for key in expected}, expected)
             self.assertEqual(has_non_zero_usage(report), bool(ingested + offline))
 
-        analytics_reports = _get_all_ai_observability_reports(period=period)
+        with patch(
+            "posthog.tasks.usage_report.sync_execute",
+            side_effect=AssertionError("Analytics reporting must not execute billing queries"),
+        ):
+            analytics_reports = _get_all_ai_observability_reports(period=period)
         if ingested + offline:
             analytics_report = analytics_reports[org_id]
-            self.assertEqual({key: analytics_report[key] for key in expected}, expected)
+            self.assertEqual(analytics_report["ai_offline_eval_metric_count_in_period"], offline)
             self.assertEqual(analytics_report["ai_generation_count"], ingested)
             self.assertEqual(analytics_report["ai_metric_count"], 0)
+            self.assertNotIn("ai_ingested_event_count_in_period", analytics_report)
+            self.assertNotIn("ai_event_count_in_period", analytics_report)
             with (
                 patch("posthog.tasks.usage_report.get_ph_client"),
                 patch("posthog.tasks.usage_report.capture_event") as org_capture,
@@ -641,7 +647,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
                 if call.kwargs["name"] == "organization usage report"
             )
             self.assertEqual({key: org_payload[key] for key in expected}, expected)
-            self.assertEqual({key: ai_capture.call_args.kwargs["properties"][key] for key in expected}, expected)
+            self.assertEqual(
+                ai_capture.call_args.kwargs["properties"]["ai_offline_eval_metric_count_in_period"], offline
+            )
         else:
             self.assertEqual(analytics_reports, {})
         quotas = _aggregate_quota_usage(
@@ -679,7 +687,6 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
                 self.assertNotIn(org_id, reports)
                 continue
             self.assertEqual(analytics[org_id]["ai_offline_eval_metric_count_in_period"], expected)
-            self.assertEqual(analytics[org_id]["ai_event_count_in_period"], expected)
             self.assertEqual(reports[org_id].ai_event_count_in_period, expected)
 
     @time_machine.travel("2026-11-01T00:01:00Z", tick=False)
@@ -711,7 +718,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             dispatch.assert_not_called()
             send_ai_observability_usage_reports()
             self.assertEqual(dispatch.call_count, 1)
-            self.assertEqual(dispatch.call_args.kwargs["report_dict"]["ai_event_count_in_period"], 30)
+            self.assertEqual(dispatch.call_args.kwargs["report_dict"]["ai_offline_eval_metric_count_in_period"], 30)
 
     def test_full_ai_observability_report(self) -> None:
         """Test the full AI observability report generation."""

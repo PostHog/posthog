@@ -452,7 +452,7 @@ Operators must not delete durable result identities and then replay uploads as a
 
 ### Usage reporting and shared AIO meter
 
-Both `organization usage report` and `llm analytics usage` expose:
+The `organization usage report` exposes:
 
 | Property                                 | Meaning                                                                                                |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------ |
@@ -463,7 +463,8 @@ Both `organization usage report` and `llm analytics usage` expose:
 Organization reports include the same breakdown in each `teams` entry, including existing environments that have moved. A moved environment can appear under both organizations, with only the usage attributed to each.
 `team_count` continues to count live billable teams; historical entries do not increase it.
 The existing `ai_event_count_in_period` → `llm_events` contract remains the shared AIO meter. Reporting does not deduct the standard 100,000-unit monthly allowance or determine prices or custom allowances; billing owns those calculations.
-The existing `ai_metric_count`, event-type analytics, traces, costs, tokens, and dimension breakdowns remain ClickHouse-derived.
+
+The `llm analytics usage` event adds `ai_offline_eval_metric_count_in_period` from the same offline ledger aggregation. Its existing `ai_metric_count`, event-type analytics, traces, costs, tokens, and dimension breakdowns remain ClickHouse-derived. Billing-eligible ingested counts and combined billing totals belong to the organization usage report; analytics reporting does not run an additional billing scan.
 
 `get_offline_evaluation_usage` performs database-side `SUM(quantity)` grouped by the stored organization and environment, with `accepted_at >= period_start AND accepted_at < period_end`.
 Eligibility follows current team records, like ingested AI events: deleted teams, demo teams, and teams in internal-metrics organizations are excluded. The stored organization must also still exist and not be internal-metrics.
@@ -482,7 +483,7 @@ Current-day quota refresh adds eligible offline usage to `llm_events.todays_usag
 It leaves the prior-period `usage` received from billing intact. Ledger failures abort before quota updates or report delivery, allowing existing retries without publishing an incomplete total.
 Organizations included only through offline usage are read in bounded, buffered pages so database connection cleanup between quota batches cannot interrupt the scan.
 Reports are absolute totals: rereading an unchanged window does not consume or modify ledger entries. Existing analytics dispatch claims and already-reported checks still apply.
-Separately scheduled reports can observe different late-arriving ingested data; identical windows and source snapshots produce matching AIO totals.
+Separately scheduled reports can observe different late-arriving data; identical windows and ledger snapshots produce matching offline metric totals.
 
 ### Deployment
 
