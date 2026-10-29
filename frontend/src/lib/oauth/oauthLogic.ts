@@ -6,6 +6,7 @@ import { getRelativeNextPath } from 'lib/utils/url'
 
 import { Region } from '~/types'
 
+import { clearSupportTicketDrafts } from 'products/conversations/frontend/components/SidePanel/supportTicketDrafts'
 import { clearSQLEditorDrafts } from 'products/data_warehouse/frontend/sqlEditorDraftCleanup'
 
 import { buildAuthorizeUrl, clearSession, exchangeCodeForToken, OAUTH_REGIONS, PendingAuth } from './oauthClient'
@@ -118,6 +119,7 @@ export const oauthLogic = kea<oauthLogicType>([
         },
         logout: () => {
             clearSQLEditorDrafts()
+            clearSupportTicketDrafts()
             clearSession()
             // Back to the local instance's login.
             window.location.href = '/login'

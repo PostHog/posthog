@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
 import { Button, Heading, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
@@ -7,8 +8,9 @@ import { sidepanelTicketsLogic } from '../SidePanel/sidepanelTicketsLogic'
 import { QuillTicketComposer } from './QuillTicketComposer'
 
 export function QuillNewTicket(): JSX.Element {
-    const { messageSending, newTicketDraft, supportResponseTime } = useValues(sidepanelTicketsLogic)
-    const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
+    const { messageSending, hasNewTicketDraft, supportResponseTime } = useValues(sidepanelTicketsLogic)
+    const { sendMessage, setView, updateNewTicketDraft, discardDraft } = useActions(sidepanelTicketsLogic)
+    const initialDraft = useMemo(() => sidepanelTicketsLogic.values.newTicketDraft, [])
 
     const placeholder = supportResponseTime
         ? `Describe what you need help with and our support engineers aim to get back to you within ${supportResponseTime}.`
@@ -36,16 +38,28 @@ export function QuillNewTicket(): JSX.Element {
                 <Heading size="sm" render={<h3 className="m-0" />}>
                     New ticket
                 </Heading>
+                {hasNewTicketDraft && (
+                    <Button
+                        size="sm"
+                        variant="link-muted"
+                        className="ml-auto"
+                        onClick={discardDraft}
+                        data-attr="sidebar-discard-ticket-draft"
+                    >
+                        Discard draft
+                    </Button>
+                )}
             </div>
-            {/* The draft seeds the editor once. The parent keys this view on the draft revision, so a new prefill
-                remounts it. */}
+            {/* The draft seeds the editor once. The parent keys this view on the composer revision, so a new
+                prefill or a discard remounts it. */}
             <QuillTicketComposer
                 onSend={sendMessage}
                 sending={messageSending}
                 placeholder={placeholder}
                 buttonText="Submit ticket"
                 minRows={4}
-                draftContent={newTicketDraft}
+                draftContent={initialDraft}
+                onDraftChange={updateNewTicketDraft}
                 autoFocus
             />
         </div>

@@ -21,9 +21,17 @@ interface TicketsListProps {
 }
 
 export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.Element {
-    const { tickets, filteredTickets, ticketsLoading, canCreateTicket, effectiveStatusFilter, ticketFilterCounts } =
-        useValues(sidepanelTicketsLogic)
-    const { setCurrentTicket, setView, setStatusFilter } = useActions(sidepanelTicketsLogic)
+    const {
+        tickets,
+        filteredTickets,
+        ticketsLoading,
+        canCreateTicket,
+        effectiveStatusFilter,
+        ticketFilterCounts,
+        hasNewTicketDraft,
+        ticketIdsWithDrafts,
+    } = useValues(sidepanelTicketsLogic)
+    const { setCurrentTicket, setView, setStatusFilter, openNewTicket } = useActions(sidepanelTicketsLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
 
@@ -69,10 +77,10 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
                     fullWidth
                     center
                     className="shrink-0"
-                    onClick={() => setView('new')}
+                    onClick={openNewTicket}
                     data-attr="sidebar-create-new-ticket"
                 >
-                    Create new ticket
+                    {hasNewTicketDraft ? 'Continue your draft' : 'Create new ticket'}
                 </LemonButton>
             )}
             {!hasIdentityMode && (
@@ -167,6 +175,11 @@ export function TicketsList({ selectedTicketId = null }: TicketsListProps): JSX.
                                         >
                                             {ticket.status === 'on_hold' ? 'On hold' : ticket.status}
                                         </LemonTag>
+                                        {ticketIdsWithDrafts.includes(ticket.id) && (
+                                            <LemonTag type="caution" size="small">
+                                                Draft
+                                            </LemonTag>
+                                        )}
                                         {(ticket.unread_count ?? 0) > 0 && (
                                             <LemonBadge.Number
                                                 count={ticket.unread_count ?? 0}

@@ -6,7 +6,13 @@ import { stripMarkdown } from 'lib/utils/markdown'
 import { type ConversationTicket, sidePanelTicketFilterLabels } from '../../types'
 import { ticketStatusBadgeVariant } from './ticketStatusBadgeVariant'
 
-export function QuillTicketRow({ ticket, onOpen }: { ticket: ConversationTicket; onOpen: () => void }): JSX.Element {
+interface QuillTicketRowProps {
+    ticket: ConversationTicket
+    hasDraft: boolean
+    onOpen: () => void
+}
+
+export function QuillTicketRow({ ticket, hasDraft, onOpen }: QuillTicketRowProps): JSX.Element {
     const unread = ticket.unread_count ?? 0
     return (
         <Card size="sm" className="p-0">
@@ -31,6 +37,7 @@ export function QuillTicketRow({ ticket, onOpen }: { ticket: ConversationTicket;
                     </Text>
                 </span>
                 <span className="flex shrink-0 items-center gap-1">
+                    {hasDraft && <Badge variant="warning">Draft</Badge>}
                     {unread > 0 && (
                         <Badge variant="info" aria-label={`${unread} unread`}>
                             {unread}

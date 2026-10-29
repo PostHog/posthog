@@ -24,7 +24,7 @@ export const scene: SceneExport = {
 }
 
 export function MyTicketsScene(): JSX.Element {
-    const { view, currentTicket, newTicketDraftRevision, isBillingResolved } = useValues(sidepanelTicketsLogic)
+    const { view, currentTicket, composerRevision, isBillingResolved } = useValues(sidepanelTicketsLogic)
     const { preflight } = useValues(preflightLogic)
 
     const hasIdentityMode = !!window.JS_POSTHOG_IDENTITY_DISTINCT_ID
@@ -69,9 +69,9 @@ export function MyTicketsScene(): JSX.Element {
 
     let pane: JSX.Element
     if (view === 'new') {
-        // Key on the draft revision so a prefill injected while the composer is already open
+        // Key on the composer revision so a prefill or discard while the composer is already open
         // remounts the editor (it only reads initial content at creation)
-        pane = <NewTicket key={newTicketDraftRevision} />
+        pane = <NewTicket key={composerRevision} />
     } else if (view === 'restore' && !hasIdentityMode) {
         pane = <RestoreTickets />
     } else if (view === 'ticket' && currentTicket) {
