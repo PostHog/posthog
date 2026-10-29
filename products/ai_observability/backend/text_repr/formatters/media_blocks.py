@@ -44,7 +44,13 @@ def parse_media_block(block: dict) -> MediaBlock | None:
             modality = mime_type.split("/")[0] if mime_type else ""
             if modality not in ("image", "audio", "video"):
                 modality = "file"
-            return _with_source(modality, mime_type, data.get("data") or data.get("file_uri") or data.get("fileUri"))
+            uri = data.get("file_uri") or data.get("fileUri")
+            if isinstance(uri, str):
+                # A file URI is never inline bytes, and a `gs://` URI is not a link anyone else can fetch.
+                return MediaBlock(
+                    modality=modality, mime_type=mime_type, url=uri if uri.startswith(_LINK_SCHEMES) else None
+                )
+            return _with_source(modality, mime_type, data.get("data"))
     return None
 
 

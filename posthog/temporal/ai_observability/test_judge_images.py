@@ -4,7 +4,7 @@ from unittest.mock import patch
 from posthog.temporal.ai_observability.judge_images import MAX_IMAGES, OVER_LIMIT_MARKER, JudgeImages
 
 from products.ai_observability.backend.llm.images import ImagePart
-from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaBlock, parse_media_block
 
 OBJECT_STORAGE = "products.ai_observability.backend.ai_blobs.object_storage"
 
@@ -33,6 +33,11 @@ class TestJudgeImagesMarkers:
                 id="customer_link",
             ),
             pytest.param(_pointer("a", size=4_000_000), OVER_LIMIT_MARKER, id="too_large"),
+            pytest.param(
+                parse_media_block({"file_data": {"mime_type": "image/png", "file_uri": "gs://bucket/a.png"}}),
+                "[image]",
+                id="gemini_cloud_storage_uri",
+            ),
         ],
     )
     def test_images_it_cannot_attach_keep_an_unnumbered_marker(self, media: MediaBlock, marker: str):
