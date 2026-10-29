@@ -49,6 +49,7 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
+from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
@@ -261,6 +262,15 @@ def _reserve_person_properties_refresh_if_due(user: User) -> bool:
         return False
     safe_cache_set(key, context, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
     return True
+
+
+@tracer.start_as_current_span("user_serializer.identify")
+def _refresh_person_properties(user: User) -> None:
+    posthoganalytics.capture(
+        distinct_id=user.distinct_id,
+        event="update user properties",
+        properties={"$set": user.get_analytics_metadata()},
+    )
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -897,12 +907,7 @@ class UserSerializer(serializers.ModelSerializer):
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
         if _reserve_person_properties_refresh_if_due(instance):
-            with tracer.start_as_current_span("user_serializer.identify"):
-                posthoganalytics.capture(
-                    distinct_id=instance.distinct_id,
-                    event="update user properties",
-                    properties={"$set": instance.get_analytics_metadata()},
-                )
+            run_after_response(self.context.get("request"), lambda: _refresh_person_properties(instance))
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
