@@ -14,6 +14,7 @@ from products.surveys.backend.facade.api import (
     get_survey_responses_linked_to,
 )
 
+from ..ai_blobs import BlobPointer as BlobPointer
 from ..logic.evaluations.evaluation_metas import load_evaluation_meta, load_evaluation_metas
 from ..logic.evaluations.overview import evaluation_result, group_by_evaluation, overview_totals, pass_rate_overview
 from ..logic.evaluations.overview_queries import load_bucket_counts, load_category_counts
