@@ -106,7 +106,8 @@ export function RecommendationsSection(): JSX.Element {
                         <strong>New: recommendations</strong>
                         <p className="mb-0">
                             Built from your Google Ads and Google Search Console data. They show where to cut wasted
-                            spend, where to grow, and which pages to improve for organic search.
+                            spend, where to grow, and which pages to improve for organic search. They are suggestions,
+                            so check each one before you edit a campaign.
                         </p>
                         <div className="flex justify-end gap-2">
                             <LemonButton size="small" onClick={dismissIntro}>

@@ -171,8 +171,8 @@ export function RecommendationsModal({
             }
             footer={
                 <p className="mb-0 mr-auto text-xs text-secondary">
-                    Recommendations come from rules applied to your synced data, and impact figures are estimates. Check
-                    each one before you change a campaign.
+                    These are suggestions from rules applied to your synced data, and impact figures are estimates. You
+                    decide what to change, so check each one before you edit a campaign.
                 </p>
             }
             description={
