@@ -9,9 +9,13 @@ linked ticket from Linear before it decides, so a late or reordered delivery can
 that the tickets no longer have.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager, suppress
 from typing import Any
 from uuid import UUID
+
+import structlog
+from redis.exceptions import LockError, LockNotOwnedError
 
 from posthog.event_usage import groups
 from posthog.ingress.contracts import DeliveryOwnership
@@ -19,6 +23,7 @@ from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.activity_logging.activity_log import Trigger
 from posthog.models.integration import Integration, LinearIntegration
 from posthog.ph_client import ph_scoped_capture
+from posthog.redis import get_client
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic.issue_mutations import transition_issue_status_by_automation
@@ -33,6 +38,12 @@ _OPEN_STATE_TYPES = frozenset({"triage", "backlog", "unstarted", "started"})
 _TRIGGER_JOB_TYPE = "linear_status_sync"
 
 _WORKSPACE_LOOKUP_TIMEOUT_MS = 800
+
+# Long enough to read every linked ticket of one issue. A job that dies holding the lock frees it then.
+_ISSUE_LOCK_TIMEOUT_SECONDS = 120
+_ISSUE_LOCK_WAIT_SECONDS = 10
+
+logger = structlog.get_logger(__name__)
 
 
 def prepare_job(payload: Mapping[str, Any]) -> contracts.LinearStatusSyncJob | None:
@@ -86,6 +97,7 @@ def delivery_ownership(payload: Mapping[str, Any]) -> DeliveryOwnership:
 
 
 def sync_status(job: contracts.LinearStatusSyncJob) -> None:
+    _refresh_moved_identifiers(job)
     issues = (
         ErrorTrackingIssue.objects.filter(
             external_issue__integration__kind=Integration.IntegrationKind.LINEAR.value,
@@ -93,12 +105,68 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
             external_issue__external_context__id__in=job.identifiers,
         )
         .distinct()
+        .order_by("id")
         .select_related("team__organization")
     )
 
+    # Each project reads Linear with its own token, so one revoked token must not keep every other
+    # project's issue from syncing. The first failure is raised after the loop so the task retries,
+    # and a retry is a no-op for the issues that already changed.
     previous_state = _PreviousStateType(job)
+    failures: list[Exception] = []
     for issue in issues:
-        _sync_issue(issue, job, previous_state)
+        try:
+            with _issue_lock(issue.id):
+                _sync_issue(issue, job, previous_state)
+        except Exception as error:
+            logger.warning("linear_status_sync_issue_failed", issue_id=str(issue.id), team_id=issue.team_id)
+            failures.append(error)
+    if failures:
+        raise failures[0]
+
+
+@contextmanager
+def _issue_lock(issue_id: UUID) -> Iterator[None]:
+    """Run one issue's Linear reads and status change while no other job does the same for it.
+
+    A job reads the ticket states before it takes the issue row lock, so two overlapping jobs
+    could act on their reads in the wrong order: a close job that read `completed` could resolve
+    the issue after a reopen job read `started` and found nothing to reopen. Raises LockError
+    while another job holds the issue, so the task retries it later.
+    """
+    lock = get_client().lock(
+        f"error_tracking:linear_status_sync:{issue_id}",
+        timeout=_ISSUE_LOCK_TIMEOUT_SECONDS,
+        blocking_timeout=_ISSUE_LOCK_WAIT_SECONDS,
+    )
+    if not lock.acquire():
+        raise LockError(f"Another Linear status sync holds issue {issue_id}")
+    try:
+        yield
+    finally:
+        # A job that outlived the lock timeout no longer owns it, and its work is already done.
+        with suppress(LockNotOwnedError):
+            lock.release()
+
+
+def _refresh_moved_identifiers(job: contracts.LinearStatusSyncJob) -> None:
+    """Point references that hold an identifier from before a team move at the ticket's current one.
+
+    A reference stores only the identifier, and the state lookup finds a ticket by its current
+    one, so a stale identifier reads as a deleted ticket and stops holding its issue open. Workflow
+    states belong to a team, so a move between teams always changes the state and reaches here.
+    """
+    current, *previous = job.identifiers
+    if not previous:
+        return
+    stale = ErrorTrackingExternalReference.objects.filter(
+        integration__kind=Integration.IntegrationKind.LINEAR.value,
+        integration__integration_id=job.organization_id,
+        external_context__id__in=previous,
+    )
+    for reference in stale:
+        reference.external_context = {**(reference.external_context or {}), "id": current}
+        reference.save(update_fields=["external_context"])
 
 
 class _PreviousStateType:

@@ -9,6 +9,7 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import SimpleTestCase, override_settings
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 
 from posthog.ingress.dispatch.loading import reset_consumer_registry
@@ -38,15 +39,30 @@ def _state_change_payload(**overrides: Any) -> dict[str, Any]:
 class _FakeLinear:
     """Answers the Linear GraphQL reads the sync makes, from the ticket states a test sets."""
 
-    def __init__(self, ticket_states: dict[str, str], previous_state_type: str | None) -> None:
+    def __init__(
+        self,
+        ticket_states: dict[str, str],
+        previous_state_type: str | None,
+        *,
+        failing_tokens: frozenset[str] = frozenset(),
+        rate_limited_for_seconds: int | None = None,
+    ) -> None:
         self.ticket_states = ticket_states
         self.previous_state_type = previous_state_type
-        self.fail = False
+        self.failing_tokens = failing_tokens
+        self.rate_limited_for_seconds = rate_limited_for_seconds
 
     def post(self, url: str, *, headers: dict[str, str], json: dict[str, Any], timeout: int) -> Mock:
         query, variables = json["query"], json["variables"]
-        if self.fail:
-            body: dict[str, Any] = {"errors": [{"message": "Rate limit exceeded"}]}
+        if self.rate_limited_for_seconds is not None:
+            reset_ms = int((time.time() + self.rate_limited_for_seconds) * 1000)
+            return Mock(
+                status_code=429,
+                headers={"X-RateLimit-Requests-Reset": str(reset_ms)},
+                json=Mock(return_value={"errors": [{"extensions": {"code": "RATELIMITED"}}]}),
+            )
+        if headers["Authorization"].removeprefix("Bearer ") in self.failing_tokens:
+            body: dict[str, Any] = {"errors": [{"message": "Authentication required"}]}
         elif "IssueStates" in query:
             wanted = {(match["team"]["key"]["eq"], match["number"]["eq"]) for match in variables["filter"]["or"]}
             nodes = [
@@ -61,7 +77,7 @@ class _FakeLinear:
             body = {"data": {"workflowStates": {"nodes": nodes}}}
         else:
             raise AssertionError(f"Unexpected Linear query: {query}")
-        return Mock(json=Mock(return_value=body))
+        return Mock(status_code=200, headers={}, json=Mock(return_value=body))
 
 
 class TestPrepareLinearStatusSyncJob(SimpleTestCase):
@@ -144,12 +160,14 @@ class TestErrorTrackingLinearWebhook(BaseTest):
 
 
 class TestLinearStatusSync(BaseTest):
-    def _linear_integration(self, team: Team, organization_id: str = ORGANIZATION_ID) -> Integration:
+    def _linear_integration(
+        self, team: Team, organization_id: str = ORGANIZATION_ID, token: str = "linear-token"
+    ) -> Integration:
         return Integration.objects.create(
             team=team,
             kind=Integration.IntegrationKind.LINEAR.value,
             integration_id=organization_id,
-            sensitive_config={"access_token": "linear-token"},
+            sensitive_config={"access_token": token},
         )
 
     def _linked_issue(
@@ -162,10 +180,10 @@ class TestLinearStatusSync(BaseTest):
             )
         return issue
 
-    def _sync(self, linear: _FakeLinear) -> None:
+    def _sync(self, linear: _FakeLinear, identifiers: tuple[str, ...] = ("ENG-1",)) -> None:
         with patch("posthog.models.integration.linear.requests.post", side_effect=linear.post):
             process_linear_status_sync(
-                organization_id=ORGANIZATION_ID, identifiers=["ENG-1"], previous_state_id=PREVIOUS_STATE_ID
+                organization_id=ORGANIZATION_ID, identifiers=list(identifiers), previous_state_id=PREVIOUS_STATE_ID
             )
 
     @parameterized.expand(
@@ -257,10 +275,24 @@ class TestLinearStatusSync(BaseTest):
             other_project_issue.id: "resolved",
         }
 
-    def test_a_failed_linear_read_raises_and_changes_nothing(self) -> None:
-        issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
-        linear = _FakeLinear({"ENG-1": "completed"}, "started")
-        linear.fail = True
+    def test_a_ticket_that_moved_teams_keeps_holding_its_issue_open(self) -> None:
+        issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1", "OPS-7"])
+        linear = _FakeLinear({"ENG-1": "started", "ENG-2": "started"}, "started")
+
+        self._sync(linear, identifiers=("ENG-2", "OPS-7"))
+        linear.ticket_states["ENG-1"] = "completed"
+        self._sync(linear)
+
+        issue.refresh_from_db()
+        assert issue.status == "active"
+
+    def test_a_project_whose_linear_read_fails_raises_without_holding_back_the_others(self) -> None:
+        revoked_team = Team.objects.create(organization=self.organization, name="Revoked token")
+        failing_issue = self._linked_issue(
+            revoked_team, self._linear_integration(revoked_team, token="revoked-token"), ["ENG-1"]
+        )
+        working_issue = self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+        linear = _FakeLinear({"ENG-1": "completed"}, "started", failing_tokens=frozenset({"revoked-token"}))
 
         with (
             patch("posthog.models.integration.linear.requests.post", side_effect=linear.post),
@@ -272,5 +304,18 @@ class TestLinearStatusSync(BaseTest):
                 )
             )
 
-        issue.refresh_from_db()
-        assert issue.status == "active"
+        statuses = dict(
+            ErrorTrackingIssue.objects.filter(id__in=[failing_issue.id, working_issue.id]).values_list("id", "status")
+        )
+        assert statuses == {failing_issue.id: "active", working_issue.id: "resolved"}
+
+    def test_a_rate_limited_read_retries_once_linear_resets_the_limit(self) -> None:
+        self._linked_issue(self.team, self._linear_integration(self.team), ["ENG-1"])
+
+        with (
+            patch.object(process_linear_status_sync, "retry", side_effect=Retry()) as retry,
+            self.assertRaises(Retry),
+        ):
+            self._sync(_FakeLinear({"ENG-1": "completed"}, "started", rate_limited_for_seconds=900))
+
+        assert 899 <= retry.call_args.kwargs["countdown"] <= 900

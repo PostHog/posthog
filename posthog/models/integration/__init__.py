@@ -77,7 +77,7 @@ from .google_cloud import (
     is_unique_service_account_by_organization_id,
 )
 from .jira import JiraIntegration
-from .linear import LinearIntegration, LinearIntegrationError
+from .linear import LinearIntegration, LinearIntegrationError, LinearRateLimitedError
 from .linkedin_ads import LinkedInAdsIntegration
 from .meta import InstagramIntegration, MetaAdsIntegration, MetaGraphIntegration
 from .model import (
@@ -239,6 +239,7 @@ __all__ = [
     "cleanup_ses_identity_on_integration_delete",
     "LinearIntegration",
     "LinearIntegrationError",
+    "LinearRateLimitedError",
     "SUPPORTED_EXTERNAL_ISSUE_PROVIDERS",
     "external_issue_url",
     "is_supported_external_issue_provider",

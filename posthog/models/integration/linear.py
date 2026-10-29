@@ -1,6 +1,8 @@
 """Linear integration."""
 
 import re
+import math
+import time
 from collections.abc import Sequence
 from typing import Any
 
@@ -17,9 +19,30 @@ logger = structlog.get_logger(__name__)
 
 _ISSUE_IDENTIFIER = re.compile(r"([A-Za-z0-9]+)-([0-9]+)")
 
+# Linear counts requests over a one-hour window, so its reset time is never further away than that.
+_RATE_LIMIT_WINDOW_SECONDS = 3600
+_RATE_LIMIT_DEFAULT_WAIT_SECONDS = 60
+
 
 class LinearIntegrationError(Exception):
     """A Linear read that failed, so the caller retries instead of acting on a guessed answer."""
+
+
+class LinearRateLimitedError(LinearIntegrationError):
+    """Linear refused a read because the token spent its hourly budget. Retry after `retry_after_seconds`."""
+
+    def __init__(self, retry_after_seconds: int) -> None:
+        super().__init__(f"Linear rate limit exceeded, retry in {retry_after_seconds}s")
+        self.retry_after_seconds = retry_after_seconds
+
+
+def _rate_limit_wait_seconds(response: requests.Response) -> int:
+    reset_ms = response.headers.get("X-RateLimit-Requests-Reset")
+    try:
+        wait = math.ceil(int(reset_ms) / 1000 - time.time()) if reset_ms else _RATE_LIMIT_DEFAULT_WAIT_SECONDS
+    except ValueError:
+        wait = _RATE_LIMIT_DEFAULT_WAIT_SECONDS
+    return min(max(wait, 1), _RATE_LIMIT_WINDOW_SECONDS)
 
 
 class LinearIntegration:
@@ -173,7 +196,7 @@ class LinearIntegration:
             }
         }
         """
-        body = self.query(states_query, variables={"filter": {"or": filters}, "first": len(filters)})
+        body = self._read(states_query, variables={"filter": {"or": filters}, "first": len(filters)})
         nodes = common.dot_get(body, "data.issues.nodes")
         if body.get("errors") or not isinstance(nodes, list):
             raise LinearIntegrationError("Failed to read the Linear issue states")
@@ -189,12 +212,28 @@ class LinearIntegration:
             workflowStates(filter: { id: { eq: $id } }, first: 1, includeArchived: true) { nodes { type } }
         }
         """
-        body = self.query(state_query, variables={"id": state_id})
+        body = self._read(state_query, variables={"id": state_id})
         nodes = common.dot_get(body, "data.workflowStates.nodes")
         if body.get("errors") or not isinstance(nodes, list):
             raise LinearIntegrationError("Failed to read the Linear workflow state")
         state_type = nodes[0].get("type") if nodes else None
         return state_type if isinstance(state_type, str) else None
+
+    def _read(self, query: str, variables: dict[str, Any]) -> dict[str, Any]:
+        """`query`, but a rate-limited answer raises LinearRateLimitedError with the time until Linear resets."""
+        response = requests.post(
+            "https://api.linear.app/graphql",
+            headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
+            json={"query": query, "variables": variables},
+            timeout=10,
+        )
+        body = response.json()
+        error_codes = {
+            (error.get("extensions") or {}).get("code") for error in body.get("errors") or [] if isinstance(error, dict)
+        }
+        if response.status_code == 429 or "RATELIMITED" in error_codes:
+            raise LinearRateLimitedError(_rate_limit_wait_seconds(response))
+        return body
 
     def search_issues(self, query: str, *, limit: int = 25) -> list[dict[str, Any]]:
         """Search existing Linear issues by title / identifier for the link-existing flow.
