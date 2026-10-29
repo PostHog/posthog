@@ -386,5 +386,5 @@ def list_member_offboarding_resources(organization_id: str, user_id: int) -> lis
     return SubscriptionOffboarding(organization_id, user_id).resources()
 
 
-def disable_member_offboarding_resources(organization_id: str, user_id: int, keep: set[str], email: str) -> None:
-    SubscriptionOffboarding(organization_id, user_id).disable(keep, email)
+def disable_member_offboarding_resources(organization_id: str, user_id: int, keep: set[str]) -> None:
+    SubscriptionOffboarding(organization_id, user_id).disable(keep)

@@ -31,20 +31,9 @@ class SubscriptionOffboarding:
             .select_related("team")
         ]
 
-    def disable(self, keep: set[str], email: str) -> None:
+    def disable(self, keep: set[str]) -> None:
         subscriptions = self._subscriptions()
         for subscription in subscriptions.filter(created_by_id=self.user_id, enabled=True):
             if f"subscription:{subscription.pk}" not in keep:
                 subscription.enabled = False
                 subscription.save(update_fields=["enabled"])
-
-        for subscription in subscriptions.filter(
-            target_type=Subscription.SubscriptionTarget.EMAIL, target_value__icontains=email
-        ):
-            recipients = [recipient.strip() for recipient in subscription.target_value.split(",")]
-            remaining = [recipient for recipient in recipients if recipient.casefold() != email.casefold()]
-            if remaining != recipients:
-                subscription.target_value = ",".join(remaining)
-                if not remaining:
-                    subscription.enabled = False
-                subscription.save(update_fields=["target_value", "enabled"])

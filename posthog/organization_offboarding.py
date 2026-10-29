@@ -123,7 +123,5 @@ class OrganizationOffboarding:
                         if configuration and configuration.dashboard:
                             configuration.dashboard.is_shared = False
                             configuration.dashboard.save(update_fields=["is_shared"])
-            subscriptions.disable_member_offboarding_resources(
-                self.organization_id, self.user_id, keep, self.membership.user.email
-            )
+            subscriptions.disable_member_offboarding_resources(self.organization_id, self.user_id, keep)
             self.membership.user.leave(organization=self.membership.organization)
