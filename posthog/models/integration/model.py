@@ -12,6 +12,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
@@ -151,10 +152,11 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
             return values
         return {**values, "config": config_for_write(kind, values.get("config"), requirement)}
 
-    def create(self, **kwargs: Any) -> "Integration":
+    # The django-stubs plugin rebinds this subclass to its own TypeVar, so a concrete signature cannot match.
+    def create(self, **kwargs: Any) -> "Integration":  # type: ignore[override]
         return super().create(**self._with_config_for_write(kwargs, kwargs.get("kind")))
 
-    def bulk_create(self, objs: Iterable["Integration"], *args: Any, **kwargs: Any) -> list["Integration"]:
+    def bulk_create(self, objs: Iterable["Integration"], *args: Any, **kwargs: Any) -> list["Integration"]:  # type: ignore[override]
         objs = list(objs)
         requirement = self._write_requirement()
         for obj in objs:
@@ -162,9 +164,9 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
                 obj.config = config_for_write(obj.kind, obj.config, requirement)
             # bulk_create does not call save(), so normalize here too.
             obj.config = normalized_config(obj.kind, obj.config)
-        return super().bulk_create(objs, *args, **kwargs)
+        return cast(list[Integration], super().bulk_create(cast(Iterable[Any], objs), *args, **kwargs))
 
-    def update_or_create(
+    def update_or_create(  # type: ignore[override]
         self,
         defaults: Mapping[str, Any] | None = None,
         create_defaults: Mapping[str, Any] | None = None,
@@ -293,7 +295,11 @@ class Integration(models.Model):
         VERCEL = "vercel"
         YOUTUBE_ANALYTICS = "youtube-analytics"
 
+    # Declared for type checkers that do not read Django fields: ty refuses the model as an
+    # `IntegrationRecord` without them.
+    id: int
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team_id: int
 
     # The integration type identifier
     kind = field_access_control(models.CharField(max_length=32, choices=integration_kind_choices), "project", "admin")
@@ -317,6 +323,7 @@ class Integration(models.Model):
     # Meta
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    created_by_id: int | None
 
     # Django's default manager, because it is declared first. Admin widgets, DRF relation fields,
     # `validate_constraints` and `get_object_or_404` read through it, so it must see every row. After
@@ -445,6 +452,15 @@ class Integration(models.Model):
 
 # `setattr`, because the type of `objects` is the manager, not its descriptor.
 setattr(Integration, "objects", ManagerDescriptor(Integration._implicit_default_auth_objects))  # noqa: B010
+
+
+def integration_model(record: IntegrationRecord) -> Integration:
+    """The model behind a row of the integrations SDK.
+
+    The SDK returns its rows as the read-only `IntegrationRecord`, and they are model instances at
+    runtime. Only the per-kind adapters next to the model use it, because they still write the row.
+    """
+    return cast(Integration, record)
 
 
 def defer_repository_cache_fields[QuerySetT: models.QuerySet[Integration]](queryset: QuerySetT) -> QuerySetT:

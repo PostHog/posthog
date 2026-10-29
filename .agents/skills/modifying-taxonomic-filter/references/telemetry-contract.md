@@ -55,13 +55,6 @@ Mixing them up makes reachable groups look unused.
 - `taxonomic filter search intent predicted`: `query`, `activeTab`, `predictedGroupType`, `confidence`, `isConfident`, `suggestsSwitch`, `wouldPromote`, `promptVersion`, `source`, `variant`, `inTime`, `shown`.
   The banner funnel in [refreshing-product-reality](refreshing-product-reality.md) reads `variant` and `shown`.
 - `taxonomic filter search intent switched`: `fromGroupType`, `toGroupType`.
-- `taxonomic filter event match eligible`: `tab`, `variant`.
-  Sent once per project and query when the search qualifies for event match. The experiment's exposure reads it.
-- `taxonomic filter event match hint shown`: `tab`, `hint`, and `unsentEvents` when `hint` is `unsent`.
-- `taxonomic filter event match suggested`: `suggestedEvents`, `tab`.
-- `taxonomic filter event match selected`: `eventName`, `position`, `tab`.
-
-Read the event match events as a funnel: answered, then suggested, then selected.
 
 ## Events, without `surface`
 
@@ -72,8 +65,6 @@ Read the event match events as a funnel: answered, then suggested, then selected
 - `taxonomic filter category selected`: `groupType`, `eventName`.
 - `taxonomic filter category dropdown opened`: `variant`.
 - `taxonomic filter category rail toggled`: `docked`.
-- `taxonomic filter event match answered`: `outcome`.
-  Emitted server side.
 - `taxonomic filter pin toggled`: `groupType`, `value`, `pinned`.
   Sent from the shared `taxonomicFilterPinnedPropertiesLogic.ts`.
 - `taxonomic filter default pins seeded`: `values`.

@@ -118,7 +118,6 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.growth",
-    "products.integrations",
     "products.legal_documents",
     "products.links",
     "products.ai_observability",
@@ -365,20 +364,8 @@ layer = "modules"
 
 [[modules]]
 path = "products.integrations"
-depends_on = ["posthog"]
+depends_on = []
 layer = "modules"
-
-# integrations — the SDK for `Integration` rows. facade.api holds `IntegrationManager`, and core
-# reads facade.catalogue for the storage rule of `config["auth_type"]`. presentation.fields holds
-# the DRF field other products put on their serializers, which a facade may not hold.
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.fields.*",
-]
-from = [
-    "products.integrations",
-]
 
 [[modules]]
 path = "products.persons"
@@ -436,7 +423,6 @@ depends_on = [
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
-    "products.integrations",
     "products.notifications",
     "products.posthog_ai",
     "products.revenue_analytics",
@@ -898,7 +884,7 @@ depends_on = [
     "products.experiments",
     "products.exports",
     "products.feature_flags",
-    # Facade-only: the watch feed's hourly Jev sweep calls the shared decision-model client.
+    # Facade-only: the highlight feed's hourly Jev sweep calls the shared decision-model client.
     "products.ml_inference",
     "products.notifications",
     "products.signals",

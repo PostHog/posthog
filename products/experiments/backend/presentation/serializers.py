@@ -256,7 +256,7 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
             "finding code."
         ),
     )
-    name = serializers.CharField(help_text="What the check looks at, for example 'Feature flag variants'.")
+    name = serializers.CharField(help_text="The problem the check looks for, for example 'Metrics not set up'.")
     status = serializers.ChoiceField(
         choices=ExperimentHealthCheckStatus.choices,
         help_text=(
@@ -3620,9 +3620,9 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
     metric_compiles = ExperimentHealthInputsMetricCompilesSerializer(
         allow_null=True,
         help_text=(
-            "The compile of each metric's query without running it, as the reader, which the metric queries check "
-            "reads. A metric that compiles is cached per reader for a day, and a failing metric compiles again on "
-            "every request. Null when the compile itself failed."
+            "The compile of each metric's query without running it, as the reader, which the 'Invalid metric "
+            "definitions' check reads. A metric that compiles is cached per reader for a day, and a failing metric "
+            "compiles again on every request. Null when the compile itself failed."
         ),
     )
     latest_calculation = ExperimentHealthInputsLatestCalculationSerializer(

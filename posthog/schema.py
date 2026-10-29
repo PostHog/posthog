@@ -61,6 +61,7 @@ from posthog.schema_enums import (
     BaseMathType as BaseMathType,
     BehavioralEventSource as BehavioralEventSource,
     BIAggregation as BIAggregation,
+    BICatalogMetricStatus as BICatalogMetricStatus,
     BIDateBucket as BIDateBucket,
     BIFilterOperator as BIFilterOperator,
     BillingSpendResponseBreakdownType as BillingSpendResponseBreakdownType,
@@ -987,6 +988,18 @@ class BIConditionGroup(BaseModel):
     filters: list[str]
     groups: list[BIConditionGroup]
     operator: Operator1
+
+
+class CatalogMetricContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str
+    isDrifted: bool
+    owner: str | None = None
+    status: BICatalogMetricStatus
+    unit: str
+    updatedAt: str | None = None
 
 
 class Alias(BaseModel):
@@ -5797,7 +5810,10 @@ class ExperimentExposureHealthCheck(BaseModel):
         extra="forbid",
     )
     key: ExperimentExposureHealthCheckKey = Field(..., description="Stable identifier of the check.")
-    name: str = Field(..., description="What the check looks at, as the health panel lists it.")
+    name: str = Field(
+        ...,
+        description="The problem the check looks for, as the health panel lists it.",
+    )
     reason: str | None = Field(
         ...,
         description=(
@@ -31649,6 +31665,10 @@ class BIConfig(BaseModel):
     catalogMetric: str | None = Field(
         default=None,
         description=("Catalog provenance only: the snapshot does not track subsequent definition edits."),
+    )
+    catalogMetricContext: CatalogMetricContext | None = Field(
+        default=None,
+        description=("Catalog metadata at copy time, not a live approval of the worksheet."),
     )
     chartType: ChartDisplayType
     colorBy: str | None = None

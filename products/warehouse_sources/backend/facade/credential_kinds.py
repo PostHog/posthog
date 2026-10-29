@@ -838,6 +838,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Mycase": "mycase",
     "N8n": "n8n",
     "NagerDate": "nager-date",
+    "Nango": "nango",
     "Nasa": "nasa",
     "NationBuilder": "nation-builder",
     "Navan": "navan",
