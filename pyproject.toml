@@ -620,7 +620,8 @@ ignore_imports = [
     "products.cdp.backend.presentation.icons -> products.cdp.backend.services.icons",
     # TODO: approvals presentation wave. The approval handling mixin that other products' viewsets
     # use still reads the gate exceptions and the change request serializer from approvals
-    # internals. Move each one into presentation or behind a facade and delete its entry.
+    # internals. Delete both entries once the facade exposes the exceptions and a change request
+    # contract for presentation to serialize, because ApprovalRequired carries the ChangeRequest model.
     "products.approvals.backend.presentation.mixins -> products.approvals.backend.exceptions",
     "products.approvals.backend.presentation.mixins -> products.approvals.backend.serializers",
     # TODO: existing violations — fix by routing through facade
