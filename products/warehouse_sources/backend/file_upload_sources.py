@@ -60,7 +60,9 @@ from products.warehouse_sources.backend.presentation.views.external_data_source.
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import CsvOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.csv_types import (
+    CsvColumnType,
     csv_column_types_from_columns,
+    json_column_types_from_columns,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
@@ -157,6 +159,14 @@ def pending_upload_job_inputs(file_format: UploadedFileFormat, schema_name: str)
     return {"upload_id": "", "filename": "", "file_format": file_format, "schema_name": schema_name}
 
 
+def _stored_column_types(read: str, read_settings: UploadReadSettings) -> tuple[CsvColumnType, ...]:
+    if read == "csv":
+        return csv_column_types_from_columns(read_settings.columns)
+    if read == "jsonl":
+        return json_column_types_from_columns(read_settings.columns)
+    return ()
+
+
 def upload_schema_metadata(
     schema_name: str,
     filename: str,
@@ -176,7 +186,7 @@ def upload_schema_metadata(
         csv=CsvOptions(
             has_header=True,
             allow_double_quotes=read_settings.allow_double_quotes is not False,
-            column_types=csv_column_types_from_columns(read_settings.columns) if read == "csv" else (),
+            column_types=_stored_column_types(read, read_settings),
         ),
         pattern=None,
         source_format=read,
