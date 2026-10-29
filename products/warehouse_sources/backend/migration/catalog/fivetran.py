@@ -1,7 +1,8 @@
 """Fivetran-specific exceptions to the name-based matching rules in `catalog/__init__.py`.
 
-Keep this file to the cases a rule cannot get right. A missing entry is safe: an unmatched
-connector or table is reported to the user and the agent, who choose what to do.
+Keep this file to the cases a rule cannot get right. A missing override or rewrite leaves the
+connector or table unmatched, and the user and the agent choose what to do. A missing rejection
+is not safe: it lets a different product of the same name match.
 """
 
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination

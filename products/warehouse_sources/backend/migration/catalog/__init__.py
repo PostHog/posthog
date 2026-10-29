@@ -79,8 +79,8 @@ def _source_types_by_letters() -> Mapping[str, ExternalDataSourceType]:
 
 def match_source(provider: str, vendor_service: str) -> ExternalDataSourceType | None:
     # Unreleased sources match too, so the caller can tell a planned source from a missing one.
-    rules = _PROVIDERS.get(provider)
-    if rules is None or vendor_service in rules.rejected_sources:
+    rules = _PROVIDERS[provider]
+    if vendor_service in rules.rejected_sources:
         source_type = None
     else:
         source_type = rules.source_overrides.get(vendor_service) or _source_types_by_letters().get(
@@ -92,8 +92,7 @@ def match_source(provider: str, vendor_service: str) -> ExternalDataSourceType |
 
 
 def match_destination(provider: str, vendor_service: str) -> ExternalDataDestination.Type | None:
-    rules = _PROVIDERS.get(provider)
-    return rules.destination_types.get(vendor_service) if rules else None
+    return _PROVIDERS[provider].destination_types.get(vendor_service)
 
 
 def posthog_tables(source_type: ExternalDataSourceType) -> PostHogTables | None:
@@ -128,7 +127,7 @@ def _inferred_keys(vendor_table: str, rewrites: tuple[tuple[str, str], ...]) -> 
 def match_tables(
     provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
 ) -> tuple[TableMatch, ...]:
-    rewrites = _PROVIDERS[provider].table_suffix_rewrites if provider in _PROVIDERS else ()
+    rewrites = _PROVIDERS[provider].table_suffix_rewrites
     by_letters: dict[str, str] = {}
     for name in sorted(posthog_table_names):
         by_letters.setdefault(_letters(name), name)
@@ -166,9 +165,7 @@ def prefill_config(
     provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Non-secret source settings keyed by PostHog payload path. A dot is a nested field."""
-    rules = _PROVIDERS.get(provider)
-    if rules is None:
-        return {}
+    rules = _PROVIDERS[provider]
     fields = SourceRegistry.get_source(source_type).get_source_config.fields
     key_map = {
         field.name: field.name for field in fields if isinstance(field, SourceFieldInputConfig) and not field.secret

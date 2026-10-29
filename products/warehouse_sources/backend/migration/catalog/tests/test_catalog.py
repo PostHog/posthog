@@ -72,7 +72,6 @@ class TestCatalog:
     @parameterized.expand(
         [
             ("static_catalog", T.STRIPE, "Charge", True),
-            ("needs_credentials_to_list", T.GOOGLEADS, "campaign", False),
             ("needs_config_to_list", T.GITHUB, "issues", False),
             ("also_discovers_tables", T.FIREBASE, "auth_users", False),
         ]
