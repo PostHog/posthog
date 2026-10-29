@@ -32,7 +32,13 @@ Dependencies between models are detected from 1) django relations (ex: models.Fo
 - What is the team for the resource.
 - ...and more
 
-If you want a resource to be able to be duplicated, you MUST create a visitor. Visitors are stored under `posthog/models/resource_transfer/visitors`. Each visitor must inherit from `ResourceTransferVisitor` defined in `posthog/models/resource_transfer/visitors/base.py`.
+If you want a resource to be able to be duplicated, you MUST create a visitor. Each visitor must inherit from `ResourceTransferVisitor` defined in `posthog/models/resource_transfer/visitors/base.py`, and its `kind` must be in `ResourceKind` (`posthog/models/resource_transfer/types.py`).
+
+A visitor is only used once it is declared, and the registry (`posthog/models/resource_transfer/registry.py`) raises when a `ResourceKind` has no visitor:
+
+- A visitor for a core model lives under `posthog/models/resource_transfer/visitors` and goes in `CORE_VISITORS` in that package's `__init__.py`.
+- A visitor for a product's model lives in the product's `backend/resource_transfer/` package and goes in the `RESOURCE_TRANSFER_VISITORS` tuple in its `__init__.py`. `products/experiments/backend/resource_transfer/` is the example. See `products/architecture.md` § Wiring couplings for why this location may use the model.
+- To point an edge at a model that your module must not import, look the model up by kind with `ResourceTransferVisitor.get_model_for_kind("<Kind>")`.
 
 Your visitor's metaclass params and overloaded class methods will change how the resource is duplicated, so make sure to implement all fields that may be necessary.
 

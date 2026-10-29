@@ -5,10 +5,6 @@ from posthog.models.resource_transfer.visitors.dashboard import DashboardVisitor
 from posthog.models.resource_transfer.visitors.dashboard_tile import DashboardTileVisitor
 from posthog.models.resource_transfer.visitors.dashboard_widget import DashboardWidgetVisitor
 from posthog.models.resource_transfer.visitors.early_access_feature import EarlyAccessFeatureVisitor
-from posthog.models.resource_transfer.visitors.experiment import ExperimentVisitor
-from posthog.models.resource_transfer.visitors.experiment_holdout import ExperimentHoldoutVisitor
-from posthog.models.resource_transfer.visitors.experiment_saved_metric import ExperimentSavedMetricVisitor
-from posthog.models.resource_transfer.visitors.experiment_to_saved_metric import ExperimentToSavedMetricVisitor
 from posthog.models.resource_transfer.visitors.feature_flag import FeatureFlagVisitor
 from posthog.models.resource_transfer.visitors.insight import InsightVisitor
 from posthog.models.resource_transfer.visitors.project import ProjectVisitor
@@ -26,10 +22,6 @@ CORE_VISITORS: tuple[type[ResourceTransferVisitor], ...] = (
     DashboardTileVisitor,
     DashboardWidgetVisitor,
     EarlyAccessFeatureVisitor,
-    ExperimentVisitor,
-    ExperimentHoldoutVisitor,
-    ExperimentSavedMetricVisitor,
-    ExperimentToSavedMetricVisitor,
     FeatureFlagVisitor,
     InsightVisitor,
     ProjectVisitor,
@@ -49,10 +41,6 @@ __all__ = [
     "DashboardTileVisitor",
     "DashboardWidgetVisitor",
     "EarlyAccessFeatureVisitor",
-    "ExperimentHoldoutVisitor",
-    "ExperimentSavedMetricVisitor",
-    "ExperimentToSavedMetricVisitor",
-    "ExperimentVisitor",
     "FeatureFlagVisitor",
     "InsightVisitor",
     "SurveyVisitor",
