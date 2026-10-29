@@ -19,6 +19,7 @@ describe('DashboardPerformanceMonitor', () => {
         monitor.recordScrollFrame(100_000)
         monitor.recordScrollFrame(100_016)
         monitor.recordScrollFrame(100_066)
+        monitor.endScrollBurst(100_366)
 
         expect(monitor.finish(120_000, heap(150))).toMatchObject({
             duration_ms: 120_000,
@@ -26,9 +27,9 @@ describe('DashboardPerformanceMonitor', () => {
             long_frame_count: 1,
             blocking_ms: 70,
             blocking_ms_per_minute: 70,
-            scroll_frame_count: 2,
-            scroll_worst_frame_ms: 50,
-            scroll_slow_frame_ratio: 0.5,
+            scroll_frame_count: 3,
+            scroll_worst_frame_ms: 300,
+            scroll_slow_frame_ratio: 0.667,
             heap_start_mb: 100,
             heap_peak_mb: 150,
             tile_count: 3,

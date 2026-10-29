@@ -172,7 +172,6 @@ import {
 } from './dashboardBreakdownColors'
 import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from './dashboardConstants'
 import { DashboardControl, DashboardControlScope, getDashboardControlScopes } from './dashboardControls'
-import { DashboardPerformanceMonitor } from './dashboardPerformance'
 import {
     BREAKPOINT_COLUMN_COUNTS,
     DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES,
@@ -4451,26 +4450,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 'connectionRecoveryOnline',
                 { pauseOnPageHidden: false }
             )
-            if (values.placement !== DashboardPlacement.Export && DashboardPerformanceMonitor.shouldSample()) {
-                cache.disposables.add(
-                    () => {
-                        const report = new DashboardPerformanceMonitor({
-                            dashboardId: props.id,
-                            placement: values.placement,
-                            getTileCount: () => values.tiles.length,
-                        }).start()
-                        const onPageHide = (): void => report({ transport: 'sendBeacon', send_instantly: true })
-                        window.addEventListener('pagehide', onPageHide)
-                        return () => {
-                            window.removeEventListener('pagehide', onPageHide)
-                            report()
-                        }
-                    },
-                    'performanceMonitor',
-                    // The monitor excludes hidden time itself, and a pause would split one view into two events.
-                    { pauseOnPageHidden: false }
-                )
-            }
             if (props.id) {
                 if (props.dashboard) {
                     // If we already have dashboard data, use it. Should the data turn out to be stale,

@@ -2,15 +2,16 @@ import posthog from 'posthog-js'
 
 import { DashboardPlacement } from '~/types'
 
+// pinned: analytics event name, renaming it breaks insights built on it
 export const DASHBOARD_PERFORMANCE_EVENT = 'dashboard performance'
 export const DASHBOARD_PERFORMANCE_SAMPLE_RATE = 0.25
 
-// Shorter views are mostly pass-throughs and only add noise to the averages.
 const MIN_VISIBLE_MS = 2000
 const SCROLL_IDLE_MS = 150
 const MEMORY_SAMPLE_INTERVAL_MS = 30_000
 const LONG_TASK_BLOCKING_THRESHOLD_MS = 50
 const SLOW_FRAME_MS = 1000 / 30
+const DASHBOARD_ROOT_SELECTOR = '.dashboard'
 
 // Not yet in lib.dom.d.ts.
 interface LongAnimationFrameEntry extends PerformanceEntry {
@@ -35,9 +36,11 @@ export interface DashboardPerformanceCaptureOptions {
 
 /**
  * Collects jank, scroll FPS and JS heap figures for one dashboard view, then sends them as one event.
- * It keeps only running totals, and it does per-frame work only while the user scrolls.
  */
 export class DashboardPerformanceMonitor {
+    // Everything observed is page-wide, so a second monitor would count the same jank twice.
+    private static active: DashboardPerformanceMonitor | null = null
+
     private readonly startedAt: number
     private finished = false
 
@@ -95,7 +98,11 @@ export class DashboardPerformanceMonitor {
         this.lastScrollFrameAt = now
     }
 
-    endScrollBurst(): void {
+    endScrollBurst(now?: number): void {
+        // A stall can outlast the idle timer, which then fires before the stalled frame paints.
+        if (now !== undefined && this.lastScrollFrameAt !== null && now - this.lastScrollFrameAt > SLOW_FRAME_MS) {
+            this.recordScrollFrame(now)
+        }
         this.lastScrollFrameAt = null
     }
 
@@ -117,7 +124,6 @@ export class DashboardPerformanceMonitor {
         }
     }
 
-    /** Returns the event properties, or null when the view already reported or was too short to measure. */
     finish(
         now: number = performance.now(),
         memory: ChromiumPerformanceMemory | undefined = readHeap()
@@ -136,6 +142,7 @@ export class DashboardPerformanceMonitor {
         const round = (value: number): number => Math.round(value)
         return {
             dashboard_id: this.context.dashboardId,
+            sample_rate: DASHBOARD_PERFORMANCE_SAMPLE_RATE,
             placement: this.context.placement,
             tile_count: this.context.getTileCount(),
             duration_ms: round(now - this.startedAt),
@@ -166,50 +173,75 @@ export class DashboardPerformanceMonitor {
         }
     }
 
-    /** Starts the browser observers. The returned function stops them and sends the event. */
     start(): (options?: DashboardPerformanceCaptureOptions) => void {
-        const stops: (() => void)[] = []
-
-        this.recordHeap(readHeap())
-        const heapTimer = window.setInterval(() => this.recordHeap(readHeap()), MEMORY_SAMPLE_INTERVAL_MS)
-        stops.push(() => clearInterval(heapTimer))
-
-        const supported = typeof PerformanceObserver !== 'undefined' ? PerformanceObserver.supportedEntryTypes : []
-        if (supported.includes('long-animation-frame')) {
-            this.longFrameSource = 'long-animation-frame'
-            stops.push(
-                observe('long-animation-frame', (entry) =>
-                    this.recordLongFrame(entry.duration, (entry as LongAnimationFrameEntry).blockingDuration)
-                )
-            )
-        } else if (supported.includes('longtask')) {
-            this.longFrameSource = 'longtask'
-            stops.push(
-                observe('longtask', (entry) =>
-                    this.recordLongFrame(entry.duration, Math.max(0, entry.duration - LONG_TASK_BLOCKING_THRESHOLD_MS))
-                )
-            )
+        if (DashboardPerformanceMonitor.active) {
+            return () => {}
+        }
+        DashboardPerformanceMonitor.active = this
+        const stops: (() => void)[] = [
+            () => {
+                DashboardPerformanceMonitor.active = null
+            },
+        ]
+        const stopAll = (): void => {
+            stops.splice(0).forEach((stop) => stop())
         }
 
-        const onVisibilityChange = (): void => this.setVisible(document.visibilityState === 'visible')
-        document.addEventListener('visibilitychange', onVisibilityChange)
-        stops.push(() => document.removeEventListener('visibilitychange', onVisibilityChange))
+        // Telemetry must never break the dashboard, so a failure here only drops this view's event.
+        try {
+            this.recordHeap(readHeap())
+            const heapTimer = window.setInterval(() => this.recordHeap(readHeap()), MEMORY_SAMPLE_INTERVAL_MS)
+            stops.push(() => clearInterval(heapTimer))
 
-        stops.push(this.watchScrolling())
+            const supported =
+                typeof PerformanceObserver !== 'undefined' ? (PerformanceObserver.supportedEntryTypes ?? []) : []
+            if (supported.includes('long-animation-frame')) {
+                this.longFrameSource = 'long-animation-frame'
+                stops.push(
+                    observe('long-animation-frame', (entry) =>
+                        this.recordLongFrame(entry.duration, (entry as LongAnimationFrameEntry).blockingDuration)
+                    )
+                )
+            } else if (supported.includes('longtask')) {
+                this.longFrameSource = 'longtask'
+                stops.push(
+                    observe('longtask', (entry) =>
+                        this.recordLongFrame(
+                            entry.duration,
+                            Math.max(0, entry.duration - LONG_TASK_BLOCKING_THRESHOLD_MS)
+                        )
+                    )
+                )
+            }
+
+            const onVisibilityChange = (): void => this.setVisible(document.visibilityState === 'visible')
+            document.addEventListener('visibilitychange', onVisibilityChange)
+            stops.push(() => document.removeEventListener('visibilitychange', onVisibilityChange))
+
+            stops.push(this.watchScrolling())
+        } catch {
+            stopAll()
+            this.finished = true
+            return () => {}
+        }
 
         return (options) => {
-            stops.forEach((stop) => stop())
-            const properties = this.finish()
-            if (properties) {
-                posthog.capture(DASHBOARD_PERFORMANCE_EVENT, properties, options)
+            try {
+                stopAll()
+                const properties = this.finish()
+                if (properties) {
+                    posthog.capture(DASHBOARD_PERFORMANCE_EVENT, properties, options)
+                }
+            } catch {
+                // Dropping one view's event is better than an error during unmount.
             }
         }
     }
 
-    // The frame loop runs only during a scroll burst, so an idle dashboard costs no per-frame work.
     private watchScrolling(): () => void {
         let frameId: number | null = null
         let idleTimer: number | null = null
+        let dashboardRoot: Element | null = null
 
         const tick = (now: number): void => {
             this.recordScrollFrame(now)
@@ -220,9 +252,21 @@ export class DashboardPerformanceMonitor {
                 cancelAnimationFrame(frameId)
                 frameId = null
             }
-            this.endScrollBurst()
+            this.endScrollBurst(performance.now())
         }
-        const onScroll = (): void => {
+        const movesDashboard = (target: EventTarget | null): boolean => {
+            if (target === document) {
+                return true
+            }
+            if (!dashboardRoot?.isConnected) {
+                dashboardRoot = document.querySelector(DASHBOARD_ROOT_SELECTOR)
+            }
+            return target instanceof Element && !!dashboardRoot && target.contains(dashboardRoot)
+        }
+        const onScroll = (event: Event): void => {
+            if (!movesDashboard(event.target)) {
+                return
+            }
             if (frameId === null) {
                 frameId = requestAnimationFrame(tick)
             }
@@ -232,7 +276,7 @@ export class DashboardPerformanceMonitor {
             idleTimer = window.setTimeout(stopBurst, SCROLL_IDLE_MS)
         }
 
-        // The dashboard scrolls inside the scene container, so listen in the capture phase to see any scroller.
+        // The dashboard scrolls inside the scene container, and scroll events do not bubble, so listen in the capture phase.
         document.addEventListener('scroll', onScroll, { capture: true, passive: true })
         return () => {
             document.removeEventListener('scroll', onScroll, { capture: true })
@@ -251,7 +295,10 @@ function observe(type: string, onEntry: (entry: PerformanceEntry) => void): () =
     } catch {
         return () => {}
     }
-    return () => observer.disconnect()
+    return () => {
+        observer.takeRecords().forEach(onEntry)
+        observer.disconnect()
+    }
 }
 
 function readHeap(): ChromiumPerformanceMemory | undefined {
