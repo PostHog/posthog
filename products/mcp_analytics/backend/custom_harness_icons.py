@@ -12,8 +12,7 @@ MAX_HARNESS_ICON_SIDE_PX = 256
 
 # SVG is left out on purpose: it can carry script, and only a raster image can be decoded and checked here.
 # Pillow opens only these formats, so no other decoder ever runs on the uploaded bytes.
-# Phones save JPEG photos as MPO: a JPEG with extra images after it, and browsers show the first one.
-_PIL_FORMATS_BY_SUBTYPE = {"png": ["PNG"], "jpeg": ["JPEG", "MPO"], "gif": ["GIF"], "webp": ["WEBP"]}
+_PIL_FORMATS_BY_SUBTYPE = {"png": ["PNG"], "jpeg": ["JPEG"], "gif": ["GIF"], "webp": ["WEBP"]}
 _DATA_URI = re.compile(r"data:image/(png|jpeg|gif|webp);base64,([A-Za-z0-9+/]+={0,2})")
 # Base64 needs 4 characters for every 3 bytes, plus the short prefix.
 _MAX_DATA_URI_LENGTH = MAX_HARNESS_ICON_BYTES * 4 // 3 + 64
@@ -47,6 +46,7 @@ def validate_harness_icon(value: str) -> None:
                     f"The icon must be {MAX_HARNESS_ICON_SIDE_PX} by {MAX_HARNESS_ICON_SIDE_PX} pixels or smaller."
                 )
             # Only the first frame is checked and decoded, so a later frame could be any size.
+            # Phones save JPEG photos as MPO, a JPEG with extra images after it. Browsers show only the first image.
             if image.format != "MPO" and getattr(image, "is_animated", False):
                 raise ValidationError("The icon must be a still image, not an animation.")
             image.verify()
