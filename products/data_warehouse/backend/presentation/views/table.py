@@ -419,13 +419,6 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
     def create(self, validated_data):
         team_id = self.context["team_id"]
 
-        if object_storage_sources_enabled(team_id):
-            raise serializers.ValidationError(
-                SELF_MANAGED_CREATE_BLOCKED_MESSAGE.format(
-                    provider=_managed_source_name_for_url(validated_data.get("url_pattern"))
-                )
-            )
-
         validated_data["team_id"] = team_id
         validated_data["created_by"] = cast(User, self.context["request"].user)
         validated_data["created_via"] = resolve_created_via(self.context["request"])
@@ -672,6 +665,17 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         # The generic filter reads rules on tables only. A table also resolves through its source,
         # so a rule that denies the source must hide its tables from the list too.
         return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        # Checked before the serializer runs, so a blocked request never reaches URL validation.
+        if object_storage_sources_enabled(self.team_id):
+            url_pattern = request.data.get("url_pattern") if hasattr(request.data, "get") else None
+            raise serializers.ValidationError(
+                SELF_MANAGED_CREATE_BLOCKED_MESSAGE.format(
+                    provider=_managed_source_name_for_url(url_pattern if isinstance(url_pattern, str) else None)
+                )
+            )
+        return super().create(request, *args, **kwargs)
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()

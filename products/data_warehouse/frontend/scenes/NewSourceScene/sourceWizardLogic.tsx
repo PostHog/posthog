@@ -490,7 +490,6 @@ export interface sourceWizardLogicValues {
         type: ManualLinkSourceType
     }[]
     manualLinkingProvider: ManualLinkSourceType | null
-    objectStorageSourcesEnabled: boolean
     modalTitle:
         | ''
         | 'Choose destinations'
@@ -503,6 +502,7 @@ export interface sourceWizardLogicValues {
     nextButtonDisabledReason: string | null
     nextButtonText: string
     oauthRedirectUrl: string | undefined
+    objectStorageSourcesEnabled: boolean
     prefixRequired: boolean
     requiredTables: any
     returnConfig: {
@@ -927,11 +927,6 @@ export interface sourceWizardLogicMeta {
                 type: ManualLinkSourceType
             }[]
         ) => Breadcrumb[]
-        objectStorageSourcesEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        manualConnectors: (objectStorageSourcesEnabled: boolean) => {
-            name: string
-            type: ManualLinkSourceType
-        }[]
         hasWebhookSchemas: (databaseSchema: ExternalDataSourceSyncSchema[]) => boolean
         webhookStepComplete: (
             webhookResult: WebhookCreateResult | null,
@@ -994,6 +989,11 @@ export interface sourceWizardLogicMeta {
             dataWarehouseSources: PaginatedResponse<ExternalDataSource> | null,
             availableSources: any
         ) => SourceConfigResponseApi[]
+        objectStorageSourcesEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        manualConnectors: (objectStorageSourcesEnabled: boolean) => {
+            name: string
+            type: ManualLinkSourceType
+        }[]
         isSelfManagedSource: (
             manualLinkingProvider: 'aws' | 'azure' | 'cloudflare-r2' | 'google-cloud' | null
         ) => boolean
