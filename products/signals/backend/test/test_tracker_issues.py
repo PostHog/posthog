@@ -446,7 +446,7 @@ def test_serializer_rejects_a_warehouse_source_row(team):
         team=team,
         kind="github",
         integration_id="github-source",
-        config={**INTEGRATION_CONFIGS["github"], SOURCE_MARKER_CONFIG_KEY: "Github"},
+        config={"account": {"name": "acme"}, SOURCE_MARKER_CONFIG_KEY: "Github"},
     )
     serializer = SignalTeamConfigSerializer(
         data={"issue_tracking_integration": integration.id, "issue_tracking_config": {"repository": "web"}},
