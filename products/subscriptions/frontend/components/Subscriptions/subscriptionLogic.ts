@@ -20,11 +20,7 @@ import posthog from 'posthog-js'
 import { z } from 'zod'
 
 import api, { ApiError } from 'lib/api'
-import {
-    isOwnerUnavailableError,
-    openTakeOwnershipDialog,
-    ownerUnavailableReason,
-} from 'lib/components/openTakeOwnershipDialog'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
@@ -1008,13 +1004,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 lemonToast.error(blockedSaveMessage(fields))
                 return
             }
-            if (props.id !== 'new' && isOwnerUnavailableError(error)) {
+            const cause = ownerUnavailableCause(error)
+            if (props.id !== 'new' && cause) {
                 const id = props.id
                 // Taking ownership enables the subscription, so the rest of the edits are saved by a second submit.
                 void openTakeOwnershipDialog({
                     resourceLabel: 'subscription',
                     resourceId: id,
-                    reason: ownerUnavailableReason(error),
+                    owner: values.subscription.created_by ?? null,
+                    cause,
                     takeOwnership: async () => {
                         await subscriptionsTakeOwnershipCreate(String(getCurrentTeamId()), String(id))
                     },

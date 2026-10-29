@@ -8,11 +8,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
-import {
-    isOwnerUnavailableError,
-    openTakeOwnershipDialog,
-    ownerUnavailableReason,
-} from 'lib/components/openTakeOwnershipDialog'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -698,12 +694,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         ? await api.alerts.create(payload)
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
-                    if (!isNewAlert && isOwnerUnavailableError(error)) {
+                    const cause = isNewAlert ? null : ownerUnavailableCause(error)
+                    if (cause) {
                         // Taking ownership enables the alert, so the rest of the edits are saved by a second submit.
                         void openTakeOwnershipDialog({
                             resourceLabel: 'alert',
                             resourceId: existingAlertId,
-                            reason: ownerUnavailableReason(error),
+                            owner: alert.created_by ?? props.alert?.created_by ?? null,
+                            cause,
                             takeOwnership: async () => {
                                 await alertsTakeOwnershipCreate(String(getCurrentTeamId()), existingAlertId)
                             },

@@ -195,7 +195,8 @@ export const subscriptionsLogic = kea<subscriptionsLogicType>([
             }
         },
         setSubscriptionEnabled: async ({ id, enabled }) => {
-            const ok = await toggleSubscriptionEnabled(id, enabled)
+            const owner = values.subscriptions.find((subscription) => subscription.id === id)?.created_by ?? null
+            const ok = await toggleSubscriptionEnabled(id, enabled, owner)
             if (ok) {
                 actions.setSubscriptionEnabledSuccess()
             } else {

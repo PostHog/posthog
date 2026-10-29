@@ -28,7 +28,7 @@ describe('toggleSubscriptionEnabled', () => {
     it('returns true and surfaces an enabled toast on success', async () => {
         patchSpy.mockResolvedValueOnce({ id: 42, enabled: true } as any)
 
-        const ok = await toggleSubscriptionEnabled(42, true)
+        const ok = await toggleSubscriptionEnabled(42, true, null)
 
         expect(ok).toBe(true)
         expect(patchSpy).toHaveBeenCalledWith('1', 42, { enabled: true })
@@ -39,7 +39,7 @@ describe('toggleSubscriptionEnabled', () => {
     it('returns true and surfaces a disabled toast on success', async () => {
         patchSpy.mockResolvedValueOnce({ id: 42, enabled: false } as any)
 
-        const ok = await toggleSubscriptionEnabled(42, false)
+        const ok = await toggleSubscriptionEnabled(42, false, null)
 
         expect(ok).toBe(true)
         expect(successSpy).toHaveBeenCalledWith('Subscription disabled')
@@ -48,7 +48,7 @@ describe('toggleSubscriptionEnabled', () => {
     it('returns false and surfaces the API detail on error', async () => {
         patchSpy.mockRejectedValueOnce({ detail: 'Slack integration disconnected' })
 
-        const ok = await toggleSubscriptionEnabled(42, true)
+        const ok = await toggleSubscriptionEnabled(42, true, null)
 
         expect(ok).toBe(false)
         expect(errorSpy).toHaveBeenCalledWith('Slack integration disconnected')
@@ -58,14 +58,14 @@ describe('toggleSubscriptionEnabled', () => {
     it('returns false and uses the fallback toast when error has no detail', async () => {
         patchSpy.mockRejectedValueOnce(new Error('network down'))
 
-        const ok = await toggleSubscriptionEnabled(42, true)
+        const ok = await toggleSubscriptionEnabled(42, true, null)
 
         expect(ok).toBe(false)
         expect(errorSpy).toHaveBeenCalledWith('Could not update subscription')
     })
 
     it('offers to take ownership instead of toasting when the owner can no longer run it', async () => {
-        patchSpy.mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_unavailable' }))
+        patchSpy.mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_left_organization' }))
         const takeSpy = jest.spyOn(generatedApi, 'subscriptionsTakeOwnershipCreate').mockResolvedValueOnce({} as any)
         const dialogSpy = jest
             .spyOn(takeOwnership, 'openTakeOwnershipDialog')
@@ -74,11 +74,11 @@ describe('toggleSubscriptionEnabled', () => {
                 return true
             })
 
-        const ok = await toggleSubscriptionEnabled(42, true)
+        const ok = await toggleSubscriptionEnabled(42, true, null)
 
         expect(ok).toBe(true)
         expect(dialogSpy).toHaveBeenCalledWith(
-            expect.objectContaining({ resourceLabel: 'subscription', resourceId: 42 })
+            expect.objectContaining({ resourceLabel: 'subscription', resourceId: 42, cause: 'left' })
         )
         expect(takeSpy).toHaveBeenCalledWith('1', '42')
         expect(errorSpy).not.toHaveBeenCalled()
@@ -88,7 +88,7 @@ describe('toggleSubscriptionEnabled', () => {
         // Defends against API drift where `detail` becomes an object/array/null.
         patchSpy.mockRejectedValueOnce({ detail: { enabled: ['Schedule has reached its end date.'] } })
 
-        const ok = await toggleSubscriptionEnabled(42, true)
+        const ok = await toggleSubscriptionEnabled(42, true, null)
 
         expect(ok).toBe(false)
         expect(errorSpy).toHaveBeenCalledWith('Could not update subscription')

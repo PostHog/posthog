@@ -131,7 +131,7 @@ describe('alertsLogic', () => {
     it('offers to take ownership when enabling is refused for the owner, then reloads', async () => {
         updateSpy = jest
             .spyOn(api.alerts, 'update')
-            .mockRejectedValue(new ApiError('refused', 400, undefined, { code: 'owner_unavailable' }))
+            .mockRejectedValue(new ApiError('refused', 400, undefined, { code: 'owner_lost_access' }))
         const takeSpy = jest.spyOn(generatedApi, 'alertsTakeOwnershipCreate').mockResolvedValue({} as any)
         const dialogSpy = jest
             .spyOn(takeOwnership, 'openTakeOwnershipDialog')
@@ -149,7 +149,7 @@ describe('alertsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(dialogSpy).toHaveBeenCalledWith(
-            expect.objectContaining({ resourceLabel: 'alert', resourceId: alert.id })
+            expect.objectContaining({ resourceLabel: 'alert', resourceId: alert.id, cause: 'lost_access' })
         )
         expect(takeSpy).toHaveBeenCalledWith(expect.any(String), alert.id)
         expect(listSpy).toHaveBeenCalledTimes(1)

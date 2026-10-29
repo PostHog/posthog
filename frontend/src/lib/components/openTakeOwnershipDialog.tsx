@@ -3,36 +3,77 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-// pinned: API error code, matches OWNER_UNAVAILABLE_CODE in posthog/query_creator_access.py
-export const OWNER_UNAVAILABLE_CODE = 'owner_unavailable'
+import { UserBasicType } from '~/types'
+
+// pinned: API error codes, match OWNER_LEFT_ORGANIZATION_CODE and OWNER_LOST_ACCESS_CODE in posthog/query_creator_access.py
+const OWNER_UNAVAILABLE_CAUSES = {
+    owner_left_organization: 'left',
+    owner_lost_access: 'lost_access',
+} as const
+
+export type OwnerUnavailableCause = (typeof OWNER_UNAVAILABLE_CAUSES)[keyof typeof OWNER_UNAVAILABLE_CAUSES]
 
 export type OwnedResourceLabel = 'subscription' | 'alert'
 
-/** True when a write was refused because the resource's owner can no longer run it. */
-export function isOwnerUnavailableError(error: unknown): boolean {
-    return error instanceof ApiError && error.code === OWNER_UNAVAILABLE_CODE
+export type ResourceOwner = Pick<Partial<UserBasicType>, 'first_name' | 'last_name' | 'email'>
+
+/** Why a write was refused because the resource's owner can no longer run it, or null for any other error. */
+export function ownerUnavailableCause(error: unknown): OwnerUnavailableCause | null {
+    if (!(error instanceof ApiError) || !error.code) {
+        return null
+    }
+    return OWNER_UNAVAILABLE_CAUSES[error.code as keyof typeof OWNER_UNAVAILABLE_CAUSES] ?? null
 }
 
-/** The server's explanation of a refused enable, when the error carries one. */
-export function ownerUnavailableReason(error: unknown): string | null {
-    return error instanceof ApiError && error.detail ? error.detail : null
+function OwnerUnavailableDescription({
+    resourceLabel,
+    owner,
+    cause,
+}: {
+    resourceLabel: OwnedResourceLabel
+    owner: ResourceOwner | null
+    cause: OwnerUnavailableCause
+}): JSX.Element {
+    return (
+        <div className="space-y-2">
+            <p className="m-0">
+                {resourceLabel === 'alert' ? "Can't enable this alert." : "Can't re-enable this subscription."}
+            </p>
+            <p className="m-0">
+                {owner ? (
+                    <>
+                        <ProfilePicture user={owner} size="xs" showName />{' '}
+                        {cause === 'left'
+                            ? 'is no longer in the organization.'
+                            : 'no longer has access to the data it reads.'}
+                    </>
+                ) : (
+                    // The owner foreign key is set to null when the account is deleted.
+                    "Its owner's account was deleted."
+                )}{' '}
+                Take ownership to run it with your access.
+            </p>
+        </div>
+    )
 }
 
 /**
  * Offer to make the current user the owner of a subscription or alert whose owner can no longer run it.
- * `reason` is the server's explanation, which names the owner and why they cannot run it.
  * Resolves `true` once `takeOwnership` succeeded, `false` when the dialog was dismissed or the request failed.
  */
 export function openTakeOwnershipDialog({
     resourceLabel,
     resourceId,
-    reason,
+    owner,
+    cause,
     takeOwnership,
 }: {
     resourceLabel: OwnedResourceLabel
     resourceId: string | number
-    reason: string | null
+    owner: ResourceOwner | null
+    cause: OwnerUnavailableCause
     takeOwnership: () => Promise<void>
 }): Promise<boolean> {
     return new Promise((resolve) => {
@@ -40,9 +81,7 @@ export function openTakeOwnershipDialog({
         let request: Promise<void> = Promise.resolve()
         LemonDialog.open({
             title: `Take ownership of this ${resourceLabel}?`,
-            description:
-                reason ??
-                `This ${resourceLabel} runs with its owner's access, and the owner can no longer run it. Take ownership to run it with your access.`,
+            description: <OwnerUnavailableDescription resourceLabel={resourceLabel} owner={owner} cause={cause} />,
             // The modal grows to fit its text, so a long reason would stretch it across the screen.
             maxWidth: '30rem',
             shouldAwaitSubmit: true,

@@ -4,7 +4,7 @@ import { ApiError } from 'lib/api-error'
 import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { isOwnerUnavailableError, openTakeOwnershipDialog } from './openTakeOwnershipDialog'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from './openTakeOwnershipDialog'
 
 describe('openTakeOwnershipDialog', () => {
     let dialogProps: LemonDialogProps | null
@@ -29,23 +29,16 @@ describe('openTakeOwnershipDialog', () => {
         dialogProps?.onAfterClose?.()
     }
 
-    it('recognizes only the owner_unavailable API error', () => {
-        expect(isOwnerUnavailableError(new ApiError('refused', 400, undefined, { code: 'owner_unavailable' }))).toBe(
-            true
-        )
-        expect(isOwnerUnavailableError(new ApiError('refused', 400, undefined, { code: 'invalid' }))).toBe(false)
-        expect(isOwnerUnavailableError({ code: 'owner_unavailable' })).toBe(false)
+    it.each([
+        ['owner_left_organization', 'left'],
+        ['owner_lost_access', 'lost_access'],
+        ['invalid', null],
+    ])('reads the cause from the %s API error code', (code, cause) => {
+        expect(ownerUnavailableCause(new ApiError('refused', 400, undefined, { code }))).toBe(cause)
     })
 
-    it('shows the server reason as the description', () => {
-        openTakeOwnershipDialog({
-            resourceLabel: 'alert',
-            resourceId: 'alert-1',
-            reason: 'Its owner, former@example.com, is no longer in the organization.',
-            takeOwnership: jest.fn(),
-        })
-
-        expect(dialogProps?.description).toBe('Its owner, former@example.com, is no longer in the organization.')
+    it('ignores an owner code that is not an API error', () => {
+        expect(ownerUnavailableCause({ code: 'owner_left_organization' })).toBe(null)
     })
 
     it('resolves true and reports the takeover once the request succeeds', async () => {
@@ -53,7 +46,8 @@ describe('openTakeOwnershipDialog', () => {
         const result = openTakeOwnershipDialog({
             resourceLabel: 'alert',
             resourceId: 'alert-1',
-            reason: null,
+            owner: null,
+            cause: 'left',
             takeOwnership,
         })
 
@@ -71,7 +65,8 @@ describe('openTakeOwnershipDialog', () => {
         const result = openTakeOwnershipDialog({
             resourceLabel: 'subscription',
             resourceId: 7,
-            reason: null,
+            owner: null,
+            cause: 'left',
             takeOwnership,
         })
 
@@ -93,7 +88,8 @@ describe('openTakeOwnershipDialog', () => {
         const result = openTakeOwnershipDialog({
             resourceLabel: 'alert',
             resourceId: 'alert-1',
-            reason: null,
+            owner: null,
+            cause: 'left',
             takeOwnership,
         })
 
@@ -110,7 +106,8 @@ describe('openTakeOwnershipDialog', () => {
         const result = openTakeOwnershipDialog({
             resourceLabel: 'subscription',
             resourceId: 7,
-            reason: null,
+            owner: null,
+            cause: 'left',
             takeOwnership,
         })
 

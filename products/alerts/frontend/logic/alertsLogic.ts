@@ -5,11 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import {
-    isOwnerUnavailableError,
-    openTakeOwnershipDialog,
-    ownerUnavailableReason,
-} from 'lib/components/openTakeOwnershipDialog'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectClean } from 'lib/utils/objects'
@@ -347,12 +343,14 @@ export const alertsLogic = kea<alertsLogicType>([
                 const updatedAlert = await api.alerts.update(alert.id, { enabled: !alert.enabled })
                 actions.updateAlertInList(updatedAlert)
             } catch (error) {
-                if (!alert.enabled && isOwnerUnavailableError(error)) {
+                const cause = alert.enabled ? null : ownerUnavailableCause(error)
+                if (cause) {
                     // Not awaited, so the row's switch stops loading while the dialog is open.
                     void openTakeOwnershipDialog({
                         resourceLabel: 'alert',
                         resourceId: alert.id,
-                        reason: ownerUnavailableReason(error),
+                        owner: alert.created_by ?? null,
+                        cause,
                         takeOwnership: async () => {
                             await alertsTakeOwnershipCreate(String(getCurrentTeamId()), alert.id)
                             lemonToast.success('Alert enabled')
