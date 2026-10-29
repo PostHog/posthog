@@ -108,7 +108,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, visibleStateFilter, scope } =
+    const { hasActiveFilters, activeSourceProductFilter, priorityFilter, visibleStateFilter, scope } =
         useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
@@ -142,7 +142,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             pullsTabCount: sections.monitoring.count,
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
-            sourceProductFilter,
+            sourceProductFilter: activeSourceProductFilter,
             priorityFilter,
             stateFilter: visibleStateFilter,
             scope,
@@ -152,7 +152,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         settled,
         sections,
         hasActiveFilters,
-        sourceProductFilter,
+        activeSourceProductFilter,
         priorityFilter,
         visibleStateFilter,
         scope,

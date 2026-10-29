@@ -165,6 +165,7 @@ from products.replay_vision.backend.scanner_draft import (
     draft_scanner_from_goal,
     scopes_allow_read,
 )
+from products.replay_vision.backend.scanner_query import ScannerQueryError, clean_scanner_query
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
     run_inline_scan,
@@ -188,9 +189,6 @@ from products.replay_vision.backend.watch_rank import (
     select_embedding_picks,
 )
 from products.signals.backend.facade.api import get_outcomes_for_signal_source_slice
-
-# Date is set by the schedule at trigger time, not by the user — strip on save.
-_QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
 
 class ScannerCreationMethod(models.TextChoices):
@@ -232,24 +230,31 @@ def _reported_creation_method(context: dict[str, Any], claimed: str | None) -> s
     return claimed if source == EventSource.WEB else source.value
 
 
-def _reject_direct_experiment_exposure(query: dict[str, Any]) -> None:
-    # Exposure is derived from experiment_targeting at scan time, never persisted in the query blob:
-    # writable exposure there would bypass experiment_targeting's access check and let an editor run
-    # the exposure filter under the creator's access.
-    if query.get("experiment_exposure") is not None:
-        raise serializers.ValidationError(
-            "Recording filter can't set experiment exposure directly. Set experiment_targeting instead."
-        )
-
-
 # Size caps enforced at the write boundary; scanner_config and query are copied into every observation's snapshot.
 _MAX_DESCRIPTION_LENGTH = 1_000
-_MAX_QUERY_BYTES = 50_000
 
 # Each tag costs get_or_create round trips in set_tags_on_object, so cap the list.
 _MAX_TAGS = 32
 
 logger = structlog.get_logger(__name__)
+
+
+class RecordingsQueryField(serializers.JSONField):
+    """A scanner's recording filter, a `RecordingsQuery`. The rules in `scanner_query` decide what a
+    scanner may keep, so this only refuses a value that is not an object, before any of them reads it."""
+
+    def to_internal_value(self, data: Any) -> Any:
+        value = super().to_internal_value(data)
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Recording filter must be a JSON object.")
+        return value
+
+
+def _clean_query(value: dict[str, Any]) -> dict[str, Any]:
+    try:
+        return clean_scanner_query(value)
+    except ScannerQueryError as error:
+        raise serializers.ValidationError(str(error))
 
 
 # Query keys that narrow which sessions a scanner matches. Date keys are schedule-controlled
@@ -472,14 +477,12 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "Falls back to the prompt's first line when no question matches the current prompt."
         ),
     )
-    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
-        serializers.JSONField(
-            required=False,
-            help_text=(
-                "Persisted `RecordingsQuery` shape used to pick candidate sessions. "
-                "`date_from`/`date_to` are stripped on save — the schedule controls time, not the user."
-            ),
-        )
+    query = RecordingsQueryField(
+        required=False,
+        help_text=(
+            "Persisted `RecordingsQuery` shape used to pick candidate sessions. "
+            "`date_from`/`date_to` are stripped on save — the schedule controls time, not the user."
+        ),
     )
     sampling_rate = serializers.FloatField(
         required=False,
@@ -799,7 +802,6 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         self._restore_redacted_experiment_config(attrs)
         self._validate_scanner_config(attrs)
         self._validate_experiment_scanner(attrs)
-        self._validate_and_strip_query(attrs)
         self._drop_redacted_targeting_clear(attrs)
         scout_caller = bool(self.context.get("scout_sandbox_caller"))
         check_scout_scanner_credit_limit(
@@ -971,20 +973,9 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
         if message is not None:
             raise serializers.ValidationError({"scanner_config": message})
 
-    def _validate_and_strip_query(self, attrs: dict[str, Any]) -> None:
-        if "query" not in attrs:
-            return
-        try:
-            RecordingsQuery.model_validate(attrs["query"])
-        except PydanticValidationError:
-            raise serializers.ValidationError({"query": "Recording filter is invalid."})
-        _reject_direct_experiment_exposure(attrs["query"])
+    def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         # Persist exactly what the user sent (validated), minus the date keys the schedule controls.
-        attrs["query"] = {k: v for k, v in attrs["query"].items() if k not in _QUERY_FIELDS_TO_STRIP}
-        if len(json.dumps(attrs["query"], separators=(",", ":")).encode()) > _MAX_QUERY_BYTES:
-            raise serializers.ValidationError(
-                {"query": f"Recording filter is too large. Keep it under {_MAX_QUERY_BYTES // 1000} KB."}
-            )
+        return _clean_query(value)
 
     def to_representation(self, instance: ReplayScanner) -> dict[str, Any]:
         data = super().to_representation(instance)
@@ -1546,15 +1537,13 @@ class EstimateExperimentScopeSerializer(serializers.Serializer):
 class EstimateRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config."""
 
-    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
-        serializers.JSONField(
-            required=False,
-            help_text=(
-                "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
-                "ignored — the estimate scans a recent window (`window_days` in the response) and "
-                "scales it to 30 days. Omit to estimate against all recordings."
-            ),
-        )
+    query = RecordingsQueryField(
+        required=False,
+        help_text=(
+            "Proposed `RecordingsQuery` for the candidate filter. `date_from`/`date_to` are "
+            "ignored — the estimate scans a recent window (`window_days` in the response) and "
+            "scales it to 30 days. Omit to estimate against all recordings."
+        ),
     )
     sampling_rate = serializers.FloatField(
         required=False,
@@ -1613,12 +1602,7 @@ class EstimateRequestSerializer(serializers.Serializer):
         return attrs
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
-        try:
-            RecordingsQuery.model_validate(value)
-        except PydanticValidationError:
-            raise serializers.ValidationError("Recording filter is invalid.")
-        _reject_direct_experiment_exposure(value)
-        return {k: v for k, v in value.items() if k not in _QUERY_FIELDS_TO_STRIP}
+        return _clean_query(value)
 
 
 class ScannerTypeStatsSerializer(serializers.Serializer):

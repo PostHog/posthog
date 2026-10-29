@@ -7,6 +7,7 @@ import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { accountsColumnConfigLogic } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
 import {
     accountTrackRulesList,
     accountTrackRulesPreviewCreate,
@@ -60,6 +61,7 @@ export interface accountTrackRulesLogicValues {
 }
 
 export interface accountTrackRulesLogicActions {
+    ensureDefinitionsLoaded: () => { value: true }
     loadConfig: () => { value: true }
     loadConfigSuccess: (config: AccountTrackRulesConfigApi | null) => { config: AccountTrackRulesConfigApi | null }
     loadConfigFailure: (error: unknown) => { error: unknown }
@@ -93,6 +95,7 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
     path(['products', 'customerAnalytics', 'configuration', 'accountTrackRulesLogic']),
 
     connect(() => ({
+        actions: [accountsColumnConfigLogic, ['ensureDefinitionsLoaded']],
         values: [teamLogic, ['currentTeamId']],
     })),
 
@@ -363,6 +366,7 @@ export const accountTrackRulesLogic = kea<accountTrackRulesLogicType>([
     })),
 
     afterMount(({ actions }) => {
+        actions.ensureDefinitionsLoaded()
         actions.loadConfig()
         actions.loadRuns()
     }),
