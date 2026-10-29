@@ -17,7 +17,7 @@ from posthog.models import OrganizationMembership, User
 from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import CheckRequest, Context, Resource, Subject
+from products.authorization.backend.facade.contracts import CheckRequest, Context, Parent, Resource, Subject
 from products.authorization.backend.facade.enums import Action, ResourceType
 from products.authorization.backend.middleware import AuthorizationSessionMiddleware
 from products.authorization.backend.presentation.resources import resource_for_object
@@ -211,6 +211,18 @@ class TestCheckMatchesCurrentRules(BaseTest):
             (
                 "warehouse_table_without_parent",
                 {"resource": Resource(type=ResourceType.WAREHOUSE_TABLE, id="1", project_id=1)},
+                ValueError,
+            ),
+            (
+                "parent_of_another_type",
+                {
+                    "resource": Resource(
+                        type=ResourceType.WAREHOUSE_TABLE,
+                        id="1",
+                        project_id=1,
+                        parent=Parent(type=ResourceType.WAREHOUSE_OBJECTS, id="1"),
+                    )
+                },
                 ValueError,
             ),
             ("context", {"context": Context(channel="mcp")}, NotImplementedError),

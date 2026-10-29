@@ -33,8 +33,9 @@ class OpenFgaStatus:
 
 @dataclass(frozen=True, kw_only=True)
 class Parent:
-    """The parent object that a resource falls back to for access. `id=None` means the object has no parent."""
+    """The parent a resource falls back to. `type` must match the fallback map; `id=None` means no parent."""
 
+    type: ResourceType
     id: str | None
 
 

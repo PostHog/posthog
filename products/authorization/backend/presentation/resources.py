@@ -37,5 +37,5 @@ def resource_for_object(obj: Model) -> Resource:
         id=str(obj.pk),
         project_id=team_id,
         created_by_id=getattr(obj, "created_by_id", None),
-        parent=Parent(id=fallback_parent_object_id(obj, parent)) if parent else None,
+        parent=Parent(type=ResourceType(parent), id=fallback_parent_object_id(obj, parent)) if parent else None,
     )

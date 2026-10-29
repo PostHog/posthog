@@ -50,11 +50,14 @@ def _check(session: Session, request: CheckRequest) -> bool:
     if resource.project_id is None:
         raise ValueError(f"A {resource.type} check needs project_id.")
     scope = _scope(resource.type)
-    if resource.id is not None and scope in RESOURCE_FALLBACK_MAP and resource.parent is None:
+    parent_type = RESOURCE_FALLBACK_MAP.get(scope)
+    if resource.id is not None and parent_type and resource.parent is None:
         raise ValueError(
             f"A {resource.type} check needs `parent`, or it skips the parent's rules. "
-            "Use Parent(id=None) when the object has no parent."
+            f"Use Parent(type=ResourceType.{parent_type.upper()}, id=None) when the object has no parent."
         )
+    if resource.parent is not None and resource.parent.type.value != parent_type:
+        raise ValueError(f"A {resource.type} falls back to {parent_type}, not {resource.parent.type}.")
 
     principal = _principal(session, request.subject)
     if principal is None:
@@ -73,7 +76,11 @@ def _check(session: Session, request: CheckRequest) -> bool:
         id=resource.id,
         team_id=resource.project_id,
         created_by_id=resource.created_by_id,
-        fallback_parent=FallbackParent(id=resource.parent.id) if resource.parent is not None else None,
+        fallback_parent=(
+            FallbackParent(resource=_scope(resource.parent.type), id=resource.parent.id)
+            if resource.parent is not None
+            else None
+        ),
     )
     if action == Action.MANAGE_ACCESS:
         return access.check_can_modify_access_levels_for_ref(ref)
