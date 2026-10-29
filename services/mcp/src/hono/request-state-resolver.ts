@@ -29,6 +29,7 @@ import type { Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/to
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
 import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
     type InterviewRecruitmentConfig,
@@ -71,6 +72,10 @@ export interface ResolvedState {
     analyticsContext?: MCPAnalyticsContext | undefined
     /** Set on the per-call state when the no-data notice blocked or warned this call. */
     noDataAction?: NoDataAction | undefined
+    /** Set on the per-call state: whether the client sent a session or conversation handle. */
+    carriedContextHandle?: boolean | undefined
+    /** The organization's AI data processing consent; undefined when the org could not be read. */
+    aiConsentGiven?: boolean | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -202,6 +207,7 @@ export class RequestStateResolver {
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+                ...GUIDANCE_RULE_FLAGS,
             ]),
         ]
 
@@ -350,6 +356,7 @@ export class RequestStateResolver {
             suppressAnalytics: props.suppressAnalytics,
             projectHasData: flagAnalyticsContext?.projectHasData,
             analyticsContext: flagAnalyticsContext,
+            aiConsentGiven: aiConsentGiven ?? undefined,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -481,13 +488,15 @@ export class RequestStateResolver {
             return { flags: {}, payloads: {} }
         }
         // Enable product surfaces locally because the analytics flag client is disabled there.
-        // Recruitment and intent experiments stay off so ordinary development keeps the default behavior.
+        // Recruitment, intent and guidance experiments stay off so ordinary development keeps the default behavior.
         if (isLocalApi()) {
             return {
                 flags: Object.fromEntries(
                     flagKeys.map((key) => [
                         key,
-                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG && key !== MCP_INTENT_PROMPT_FLAG,
+                        key !== MCP_INTERVIEW_RECRUITMENT_FLAG &&
+                            key !== MCP_INTENT_PROMPT_FLAG &&
+                            !GUIDANCE_RULE_FLAGS.includes(key),
                     ])
                 ),
                 payloads: {},

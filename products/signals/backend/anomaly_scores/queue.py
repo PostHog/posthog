@@ -51,7 +51,7 @@ from products.product_analytics.backend.facade.api import (
     insights_including_soft_deleted_for_team,
     saved_trends_insights,
 )
-from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun
+from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
@@ -179,6 +179,9 @@ class Selection:
     active_reasons: dict[str, int] = dataclasses.field(default_factory=dict)
     # One entry for each eligible team, also a team with no active insight.
     census: list[TeamCensus] = dataclasses.field(default_factory=list)
+    # Eligible teams, and their organizations.
+    enrolled_teams: int = 0
+    enrolled_organizations: int = 0
 
 
 @frozen
@@ -200,18 +203,32 @@ class QueryBudget:
 
 
 def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
-    if not config.enabled or not config.organization_ids:
+    """The teams that `config.covers_team` enrolls, in a fixed number of queries, less the teams over their event quota."""
+    if not config.enabled:
         return []
     teams = (
-        Team.objects.filter(organization_id__in=config.organization_ids)
-        .exclude(id__in=config.skip_team_ids)
+        Team.objects.exclude(id__in=config.skip_team_ids)
+        .exclude(organization_id__in=config.deny_organization_ids)
         .exclude(id__in=SignalTeamConfig.objects.filter(anomaly_scoring_enabled=False).values("team_id"))
     )
-    if config.allow_team_ids:
-        teams = teams.filter(id__in=config.allow_team_ids)
+    enrolled: set[int] = set()
+    if config.organization_ids:
+        listed = teams.filter(organization_id__in=config.organization_ids)
+        if config.allow_team_ids:
+            listed = listed.filter(id__in=config.allow_team_ids)
+        enrolled.update(listed.values_list("id", flat=True))
+    if config.self_driving_organization_percentage > 0:
+        from products.signals.backend.facade.api import (
+            team_ids_with_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
+        )
+
+        with_source = teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
+        enrolled.update(team_id for team_id, organization_id in with_source if in_rollout(config, organization_id))
+    if not enrolled:
+        return []
     # Capture drops every event of a project over its event quota, so scoring it wastes the query.
     limited = set(list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY))
-    return [team for team in teams if team.api_token not in limited]
+    return [team for team in Team.objects.filter(id__in=enrolled) if team.api_token not in limited]
 
 
 def turned_off_in_settings(team: Team) -> bool:
@@ -662,6 +679,8 @@ def select_insights(
         active=active,
         active_reasons=active_reasons,
         census=census,
+        enrolled_teams=len(teams),
+        enrolled_organizations=len({team.organization_id for team in teams.values()}),
     )
 
 
