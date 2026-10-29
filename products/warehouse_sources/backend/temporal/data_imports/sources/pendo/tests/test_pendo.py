@@ -173,8 +173,8 @@ class TestGetRowsEvents:
     @patch(f"{PENDO_PATH}.EVENT_BATCH_SIZE", 1)
     def test_resumes_from_saved_day_and_keys_buckets_without_measures(self) -> None:
         bucket = {"day": _ms("2026-03-09T05:00:00"), "trackTypeId": "t1", "visitorId": "v1", "tabId": "a"}
-        first_read = {**bucket, "numEvents": 1, "numMinutes": 1, "lastTime": 1}
-        re_read = {**bucket, "numEvents": 7, "numMinutes": 3, "lastTime": 2}
+        first_read = {**bucket, "numEvents": 1, "numMinutes": 1, "lastTime": 1, "lastKeyFrameTimestamp": 1}
+        re_read = {**bucket, "numEvents": 7, "numMinutes": 3, "lastTime": 2, "lastKeyFrameTimestamp": 2}
         other_tab = {**bucket, "tabId": "b", "numEvents": 1, "numMinutes": 1, "lastTime": 1}
 
         result = _driver().run(

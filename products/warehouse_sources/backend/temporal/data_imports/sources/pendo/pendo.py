@@ -44,10 +44,20 @@ EVENT_ALL_APPS = 'expandAppIds("*")'
 EVENTS_REPROCESSING_OVERLAP_DAYS = 7
 # A busy day can hold a very large number of buckets; hand them to the pipeline in bounded batches.
 EVENT_BATCH_SIZE = 5000
-# Measures Pendo sums into each event bucket. The remaining fields identify the bucket, so they
-# alone form its id and a re-read of a still-open day updates the row instead of duplicating it.
+# Values Pendo aggregates into each event bucket, which change as new events arrive. The remaining
+# fields identify the bucket, so they alone form its id and a re-read of a still-open day updates
+# the row instead of duplicating it.
 EVENT_MEASURE_FIELDS = frozenset(
-    {"numEvents", "numMinutes", "rageClickCount", "errorClickCount", "deadClickCount", "uTurnCount", "lastTime"}
+    {
+        "numEvents",
+        "numMinutes",
+        "rageClickCount",
+        "errorClickCount",
+        "deadClickCount",
+        "uTurnCount",
+        "lastTime",
+        "lastKeyFrameTimestamp",
+    }
 )
 
 
