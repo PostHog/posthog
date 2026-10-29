@@ -1,4 +1,6 @@
 import time
+from collections.abc import Callable
+from contextlib import AbstractContextManager
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
@@ -259,13 +261,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         admit_evaluation_slots(["other-query"], limit=1, expires_at=other_query_until, key=QUERY_INFLIGHT_KEY)
         held_during_query: list[set[str]] = []
 
-        def query(*args: Any, **kwargs: Any) -> AlertEvaluationResult:
-            held_during_query.append(inflight_alert_ids(QUERY_INFLIGHT_KEY))
+        def query(
+            *args: Any, query_slot: Callable[[], AbstractContextManager[object]], **kwargs: Any
+        ) -> AlertEvaluationResult:
+            with query_slot():
+                held_during_query.append(inflight_alert_ids(QUERY_INFLIGHT_KEY))
             return AlertEvaluationResult(value=1.0, breaches=[])
 
         with (
-            patch(f"{_MODULE}.check_alert_for_insight", side_effect=query) as check,
-            patch(f"{_MODULE}.QUERY_SLOT_WAIT_SECONDS", 0),
+            patch(f"{_MODULE}.check_alert_for_insight", side_effect=query),
+            patch(f"{_MODULE}._QUERY_LIMIT.retry_timeout", 0),
         ):
             starved = evaluate_insight_check(
                 self.team.id, slot, CUTOFF, admitted, held_until=expires_at, evaluation_id="test"
@@ -276,7 +281,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
 
         assert starved is None
-        assert check.call_count == 1
         assert evaluation is not None and evaluation.outcomes[0].failure is None
         assert held_during_query == [{"test:1"}]
         assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
@@ -702,6 +706,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         slot = slot_of(held.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(held.id),)
+        admit_evaluation_slots(["run:1:1"], limit=1, expires_at=expires_at, key=QUERY_INFLIGHT_KEY)
 
         with patch("posthog.clickhouse.cancel.cancel_query_on_cluster") as cancel:
             retried = readmit_retried_check(
@@ -715,6 +720,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         assert retried is not None and over_the_limit is None
         assert inflight_alert_ids(INFLIGHT_KEY) == {str(held.id)}
+        assert inflight_alert_ids(QUERY_INFLIGHT_KEY) == set()
         cancel.assert_any_call(self.team.id, "alerts-platform-insight:run:1:1")
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_CHECKS=1)
