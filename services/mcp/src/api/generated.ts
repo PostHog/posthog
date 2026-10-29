@@ -13032,24 +13032,6 @@ export namespace Schemas {
       hog_function_ids: string[];
     }
 
-    /**
-     * * `slack` - slack
-     * * `webhook` - webhook
-     * * `teams` - teams
-     * * `discord` - discord
-     * * `pagerduty` - pagerduty
-     */
-    export type AlertDestinationTypeEnum = typeof AlertDestinationTypeEnum[keyof typeof AlertDestinationTypeEnum];
-
-
-    export const AlertDestinationTypeEnum = {
-      Slack: 'slack',
-      Webhook: 'webhook',
-      Teams: 'teams',
-      Discord: 'discord',
-      Pagerduty: 'pagerduty',
-    } as const;
-
     export interface AlertSimulate {
       /**
          * Skip this many completed insight intervals before simulation, matching live evaluation. Time-series Trends only; a positive delay requires check_ongoing_interval=false.
@@ -72458,6 +72440,24 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty
+     */
+    export type MetricsAlertDestinationTypeEnum = typeof MetricsAlertDestinationTypeEnum[keyof typeof MetricsAlertDestinationTypeEnum];
+
+
+    export const MetricsAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
+
+    /**
      * * `firing` - firing
      * * `resolved` - resolved
      * * `errored` - errored
@@ -72476,12 +72476,12 @@ export namespace Schemas {
     export interface MetricsAlertCreateDestination {
       /** Notification destination type.
        *
-       * * `slack` - slack
-       * * `webhook` - webhook
-       * * `teams` - teams
-       * * `discord` - discord
-       * * `pagerduty` - pagerduty */
-      type: AlertDestinationTypeEnum;
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty */
+      type: MetricsAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -72525,12 +72525,12 @@ export namespace Schemas {
       id: string;
       /** Notification destination type.
        *
-       * * `slack` - slack
-       * * `webhook` - webhook
-       * * `teams` - teams
-       * * `discord` - discord
-       * * `pagerduty` - pagerduty */
-      type: AlertDestinationTypeEnum;
+       * * `slack` - Slack
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `discord` - Discord
+       * * `pagerduty` - PagerDuty */
+      type: MetricsAlertDestinationTypeEnum;
       /** Whether the destination is sent to. */
       enabled: boolean;
       /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
@@ -122739,6 +122739,24 @@ export namespace Schemas {
       readonly days: readonly VisionSpendDay[];
     }
 
+    /**
+     * * `slack` - slack
+     * * `webhook` - webhook
+     * * `teams` - teams
+     * * `discord` - discord
+     * * `pagerduty` - pagerduty
+     */
+    export type WarehouseAlertDestinationTypeEnum = typeof WarehouseAlertDestinationTypeEnum[keyof typeof WarehouseAlertDestinationTypeEnum];
+
+
+    export const WarehouseAlertDestinationTypeEnum = {
+      Slack: 'slack',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Discord: 'discord',
+      Pagerduty: 'pagerduty',
+    } as const;
+
     export interface WarehouseAlertCreateDestination {
       /** Notification destination type.
        *
@@ -122747,7 +122765,7 @@ export namespace Schemas {
        * * `teams` - teams
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
-      type: AlertDestinationTypeEnum;
+      type: WarehouseAlertDestinationTypeEnum;
       /** Integration ID for the Slack workspace. Required when type=slack. */
       slack_workspace_id?: number;
       /** Slack channel ID. Required when type=slack. */
@@ -122791,7 +122809,7 @@ export namespace Schemas {
        * * `teams` - teams
        * * `discord` - discord
        * * `pagerduty` - pagerduty */
-      type: AlertDestinationTypeEnum;
+      type: WarehouseAlertDestinationTypeEnum;
       /** Whether every HogFunction of the destination is enabled, so it notifies for every event kind. */
       enabled: boolean;
       /** Integration ID of the Slack workspace. Set when type=slack. */

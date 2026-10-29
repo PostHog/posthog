@@ -1311,15 +1311,16 @@ export interface _MetricVariableOptionsResponseApi {
 }
 
 /**
- * * `slack` - slack
- * * `webhook` - webhook
- * * `teams` - teams
- * * `discord` - discord
- * * `pagerduty` - pagerduty
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `teams` - Microsoft Teams
+ * * `discord` - Discord
+ * * `pagerduty` - PagerDuty
  */
-export type AlertDestinationTypeEnumApi = (typeof AlertDestinationTypeEnumApi)[keyof typeof AlertDestinationTypeEnumApi]
+export type MetricsAlertDestinationTypeEnumApi =
+    (typeof MetricsAlertDestinationTypeEnumApi)[keyof typeof MetricsAlertDestinationTypeEnumApi]
 
-export const AlertDestinationTypeEnumApi = {
+export const MetricsAlertDestinationTypeEnumApi = {
     Slack: 'slack',
     Webhook: 'webhook',
     Teams: 'teams',
@@ -1374,12 +1375,12 @@ export interface MetricsAlertDestinationApi {
     id: string
     /** Notification destination type.
      *
-     * * `slack` - slack
-     * * `webhook` - webhook
-     * * `teams` - teams
-     * * `discord` - discord
-     * * `pagerduty` - pagerduty */
-    type: AlertDestinationTypeEnumApi
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type: MetricsAlertDestinationTypeEnumApi
     /** Whether the destination is sent to. */
     enabled: boolean
     /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
@@ -1411,12 +1412,12 @@ export interface MetricsAlertDestinationApi {
 export interface MetricsAlertCreateDestinationApi {
     /** Notification destination type.
      *
-     * * `slack` - slack
-     * * `webhook` - webhook
-     * * `teams` - teams
-     * * `discord` - discord
-     * * `pagerduty` - pagerduty */
-    type: AlertDestinationTypeEnumApi
+     * * `slack` - Slack
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `discord` - Discord
+     * * `pagerduty` - PagerDuty */
+    type: MetricsAlertDestinationTypeEnumApi
     /** Integration ID for the Slack workspace. Required when type=slack. */
     slack_workspace_id?: number
     /** Slack channel ID. Required when type=slack. */

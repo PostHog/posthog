@@ -73,12 +73,13 @@ _FIELDS_BY_TYPE: dict[DestinationType, tuple[str, ...]] = {
     DestinationType.DISCORD: _WEBHOOK_FIELDS,
     DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
 }
-# Choices classes for the serializers below. Each label is its value, so the OpenAPI enums keep the
-# names their ENUM_NAME_OVERRIDES entries in posthog/settings/web.py give them. TextChoices supports
-# this functional API at runtime, but its type stubs only describe member construction.
-MetricsAlertDestinationTypeChoices = cast(Any, models.TextChoices)(
-    "MetricsAlertDestinationTypeChoices",
-    [(member.name, (member.value, member.value)) for member in METRICS_ALERT_DESTINATION_TYPES],
+# Choices classes for the serializers below. TextChoices supports this functional API at runtime, but
+# its type stubs only describe member construction. The destination types carry their display labels,
+# so the OpenAPI enum is named after this class (MetricsAlertDestinationTypeEnum). The others keep
+# label equal to value, so they share the names their ENUM_NAME_OVERRIDES entries give them.
+MetricsAlertDestinationType = cast(Any, models.TextChoices)(
+    "MetricsAlertDestinationType",
+    [(member.name, (member.value, member.label)) for member in METRICS_ALERT_DESTINATION_TYPES],
 )
 PagerDutySeverityChoices = cast(Any, models.TextChoices)(
     "PagerDutySeverityChoices", [(member.name, (member.value, member.value)) for member in PagerDutySeverity]
@@ -95,7 +96,7 @@ MetricsAlertDestinationEventKind = cast(Any, models.TextChoices)(
 class MetricsAlertDestinationSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the destination. Send it to the delete endpoint to remove it.")
     type = serializers.ChoiceField(
-        choices=MetricsAlertDestinationTypeChoices.choices, help_text="Notification destination type."
+        choices=MetricsAlertDestinationType.choices, help_text="Notification destination type."
     )
     enabled = serializers.BooleanField(help_text="Whether the destination is sent to.")
     event_kinds = serializers.ListField(
@@ -131,7 +132,7 @@ class MetricsAlertDestinationSerializer(serializers.Serializer):
 
 class MetricsAlertCreateDestinationSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
-        choices=MetricsAlertDestinationTypeChoices.choices, help_text="Notification destination type."
+        choices=MetricsAlertDestinationType.choices, help_text="Notification destination type."
     )
     slack_workspace_id = serializers.IntegerField(
         required=False, help_text="Integration ID for the Slack workspace. Required when type=slack."
