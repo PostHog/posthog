@@ -17126,6 +17126,22 @@
             "readOnlyHint": false
         }
     },
+    "workflows-send-email": {
+        "description": "Send one transactional email to one recipient with the content you pass, such as a password reset, a receipt or a sign-in code. No template has to exist in PostHog first. Name the email with template_key (for example welcome); sends under one key share a workflow, so their metrics and runs group together. Pass the subject and the body as html, text or both, exactly as the recipient should see it: PostHog renders nothing, so {{ }} goes out as typed. When the user points you at a local file, such as an HTML email in their repository, read the file yourself and pass its content as html. This tool can't read files or URLs. from must be an address on a domain the project verified; sender_not_verified means nothing was sent. Each call sends an email, so never repeat a call that succeeded. A 503 means PostHog did not confirm the send, and the email may still go out: do not try again on your own, tell the user. A 404 with code not_found means sending email from code is not enabled for this project, or the project does not exist: stop and tell the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Send transactional email",
+        "title": "Send transactional email",
+        "required_scopes": ["hog_flow:write"],
+        "api_operations": ["POST /api/projects/{project_id}/messaging/send/email/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-email-from-code"
+    },
     "workflows-sending-rules-get": {
         "description": "The project-wide rules every workflow and broadcast follows when it sends: the marketing frequency cap, email tracking consent, and whether email engagement events are captured. Null cap fields mean no cap.",
         "category": "Workflows",

@@ -1,0 +1,68 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "capture_engagement": {
+            "default": true,
+            "description": "Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says.",
+            "type": "boolean"
+        },
+        "from": {
+            "description": "Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender.",
+            "type": "string"
+        },
+        "html": {
+            "description": "HTML body of the email your code rendered.",
+            "type": "string"
+        },
+        "identifiers": {
+            "description": "Who the email is for, used to attribute engagement events.",
+            "properties": {
+                "distinct_id": {
+                    "anyOf": [
+                        {
+                            "maxLength": 400,
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                }
+            },
+            "type": "object"
+        },
+        "reply_to": {
+            "description": "Addresses replies to the email your code rendered go to.",
+            "items": {
+                "format": "email",
+                "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+                "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+        },
+        "subject": {
+            "description": "Subject of the email your code rendered.",
+            "type": "string"
+        },
+        "template_key": {
+            "description": "Names an email whose content your code rendered, such as `password-reset`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.",
+            "maxLength": 400,
+            "pattern": "^[a-zA-Z0-9_-]+$",
+            "type": "string"
+        },
+        "text": {
+            "description": "Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`.",
+            "type": "string"
+        },
+        "to": {
+            "description": "Email address of the recipient.",
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+            "type": "string"
+        }
+    },
+    "required": ["to", "template_key", "subject"],
+    "type": "object"
+}
