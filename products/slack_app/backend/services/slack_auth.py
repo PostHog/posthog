@@ -37,7 +37,6 @@ from products.slack_app.backend.services.workspace_integrations import Workspace
 if TYPE_CHECKING:
     from slack_sdk.errors import SlackApiError
 
-    from posthog.integrations import WorkspaceIntegration
 logger = structlog.get_logger(__name__)
 
 # Six hours matches the precedent set by the previous bot-user-id cache —

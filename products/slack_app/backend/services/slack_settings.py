@@ -12,15 +12,13 @@ layer with zero translation.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeVar
+from typing import TypeVar
 
 from django.db import models
 
 from products.slack_app.backend.models import ChannelWelcomeMode, ThreadJoinMode, UntaggedFollowupMode
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
-if TYPE_CHECKING:
-    from posthog.integrations import WorkspaceIntegration
 _Mode = TypeVar("_Mode", bound=models.TextChoices)
 
 

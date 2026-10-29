@@ -2343,7 +2343,11 @@ def _route_assistant_event(
     if region_route is not None:
         return region_route
 
-    probe = result.integration if result.integration in result.candidates else result.candidates[0]
+    probe = (
+        result.integration
+        if result.integration is not None and result.integration in result.candidates
+        else result.candidates[0]
+    )
 
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
     # against projects the resolved PostHog user can actually access (no cross-org metadata leak).

@@ -37,6 +37,8 @@ To run:
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
+from typing import cast
 
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -54,11 +56,16 @@ SUITE_KIND = SuiteKind.ONE_SHOT
 
 
 def _project(*, team_id: int, integration_id: int, name: str) -> WorkspaceIntegration:
-    """An unsaved `Integration` row, which is all the classifier reads."""
-    return WorkspaceIntegration(
-        id=integration_id,
-        kind="slack",
-        team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+    """A stand-in row with only what the classifier reads."""
+    return cast(
+        WorkspaceIntegration,
+        SimpleNamespace(
+            id=integration_id,
+            team_id=team_id,
+            kind="slack",
+            integration_id="T_EVAL",
+            team=Team(id=team_id, name=name, organization=Organization(name="Northwind")),
+        ),
     )
 
 

@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from typing import Protocol, cast
 
-from django.db.models import prefetch_related_objects
+from django.db.models import Model, prefetch_related_objects
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.team import Team
@@ -13,13 +13,16 @@ class WorkspaceIntegration(IntegrationRecord, Protocol):
     """A Slack row with its team and organization loaded. Only `with_teams` makes one."""
 
     @property
+    def integration_id(self) -> str: ...
+
+    @property
     def team(self) -> Team: ...
 
 
 def with_teams(rows: Iterable[IntegrationRecord]) -> list[WorkspaceIntegration]:
     """Load the team and organization of all rows in two queries, because callers read `row.team.organization`."""
     loaded = list(rows)
-    prefetch_related_objects(loaded, "team__organization")
+    prefetch_related_objects(cast(list[Model], loaded), "team__organization")
     # The prefetch above makes this true at runtime. A frozen record can replace it with a team lookup here.
     return cast(list[WorkspaceIntegration], loaded)
 

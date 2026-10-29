@@ -1,3 +1,6 @@
+from collections.abc import Sequence
+from typing import Any
+
 import pytest
 
 from django.apps import apps
@@ -600,7 +603,7 @@ class TestLoadIntegrationsAuthStateFilter:
             sensitive_config={"access_token": "xoxb"},
         )
 
-    def _candidate_ids(self, result_candidates: list[Integration]) -> list[int]:
+    def _candidate_ids(self, result_candidates: Sequence[Any]) -> list[int]:
         return [c.id for c in result_candidates]
 
     def test_cold_cache_runs_auth_test_per_candidate_and_caches_verdict(self):

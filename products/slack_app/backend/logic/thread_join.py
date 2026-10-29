@@ -8,8 +8,6 @@ from products.slack_app.backend.services.slack_settings import resolve_thread_jo
 from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 if TYPE_CHECKING:
-    from posthog.integrations import WorkspaceIntegration
-
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
 
