@@ -65,8 +65,8 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
-from products.metrics.backend.alerts.checkpoint import evaluation_time, fetch_metrics_freshness
 from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
+from products.metrics.backend.alerts.freshness import evaluation_time, fetch_metrics_freshness
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertCondition, MetricsPlatformAlertConfig
 from products.metrics.backend.alerts.wording import alert_url
 from products.metrics.backend.promql import PromQLQueryError, snuffle_payload

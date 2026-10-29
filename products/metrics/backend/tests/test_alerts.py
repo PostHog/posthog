@@ -26,8 +26,8 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertOutcome,
     SourceKind,
 )
-from products.metrics.backend.alerts.checkpoint import evaluation_time
 from products.metrics.backend.alerts.evaluation import evaluate_metrics_alert_batch
+from products.metrics.backend.alerts.freshness import evaluation_time
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertConfig
 
 _QUERY = 'sum(kafka_consumer_group_lag{group="example"})'

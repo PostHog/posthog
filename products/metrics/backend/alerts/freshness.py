@@ -21,6 +21,8 @@ from posthog.models import Team
 
 # Reads the `service_freshness_by_hour` projection of `metrics4_samples`, so it scans one row per
 # service-hour. A point time is set by the sender, so a service whose clock runs ahead is left out.
+# A service more than 15 minutes behind is left out too, so a team that far behind gets no
+# freshness, and its alerts hold their missing series rather than judge them against old data.
 _TEAM_FRESHNESS_QUERY: Final = parse_select(
     """
     SELECT maxOrNull(service_newest) FROM (
@@ -29,13 +31,13 @@ _TEAM_FRESHNESS_QUERY: Final = parse_select(
         WHERE time_bucket >= toStartOfHour(now() - toIntervalHour(1)) AND time_bucket <= now()
         GROUP BY service_name
     )
-    WHERE service_newest <= now() + toIntervalMinute(1)
+    WHERE service_newest <= now() + toIntervalMinute(1) AND service_newest >= now() - toIntervalMinute(15)
     """
 )
 
 
 def fetch_metrics_freshness(team: Team, *, max_execution_time: int) -> dt.datetime | None:
-    """The newest point the team's ingestion has written in the last hour, or None when it wrote none."""
+    """The newest point the team's ingestion has written, or None when it is more than 15 minutes behind."""
     tag_queries(product=Product.METRICS, feature=Feature.ALERTING, source="metrics_alert", team_id=str(team.id))
     response = execute_hogql_query(
         query_type="metrics_alert_freshness",
