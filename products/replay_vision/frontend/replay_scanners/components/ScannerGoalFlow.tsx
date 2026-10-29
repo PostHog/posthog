@@ -31,14 +31,20 @@ const experimentGoal = (experiment: ExperimentBasicApi): string =>
  * button that drafts the scanner through the agent and lands the user on the overview step to review it. */
 export function ScannerGoalFlow(): JSX.Element {
     const logic = replayScannerLogic({ id: 'new' })
-    const { goalDraftInput, goalBudgetInput, goalSpendMode, goalDraftLoading, linkedExperimentContext } =
-        useValues(logic)
-    const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput, setGoalSpendMode } = useActions(logic)
+    const {
+        goalDraftInput,
+        goalBudgetInput,
+        goalSpendMode,
+        goalDraftLoading,
+        goalExperiment: experiment,
+        linkedExperimentContext,
+    } = useValues(logic)
+    const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput, setGoalSpendMode, setGoalExperiment } =
+        useActions(logic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { freeCreditsLeft } = useValues(visionQuotaLogic)
     // The spend choice is captured with the goal, so a quota that loads while consent is open cannot change it.
     const [pendingDraft, setPendingDraft] = useState<GoalDraftRequest | null>(null)
-    const [experiment, setExperiment] = useState<ExperimentBasicApi | null>(null)
 
     // Drafting creates a scanner, so it needs the same editor access as the rest of the wizard.
     const editDisabledReason = getReplayVisionEditDisabledReason()
@@ -59,13 +65,12 @@ export function ScannerGoalFlow(): JSX.Element {
     const activeStarter = SCANNER_GOAL_STARTERS.find((starter) => starter.goal === goalDraftInput.trim())
 
     const changeExperiment = (picked: ExperimentBasicApi | null): void => {
-        if (!picked && experiment && goalDraftInput.trim() === experimentGoal(experiment)) {
-            setGoalDraftInput('')
-        }
-        setExperiment(picked)
         if (picked) {
             setGoalDraftInput(experimentGoal(picked))
+        } else if (experiment && goalDraftInput.trim() === experimentGoal(experiment)) {
+            setGoalDraftInput('')
         }
+        setGoalExperiment(picked)
     }
     const submit = (): void => {
         const goal = goalDraftInput.trim()
@@ -104,38 +109,38 @@ export function ScannerGoalFlow(): JSX.Element {
                 }}
                 onDismiss={() => setPendingDraft(null)}
             >
-                <div className="rounded-lg border-2 border-[var(--color-ai)] p-4 flex flex-col gap-4">
-                    <div className="flex flex-col gap-1">
-                        <label htmlFor="vision-goal-flow-goal" className="text-sm font-semibold">
-                            Describe your goal
-                        </label>
-                        <LemonTextArea
-                            id="vision-goal-flow-goal"
-                            value={goalDraftInput}
-                            onChange={setGoalDraftInput}
-                            placeholder="e.g. Watch users who enter the checkout flow and summarize why customers convert or drop off"
-                            minRows={3}
-                            maxRows={6}
-                            data-attr="vision-goal-flow-goal"
-                        />
-                        <div className="text-xs text-muted">
-                            Say which sessions to watch and what to learn from them. The agent maps it onto your real
-                            pages.
-                        </div>
-                        {/* A draft restored from an earlier experiment-scoped session keeps its targeting
-                            through this flow, so say whose sessions the scanner ends up watching. */}
-                        {linkedExperimentContext ? (
+                {/* The card sits inside the consent popover's reference, which would give its buttons dropdown arrows. */}
+                <PopoverReferenceContext.Provider value={null}>
+                    <div className="rounded-lg border-2 border-[var(--color-ai)] p-4 flex flex-col gap-4">
+                        <div className="flex flex-col gap-1">
+                            <label htmlFor="vision-goal-flow-goal" className="text-sm font-semibold">
+                                Describe your goal
+                            </label>
+                            <LemonTextArea
+                                id="vision-goal-flow-goal"
+                                value={goalDraftInput}
+                                onChange={setGoalDraftInput}
+                                placeholder="e.g. Watch users who enter the checkout flow and summarize why customers convert or drop off"
+                                minRows={3}
+                                maxRows={6}
+                                data-attr="vision-goal-flow-goal"
+                            />
                             <div className="text-xs text-muted">
-                                This scanner keeps watching users exposed to {linkedExperimentContext.experiment.name}.
-                                You don't have to mention the experiment.
+                                Say which sessions to watch and what to learn from them. The agent maps it onto your
+                                real pages.
                             </div>
-                        ) : null}
-                    </div>
+                            {/* A draft restored from an earlier experiment-scoped session keeps its targeting
+                            through this flow, so say whose sessions the scanner ends up watching. */}
+                            {linkedExperimentContext ? (
+                                <div className="text-xs text-muted">
+                                    This scanner keeps watching users exposed to{' '}
+                                    {linkedExperimentContext.experiment.name}. You don't have to mention the experiment.
+                                </div>
+                            ) : null}
+                        </div>
 
-                    <div className="flex flex-col gap-2">
-                        <span className="text-sm font-semibold">Or start from a common question</span>
-                        {/* Inside the consent popover's reference, which would give these buttons dropdown arrows. */}
-                        <PopoverReferenceContext.Provider value={null}>
+                        <div className="flex flex-col gap-2">
+                            <span className="text-sm font-semibold">Or start from a common question</span>
                             <div className="flex flex-wrap gap-2">
                                 {SCANNER_GOAL_STARTERS.map((starter) => (
                                     <LemonButton
@@ -146,7 +151,7 @@ export function ScannerGoalFlow(): JSX.Element {
                                         active={!experiment && activeStarter?.key === starter.key}
                                         disabledReason={starterDisabledReason}
                                         onClick={() => {
-                                            setExperiment(null)
+                                            setGoalExperiment(null)
                                             setGoalDraftInput(starter.goal)
                                         }}
                                         data-attr={`vision-goal-starter-${starter.key}`}
@@ -160,13 +165,10 @@ export function ScannerGoalFlow(): JSX.Element {
                                     onChange={changeExperiment}
                                 />
                             </div>
-                        </PopoverReferenceContext.Provider>
-                    </div>
+                        </div>
 
-                    <div className="flex flex-col gap-2">
-                        <span className="text-sm font-semibold">How much should this scanner use?</span>
-                        {/* The card sits inside the consent popover's reference, which would give these buttons dropdown arrows. */}
-                        <PopoverReferenceContext.Provider value={null}>
+                        <div className="flex flex-col gap-2">
+                            <span className="text-sm font-semibold">How much should this scanner use?</span>
                             <LemonSegmentedButton<GoalSpendMode>
                                 size="small"
                                 value={spendMode}
@@ -185,62 +187,60 @@ export function ScannerGoalFlow(): JSX.Element {
                                     },
                                 ]}
                             />
-                        </PopoverReferenceContext.Provider>
-                        {spendMode === 'free' ? (
-                            <div className="text-xs text-muted">
-                                The scanner only uses your free monthly credits
-                                {/* Its own span, so page translation cannot strand the changing balance. */}
-                                <span>
-                                    {freeCreditsLeft != null ? ` (${formatCreditCount(freeCreditsLeft)} left)` : ''}
-                                </span>
-                                . It pauses when they run out, so it never adds to your bill.
-                            </div>
-                        ) : (
-                            <>
-                                <div className="flex flex-wrap items-center gap-3">
-                                    <LemonInput
-                                        id="vision-goal-flow-budget"
-                                        aria-label="Monthly credit budget"
-                                        type="number"
-                                        min={MIN_SCAN_BUDGET}
-                                        max={MAX_SCAN_BUDGET}
-                                        value={goalBudgetInput ?? undefined}
-                                        onChange={(value) => setGoalBudgetInput(value ?? null)}
-                                        suffix={<span className="text-muted">credits a month</span>}
-                                        className="w-48"
-                                        data-attr="vision-goal-flow-budget"
-                                    />
-                                    {budgetValid && goalBudgetInput != null ? (
-                                        <span className="text-xs text-muted">
-                                            ≈ {creditsToUsd(goalBudgetInput)} a month
-                                        </span>
-                                    ) : null}
-                                </div>
+                            {spendMode === 'free' ? (
                                 <div className="text-xs text-muted">
-                                    1,000 credits ≈ $10. The agent picks the model and fits the scanner to this.
+                                    The scanner only uses your free monthly credits
+                                    {/* Its own span, so page translation cannot strand the changing balance. */}
+                                    <span>
+                                        {freeCreditsLeft != null ? ` (${formatCreditCount(freeCreditsLeft)} left)` : ''}
+                                    </span>
+                                    . It pauses when they run out, so it never adds to your bill.
                                 </div>
-                            </>
-                        )}
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs text-tertiary">
-                            <IconSparkles className="text-ai size-3.5" />
-                            <span>PostHog AI</span>
+                            ) : (
+                                <>
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        <LemonInput
+                                            id="vision-goal-flow-budget"
+                                            aria-label="Monthly credit budget"
+                                            type="number"
+                                            min={MIN_SCAN_BUDGET}
+                                            max={MAX_SCAN_BUDGET}
+                                            value={goalBudgetInput ?? undefined}
+                                            onChange={(value) => setGoalBudgetInput(value ?? null)}
+                                            suffix={<span className="text-muted">credits a month</span>}
+                                            className="w-48"
+                                            data-attr="vision-goal-flow-budget"
+                                        />
+                                        {budgetValid && goalBudgetInput != null ? (
+                                            <span className="text-xs text-muted">
+                                                ≈ {creditsToUsd(goalBudgetInput)} a month
+                                            </span>
+                                        ) : null}
+                                    </div>
+                                    <div className="text-xs text-muted">
+                                        1,000 credits ≈ $10. The agent picks the model and fits the scanner to this.
+                                    </div>
+                                </>
+                            )}
                         </div>
-                        <LemonButton
-                            type="primary"
-                            loading={goalDraftLoading}
-                            // Inside the consent popover's reference, so Lemon would add a dropdown chevron.
-                            sideIcon={null}
-                            disabledReason={submitDisabledReason}
-                            onClick={submit}
-                            data-attr="vision-goal-flow-submit"
-                        >
-                            Draft my scanner
-                        </LemonButton>
+
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-1.5 text-xs text-tertiary">
+                                <IconSparkles className="text-ai size-3.5" />
+                                <span>PostHog AI</span>
+                            </div>
+                            <LemonButton
+                                type="primary"
+                                loading={goalDraftLoading}
+                                disabledReason={submitDisabledReason}
+                                onClick={submit}
+                                data-attr="vision-goal-flow-submit"
+                            >
+                                Draft my scanner
+                            </LemonButton>
+                        </div>
                     </div>
-                </div>
+                </PopoverReferenceContext.Provider>
             </AIConsentPopoverWrapper>
 
             <div className="flex items-center gap-4">
