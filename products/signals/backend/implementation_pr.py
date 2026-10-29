@@ -333,6 +333,10 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str], *, team_id: 
 
 
 def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number: int) -> list[str]:
+    # The webhook reaches every team on the installation. A team without reports must not pay for
+    # the regex scan over its task runs below.
+    if not SignalReport.objects.filter(team_id=team_id).exists():
+        return []
     # Narrow by task output before resolving reports so webhooks do not scan the whole inbox.
     owner, repo = repository.split("/", 1)
     url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'

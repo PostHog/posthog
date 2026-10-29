@@ -139,6 +139,13 @@ class TestImplementationPrCache(BaseTest):
         ]
         assert report_ids_for_implementation_pr(team_id=self.team.id, repository="example/app", pr_number=8) == []
 
+    def test_a_team_without_reports_skips_the_task_run_scan(self) -> None:
+        self._task(with_pr=True)
+        self.report.delete()
+
+        with self.assertNumQueries(1):
+            assert report_ids_for_implementation_pr(team_id=self.team.id, repository="example/app", pr_number=7) == []
+
     def test_a_merged_pull_request_stops_counting_as_active(self) -> None:
         with self.captureOnCommitCallbacks(execute=True):
             self._link_pull_request()
