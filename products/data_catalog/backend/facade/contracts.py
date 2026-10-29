@@ -64,21 +64,41 @@ class AdjustedRun:
 
 @dataclass(frozen=True)
 class TopicCoverage:
-    """How the sessions of one topic cluster got their numbers. Scout sessions are not clustered."""
+    """What a topic's sessions that asked for a metric ended up with. Each session counts once."""
 
-    canonical: int
-    adapted: int
-    silent: int
-    raw_sql_only: int
-    no_sql: int
+    metric: int
+    table: int
+    nothing: int
 
 
 @dataclass(frozen=True)
 class TopicCluster:
     title: str
+    description: str
     session_count: int
+    people: int
     coverage: TopicCoverage
-    sample_intents: list[str]
+
+
+@dataclass(frozen=True)
+class TopicSessionCounts:
+    """What the sampled sessions did with data. Only analysis sessions fall into topics."""
+
+    analysis: int
+    lookup: int
+    automation: int
+    unclear: int
+    unread: int
+    coverage_unchecked: int = 0
+
+
+@dataclass(frozen=True)
+class TableSource:
+    """A table or view that agents found through its description and then queried, across the whole window."""
+
+    name: str
+    sessions: int
+    people: int
 
 
 @dataclass(frozen=True)
@@ -107,6 +127,8 @@ class UsageSnapshotPayload:
     metric_runs: list[MetricRunCounts] | None = None
     adjusted_runs: list[AdjustedRun] | None = None
     topics: list[TopicCluster] | None = None
+    topic_sessions: TopicSessionCounts | None = None
+    table_sources: list[TableSource] | None = None
     uncovered: list[UncoveredGroup] | None = None
 
 
