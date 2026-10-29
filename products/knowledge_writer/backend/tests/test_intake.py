@@ -1,9 +1,11 @@
 import os
 import dataclasses
+from collections.abc import Callable
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
 
@@ -13,7 +15,7 @@ from products.knowledge_writer.backend.facade.enums import DocsRequestSource
 from products.knowledge_writer.backend.logic import caps, intake
 from products.knowledge_writer.backend.logic.pull_requests import LINK_BACK_START, section_marker
 from products.knowledge_writer.backend.logic.records import PULL_REQUEST_STATE_KEY, REQUEST_STATE_KEY
-from products.knowledge_writer.backend.logic.routing import route_request
+from products.knowledge_writer.backend.logic.routing import docs_section
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import TaskRun
 
@@ -24,6 +26,7 @@ LIST_PULL_REQUESTS = f"{GITHUB}.api_request"
 CAPTURE_ALERT = "products.knowledge_writer.backend.logic.caps.capture_exception"
 DOCS_HEAD = {"repository": "PostHog/posthog.com", "branch": "docs/retention"}
 SECTION_PAGE = "https://posthog.com/docs/session-replay/retention"
+REPOSITORY_SOURCED_PAGE = "https://posthog.com/docs/logs/logql-api"
 START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 WRITER_APP_LOGIN = "posthog-app[bot]"
 
@@ -56,7 +59,12 @@ def writer_env(team, user):
         yield
 
 
-def _open_on_github(*bodies_by_number: tuple[int, str], author_login: str = WRITER_APP_LOGIN) -> MagicMock:
+def _open_on_github(
+    *bodies_by_number: tuple[int, str],
+    author_login: str = WRITER_APP_LOGIN,
+    published_page_paths: tuple[str, ...] = (),
+    lookup_error: Exception | None = None,
+) -> Callable[..., MagicMock]:
     listed = [
         {
             "number": number,
@@ -67,7 +75,16 @@ def _open_on_github(*bodies_by_number: tuple[int, str], author_login: str = WRIT
         }
         for number, body in bodies_by_number
     ]
-    return MagicMock(status_code=200, json=MagicMock(return_value=listed))
+
+    def respond(method: str, path: str, **kwargs: object) -> MagicMock:
+        if "/contents/docs/published/docs/" in path:
+            if lookup_error is not None:
+                raise lookup_error
+            is_published = any(f"/docs/published/docs/{page_path}." in path for page_path in published_page_paths)
+            return MagicMock(status_code=200 if is_published else 404)
+        return MagicMock(status_code=200, json=MagicMock(return_value=listed))
+
+    return respond
 
 
 def _verdict(pull_request_number: int = 123, suggested_page_urls: tuple[str, ...] = ()):
@@ -105,7 +122,7 @@ def test_no_agent_starts_without_settings(team) -> None:
 def test_no_agent_starts_while_the_launch_flag_is_off(team, writer_env) -> None:
     with (
         patch(FLAG_CHECK, return_value=False),
-        patch(LIST_PULL_REQUESTS, return_value=_open_on_github()),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
         patch(START_WORKFLOW) as start_workflow,
     ):
         outcome = intake.submit(_verdict(), team_id=team.id)
@@ -121,7 +138,7 @@ def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(t
 
     with (
         patch(FLAG_CHECK, return_value=True),
-        patch(LIST_PULL_REQUESTS, return_value=_open_on_github()),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
         patch(START_WORKFLOW),
     ):
         started = intake.submit(verdict, team_id=team.id)
@@ -147,7 +164,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     first_verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     with (
         patch(FLAG_CHECK, return_value=True),
-        patch(LIST_PULL_REQUESTS, return_value=_open_on_github()),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
         patch(START_WORKFLOW),
     ):
         started = intake.submit(first_verdict, team_id=team.id)
@@ -170,7 +187,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     second_verdict = _verdict(pull_request_number=456, suggested_page_urls=(SECTION_PAGE,))
     with (
         patch(FLAG_CHECK, return_value=True),
-        patch(LIST_PULL_REQUESTS, return_value=_open_on_github((9, first_body))),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, first_body))),
         patch(START_WORKFLOW),
     ):
         joined = intake.submit(second_verdict, team_id=team.id)
@@ -198,18 +215,48 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "github_responses, handed_pages, withheld_pages",
+    [
+        (_open_on_github(published_page_paths=("logs/logql-api",)), (SECTION_PAGE,), (REPOSITORY_SOURCED_PAGE,)),
+        (
+            _open_on_github(lookup_error=GitHubRateLimitError("rate limited")),
+            (),
+            (REPOSITORY_SOURCED_PAGE, SECTION_PAGE),
+        ),
+    ],
+)
+def test_a_page_sourced_from_this_repository_is_not_handed_to_the_writer(
+    team, writer_env, github_responses, handed_pages, withheld_pages
+) -> None:
+    verdict = _verdict(suggested_page_urls=(REPOSITORY_SOURCED_PAGE, SECTION_PAGE))
+    assert verdict.request is not None
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=github_responses),
+        patch(START_WORKFLOW),
+    ):
+        outcome = intake.submit(verdict, team_id=team.id)
+    task = tasks_facade.get_task_by_origin_key(team.id, verdict.request.dedupe_id)
+    assert outcome.status == "started"
+    assert task is not None
+    assert all(page in task.description for page in handed_pages)
+    assert not any(page in task.description for page in withheld_pages)
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("author_login, expected_status", [(WRITER_APP_LOGIN, "joined"), ("someone-else", "started")])
 def test_only_a_pull_request_the_writer_app_opened_can_be_joined(
     team, writer_env, author_login, expected_status
 ) -> None:
     verdict = _verdict(suggested_page_urls=(SECTION_PAGE,))
     assert verdict.request is not None
-    section = route_request(verdict.request, team_id=team.id).section
+    section = docs_section(SECTION_PAGE)
     assert section is not None
     lookalike_body = f"{LINK_BACK_START}\n{section_marker(section)}"
     with (
         patch(FLAG_CHECK, return_value=True),
-        patch(LIST_PULL_REQUESTS, return_value=_open_on_github((9, lookalike_body), author_login=author_login)),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github((9, lookalike_body), author_login=author_login)),
         patch(START_WORKFLOW),
     ):
         outcome = intake.submit(verdict, team_id=team.id)
@@ -221,7 +268,7 @@ def test_only_a_pull_request_the_writer_app_opened_can_be_joined(
 def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(team, writer_env, cap, monkeypatch) -> None:
     with (
         patch(FLAG_CHECK, return_value=True),
-        patch(LIST_PULL_REQUESTS, return_value=_open_on_github()),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
         patch(START_WORKFLOW),
     ):
         intake.submit(_verdict(), team_id=team.id)
@@ -230,7 +277,7 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(team, writer_env
 
     with (
         patch(FLAG_CHECK, return_value=True),
-        patch(LIST_PULL_REQUESTS, return_value=_open_on_github()),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
         patch(START_WORKFLOW) as start_workflow,
         patch(CAPTURE_ALERT) as capture_alert,
     ):

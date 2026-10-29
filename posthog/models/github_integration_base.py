@@ -1306,6 +1306,7 @@ class GitHubIntegrationBase:
             "head_branch": head.get("ref"),
             "head_repository": (head.get("repo") or {}).get("full_name"),
             "base_branch": base.get("ref"),
+            "repository_private": (base.get("repo") or {}).get("private"),
             "head_sha": head.get("sha"),
             "base_sha": base.get("sha"),
             "repository": repo_path,
