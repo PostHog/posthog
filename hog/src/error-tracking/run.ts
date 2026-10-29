@@ -506,13 +506,16 @@ export async function upload(
     let deletedMaps: string[] = []
     if (options.deleteAfter && jsUploadable) {
         const rootPaths = selection.roots.map((root) => resolve(selection.cwd, root.path))
-        const cleanup = cleanUp([
-            // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
-            ...targets
-                .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
-                .map(({ target }) => target),
-            ...cssTargets(listFiles(selection.roots, selection.cwd), rootPaths, options.publicPathPrefix, warnings),
-        ])
+        const cleanup = cleanUp(
+            [
+                // posthog-cli also deletes the maps it skipped as too large, which PostHog then never gets.
+                ...targets
+                    .filter(({ pair }) => statuses.get(chunkIds.get(pair) ?? '') !== 'too_large')
+                    .map(({ target }) => target),
+                ...cssTargets(listFiles(selection.roots, selection.cwd), options.publicPathPrefix, warnings),
+            ],
+            rootPaths
+        )
         deletedMaps = cleanup.deletedMaps.map((path) => relative(realpathSync(selection.cwd), path))
         warnings.push(...cleanup.warnings)
     }

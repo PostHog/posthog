@@ -1,9 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
+import { stripCredentials } from '@/error-tracking/git'
+import { loadMapContent, serializeMapContent } from '@/error-tracking/kinds/js'
 import { runHog } from '@/testing'
 
 import { GIT_REPO, SMALL_MAPPING } from '../../../test/parity/fixtures'
@@ -120,6 +123,30 @@ describe('hog error-tracking upload', () => {
         expect(readFileSync(join(folder, untouched), 'utf8')).toBe(before)
     })
 
+    test('--delete-after leaves maps outside the selected paths, and skips unreadable CSS references', () => {
+        const bundle = 'a();\n//# sourceMappingURL=../maps/a.js.map\n'
+        const stylesheet = 'a{}\n/*# sourceMappingURL=%FF.css.map */\n'
+        const folder = project({ 'dist/a.js': bundle, 'maps/a.js.map': MAP, 'dist/site.css': stylesheet })
+        const warnings: string[] = []
+        const outside = {
+            sourcePath: join(folder, 'dist/a.js'),
+            mapPath: join(folder, 'maps/a.js.map'),
+            sourceFingerprint: contentHash(bundle),
+            mapFingerprint: contentHash(serializeMapContent(loadMapContent(MAP))),
+            kind: 'js' as const,
+        }
+        const css = cssTargets([join(folder, 'dist/site.css')], undefined, warnings)
+        const result = cleanUp([outside, ...css], [join(folder, 'dist')])
+
+        expect(result.deletedMaps).toEqual([])
+        expect([...warnings, ...result.warnings]).toEqual([
+            expect.stringContaining("site.css: its sourcemap reference can't be read"),
+            expect.stringContaining('resolves outside the selected paths'),
+        ])
+        expect(existsSync(join(folder, 'maps/a.js.map'))).toBe(true)
+        expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
+    })
+
     test.skipIf(process.getuid?.() === 0)('inject changes no bundle when a map cannot be written', async () => {
         const bundle = 'a();\n//# sourceMappingURL=a.js.map\n'
         const folder = project({ 'dist/a.js': bundle, 'dist/a.js.map': MAP })
@@ -171,6 +198,15 @@ describe('hog error-tracking upload', () => {
             version: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
             id: null,
         })
+    })
+
+    test.each([
+        ['git@github.com:org/repo.git', 'git@github.com:org/repo.git'],
+        ['ghp_token@github.com:org/repo.git', 'github.com:org/repo.git'],
+        ['https://x-access-token:secret@github.com/org/repo.git', 'https://github.com/org/repo.git'],
+        ['git@github.com:org/repo@secret.git', undefined],
+    ])('the release keeps no credential from the remote %s', (remote, stored) => {
+        expect(stripCredentials(remote)).toBe(stored)
     })
 
     test.each([
