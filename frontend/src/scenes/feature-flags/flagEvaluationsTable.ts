@@ -94,7 +94,7 @@ function earliestRead(range: ResolvedDateRangeResponse): dayjs.Dayjs {
 // Trends sends the compared range it resolved in the team timezone. The Metric display's change pill gets one
 // even though its query has no compareFilter. Stickiness and funnels send none, so this estimates the range in the
 // browser's timezone. Across a DST change, the estimate can move the start to the previous day.
-function comparedPeriodStart(
+function comparedPeriodEarliestRead(
     start: dayjs.Dayjs,
     response: FlagCallsInsightResponse | null | undefined,
     compareFilter: CompareFilter | null | undefined
@@ -134,11 +134,11 @@ export function insightReachesPastFlagEvaluationsRetention({
     if (!resolvedDateRange?.date_from) {
         return false
     }
-    const comparedStart = comparedPeriodStart(dayjs(resolvedDateRange.date_from), response, compareFilter)
-    const readStart = earliestRead(resolvedDateRange)
-    const earliestStart = readStart.isBefore(comparedStart) ? readStart : comparedStart
+    const comparedRead = comparedPeriodEarliestRead(dayjs(resolvedDateRange.date_from), response, compareFilter)
+    const currentRead = earliestRead(resolvedDateRange)
+    const firstRead = currentRead.isBefore(comparedRead) ? currentRead : comparedRead
     // The window covers whole days in the team timezone. This compares dates, not instants. A DST change can
     // repeat midnight. The backend starts the 90-day preset at the first midnight. An instant comparison against
     // the second midnight would show the notice for the preset.
-    return dateInTimezone(earliestStart, insightTimezone(response)) < flagEvaluationsRetentionStartDate(response)
+    return dateInTimezone(firstRead, insightTimezone(response)) < flagEvaluationsRetentionStartDate(response)
 }

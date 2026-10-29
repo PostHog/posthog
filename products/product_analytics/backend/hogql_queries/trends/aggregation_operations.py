@@ -447,7 +447,6 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
     def _interval_placeholders(self):
         lookback_days = ACTIVE_USERS_LOOKBACK_DAYS.get(self.series.math, 0)
         return {
-            "exclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=max(lookback_days - 1, 0))]),
             "inclusive_lookback": ast.Call(name="toIntervalDay", args=[ast.Constant(value=lookback_days)]),
         }
 

@@ -370,6 +370,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                 )
             )
         with self.timings.measure("date_range"):
+            # read_from reports this lower bound. Keep the two equal.
             event_filters.append(
                 parse_expr(
                     "{timestamp_field} >= {date_from_start_of_interval} - {one_interval_period}",
