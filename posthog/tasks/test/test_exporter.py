@@ -148,9 +148,11 @@ class TestExporterTask(APIBaseTest):
             owner = User.objects.create_and_join(
                 self.organization, "member@example.com", None, level=OrganizationMembership.Level.MEMBER
             )
-            dashboard = self.exported_asset.dashboard
             AccessControl.objects.create(
-                team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="none"
+                team=self.team,
+                resource="dashboard",
+                resource_id=str(self.exported_asset.dashboard_id),
+                access_level="none",
             )
         else:
             owner = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
