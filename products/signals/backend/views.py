@@ -3,6 +3,7 @@ import json
 import math
 import uuid
 from collections.abc import Callable, Iterable, Sequence
+from contextlib import ExitStack
 from datetime import UTC, timedelta
 from functools import cached_property, partial
 from typing import Any, Literal, cast
@@ -148,6 +149,7 @@ from products.signals.backend.models import (
     SignalReportAction,
     SignalReportArtefact,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportRefund,
     SignalScoutConfig,
     SignalSourceConfig,
@@ -322,6 +324,7 @@ from products.signals.backend.throttles import (
     ReportTaskActionRunBurstThrottle,
     ReportTaskActionRunSustainedThrottle,
 )
+from products.signals.backend.tracker_issues import tracker_issue_completion_lock
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -4049,7 +4052,8 @@ class SignalReportViewSet(
         if target_status == SignalReport.Status.MONITORING and not self._report_monitoring_enabled:
             return SignalReportBulkStateOutcome.SKIPPED, "Monitoring is unavailable for this organization."
 
-        with transaction.atomic():
+        # Release the delivery lock after commit so workers cannot read the previous verdict.
+        with ExitStack() as completion_locks, transaction.atomic():
             # Lock the report row for the whole guard + transition so it serializes with the refund
             # path (which locks the same row before suppressing). Re-read committed state under the
             # lock: a resolve/restore that raced a refund must observe the refund's SUPPRESSED status
@@ -4060,6 +4064,23 @@ class SignalReportViewSet(
                 is not None
             ):
                 report.refresh_from_db()
+            if (
+                SignalReportMonitoringAttempt.objects.for_team(self.team.id)
+                .filter(
+                    report_id=report.id,
+                    tracker_issue_close_requested_at__isnull=False,
+                    tracker_issue_close_processed_at__isnull=True,
+                )
+                .exists()
+            ):
+                acquired = completion_locks.enter_context(
+                    tracker_issue_completion_lock(team_id=self.team.id, report_id=str(report.id))
+                )
+                if not acquired:
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "This report is being finalized. Try again in a moment.",
+                    )
             if dismissal_reason == "verified_manually" and (
                 not self._report_monitoring_enabled
                 or report.monitoring_started_at is None
