@@ -210,6 +210,7 @@ export namespace Schemas {
         debug: boolean | null;
         forceClickhouseDataSkippingIndexes: Array<string> | null;
         formatCsvAllowDoubleQuotes: boolean | null;
+        funnelUseClientCaptureOrder: boolean | null;
         inCohortVia: InCohortVia | null;
         inlineCohortCalculation: InlineCohortCalculation | null;
         materializationMode: MaterializationMode | null;
