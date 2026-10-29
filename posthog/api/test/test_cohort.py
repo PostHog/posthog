@@ -4916,6 +4916,27 @@ email@example.org,
                 None,
             ),
             (
+                "did_not_complete_event",
+                [_PAGEVIEW_CRITERION, {**_FLAG_CALLED_CRITERION, "negation": True}],
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                None,
+            ),
+            (
+                "multiple_times_without_flag_key",
+                [
+                    {
+                        **_FLAG_CALLED_ANY_FLAG_CRITERION,
+                        "value": "performed_event_multiple",
+                        "operator": "gte",
+                        "operator_value": 2,
+                    }
+                ],
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                True,
+                _FLAG_CALL_KEY_REFUSAL,
+            ),
+            (
                 "event_without_rewrite",
                 [_FLAG_CALLED_CRITERION],
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,

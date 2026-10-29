@@ -1100,9 +1100,9 @@ def _criteria_that_may_read_flag_calls(properties: Iterable[Property]) -> list[P
     ]
 
 
-def _flag_call_criteria_alone_pass(candidates: Sequence[Property], team: Team) -> bool:
-    """Whether the flag-call criteria among these candidates compile and read no flag calls from events without the
-    other candidates' SQL expression filters."""
+def _another_criterions_sql_expression_blocks_swap(candidates: Sequence[Property], team: Team) -> bool:
+    """Whether another criterion's SQL expression filter causes the refusal: the cohort has one, and the flag-call
+    criteria compile and read no flag calls from events without it."""
     flag_call_criteria = [prop for prop in candidates if _is_flag_call_criterion(prop)]
     if len(flag_call_criteria) == len(candidates):
         return False
@@ -1153,7 +1153,7 @@ def _added_unsupported_hidden_event_reference(
         return None
     else:
         reason = _FLAG_CALL_KEY_REASON if new_reads.rewrite_enabled else HIDDEN_EVENT_REASON
-    if _flag_call_criteria_alone_pass(new_candidates, team):
+    if _another_criterions_sql_expression_blocks_swap(new_candidates, team):
         reason = _FLAG_CALL_SQL_EXPRESSION_REASON
     return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=reason)
 
