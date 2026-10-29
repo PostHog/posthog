@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import DateRange, MCPMissingCapabilitiesItem, MCPMissingCapabilitiesQuery
 
 from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
+from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -83,9 +84,11 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
 
         assert [row.intent for row in self._run(search=term)] == expected
 
-    def test_labels_unidentified_and_self_reported_clients(self) -> None:
+    def test_labels_unidentified_self_reported_and_custom_named_clients(self) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Acme Agent", match_pattern="acme-agent")
         self._emit(intent="no client identity", client_name=None)
         self._emit(intent="self-reported client", client_name="some-inhouse-agent")
+        self._emit(intent="custom named client", client_name="acme-agent")
         flush_persons_and_events()
 
         harness_by_intent = {row.intent: row.harness for row in self._run()}
@@ -93,6 +96,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         assert harness_by_intent == {
             "no client identity": "Unidentified client",
             "self-reported client": "some-inhouse-agent",
+            "custom named client": "Acme Agent",
         }
 
     def test_pages_equal_timestamps_deterministically(self) -> None:
