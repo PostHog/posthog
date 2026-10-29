@@ -12,7 +12,10 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from django.db import connection, transaction
+from django.db.models import F, Q
 from django.utils import timezone
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -23,6 +26,9 @@ from products.replay_vision.backend.models.replay_highlight_feed import (
     ReplayHighlightFeedState,
 )
 from products.replay_vision.backend.models.replay_observation_rank import RankCategory
+from products.replay_vision.backend.observation_ranks import mark_changed
+
+logger = structlog.get_logger(__name__)
 
 # The feed surfaces a scanner's top fifth by score, once the scanner has enough ranked rows to make a percentile mean
 # something.
@@ -35,6 +41,11 @@ ISSUE_CODES = (RankCategory.FAILURE, RankCategory.STRUGGLE, RankCategory.REVENUE
 BUILD_RETENTION = timedelta(minutes=30)
 _STATEMENT_TIMEOUT = "120s"
 _LOCK_TIMEOUT = "10s"
+# A build older than this asks for a rebuild when read, so a quiet team's windows still move forward.
+STALE_AFTER = timedelta(hours=1)
+# A team waits at least this long after its last build, so a busy team rebuilds a few times an hour.
+REBUILD_DEBOUNCE = timedelta(minutes=5)
+REBUILDS_PER_SWEEP = 20
 # Namespaces the per-team advisory lock that keeps two builds of one team from running at once.
 _BUILD_LOCK_KEY = 0x52564842
 
@@ -198,3 +209,41 @@ def build_highlight_feed(team_id: int, anchor_version: int, *, wait: bool = True
             generation=generation, built_at=built_at, builds=kept, built_changes=seen_changes
         )
     return generation
+
+
+def stored_generation(team_id: int, anchor_version: int, as_of: datetime) -> int | None:
+    """The stored build a load at `as_of` reads: the newest kept build that was current by then, so later pages stay on
+    the build the first page read. A team without a build gets one first, and a stale build is served as is and asks
+    for a rebuild."""
+    state = ReplayHighlightFeedState.objects.for_team(team_id).first()
+    if state is None or state.built_at is None:
+        return build_highlight_feed(team_id, anchor_version)
+    if state.built_at < timezone.now() - STALE_AFTER and state.changes <= state.built_changes:
+        mark_changed(team_id)
+    current_by_then = [build[0] for build in state.builds if datetime.fromisoformat(build[1]) <= as_of]
+    # A load that began before any kept build reads the oldest one, which its first page built or read.
+    return max(current_by_then) if current_by_then else min(build[0] for build in state.builds)
+
+
+def rebuild_changed_feeds(anchor_version: int) -> int:
+    """Rebuild teams whose ranks changed since their last build, least recently tried first, skipping any team another
+    process is building. A team whose build fails waits behind the others. Returns how many it built."""
+    now = timezone.now()
+    states = ReplayHighlightFeedState.objects.unscoped()
+    due = list(
+        # Every team's state, since the sweep picks which teams to build.
+        states.filter(changes__gt=F("built_changes"))
+        .filter(Q(built_at__isnull=True) | Q(built_at__lt=now - REBUILD_DEBOUNCE))
+        .filter(Q(attempted_at__isnull=True) | Q(attempted_at__lt=now - REBUILD_DEBOUNCE))
+        .order_by(F("attempted_at").asc(nulls_first=True))
+        .values_list("team_id", flat=True)[:REBUILDS_PER_SWEEP]
+    )
+    states.filter(team_id__in=due).update(attempted_at=now)
+    built = 0
+    for team_id in due:
+        try:
+            built += build_highlight_feed(team_id, anchor_version, wait=False) is not None
+        except Exception:
+            # One team's failing build must not hold up every team behind it.
+            logger.exception("replay_vision.highlight_builds.rebuild_failed", team_id=team_id)
+    return built

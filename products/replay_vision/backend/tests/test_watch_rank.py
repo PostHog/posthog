@@ -3,7 +3,6 @@ from typing import Any
 
 from unittest.mock import patch
 
-from django.db.models import Q
 from django.test import SimpleTestCase
 
 import numpy as np
@@ -13,7 +12,6 @@ from posthog.exceptions import ClickHouseAtCapacity
 
 from products.replay_vision.backend import watch_rank_backfill
 from products.replay_vision.backend.highlight_feed import SESSION_SPACING
-from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.tests.helpers import axis_anchors
 from products.replay_vision.backend.watch_rank import (
     ANCHOR_VERSION,
@@ -39,36 +37,29 @@ def _row(
     viewed: bool = False,
     session: str | None = None,
 ) -> dict[str, Any]:
-    rank = (
-        None
-        if contrast is None
-        else {
-            "category": category,
-            "contrast": contrast,
-            "anchor_version": anchor_version,
-        }
-        | ({"group": group} if group else {})
-    )
+    current = contrast is not None and anchor_version == ANCHOR_VERSION
     return {
         "id": observation_id,
         "scanner_id": scanner,
         "session_id": session or f"session-{observation_id}",
         "created_at": _NOW - timedelta(minutes=minutes_ago),
-        "watch_rank": rank,
         "feed_viewed": viewed,
+        "contrast": contrast if current else None,
+        "watch_category": category if current else None,
+        "watch_group_root": group or observation_id,
     }
 
 
 def _with_percentiles(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Each row's contrast percentile within its scanner, as the pick query attaches it."""
+    """Each row's contrast percentile within its scanner, as a stored build attaches it."""
     by_scanner: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        if row["watch_rank"] and row["watch_rank"].get("anchor_version") == ANCHOR_VERSION:
+        if row["contrast"] is not None:
             by_scanner.setdefault(row["scanner_id"], []).append(row)
     for scanner_rows in by_scanner.values():
         if len(scanner_rows) < HIGHLIGHT_PICK_MIN_SCANNER_ROWS:
             continue
-        scanner_rows.sort(key=lambda row: row["watch_rank"]["contrast"])
+        scanner_rows.sort(key=lambda row: row["contrast"])
         for position, row in enumerate(scanner_rows):
             row.setdefault("watch_percentile", (position + 0.5) / len(scanner_rows))
     return rows
@@ -89,16 +80,6 @@ class TestClassify(SimpleTestCase):
         assert reading.rank.category == category
         assert (reading.rank.contrast > 0) is positive
         assert set(reading.similarities) == {key for texts in ANCHORS.values() for key in texts}
-        assert reading.rank.scores["routine"] == max(reading.similarities[key] for key in ANCHORS["routine"])
-
-
-class TestPickIndexes(SimpleTestCase):
-    @parameterized.expand([("rlo_ranked_count_idx",), ("rlo_ranked_contrast_idx",)])
-    def test_pick_index_matches_the_current_anchor_version(self, name: str) -> None:
-        index = next(index for index in ReplayObservation._meta.indexes if index.name == name)
-        assert index.condition == Q(
-            status="succeeded", watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
-        )
 
 
 class TestRankHighlightFeedByEmbedding(SimpleTestCase):
@@ -187,19 +168,17 @@ class TestBackfillRankScanner(SimpleTestCase):
     def test_ranks_only_rows_without_a_current_rank(self) -> None:
         anchors = axis_anchors()
         error = np.array([1.0, 0.0, 0.0])
-        current = {"category": "failure", "contrast": 1.0, "anchor_version": ANCHOR_VERSION}
         rows: list[dict[str, Any]] = [
-            {"id": "ranked", "watch_rank": current},
-            {"id": "no-vector", "watch_rank": None},
-            {"id": "copy", "watch_rank": None},
-            {"id": "stale", "watch_rank": {**current, "anchor_version": ANCHOR_VERSION - 1}},
-            {"id": "calm", "watch_rank": None},
+            {"id": "ranked", "ranked": True},
+            {"id": "no-vector", "ranked": False},
+            {"id": "copy", "ranked": False},
+            {"id": "calm", "ranked": False},
         ]
-        vectors = {"ranked": error, "copy": error, "stale": error, "calm": np.array([0.0, 0.0, 1.0])}
+        vectors = {"ranked": error, "copy": error, "calm": np.array([0.0, 0.0, 1.0])}
 
         written = _rank_scanner(rows, vectors, anchors)
 
-        assert set(written) == {"copy", "stale", "calm"}
+        assert set(written) == {"copy", "calm"}
         assert written["copy"].rank.category == "failure"
         assert written["calm"].rank.category == "routine"
 
