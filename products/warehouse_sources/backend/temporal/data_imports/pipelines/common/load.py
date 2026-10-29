@@ -183,10 +183,9 @@ async def _seed_cdc_companion_from_snapshot(
         CDC_TIMESTAMP_COLUMN,
         DELETED_AT_COLUMN,
         DELETED_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
         companion_resource_name as build_companion_resource_name,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import history_naming
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
@@ -194,6 +193,7 @@ async def _seed_cdc_companion_from_snapshot(
     snapshot_dt = await snapshot_delta_table_ref.get_delta_table()
     if snapshot_dt is None:
         return
+    history = await database_sync_to_async_pool(history_naming)(schema)
 
     dataset = await asyncio.to_thread(snapshot_dt.to_pyarrow_dataset)
 
@@ -203,12 +203,11 @@ async def _seed_cdc_companion_from_snapshot(
         CDC_TIMESTAMP_COLUMN,
         DELETED_COLUMN,
         DELETED_AT_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
+        *history.validity_columns,
     }
     read_columns = [c for c in dataset.schema.names if c not in cdc_meta_cols]
 
-    companion_resource_name = build_companion_resource_name(schema.name)
+    companion_resource_name = build_companion_resource_name(schema.name, history)
     companion_ref = DeltaTableRef(
         resource_name=companion_resource_name,
         job=job,
@@ -254,8 +253,8 @@ async def _seed_cdc_companion_from_snapshot(
             .append_column(pa.field(CDC_TIMESTAMP_COLUMN, ts_type), pa.array([epoch_us] * n, type=ts_type))
             .append_column(pa.field(DELETED_COLUMN, pa.bool_()), pa.array([False] * n, type=pa.bool_()))
             .append_column(pa.field(DELETED_AT_COLUMN, ts_type), pa.array([None] * n, type=ts_type))
-            .append_column(pa.field(SCD2_VALID_FROM_COLUMN, ts_type), pa.array([epoch_us] * n, type=ts_type))
-            .append_column(pa.field(SCD2_VALID_TO_COLUMN, ts_type), pa.array([None] * n, type=ts_type))
+            .append_column(pa.field(history.valid_from, ts_type), pa.array([epoch_us] * n, type=ts_type))
+            .append_column(pa.field(history.valid_to, ts_type), pa.array([None] * n, type=ts_type))
         )
 
         # Plain append — the companion table is freshly reset so there are no existing

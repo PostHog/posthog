@@ -20,8 +20,10 @@ from temporalio.service import RPCError, RPCStatusCode
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
     TOAST_OMITTED_COLUMN,
+    HistoryNaming,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import PostLoadResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.consts import PARTITION_KEY
@@ -1737,7 +1739,8 @@ class TestEnrichCdcRows:
             assert result.column("name").to_pylist() == ["renamed", "two"]
             assert TOAST_OMITTED_COLUMN not in result.column_names
 
-    def test_scd2_fill_uses_current_row_not_history(self):
+    @parameterized.expand([("legacy_table", LEGACY_HISTORY_NAMING), ("new_table", HISTORY_NAMING)])
+    def test_scd2_fill_uses_current_row_not_history(self, _name: str, history: HistoryNaming) -> None:
         with tempfile.TemporaryDirectory() as path:
             ts = pa.timestamp("us", tz="UTC")
             write_deltalake(
@@ -1747,13 +1750,18 @@ class TestEnrichCdcRows:
                         "id": pa.array([1, 1], pa.int64()),
                         "name": pa.array(["v1", "v2"], pa.string()),
                         "big": pa.array(["old-toast", "current-toast"], pa.string()),
-                        SCD2_VALID_TO_COLUMN: pa.array([1_000_000, None], ts),
+                        history.valid_from: pa.array([0, 1_000_000], ts),
+                        history.valid_to: pa.array([1_000_000, None], ts),
                     }
                 ),
                 mode="overwrite",
             )
 
+            # The lane stamps the batch with its table's validity columns before the loader sees it.
             batch = self._batch([{"id": 1, "op": "U", "name": "v3", "omitted": ["big"]}])
+            batch = batch.append_column(history.valid_from, pa.array([2_000_000], ts)).append_column(
+                history.valid_to, pa.array([None], ts)
+            )
             result = _enrich_cdc_rows(
                 batch,
                 primary_keys=["id"],

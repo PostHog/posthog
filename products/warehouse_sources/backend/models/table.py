@@ -195,6 +195,11 @@ HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset({"_ph_cdc_op", "_ph_cdc_seq",
 # Set in `options` when the sync registers a table as a schema's history table. Column names cannot
 # tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
 HISTORY_TABLE_OPTION = "history_table"
+# Set in `options` when the sync creates a history table named `<table>_history` with the validity
+# columns `_ph_valid_from` / `_ph_valid_to`. A history table without it is older and keeps `_cdc`,
+# `valid_from` and `valid_to`.
+HISTORY_NAMING_OPTION = "history_naming"
+PH_HISTORY_NAMING = "ph_validity"
 
 
 # Characters that carry quoting meaning once a column name is written into SQL. The structure
@@ -617,8 +622,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def is_history_table(self) -> bool:
         return (self.options or {}).get(HISTORY_TABLE_OPTION) is True
 
-    def mark_as_history_table(self) -> None:
-        self.options = {**(self.options or {}), HISTORY_TABLE_OPTION: True}
+    def mark_as_history_table(self, *, ph_naming: bool = False) -> None:
+        self.options = {
+            **(self.options or {}),
+            HISTORY_TABLE_OPTION: True,
+            **({HISTORY_NAMING_OPTION: PH_HISTORY_NAMING} if ph_naming else {}),
+        }
+
+    @property
+    def has_ph_history_naming(self) -> bool:
+        return (self.options or {}).get(HISTORY_NAMING_OPTION) == PH_HISTORY_NAMING
 
     def hidden_columns(self) -> frozenset[str]:
         """The plumbing columns to keep out of the catalog for this table."""

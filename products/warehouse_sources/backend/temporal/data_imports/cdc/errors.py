@@ -174,7 +174,7 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     ),
     CDCErrorCategory.RESERVED_COLUMN_CONFLICT: (
         "A source table has a column that loads under a name PostHog writes for change data capture, "
-        "such as _ph_cdc_seq or _ph_deleted, or valid_from or valid_to on a table with a history table. "
+        "such as _ph_cdc_seq or _ph_valid_from, or valid_from on an older history table that ends in _cdc. "
         "Rename the column on your database, leave it out of the synced columns, or choose another sync "
         "method for that table.",
         False,

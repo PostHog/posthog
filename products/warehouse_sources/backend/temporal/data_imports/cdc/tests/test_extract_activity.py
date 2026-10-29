@@ -34,7 +34,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
     ChangeEventBatcher,
+    HistoryNaming,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
     CDCErrorCategory,
@@ -2342,22 +2345,28 @@ class TestBufferedIngressCapture:
 
     @parameterized.expand(
         [
-            ("position_column", CDC_SEQ_COLUMN, "consolidated", True),
-            ("position_column_the_load_renames", "_PH_CDC_SEQ", "consolidated", True),
-            ("validity_column_with_a_history_table", "validFrom", "both", True),
-            ("validity_column_without_a_history_table", "valid_from", "consolidated", False),
+            ("position_column", CDC_SEQ_COLUMN, None, True),
+            ("position_column_the_load_renames", "_PH_CDC_SEQ", None, True),
+            ("validity_column_on_a_legacy_history_table", "validFrom", LEGACY_HISTORY_NAMING, True),
+            ("legacy_validity_column_on_a_new_history_table", "valid_from", HISTORY_NAMING, False),
+            ("validity_column_without_a_history_table", "valid_from", None, False),
         ]
     )
     def test_a_source_column_named_like_a_written_column_fails_the_buffered_run(
-        self, _name: str, column: str, cdc_table_mode: str, refused: bool
+        self, _name: str, column: str, history: HistoryNaming | None, refused: bool
     ) -> None:
         # Written anyway, the file's name, ordering, and retry cleanup could derive from customer
         # data, and cleanup can then delete unconsumed files.
         source = _make_source()
+        cdc_table_mode = "consolidated" if history is None else "both"
         schema = _make_schema("users", cdc_mode="streaming", cdc_table_mode=cdc_table_mode, source=source)
         events = [_make_event(op="I", position="0/100", columns={"id": 1, column: 42})]
 
-        with _capture_harness(source, [schema], events) as capture:
+        with (
+            patch(f"{_ACTIVITIES}.SourceHistoryNamings") as history_namings,
+            _capture_harness(source, [schema], events) as capture,
+        ):
+            history_namings.return_value.naming_unless_taken.return_value = history
             if refused:
                 with pytest.raises(NonRetryableException, match="change data capture"):
                     capture.extract()

@@ -29,11 +29,10 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_OP_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
     TOAST_OMITTED_COLUMN,
     enrich_delete_rows,
     enrich_toast_omitted_rows,
+    history_naming_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import (
     has_engine_seq,
@@ -260,21 +259,22 @@ def _enrich_cdc_rows(
 
                 # For SCD2 tables, keep only "current" rows (valid_to IS NULL) so we
                 # enrich with the most recent state rather than a historical one.
+                history = history_naming_of(pa_table.column_names) if cdc_write_mode == "scd2_append" else None
                 if (
-                    cdc_write_mode == "scd2_append"
+                    history is not None
                     and existing_rows.num_rows > 0
-                    and SCD2_VALID_TO_COLUMN in existing_rows.column_names
+                    and history.valid_to in existing_rows.column_names
                 ):
-                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(SCD2_VALID_TO_COLUMN)))
+                    existing_rows = existing_rows.filter(pc.is_null(existing_rows.column(history.valid_to)))
 
                 # TOAST fill first so DELETE enrichment copies resolved values,
                 # not the nulls standing in for omitted columns.
                 pa_table = enrich_toast_omitted_rows(pa_table, primary_keys, existing_rows)
-                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows)
+                pa_table = enrich_delete_rows(pa_table, primary_keys, existing_rows, history)
 
                 # Only place the previous state is still in hand to compare against.
                 if verify_deletes and delete_key_set:
-                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows)
+                    report = verify_delete_enrichment(pa_table, present_pks, existing_rows, history)
                     if not report.ok:
                         CDC_DELETE_ENRICHMENT_VIOLATIONS_TOTAL.inc(report.rows_with_nulled_columns)
                         logger.warning(
@@ -1661,10 +1661,10 @@ def _process_message_reported(
                 timer.step("write"),
                 DELTA_WRITE_DURATION_SECONDS.labels(write_type="scd2_append").time(),
             ):
+                # The lane stamped the batch with its table's validity columns, so the batch names them.
+                history = history_naming_of(pa_table.column_names)
                 scd2_writer = Scd2DeltaWriter(
-                    delta_table_ref,
-                    valid_from_column=SCD2_VALID_FROM_COLUMN,
-                    valid_to_column=SCD2_VALID_TO_COLUMN,
+                    delta_table_ref, valid_from_column=history.valid_from, valid_to_column=history.valid_to
                 )
                 delta_table = async_to_sync(scd2_writer.write)(
                     data=pa_table,

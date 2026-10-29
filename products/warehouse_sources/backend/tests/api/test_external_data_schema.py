@@ -63,6 +63,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.sharepoint
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source import StripeSource
 from products.warehouse_sources.backend.tests.api.utils import create_external_data_source_ok
 
+_PH_HISTORY_NAMING_FLAG = (
+    "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
+)
+
 pytestmark = [
     pytest.mark.django_db,
 ]
@@ -1358,13 +1362,13 @@ class TestExternalDataSchema(APIBaseTest):
                 {
                     "primary_key_columns": ["id"],
                     "cdc_table_mode": "both",
-                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "valid_from"}]},
+                    "schema_metadata": {"columns": [{"name": "id"}, {"name": "_ph_valid_from"}]},
                 },
                 None,
                 status.HTTP_400_BAD_REQUEST,
                 ExternalDataSchema.SyncType.FULL_REFRESH,
                 None,
-                "valid_from",
+                "_ph_valid_from",
             ),
             (
                 "accepts_a_validity_column_name_without_a_history_table",
@@ -4599,7 +4603,6 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         [
             (
                 "turning_history_on_over_a_synced_column_is_refused",
-                "valid_to",
                 "consolidated",
                 None,
                 {"cdc_table_mode": "both"},
@@ -4607,7 +4610,6 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             ),
             (
                 "turning_history_on_over_a_column_left_out_is_allowed",
-                "valid_to",
                 "consolidated",
                 ["id"],
                 {"cdc_table_mode": "both"},
@@ -4615,52 +4617,75 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             ),
             (
                 "adding_the_column_to_enabled_columns_is_refused",
-                "valid_to",
                 "both",
                 ["id"],
                 {"enabled_columns": ["id", "valid_to"]},
                 True,
             ),
+            ("editing_a_table_that_already_syncs_it_is_allowed", "both", None, {"enabled_columns": None}, False),
             (
-                "editing_a_table_that_already_syncs_it_is_allowed",
-                "valid_to",
-                "both",
+                "a_new_history_table_leaves_valid_to_to_the_source",
+                "consolidated",
                 None,
-                {"enabled_columns": None},
+                {"cdc_table_mode": "both"},
+                False,
+                "valid_to",
+                False,
+            ),
+            (
+                "a_new_history_table_refuses_its_own_validity_name",
+                "consolidated",
+                None,
+                {"cdc_table_mode": "both"},
+                True,
+                "_ph_valid_to",
                 False,
             ),
             # Capture columns are refused on every CDC table, history or not.
             (
                 "adding_a_capture_column_to_enabled_columns_is_refused",
-                "_PH_DELETED",
                 "consolidated",
                 ["id"],
                 {"enabled_columns": ["id", "_PH_DELETED"]},
                 True,
+                "_PH_DELETED",
+                False,
             ),
             (
                 "editing_a_table_that_already_syncs_a_capture_column_is_allowed",
-                "_PH_DELETED",
                 "consolidated",
                 None,
                 {"enabled_columns": None},
                 False,
+                "_PH_DELETED",
+                False,
             ),
         ]
     )
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
     def test_patch_checks_the_columns_a_cdc_sync_writes(
         self,
         _name: str,
-        column: str,
         initial_mode: str,
         initial_enabled_columns: list[str] | None,
         request_body: dict,
         refused: bool,
+        column: str = "valid_to",
+        legacy_table: bool = True,
     ):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (
             ExternalDataSchemaSerializer,
         )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
 
+        if legacy_table:
+            DataWarehouseTable.objects.create(
+                team=self.team,
+                name=build_table_name(self.source, f"{self.schema.name}_cdc"),
+                format="DeltaS3Wrapper",
+                url_pattern="s3://bucket/orders_cdc",
+                external_data_source=self.source,
+            )
         self.schema.sync_type_config["cdc_table_mode"] = initial_mode
         self.schema.sync_type_config["schema_metadata"] = {"columns": [{"name": "id"}, {"name": column}]}
         self.schema.enabled_columns = initial_enabled_columns
@@ -4690,6 +4715,81 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert self.schema.enabled_columns == (
             initial_enabled_columns if refused else request_body.get("enabled_columns", initial_enabled_columns)
         )
+        keeps_history = not refused and self.schema.cdc_table_mode in ("cdc_only", "both")
+        expected_pin = ("legacy" if legacy_table else "ph_validity") if keeps_history else None
+        assert self.schema.sync_type_config.get("history_naming") == expected_pin
+
+    def _save_through_serializer(self, schema: ExternalDataSchema, request_body: dict) -> None:
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+
+        serializer = ExternalDataSchemaSerializer(
+            schema, data=request_body, partial=True, context={"team_id": self.team.pk, "post_commit_actions": []}
+        )
+        with mock.patch(
+            "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+            return_value=False,
+        ):
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_patch_refuses_a_history_table_named_like_a_synced_table(self):
+        ExternalDataSchema.objects.create(
+            name="public.orders_history", team=self.team, source=self.source, should_sync=True
+        )
+
+        with pytest.raises(ValidationError, match="share its name"):
+            self._save_through_serializer(self.schema, {"cdc_table_mode": "both"})
+
+        self.schema.refresh_from_db()
+        assert self.schema.cdc_table_mode == "consolidated"
+
+    @mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+    def test_patch_refuses_syncing_a_table_named_like_another_schemas_history_table(self):
+        # The history table is not registered until the first snapshot loads, and the name is taken already.
+        self.schema.sync_type_config["cdc_table_mode"] = "both"
+        self.schema.save()
+        sibling = ExternalDataSchema.objects.create(
+            name="public.orders_history",
+            team=self.team,
+            source=self.source,
+            should_sync=False,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+        )
+
+        with pytest.raises(ValidationError, match="history table of another table"):
+            self._save_through_serializer(sibling, {"should_sync": True})
+
+        sibling.refresh_from_db()
+        assert sibling.should_sync is False
+
+    @parameterized.expand(
+        [
+            ("no_history_table", ExternalDataSchema.SyncType.CDC, "consolidated", False, None),
+            ("legacy_naming", ExternalDataSchema.SyncType.CDC, "both", False, "public.orders_cdc"),
+            ("new_naming", ExternalDataSchema.SyncType.CDC, "both", True, "public.orders_history"),
+            # Leaving CDC keeps the stored table mode, but the table no longer keeps history.
+            ("left_cdc", ExternalDataSchema.SyncType.INCREMENTAL, "both", True, None),
+        ]
+    )
+    def test_history_table_name_names_the_table_the_mode_writes(
+        self, _name: str, sync_type: str, mode: str, ph_naming: bool, storage_name: str | None
+    ):
+        from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+            ExternalDataSchemaSerializer,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
+        self.schema.sync_type = sync_type
+        self.schema.sync_type_config["cdc_table_mode"] = mode
+        self.schema.save()
+
+        with mock.patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: ph_naming):
+            name = ExternalDataSchemaSerializer().get_history_table_name(self.schema)
+
+        assert name == (None if storage_name is None else build_table_name(self.source, storage_name))
 
     def test_patch_does_not_revert_a_concurrent_delete_data(self):
         from products.warehouse_sources.backend.presentation.views.external_data_schema import (

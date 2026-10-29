@@ -5,6 +5,8 @@ from collections.abc import Callable, Iterable
 
 import pyarrow as pa
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCReservedColumnError
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -24,18 +26,45 @@ CDC_SEQ_COLUMN = "_ph_cdc_seq"
 # name.
 CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 
-# Suffix of the SCD2 companion table's resource name ({schema.name}_cdc).
-CDC_COMPANION_SUFFIX = "_cdc"
+
+@frozen
+class HistoryNaming:
+    """The table name suffix and the validity column names of one history table.
+
+    A history table keeps the naming it was created with, so code reads it from the table and never
+    from a constant.
+    """
+
+    suffix: str
+    valid_from: str
+    valid_to: str
+
+    @property
+    def validity_columns(self) -> frozenset[str]:
+        return frozenset({self.valid_from, self.valid_to})
 
 
-def companion_resource_name(schema_name: str) -> str:
-    """Storage name for a schema's `_cdc` companion table.
+LEGACY_HISTORY_NAMING = HistoryNaming(suffix="_cdc", valid_from="valid_from", valid_to="valid_to")
+# The `_ph_` names leave a source's own `valid_from` and `valid_to` free to sync.
+HISTORY_NAMING = HistoryNaming(suffix="_history", valid_from="_ph_valid_from", valid_to="_ph_valid_to")
+
+
+def history_naming_of(column_names: Iterable[str]) -> HistoryNaming:
+    """The naming a stamped history batch or table was written with.
+
+    `_ph_valid_from` is reserved on every history table, so only the stamp can put it there.
+    """
+    return HISTORY_NAMING if HISTORY_NAMING.valid_from in set(column_names) else LEGACY_HISTORY_NAMING
+
+
+def companion_resource_name(schema_name: str, naming: HistoryNaming) -> str:
+    """Storage name for a schema's history table.
 
     Keyed on the schema's `name`, never its resolved folder: the companion is CDC-only and stays
     self-consistent with its `name`-keyed snapshot seed. Capture, the snapshot seed and the
     buffered consumer all write the same table, so they all resolve the name here.
     """
-    return f"{schema_name}{CDC_COMPANION_SUFFIX}"
+    return f"{schema_name}{naming.suffix}"
 
 
 # Per-row list of source columns the change stream omitted because they are
@@ -43,10 +72,6 @@ def companion_resource_name(schema_name: str) -> str:
 # Consumed by enrich_toast_omitted_rows; the load processor drops it before
 # writing to DeltaLake.
 TOAST_OMITTED_COLUMN = "_ph_toast_omitted"
-
-# SCD Type 2 columns added to the _cdc history table
-SCD2_VALID_FROM_COLUMN = "valid_from"
-SCD2_VALID_TO_COLUMN = "valid_to"
 
 # Values of `cdc_table_mode` that write the history table.
 CDC_HISTORY_TABLE_MODES: frozenset[str] = frozenset({"cdc_only", "both"})
@@ -61,13 +86,20 @@ def is_history_table_mode(cdc_table_mode: object) -> bool:
 CAPTURE_COLUMNS: frozenset[str] = frozenset(
     {CDC_OP_COLUMN, CDC_TIMESTAMP_COLUMN, CDC_SEQ_COLUMN, DELETED_COLUMN, DELETED_AT_COLUMN, TOAST_OMITTED_COLUMN}
 )
-# The columns that only the history table adds.
-HISTORY_COLUMNS: frozenset[str] = frozenset({SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN})
 
 
-def reserved_column_names(*, history: bool) -> frozenset[str]:
-    """Every name a CDC sync writes next to the source's own columns."""
-    return CAPTURE_COLUMNS | HISTORY_COLUMNS if history else CAPTURE_COLUMNS
+def history_columns(naming: HistoryNaming) -> frozenset[str]:
+    """The columns a history table adds to the capture columns.
+
+    `_ph_valid_*` stays reserved on a legacy history table too, because `history_naming_of` reads the
+    naming from it.
+    """
+    return HISTORY_NAMING.validity_columns | naming.validity_columns
+
+
+def reserved_column_names(history: HistoryNaming | None) -> frozenset[str]:
+    """Every name a CDC sync writes next to the source's own columns, `history` when it keeps a history table."""
+    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history_columns(history)
 
 
 def reserved_column_collisions(
@@ -89,20 +121,13 @@ def reserved_column_collisions(
     return sorted(name for name in synced if NamingConvention.normalize_identifier(name) in reserved)
 
 
-# Columns that are CDC/SCD2 metadata — always filled from the event itself,
-# never overwritten when enriching DELETE rows with last-known source data.
-_CDC_METADATA_COLUMNS: frozenset[str] = frozenset(
-    {
-        CDC_OP_COLUMN,
-        CDC_TIMESTAMP_COLUMN,
-        CDC_SEQ_COLUMN,
-        DELETED_COLUMN,
-        DELETED_AT_COLUMN,
-        TOAST_OMITTED_COLUMN,
-        SCD2_VALID_FROM_COLUMN,
-        SCD2_VALID_TO_COLUMN,
-    }
-)
+def metadata_columns(history: HistoryNaming | None) -> frozenset[str]:
+    """Columns always filled from the change event itself, never from the last known row.
+
+    `history` names the validity columns stamped on a history batch. A source column that only shares a
+    validity name with another naming is data.
+    """
+    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.validity_columns
 
 
 # Micro-batch thresholds for CDC WAL processing.  Flushing periodically
@@ -230,6 +255,7 @@ def enrich_delete_rows(
     table: pa.Table,
     pk_columns: list[str],
     existing_rows: pa.Table | None = None,
+    history: HistoryNaming | None = None,
 ) -> pa.Table:
     """Fill data columns on DELETE rows from the last known state.
 
@@ -246,8 +272,10 @@ def enrich_delete_rows(
     The processor pre-filters `existing_rows` to only the PKs present in DELETE
     events before calling this, so the materialization is bounded by the batch size.
 
-    Metadata columns (op, timestamp, deleted flags, valid_from/to) are always
-    kept from the DELETE event itself and are never overwritten.
+    Metadata columns (op, timestamp, deleted flags, and the validity columns of
+    `history` when the table is a stamped history batch) are always kept from the
+    DELETE event itself and are never overwritten. A source column that only shares
+    a validity name with another naming is data.
     """
     if not pk_columns or table.num_rows == 0:
         return table
@@ -262,7 +290,8 @@ def enrich_delete_rows(
         return table
 
     pk_set = set(present_pks)
-    table_data_cols = [col for col in table.column_names if col not in _CDC_METADATA_COLUMNS and col not in pk_set]
+    metadata = metadata_columns(history)
+    table_data_cols = [col for col in table.column_names if col not in metadata and col not in pk_set]
 
     # Determine extra columns that exist in existing_rows but not in the current table.
     # A standalone DELETE event may only carry PK columns — we add the missing data
@@ -272,7 +301,7 @@ def enrich_delete_rows(
         extra_cols_from_existing = [
             col
             for col in existing_rows.column_names
-            if col not in _CDC_METADATA_COLUMNS and col not in pk_set and col not in table.column_names
+            if col not in metadata and col not in pk_set and col not in table.column_names
         ]
 
     all_data_cols = table_data_cols + extra_cols_from_existing
@@ -461,8 +490,8 @@ def enrich_toast_omitted_rows(
     return pa.table(new_columns, schema=pa.schema(new_fields))
 
 
-def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
-    """Add SCD Type 2 columns (valid_from, valid_to) to a raw CDC event table.
+def build_scd2_table(pa_table: pa.Table, pk_columns: list[str], naming: HistoryNaming) -> pa.Table:
+    """Add the SCD Type 2 columns of `naming` (valid_from, valid_to) to a raw CDC event table.
 
     valid_from  = _ph_cdc_timestamp (the commit timestamp of this event)
     valid_to    = _ph_cdc_timestamp of the next event for the same PK, or null
@@ -475,7 +504,7 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     A two-step merge + append in the load processor closes previous "current"
     rows (sets valid_to) when a new batch is written for the same PK.
     """
-    taken = reserved_column_collisions(pa_table.column_names, HISTORY_COLUMNS)
+    taken = reserved_column_collisions(pa_table.column_names, history_columns(naming))
     if taken:
         # Delta refuses a duplicate column name at write time; failing here names the column and
         # keeps a half-built batch out of the writer.
@@ -489,9 +518,9 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
     )
 
     if pa_table.num_rows == 0:
-        return pa_table.append_column(
-            pa.field(SCD2_VALID_FROM_COLUMN, ts_type), pa.array([], type=ts_type)
-        ).append_column(pa.field(SCD2_VALID_TO_COLUMN, ts_type), pa.array([], type=ts_type))
+        return pa_table.append_column(pa.field(naming.valid_from, ts_type), pa.array([], type=ts_type)).append_column(
+            pa.field(naming.valid_to, ts_type), pa.array([], type=ts_type)
+        )
 
     ts_col = pa_table.column(CDC_TIMESTAMP_COLUMN).to_pylist()
 
@@ -515,10 +544,10 @@ def build_scd2_table(pa_table: pa.Table, pk_columns: list[str]) -> pa.Table:
                 valid_to[idx] = ts_col[next_idx]
 
     return pa_table.append_column(
-        pa.field(SCD2_VALID_FROM_COLUMN, ts_type),
+        pa.field(naming.valid_from, ts_type),
         pa_table.column(CDC_TIMESTAMP_COLUMN),
     ).append_column(
-        pa.field(SCD2_VALID_TO_COLUMN, ts_type),
+        pa.field(naming.valid_to, ts_type),
         pa.array(valid_to, type=ts_type),
     )
 
