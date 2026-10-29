@@ -167,6 +167,46 @@ describe('PieChart', () => {
             fireEvent.click(chart.element)
             expect(onSliceClick).not.toHaveBeenCalled()
         })
+
+        it('shows the tooltip on the first tap and fires onSliceClick on a second tap', async () => {
+            const onSliceClick = jest.fn<void, [RadialSlicePayload]>()
+            // An excluded series makes slice indexes differ from series indexes.
+            const series: Series[] = [
+                { key: 'x', label: 'Safari', data: [10], visibility: { excluded: true } },
+                ...SERIES,
+            ]
+            const { chart } = renderChart(<PieChart series={series} theme={THEME} onSliceClick={onSliceClick} />)
+            const layout = layoutFor(series)
+            // jsdom has no PointerEvent, so the pointer type rides on a MouseEvent React reads it from.
+            const tap = (at: { clientX: number; clientY: number }): void => {
+                const down = Object.assign(new MouseEvent('pointerdown', { bubbles: true }), { pointerType: 'touch' })
+                fireEvent(chart.element, down)
+                fireEvent.click(chart.element, at)
+            }
+
+            tap(pointInSlice(layout, 0))
+            await waitFor(() => expect(getChartTooltip()?.textContent).toContain('Chrome'))
+            expect(onSliceClick).not.toHaveBeenCalled()
+
+            tap(pointInSlice(layout, 0))
+            expect(onSliceClick).toHaveBeenCalledWith(expect.objectContaining({ sliceIndex: 0 }))
+        })
+
+        it('ignores hover and clicks from an interactive overlay child', () => {
+            const onSliceClick = jest.fn()
+            const { chart, getByRole } = renderChart(
+                <PieChart series={SERIES} theme={THEME} onSliceClick={onSliceClick}>
+                    <button data-hog-charts-interactive-overlay="">overlay</button>
+                </PieChart>
+            )
+            const at = pointInSlice(layoutFor(SERIES), 0)
+            fireEvent.mouseMove(chart.element, at)
+            fireEvent.mouseMove(getByRole('button'), at)
+            fireEvent.click(getByRole('button'), at)
+
+            expect(onSliceClick).not.toHaveBeenCalled()
+            expect(getChartTooltip()).toBeNull()
+        })
     })
 
     describe('interactive legend', () => {
