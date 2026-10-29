@@ -66,6 +66,7 @@ export function HomeTabDashboard({
                 placement={placement}
                 readOnly={readOnly}
                 headerActions={page.dashboardHeaderActions}
+                compact
             />
         )
     }

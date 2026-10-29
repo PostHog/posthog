@@ -34,7 +34,7 @@ export function AnalyticsProductHome(): JSX.Element {
                             actions={<HomeDashboardMenu />}
                         />
                     ),
-                    dashboardHeaderActions: <HomeDashboardMenu />,
+                    dashboardHeaderActions: <HomeDashboardMenu inDashboardHeader />,
                 }}
             />
             <HomeDashboardModals />

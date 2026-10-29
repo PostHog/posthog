@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown } from '@posthog/icons'
+import { IconChevronDown, IconEllipsis } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@posthog/quill'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -8,7 +8,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { homeDashboardChoiceLogic } from './homeDashboardChoiceLogic'
 
 /** Opens, changes, or removes the dashboard that replaces the default product analytics dashboard. */
-export function HomeDashboardMenu(): JSX.Element {
+export function HomeDashboardMenu({
+    inDashboardHeader = false,
+}: {
+    /** The dashboard header has its own Customize button, so this menu only changes which dashboard shows. */
+    inDashboardHeader?: boolean
+}): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { openHomeDashboardStarter, editHomeDashboard, restorePostHogHome } = useActions(homeDashboardChoiceLogic)
     const homeDashboardId = currentTeam?.home_tab_dashboard
@@ -23,17 +28,35 @@ export function HomeDashboardMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <DropdownMenuTrigger render={<Button variant="outline" data-attr="home-tab-dashboard-options" />}>
-                Customize
-                <IconChevronDown />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-48">
-                <DropdownMenuItem
-                    onClick={() => editHomeDashboard(homeDashboardId)}
-                    data-attr="home-tab-open-dashboard"
+            {inDashboardHeader ? (
+                <DropdownMenuTrigger
+                    render={
+                        <Button
+                            variant="outline"
+                            size="icon"
+                            aria-label="Dashboard options"
+                            tooltip="Dashboard options"
+                            data-attr="home-tab-dashboard-options"
+                        />
+                    }
                 >
-                    Edit dashboard
-                </DropdownMenuItem>
+                    <IconEllipsis />
+                </DropdownMenuTrigger>
+            ) : (
+                <DropdownMenuTrigger render={<Button variant="outline" data-attr="home-tab-dashboard-options" />}>
+                    Customize
+                    <IconChevronDown />
+                </DropdownMenuTrigger>
+            )}
+            <DropdownMenuContent align="end" className="min-w-48">
+                {!inDashboardHeader && (
+                    <DropdownMenuItem
+                        onClick={() => editHomeDashboard(homeDashboardId)}
+                        data-attr="home-tab-open-dashboard"
+                    >
+                        Edit dashboard
+                    </DropdownMenuItem>
+                )}
                 <DropdownMenuItem onClick={openHomeDashboardStarter} data-attr="home-tab-choose-dashboard">
                     Show a different dashboard
                 </DropdownMenuItem>

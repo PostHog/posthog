@@ -124,8 +124,8 @@ export function DashboardHeader({
                 }
                 actions={
                     <>
-                        {extraActions}
                         {todayRailNav && dashboard ? <QuillDashboardHeaderActions /> : actions}
+                        {extraActions}
                     </>
                 }
             />

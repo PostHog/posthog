@@ -68,6 +68,8 @@ interface DashboardProps {
     readOnly?: boolean
     /** Extra controls for the dashboard header, when a page shows the dashboard as its main content. */
     headerActions?: JSX.Element
+    /** Uses less vertical space above the tiles, for a page where the dashboard is a product's home. */
+    compact?: boolean
 }
 
 export const parseDashboardId = (id: string | undefined): number => {
@@ -101,6 +103,7 @@ export function Dashboard({
     showCreateAnomalyAlertButton,
     readOnly,
     headerActions,
+    compact,
 }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
@@ -110,6 +113,7 @@ export function Dashboard({
                 backTo={backTo}
                 showCreateAnomalyAlertButton={showCreateAnomalyAlertButton}
                 headerActions={headerActions}
+                compact={compact}
             />
         </BindLogic>
     )
@@ -119,10 +123,12 @@ function DashboardScene({
     backTo,
     showCreateAnomalyAlertButton,
     headerActions,
+    compact,
 }: {
     backTo?: { url: string; name: string }
     showCreateAnomalyAlertButton?: boolean
     headerActions?: JSX.Element
+    compact?: boolean
 }): JSX.Element {
     const {
         placement,
@@ -191,7 +197,7 @@ function DashboardScene({
     }
 
     return (
-        <SceneContent className={cn('dashboard')}>
+        <SceneContent className={cn('dashboard', compact && 'gap-y-2')}>
             {placement == DashboardPlacement.Dashboard && (
                 <DashboardHeader loading={!dashboard && !dashboardFailedToLoad} extraActions={headerActions} />
             )}
@@ -263,7 +269,7 @@ function DashboardScene({
                     <DashboardQueryScanBanner />
                     <DashboardWarehouseSyncBanner />
 
-                    <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
+                    <SceneStickyBar showBorderBottom={false} className={cn('flex gap-2 space-y-0', compact && 'py-1')}>
                         <DashboardFilterBar backTo={backTo} />
                         {layoutEditMode &&
                             canEditDashboard &&
