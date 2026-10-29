@@ -143,7 +143,7 @@ def _get_feature_flag_team_id(flag_id: int) -> int | None:
     return FeatureFlag.objects.filter(pk=flag_id).values_list("team_id", flat=True).first()
 
 
-@dataclass
+@frozen
 class SSOExperimentationConfig:
     # The team of the item with this id, or None when there is no such item.
     get_team_id: Callable[[int], int | None]
