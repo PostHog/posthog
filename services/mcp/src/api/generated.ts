@@ -12239,10 +12239,27 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    export type SpanHealthStatus = typeof SpanHealthStatus[keyof typeof SpanHealthStatus];
+
+
+    export const SpanHealthStatus = {
+      Silent: 'silent',
+      Regressed: 'regressed',
+      Degraded: 'degraded',
+      New: 'new',
+      Recovered: 'recovered',
+      Improved: 'improved',
+      Ok: 'ok',
+    } as const;
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
       error_count: number;
+      /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
+      health_reason?: string | null;
+      /** Set only when the query asked for `includeHealth`. Same statuses as the service health check. */
+      health_status?: SpanHealthStatus | null;
       name: string;
       p50_duration_nano: number;
       p95_duration_nano: number;
@@ -62337,6 +62354,10 @@ export namespace Schemas {
       compareFilter?: CompareFilter | null;
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
+      /** Group HTTP server spans by `METHOD route` in place of the span name. Spans without a route keep their name. Spans that are not HTTP server spans are left out. */
+      groupByEndpoint?: boolean | null;
+      /** Classify each row against the comparison window, or the previous period when `compareFilter` is off. Fills `health_status` and `health_reason`. Runs a second window query. */
+      includeHealth?: boolean | null;
       /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
       includeImpact?: boolean | null;
       kind?: 'TraceSpansAggregationQuery';
@@ -117845,6 +117866,15 @@ export namespace Schemas {
       offset: number;
     }
 
+    export type SurveyResponsesStatusEnum = typeof SurveyResponsesStatusEnum[keyof typeof SurveyResponsesStatusEnum];
+
+
+    export const SurveyResponsesStatusEnum = {
+      Ok: 'ok',
+      Failed: 'failed',
+      NotPermitted: 'not_permitted',
+    } as const;
+
     export type SurveyResultsWidgetCatalogEntryOpenApiWidgetType = typeof SurveyResultsWidgetCatalogEntryOpenApiWidgetType[keyof typeof SurveyResultsWidgetCatalogEntryOpenApiWidgetType];
 
 
@@ -121635,6 +121665,12 @@ export namespace Schemas {
       git: TraceGit | null;
     }
 
+    export interface TraceChoiceAnswer {
+      kind: 'choice';
+      question: string;
+      choices: string[];
+    }
+
     export interface TraceCluster {
       /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
       runId: string;
@@ -121734,16 +121770,82 @@ export namespace Schemas {
       timestamp: string;
     }
 
+    export interface TraceSurvey {
+      id: string;
+      /** Null when the survey no longer exists. */
+      name: string | null;
+    }
+
+    export interface TraceThumbsAnswer {
+      kind: 'thumbs';
+      question: string;
+      up: boolean;
+    }
+
+    export interface TraceRatingAnswer {
+      kind: 'rating';
+      question: string;
+      value: string;
+      scale: number | null;
+      lowerLabel: string | null;
+      upperLabel: string | null;
+    }
+
+    export interface TraceTextAnswer {
+      kind: 'text';
+      question: string;
+      text: string;
+    }
+
+    /**
+     * Why the answers cannot be shown: the survey was deleted, or it has no questions.
+     */
+    export type TraceSurveyResponseUnavailable = typeof TraceSurveyResponseUnavailable[keyof typeof TraceSurveyResponseUnavailable] | null;
+
+
+    export const TraceSurveyResponseUnavailable = {
+      SurveyNotFound: 'survey_not_found',
+      NoQuestions: 'no_questions',
+    } as const;
+
+    export interface TraceSurveyResponse {
+      kind: 'survey';
+      id: string;
+      /** The tree node the response targets: the trace id, as a survey response covers the whole trace. */
+      nodeId: string;
+      timestamp: string;
+      survey: TraceSurvey;
+      answers: (TraceThumbsAnswer | TraceRatingAnswer | TraceChoiceAnswer | TraceTextAnswer)[];
+      /** False when the user left the survey before its end. */
+      complete: boolean;
+      /** Why the answers cannot be shown: the survey was deleted, or it has no questions. */
+      unavailable: TraceSurveyResponseUnavailable;
+    }
+
+    export interface TraceUnansweredSurvey {
+      survey: TraceSurvey;
+      /** When the survey was first shown. */
+      timestamp: string;
+    }
+
     export interface TraceFeedbackSummary {
       /** Scores plus responses. */
       total: number;
+      /** Thumbs up answers to 2-point survey rating questions. */
+      thumbsUp: number;
+      /** Thumbs down answers to 2-point survey rating questions. */
+      thumbsDown: number;
     }
 
     export interface TraceFeedback {
       /** Oldest first. */
       scores: TraceFeedbackScore[];
       /** What users said, oldest first. */
-      responses: TraceFeedbackText[];
+      responses: (TraceFeedbackText | TraceSurveyResponse)[];
+      /** Surveys shown with the trace and not answered, oldest first. */
+      unanswered: TraceUnansweredSurvey[];
+      /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
+      surveyResponsesStatus: SurveyResponsesStatusEnum;
       summary: TraceFeedbackSummary;
     }
 
@@ -125278,6 +125380,21 @@ export namespace Schemas {
          * @nullable
          */
       spans_with_distinct_id: number | null;
+      /** How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set `includeHealth`.
+       *
+       * * `silent` - Silent
+       * * `regressed` - Regressed
+       * * `degraded` - Degraded
+       * * `new` - New
+       * * `recovered` - Recovered
+       * * `improved` - Improved
+       * * `ok` - Ok */
+      health_status: ServiceHealthStatusEnum | null;
+      /**
+         * Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.
+         * @nullable
+         */
+      health_reason: string | null;
     }
 
     export interface _CompareFilter {
@@ -127223,6 +127340,10 @@ export namespace Schemas {
       offset?: number;
       /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
       includeImpact?: boolean;
+      /** Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out. */
+      groupByEndpoint?: boolean;
+      /** Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query. */
+      includeHealth?: boolean;
     }
 
     export interface _TracingAggregationRequest {
@@ -140704,7 +140825,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
      */
     assignee?: SignalsReportsListAssignee;
     /**
@@ -140936,7 +141057,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
      */
     assignee?: SignalsReportsSectionCountsRetrieveAssignee;
     /**
