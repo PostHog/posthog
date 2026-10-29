@@ -350,8 +350,8 @@ class TestSessionsRecordBatchModelSelection:
         interval_start: dt.datetime,
         interval_end: dt.datetime,
     ) -> list[str]:
-        printed_query, parameters = await model._print_query(interval_start, interval_end, output_format="JSONEachRow")
-        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+        printed_query, context = await model._print_query(interval_start, interval_end, output_format="JSONEachRow")
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=context.values)
         return [row["session_id"] for row in rows]
 
     async def test_selects_late_session_by_interval_covering_its_ingestion(self, clickhouse_client, ateam):
@@ -441,12 +441,12 @@ class TestHogQLQueryRecordBatchModel:
             hogql_query=hogql_query,
             user_id=auser.pk,
         )
-        printed_query, query_parameters = await model.as_query_with_parameters(data_interval_start, data_interval_end)
+        printed_query, context = await model.as_query_with_parameters(data_interval_start, data_interval_end)
 
         # should add filter on team_id
         assert f"equals(events.team_id, {ateam.id})" in printed_query
         assert "FORMAT ArrowStream" in printed_query
-        assert "log_comment" in query_parameters
+        assert "log_comment" in context.values
         # without interval placeholders the query runs as-is, as of now
         assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
         assert model.wait_for_data_interval_end is False
@@ -497,10 +497,10 @@ class TestHogQLQueryRecordBatchModel:
             ),
         )
 
-        printed_query, parameters = await model._print_query(
+        printed_query, context = await model._print_query(
             data_interval_start, data_interval_end, output_format="JSONEachRow"
         )
-        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=parameters)
+        rows = await clickhouse_client.read_query_as_jsonl(printed_query, query_parameters=context.values)
 
         assert {row["uuid"] for row in rows} == {event["uuid"] for event in events_in_range}
 
@@ -510,7 +510,7 @@ class TestHogQLQueryRecordBatchModel:
             hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events",
             user_id=auser.pk,
         )
-        printed_query, query_parameters = await model.as_insert_into_s3_query_with_parameters(
+        printed_query, _ = await model.as_insert_into_s3_query_with_parameters(
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             s3_folder="https://test-bucket.s3.amazonaws.com/test-prefix",
@@ -724,13 +724,13 @@ class TestHogQLQueryRecordBatchModel:
                 team=ateam, property_definition=prop, organization_member=membership, access_level="none"
             )
             await database_sync_to_async(validate_hogql_query_for_batch_export)(query, ateam, user=auser)
-            after, parameters = await model.as_insert_into_s3_query_with_parameters(
+            after, context = await model.as_insert_into_s3_query_with_parameters(
                 None, None, "https://example.com/staging", None, 1
             )
 
         assert "NULL AS secret" in after
         assert "JSONDropKeys" in after
-        assert any(isinstance(value, list) and "secret_field" in value for value in parameters.values())
+        assert any(isinstance(value, list) and "secret_field" in value for value in context.values.values())
 
     async def test_rechecks_table_access_at_runtime(
         self, ateam: "Team", aorganization: "Organization", auser: User
