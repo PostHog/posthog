@@ -78,4 +78,18 @@ describe('cohortFieldLogic', () => {
             })
         }
     })
+
+    it.each([
+        { desc: 'an offered operator', fieldKey: 'operator', value: 'icontains', label: 'contains' },
+        { desc: 'an operator the picker does not offer', fieldKey: 'operator', value: 'ends_with', label: 'ends with' },
+        { desc: 'an unknown value on another field', fieldKey: 'value', value: 'ends_with', label: undefined },
+    ] as const)('labels the current option for $desc', async ({ fieldKey, value, label }) => {
+        await initLogic({
+            cohortFilterLogicKey: '0',
+            fieldKey,
+            criteria: { [fieldKey]: value },
+            fieldOptionGroupTypes: [FieldOptionsType.CohortMathOperators],
+        })
+        expect(logic.values.currentOption?.label).toEqual(label)
+    })
 })
