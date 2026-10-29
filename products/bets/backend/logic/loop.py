@@ -60,7 +60,7 @@ from .prompts import instructions
 from .scout import scout_body, scout_job
 from .spend import reconcile_spend, spend_pending, usage_sources
 from .stages import ACTIVE, LIVE, OPEN
-from .state import NO_ACCESS, build_refusal, failure_note, goal_confirm_at
+from .state import NO_ACCESS, build_refusal, failure_note, goal_confirm_at, meets
 from .step_models import run_settings
 from .usage import track_from_task
 from .verdict import Verdict, verdict
@@ -76,6 +76,7 @@ IDEA_REPORT_STATUSES = ("ready", "pending_input")
 LEASE = timedelta(minutes=10)
 HARM_CONFIRM = timedelta(hours=12)
 GOAL_POINTS = 3
+FINAL_POINTS = 50
 OWNER_TITLE = re.compile(r"^\s*(?:bet idea:\s*)?owner idea (\d+)\s*[:.\-]\s*", re.IGNORECASE)
 VERDICT = re.compile(r"^\W*(not supported|supported)\b", re.IGNORECASE)
 AUDIENCE = re.compile(r"^\W*audience\W*:\D*([\d,]+)", re.IGNORECASE | re.MULTILINE)
@@ -95,6 +96,7 @@ CONCLUSIONS = {
     IdeaOutcome.LOST: "lost",
     IdeaOutcome.FLAT: "inconclusive",
     IdeaOutcome.HARMED: "stopped_early",
+    IdeaOutcome.BROKEN: "stopped_early",
     IdeaOutcome.DROPPED: "stopped_early",
 }
 
@@ -295,6 +297,7 @@ def observe(team: Team, user: User, bet: Bet, work: WorkItem) -> None:
             move(work, WorkStage.LIVE, note, result={**work.result, **result.facts}, plan=planned)
             return
         comment = f"Concluded by bet {bet.reference}: {result.note}"
+        shipped = False
         try:
             ship(
                 team=team,
@@ -305,6 +308,7 @@ def observe(team: Team, user: User, bet: Bet, work: WorkItem) -> None:
                 comment=comment,
                 repository=bet.repository,
             )
+            shipped = result.outcome == IdeaOutcome.WON and bool(result.variant) and result.variant != "control"
         except (PermissionDenied, ValidationError) as error:
             logger.warning("bets.ship_failed", bet_id=str(bet.id), error=str(error))
             try:
@@ -323,7 +327,13 @@ def observe(team: Team, user: User, bet: Bet, work: WorkItem) -> None:
             work,
             WorkStage.DONE,
             result.note,
-            result={**result.facts, "outcome": result.outcome, "variant": result.variant, "verdict": result.note},
+            result={
+                **result.facts,
+                "outcome": result.outcome,
+                "variant": result.variant,
+                "verdict": result.note,
+                "shipped": shipped,
+            },
             plan=planned,
         )
         track_from_task(
@@ -454,7 +464,8 @@ def goal_reached(team: Team, user: User, bet: Bet) -> bool:
 
 
 def goal_check(team: Team, user: User, bet: Bet, idea_open: bool) -> bool:
-    met = goal_reached(team, user, bet)
+    tested = items(bet).filter(kind=WorkKind.IDEA, stage=WorkStage.DONE).exists()
+    met = tested and not meets(bet, bet.baseline_value) and goal_reached(team, user, bet)
     since = (bet.goal_met_since or timezone.now()) if met else None
     if since != bet.goal_met_since:
         bet.goal_met_since = since
@@ -823,10 +834,29 @@ def finish(bet: Bet) -> None:
     return_unused(bet)
 
 
+def freeze(team: Team, user: User, bet: Bet) -> None:
+    if bet.final_at is not None:
+        return
+    measured = metric(team, user, bet.goal_insight, complete=True) if bet.goal_insight else None
+    values = measured.values[-FINAL_POINTS:] if measured else []
+    dates = measured.dates[-FINAL_POINTS:] if measured and len(measured.dates) == len(measured.values) else []
+    current = measured.current if measured else None
+    fields = {
+        "final_value": current if current is not None else (values[-1] if values else None),
+        "final_at": timezone.now(),
+        "final_series": {"dates": dates, "values": values},
+        "reached_at": bet.goal_met_since if bet.status == BetStatus.REACHED else None,
+    }
+    if Bet.objects.for_team(bet.team_id).using(WRITER_DB).filter(id=bet.id, final_at__isnull=True).update(**fields):
+        for name, value in fields.items():
+            setattr(bet, name, value)
+
+
 def stop(bet: Bet, status: BetStatus, team: Team | None = None, user: User | None = None) -> str:
     bet.status = status
     bet.save(using=WRITER_DB, update_fields=["status", "updated_at"])
     if team and user:
+        freeze(team, user, bet)
         money = totals(bet.team_id, bet)
         track_from_task(
             team, user, "bet ended", {"bet_id": str(bet.id), "status": status, "spent_cents": money.spent_cents}

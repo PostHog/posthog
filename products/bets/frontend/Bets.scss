@@ -1137,3 +1137,420 @@
         scale: 1;
     }
 }
+
+.Bets .Bets__detail--ended {
+    grid-template:
+        'intro'
+        'main'
+        'details'
+        'activity' / minmax(0, 1fr);
+
+    .Bets__details {
+        margin-top: 32px;
+    }
+
+    .Bets__detailsList {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 4px 24px;
+    }
+}
+
+.Bets .BetsResults__facts {
+    grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+}
+
+.Bets .BetIdeaNumber {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--today-muted);
+    background: var(--background);
+    border: 1px solid var(--today-faint);
+    border-radius: 999px;
+    transition: border-color 0.12s var(--today-ease);
+
+    &[data-won] {
+        color: var(--success-foreground);
+        border-color: var(--success-foreground);
+    }
+
+    &[data-empty] {
+        border-style: dashed;
+    }
+}
+
+.Bets .BetIdeaPins__badge {
+    transform: translateX(-50%);
+}
+
+.Bets .BetIdeaPins__line {
+    width: 1px;
+
+    line {
+        stroke: var(--today-faint);
+        stroke-dasharray: 1 3;
+        stroke-linecap: round;
+        stroke-width: 1;
+    }
+}
+
+.Bets .BetLimitLine {
+    line {
+        stroke: var(--today-muted);
+        stroke-dasharray: 5 4;
+        stroke-width: 1.5;
+    }
+}
+
+.Bets .BetLimitLine__label {
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 14px;
+    color: var(--today-muted);
+    white-space: nowrap;
+}
+
+.Bets .BetsResults__ideas {
+    --bets-plot: 200px;
+
+    display: grid;
+    padding: 0;
+    margin: 6px 0 0;
+    list-style: none;
+}
+
+.Bets .BetsResults__idea,
+.Bets .BetsResults__axisRow {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    column-gap: 12px;
+    align-items: start;
+}
+
+.Bets .BetsResults__ideas[data-plot] {
+    .BetsResults__idea,
+    .BetsResults__axisRow {
+        grid-template-columns: 18px minmax(0, 1fr) calc(var(--bets-plot) + 96px);
+    }
+}
+
+.Bets .BetsResults__idea {
+    padding-block: 10px;
+}
+
+.Bets .BetsResults__number {
+    display: flex;
+    align-items: center;
+    height: 22px;
+}
+
+.Bets .BetsResults__meta {
+    margin: 2px 0 0;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--today-muted);
+}
+
+.Bets .BetsResults__outcome {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    margin-right: 10px;
+    color: var(--today-ink);
+    white-space: nowrap;
+    vertical-align: top;
+}
+
+.Bets .BetsResults__link {
+    color: inherit;
+
+    &:hover {
+        color: var(--today-ink);
+        text-decoration: underline;
+    }
+}
+
+.Bets .BetsResults__note {
+    max-width: 62ch;
+    margin: 2px 0 0;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--today-muted);
+    text-wrap: pretty;
+}
+
+.Bets .BetsResults__plot {
+    position: relative;
+    align-self: stretch;
+    margin-block: -10px;
+}
+
+.Bets .BetsResults__plot .BetsResults__zero,
+.Bets .BetsResults__axis .BetsResults__zero {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: calc(var(--interval-zero) * var(--bets-plot));
+    width: 1px;
+    background: color-mix(in sRGB, var(--today-muted) 55%, transparent);
+}
+
+.Bets .BetsResults__plot[data-first] .BetsResults__zero {
+    top: 10px;
+}
+
+.Bets .BetsResults__noEffect {
+    position: absolute;
+    top: 13px;
+    left: calc(var(--interval-zero) * var(--bets-plot) + 8px);
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--today-faint);
+    white-space: nowrap;
+}
+
+.Bets .BetEffectInterval {
+    position: absolute;
+    top: 21px;
+    left: 0;
+    width: var(--bets-plot);
+    height: 0;
+    color: var(--interval-tone);
+}
+
+.Bets .BetEffectInterval__line {
+    position: absolute;
+    top: -0.75px;
+    left: calc(var(--interval-lower) * var(--bets-plot));
+    width: max(1.5px, calc((var(--interval-upper) - var(--interval-lower)) * var(--bets-plot)));
+    height: 1.5px;
+    background: currentColor;
+    border-radius: 1px;
+
+    &::before,
+    &::after {
+        position: absolute;
+        top: -2.75px;
+        width: 1.5px;
+        height: 7px;
+        content: '';
+        background: currentColor;
+        border-radius: 1px;
+    }
+
+    &::before {
+        left: -0.75px;
+    }
+
+    &::after {
+        right: -0.75px;
+    }
+}
+
+.Bets .BetEffectInterval__dot {
+    position: absolute;
+    top: -5px;
+    left: calc(var(--interval-middle) * var(--bets-plot) - 5px);
+    width: 10px;
+    height: 10px;
+    background: currentColor;
+    border: 1.5px solid var(--background);
+    border-radius: 999px;
+}
+
+.Bets .BetEffectInterval__label {
+    position: absolute;
+    top: -8px;
+    left: calc(var(--interval-upper) * var(--bets-plot) + 8px);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 16px;
+    color: var(--today-ink);
+    white-space: nowrap;
+}
+
+.Bets .BetEffectInterval[data-colored] .BetEffectInterval__label {
+    color: var(--interval-tone);
+}
+
+.Bets .BetEffectInterval[data-wide='before'] .BetEffectInterval__label {
+    right: calc(var(--bets-plot) - var(--interval-lower) * var(--bets-plot) + 8px);
+    left: auto;
+}
+
+.Bets .BetEffectInterval[data-wide-cross] .BetEffectInterval__label {
+    padding-inline: 3px;
+    margin-inline: -3px;
+    background: var(--background);
+}
+
+.Bets .BetsResults__axisRow {
+    padding-block: 0;
+}
+
+.Bets .BetsResults__caption {
+    grid-column: 2;
+    padding-top: 6px;
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--today-faint);
+    text-align: right;
+}
+
+.Bets .BetsResults__axis {
+    position: relative;
+    width: var(--bets-plot);
+    height: 24px;
+    border-top: 1px solid var(--today-line);
+
+    .BetsResults__zero {
+        top: -1px;
+        bottom: auto;
+        height: 5px;
+    }
+}
+
+.Bets .BetsResults__tick {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 4px;
+    background: var(--today-faint);
+}
+
+.Bets .BetsResults__tickLabel {
+    position: absolute;
+    top: 6px;
+    font-size: 11px;
+    line-height: 14px;
+    color: var(--today-faint);
+
+    &[data-end='min'] {
+        left: 0;
+    }
+
+    &[data-end='max'] {
+        right: 0;
+    }
+
+    &[data-end='zero'] {
+        left: calc(var(--interval-zero) * var(--bets-plot));
+        color: var(--today-muted);
+        transform: translateX(-50%);
+    }
+
+    &[data-hide-wide] {
+        display: none;
+    }
+}
+
+@container bets-main (max-width: 680px) {
+    .Bets .BetsResults__ideas {
+        --bets-plot: 144px;
+    }
+
+    .Bets .BetEffectInterval[data-wide='before'] .BetEffectInterval__label {
+        right: auto;
+        left: calc(var(--interval-upper) * var(--bets-plot) + 8px);
+    }
+
+    .Bets .BetEffectInterval[data-narrow='before'] .BetEffectInterval__label {
+        right: calc(var(--bets-plot) - var(--interval-lower) * var(--bets-plot) + 8px);
+        left: auto;
+    }
+
+    .Bets .BetEffectInterval[data-wide-cross]:not([data-narrow-cross]) .BetEffectInterval__label {
+        padding-inline: 0;
+        margin-inline: 0;
+        background: none;
+    }
+
+    .Bets .BetEffectInterval[data-narrow-cross] .BetEffectInterval__label {
+        padding-inline: 3px;
+        margin-inline: -3px;
+        background: var(--background);
+    }
+
+    .Bets .BetsResults__tickLabel[data-hide-wide] {
+        display: block;
+    }
+
+    .Bets .BetsResults__tickLabel[data-hide-narrow] {
+        display: none;
+    }
+}
+
+@container bets-main (max-width: 600px) {
+    .Bets .BetsResults__ideas[data-plot] {
+        --bets-plot: 220px;
+
+        .BetsResults__idea,
+        .BetsResults__axisRow {
+            grid-template-columns: 18px minmax(0, 1fr);
+        }
+    }
+
+    .Bets .BetsResults__plot {
+        grid-column: 2;
+        height: 20px;
+        margin-block: 8px 0;
+        border-bottom: 0;
+
+        &::before {
+            position: absolute;
+            top: 10px;
+            left: 0;
+            width: var(--bets-plot);
+            height: 1px;
+            content: '';
+            background: var(--today-line);
+        }
+
+        .BetsResults__zero,
+        &[data-first] .BetsResults__zero {
+            top: 4px;
+            bottom: auto;
+            height: 12px;
+        }
+    }
+
+    .Bets .BetsResults__plot:not(:has(.BetEffectInterval, .BetsResults__noEffect)) {
+        display: none;
+    }
+
+    .Bets .BetEffectInterval {
+        top: 10px;
+    }
+
+    .Bets .BetsResults__noEffect {
+        top: 2px;
+    }
+
+    .Bets .BetEffectInterval .BetEffectInterval__label,
+    .Bets .BetEffectInterval[data-wide='before'] .BetEffectInterval__label,
+    .Bets .BetEffectInterval[data-narrow='before'] .BetEffectInterval__label {
+        right: auto;
+        left: calc(var(--bets-plot) + 10px);
+        padding-inline: 0;
+        margin-inline: 0;
+        background: none;
+    }
+
+    .Bets .BetsResults__caption {
+        grid-row: 2;
+        padding-top: 4px;
+        text-align: left;
+    }
+
+    .Bets .BetsResults__axis {
+        grid-column: 2;
+        margin-top: 10px;
+    }
+}

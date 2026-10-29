@@ -48,6 +48,7 @@ ASKS = {
     "scout-dismissed": ("The Scout stopped", "{scout}", "Add an idea"),
     "scout-failing": ("The Scout keeps failing", "{scout}", "Scout failing"),
     "budget": ("The budget is used up", "Add budget to keep going, or close the bet.", "Budget"),
+    "target-met": ("The goal already meets the target", "{met_at_start}", "Raise the target"),
     "extend": ("{title}", "{extend}", "Extend or stop"),
     "unseen": ("{title}", "{work_note}", "Check the deploy"),
     "review": ("{title}", "Review and merge the pull request when you are happy with it.", "Pull request"),
@@ -66,6 +67,7 @@ LINES = {
     "extend": (Phase.TESTING, Tile.EXPERIMENT, "Extend the test or stop it", "{extend}"),
     "unseen": (Phase.TESTING, Tile.EXPERIMENT, "Testing an idea", "{work_note}"),
     "testing": (Phase.TESTING, Tile.EXPERIMENT, "Testing an idea", "{testing}"),
+    "target-met": (Phase.WAITING, Tile.PROBLEM, "The goal already meets the target", "{met_at_start}"),
     "confirming": (Phase.CONFIRMING_GOAL, Tile.MEASURE, "The goal is at the target", "{progress}{confirming}"),
     "choosing": (Phase.CHOOSING, Tile.IDEA, "Choose an idea to build", "{ready} Bets builds the one you choose."),
     "checking": (Phase.CHECKING_IDEAS, Tile.IDEA, "Checking your ideas", "{checking}"),
@@ -75,9 +77,9 @@ LINES = {
     "scout-empty": (Phase.WAITING, Tile.IDLE, "The Scout found no new ideas", "{empty}"),
     "scout": (Phase.WAITING, Tile.SCOUT, "{scout_label}", "{scout}"),
     "paused": (Phase.PAUSED, Tile.PAUSED, "The bet is paused", "Bets does no work until you resume the bet."),
-    "reached": (Phase.ENDED, Tile.REACHED, "{reached}", "{confirmed}{shipped} shipped for {spent}."),
-    "spent": (Phase.ENDED, Tile.ENDED, "{ran_out}", "{tested} tested for {spent}. {continue}"),
-    "closed": (Phase.ENDED, Tile.ENDED, "{closed}", "{was}"),
+    "reached": (Phase.ENDED, Tile.REACHED, "{reached}", "{ideas_summary}"),
+    "spent": (Phase.ENDED, Tile.ENDED, "Budget used. The goal was not reached.", "{ideas_summary}"),
+    "closed": (Phase.ENDED, Tile.ENDED, "{closed}", "{ideas_summary}"),
 }
 WORKING = ("tracking", "baseline", "building", "testing", "confirming", "checking", "finding")
 
@@ -107,6 +109,7 @@ class BetAction:
 
 BUTTONS = {
     "target": BetAction(label="Set the target", kind=Kind.EDIT),
+    "target-met": BetAction(label="Raise the target", kind=Kind.EDIT),
     "budget": BetAction(label="Add budget", kind=Kind.BUDGET),
     "choosing": BetAction(label="See the ideas", kind=Kind.IDEAS),
     "review": BetAction(label="Review pull request", kind=Kind.PULL_REQUEST),
@@ -206,6 +209,30 @@ def plural(count: int, word: str) -> str:
     return f"{count} {word if count == 1 else word + 's'}"
 
 
+def meets(bet: Bet, value: float | None) -> bool:
+    if value is None or bet.target is None:
+        return False
+    target = float(bet.target)
+    return value <= target if bet.direction == "decrease" else value >= target
+
+
+def tested(outcome: str | None) -> bool:
+    return bool(outcome) and outcome != IdeaOutcome.DROPPED
+
+
+def ideas_summary(ideas: list[WorkItem]) -> str:
+    outcomes = [work.result.get("outcome") for work in ideas]
+    count = sum(1 for outcome in outcomes if tested(outcome))
+    if not count:
+        return "No ideas were tested"
+    won = [work for work in ideas if work.result.get("outcome") == IdeaOutcome.WON]
+    parts = [f"{outcomes.count(IdeaOutcome.WON)} of {plural(count, 'idea')} won"]
+    if all("shipped" in work.result for work in won):
+        shipped = sum(1 for work in won if work.result["shipped"])
+        parts.append(f"{shipped} {'change' if shipped == 1 else 'changes'} shipped")
+    return " · ".join(parts)
+
+
 def unseen(work: WorkItem) -> bool:
     if work.merged_at is None or work.plan.get("exposed_at"):
         return False
@@ -247,9 +274,10 @@ def bet_text(
     bet: Bet, items: list[WorkItem], job: ScoutJob, money: Money, counts: tuple[int, int], value: float | None
 ) -> dict[str, str]:
     ready, checking = counts
-    outcomes = [work.result.get("outcome") for work in items if work.kind == WorkKind.IDEA]
+    ideas = [work for work in items if work.kind == WorkKind.IDEA]
+    outcomes = [work.result.get("outcome") for work in ideas]
+    reached_on = day(bet.reached_at or bet.goal_met_since)
     target = number(float(bet.target)) if bet.target is not None else ""
-    measured = f"{number(value)} of {target}" if value is not None and target else ""
     confirm_at = day(goal_confirm_at(bet))
     return {
         "note": bet.note,
@@ -274,15 +302,19 @@ def bet_text(
         "scout_label": job.label,
         "progress": f"{number(value)} against a target of {target}. " if value is not None and target else "",
         "confirming": f"Bets confirms it on {confirm_at}.",
-        "reached": f"{bet.goal_metric} reached the target of {number(float(bet.target))}"
-        if bet.target is not None
-        else "The goal is reached",
-        "confirmed": f"Bets confirmed it on {confirm_at}. " if confirm_at else "",
-        "shipped": plural(outcomes.count(IdeaOutcome.WON), "idea"),
-        "tested": plural(sum(1 for outcome in outcomes if outcome and outcome != IdeaOutcome.DROPPED), "idea"),
-        "ran_out": f"The budget ran out at {measured}" if measured else "The budget is used",
-        "closed": f"Closed on {day(bet.closed_at)}" if bet.closed_at else "The bet is closed",
-        "was": f"{bet.goal_metric} was at {measured}." if measured else "",
+        "reached": f"Goal reached on {reached_on}" if reached_on else "Goal reached",
+        "closed": " ".join(
+            part
+            for part in (
+                f"Closed on {day(bet.closed_at)}" if bet.closed_at else "Closed",
+                "" if any(tested(outcome) for outcome in outcomes) else "before any idea was tested",
+            )
+            if part
+        ),
+        "ideas_summary": ideas_summary(ideas),
+        "met_at_start": f"{bet.goal_metric or 'The goal'} was {number(bet.baseline_value)} when the bet started, which already meets the target of {target}. Raise the target so the ideas have something to move."
+        if bet.baseline_value is not None and target
+        else "",
     }
 
 
@@ -323,6 +355,7 @@ def owner_asks(bet: Bet, found: Facts) -> list[NextAction]:
         "scout-dismissed": found.job.ask == "scout-dismissed",
         "scout-failing": found.job.ask == "scout-failing",
         "budget": used_up(found.money),
+        "target-met": bet.status == BetStatus.RUNNING and meets(bet, bet.baseline_value),
     }
     values = {
         **found.text,
@@ -358,6 +391,8 @@ def pick(bet: Bet, found: Facts) -> tuple[str, WorkItem | None]:
         return ("tracking" if not done else "stalled" if "baseline" in asks else "baseline", None)
     if found.current:
         return (work_key(found.current), found.current)
+    if "target-met" in asks:
+        return ("target-met", None)
     if bet.goal_met_since:
         return ("confirming", None)
     if found.ready:

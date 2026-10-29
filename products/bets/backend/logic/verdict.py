@@ -100,7 +100,7 @@ def verdict(
     if len(counts) > 1 and chisquare(counts).pvalue < SPLIT_P_VALUE:
         split = ", ".join(f"{key} {int(count)}" for key, count in zip(arms, counts))
         return decided(
-            IdeaOutcome.DROPPED,
+            IdeaOutcome.BROKEN,
             "control",
             f"The variants got uneven traffic ({split}). The change may be broken. Check the build before you try it again.",
             facts,
@@ -108,7 +108,7 @@ def verdict(
     mixed = float(exposures.get("$multiple", 0))
     if mixed > MAX_MIXED_SHARE * sum(float(value) for value in exposures.values()):
         return decided(
-            IdeaOutcome.DROPPED,
+            IdeaOutcome.BROKEN,
             "control",
             f"{int(mixed)} people saw more than one variant, so the result is not reliable. The flag code may read the variant too early. Check the build before you try it again.",
             facts,

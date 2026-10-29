@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { type ReactNode, useMemo } from 'react'
 
 import {
     AnomalyPointsLayer,
@@ -12,7 +12,15 @@ import {
 
 import { useChartTheme } from 'lib/charts/hooks'
 
+import { BetLimitLine } from './BetLimitLine'
+
 const MARGINS = { top: 10, bottom: 4, left: 6, right: 6 }
+
+export interface BetChartEdge {
+    top: number
+    height: number
+    avoid: string[]
+}
 
 export function BetMiniChart({
     label,
@@ -25,6 +33,9 @@ export function BetMiniChart({
     floor,
     empty,
     ticks,
+    edge,
+    className = 'h-28',
+    children,
 }: {
     label: string
     labels: string[]
@@ -36,6 +47,9 @@ export function BetMiniChart({
     floor?: number
     empty?: string
     ticks: string[]
+    edge?: BetChartEdge
+    className?: string
+    children?: ReactNode
 }): JSX.Element {
     const theme = useChartTheme()
     const padded = values.length < 2
@@ -73,9 +87,10 @@ export function BetMiniChart({
     const minimum = known.length ? Math.min(...known) : 0
     const maximum = known.length ? Math.max(...known) : 1
     const padding = Math.max((maximum - minimum) * 0.15, Math.abs(maximum) * 0.05, 0.01)
+    const top = edge?.top
     const config: LineChartProps['config'] = useMemo(
         () => ({
-            margins: MARGINS,
+            margins: top === undefined ? MARGINS : { top, bottom: 0, left: 0, right: 4 },
             showGrid: false,
             showAxisLines: { x: true, y: false },
             hideYAxis: true,
@@ -86,7 +101,7 @@ export function BetMiniChart({
             },
             tooltip: { enabled: values.length > 0, placement: 'top' },
         }),
-        [floor, minimum, maximum, padding, values.length]
+        [top, floor, minimum, maximum, padding, values.length]
     )
     const tooltip = useMemo(
         () =>
@@ -97,23 +112,35 @@ export function BetMiniChart({
         [formatValue, formatLabel]
     )
     return (
-        <div className="relative flex h-28 min-w-0 flex-col" role="img" aria-label={label}>
+        <div
+            className={`relative flex min-w-0 flex-col ${edge ? '' : className}`}
+            style={edge ? { height: edge.height } : undefined}
+            role="img"
+            aria-label={label}
+        >
             <LineChart series={series} labels={chartLabels} theme={theme} config={config} tooltip={tooltip}>
                 <AnomalyPointsLayer markers={markers} radius={3} />
-                {limit !== null && (
-                    <ReferenceLine
-                        value={limit}
-                        orientation="horizontal"
-                        variant="goal"
-                        style={{ color: 'var(--color-graph-axis-label)' }}
-                        label={limitLabel}
-                        labelPosition="start"
-                        showValueOnHover={false}
-                    />
-                )}
+                {limit !== null &&
+                    (edge ? (
+                        <BetLimitLine value={limit} label={limitLabel} avoid={edge.avoid} />
+                    ) : (
+                        <ReferenceLine
+                            value={limit}
+                            orientation="horizontal"
+                            variant="goal"
+                            style={{ color: 'var(--color-graph-axis-label)' }}
+                            label={limitLabel}
+                            labelPosition="start"
+                            showValueOnHover={false}
+                        />
+                    ))}
+                {children}
             </LineChart>
             {empty && <span className="Bets__miniChartEmpty pointer-events-none absolute text-center">{empty}</span>}
-            <div className="Bets__miniChartAxis mt-1 flex min-h-4 justify-between tabular-nums" aria-hidden>
+            <div
+                className={`Bets__miniChartAxis flex min-h-4 justify-between tabular-nums ${edge ? 'mt-1.5' : 'mt-1'}`}
+                aria-hidden
+            >
                 {ticks.map((tick, index) => (
                     <span key={index}>{tick}</span>
                 ))}

@@ -209,6 +209,10 @@ class BetsWorkSerializer(serializers.Serializer):
     spent_cents = serializers.IntegerField(help_text="Settled cost in USD cents.")
     created_at = serializers.DateTimeField(help_text="When the work started.")
     finished_at = serializers.DateTimeField(allow_null=True, help_text="When the work finished.")
+    number = serializers.IntegerField(allow_null=True, help_text="Build number of the idea within the bet.")
+    chosen_at = serializers.DateTimeField(allow_null=True, help_text="When the owner chose to build the idea.")
+    merged_at = serializers.DateTimeField(allow_null=True, help_text="When the pull request merged.")
+    exposed_at = serializers.DateTimeField(allow_null=True, help_text="When the first people saw the change.")
     source = serializers.ChoiceField(choices=IdeaSource.choices, help_text="Who proposed the idea.")  # type: ignore[assignment]
     assessment = serializers.ChoiceField(
         choices=[("", "None"), *IdeaAssessment.choices],
@@ -326,6 +330,67 @@ class BetsSpendPointSerializer(serializers.Serializer):
     spent_cents = serializers.IntegerField(help_text="Total settled spend up to this time, in USD cents.")
 
 
+class BetsResultIdeaSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="Work item ID of the idea.")
+    number = serializers.IntegerField(allow_null=True, help_text="Build number of the idea within the bet.")
+    title = serializers.CharField(help_text="Idea title.")
+    outcome = serializers.ChoiceField(choices=IdeaOutcome.choices, help_text="How the idea ended.")
+    effect = serializers.ListField(
+        child=serializers.FloatField(),
+        allow_null=True,
+        help_text="Relative change in the goal, as the low and high ends of the interval. Empty when not measured.",
+    )
+    people = serializers.IntegerField(allow_null=True, help_text="People who saw the experiment, all variants.")
+    spent_cents = serializers.IntegerField(help_text="Build and test cost of this idea in USD cents.")
+    shipped = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether the idea won and its variant was rolled out. Empty when Bets did not record it.",
+    )
+    pr_url = serializers.CharField(allow_blank=True, help_text="Pull request that built the idea.")
+    finished_at = serializers.DateTimeField(allow_null=True, help_text="When the idea got its result.")
+    harmed_guardrails = serializers.ListField(
+        child=serializers.CharField(), help_text="Guardrails that got worse during the test."
+    )
+    dismissed_reason = serializers.CharField(allow_blank=True, help_text="Why a person dropped the idea.")
+    learning = serializers.CharField(
+        allow_blank=True,
+        help_text="One sentence that the result does not already show, such as which guardrail got worse. Empty otherwise.",
+    )
+    weak_evidence = serializers.BooleanField(
+        help_text="Whether the result rests on a small sample, so it is weak evidence."
+    )
+
+
+class BetsResultSpendSerializer(serializers.Serializer):
+    scout_cents = serializers.IntegerField(help_text="Spend on finding ideas with the Scout, in USD cents.")
+    scout_runs = serializers.IntegerField(help_text="Scout runs that recorded usage.")
+    ideas_cents = serializers.IntegerField(help_text="Spend on building and testing ideas, in USD cents.")
+    tracking_cents = serializers.IntegerField(help_text="Spend on checking the goal tracking, in USD cents.")
+    returned_cents = serializers.IntegerField(help_text="Unused budget returned when the bet ended, in USD cents.")
+    tested_ideas = serializers.IntegerField(help_text="Ideas that got a test result.")
+    per_tested_idea_cents = serializers.IntegerField(
+        allow_null=True, help_text="Total spend divided by tested ideas, search included. Empty with no tests."
+    )
+
+
+class BetsResultsSerializer(serializers.Serializer):
+    recorded = serializers.BooleanField(help_text="Whether Bets froze the final value when the bet ended.")
+    final_value = serializers.FloatField(
+        allow_null=True, help_text="Goal value at the end, or the latest known value when it was not recorded."
+    )
+    final_at = serializers.DateTimeField(allow_null=True, help_text="When Bets froze the final value.")
+    dates = serializers.ListField(child=serializers.CharField(), help_text="Dates of the goal series.")
+    values = serializers.ListField(child=serializers.FloatField(), help_text="Goal values during the bet.")
+    started_at = serializers.DateTimeField(help_text="When the bet started measuring.")
+    ended_at = serializers.DateTimeField(allow_null=True, help_text="When the bet ended, when known.")
+    reached_at = serializers.DateTimeField(allow_null=True, help_text="When the goal first met the target.")
+    met_at_start = serializers.BooleanField(
+        help_text="Whether the goal already met the target before any idea shipped."
+    )
+    ideas = BetsResultIdeaSerializer(many=True, help_text="Ideas that were built, by build number.")
+    spend = BetsResultSpendSerializer(help_text="Where the budget went.")
+
+
 class BetsDetailSerializer(BetsEntrySerializer):
     is_owner = serializers.BooleanField(help_text="Whether the viewer owns this bet and can change it.")
     spend_history = BetsSpendPointSerializer(many=True, help_text="Cumulative settled spend over time.")
@@ -334,6 +399,8 @@ class BetsDetailSerializer(BetsEntrySerializer):
         allow_null=True,
         help_text="When the goal metric reached the target; the bet counts as reached after the confirm time.",
     )
+    closed_at = serializers.DateTimeField(allow_null=True, help_text="When a person closed the bet.")
+    results = BetsResultsSerializer(allow_null=True, help_text="Results summary, empty until the bet ends.")
     work = BetsWorkSerializer(many=True, help_text="Tracking checks and ideas, newest first.")
     secondary_values = BetsMetricSerializer(many=True, help_text="Current guardrail readings.")
     scout = BetsScoutSerializer(allow_null=True, help_text="The Scout looking for ideas.")

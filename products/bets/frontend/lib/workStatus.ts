@@ -19,6 +19,7 @@ const OUTCOME_MARKS: Record<string, BetWorkMark> = {
     lost: 'failed',
     harmed: 'failed',
     flat: 'neutral',
+    broken: 'attention',
     dropped: 'cancelled',
 }
 
@@ -27,6 +28,7 @@ const OUTCOME_LABELS: Record<string, string> = {
     lost: 'Lost',
     flat: 'No clear effect',
     harmed: 'Guardrail got worse',
+    broken: 'Broken test',
     dropped: 'Dropped',
 }
 

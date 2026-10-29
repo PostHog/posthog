@@ -124,6 +124,7 @@ class IdeaOutcome(LabeledStrEnum):
     LOST = "lost"
     FLAT = "flat", "No clear effect"
     HARMED = "harmed", "Guardrail regression"
+    BROKEN = "broken", "Broken test"
     DROPPED = "dropped"
 
 

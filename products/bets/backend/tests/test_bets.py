@@ -19,7 +19,7 @@ from posthog.models import OrganizationMembership
 from products.bets.backend.db import WRITER_DB
 from products.bets.backend.facade.contracts import Metric
 from products.bets.backend.facade.enums import IdeaOutcome, LedgerKind
-from products.bets.backend.logic.ledger import append, totals
+from products.bets.backend.logic.ledger import append, settle_usage, totals
 from products.bets.backend.logic.loop import reconcile
 from products.bets.backend.logic.metrics import unfinished
 from products.bets.backend.logic.scout import DISMISS_LIMIT, scout_context, scout_job
@@ -81,16 +81,16 @@ class TestVerdict(SimpleTestCase):
             ),
             ("the_clock_starts_at_the_first_exposure", evidence([0.05, 0.2]), "increase", None, 1),
             (
-                "uneven_traffic_split_drops_the_idea",
+                "uneven_traffic_split_marks_a_broken_test",
                 evidence([0.05, 0.2], exposures={"control": 1000, "test": 800}),
                 "increase",
-                IdeaOutcome.DROPPED,
+                IdeaOutcome.BROKEN,
             ),
             (
-                "many_people_in_both_variants_drops_the_idea",
+                "many_people_in_both_variants_marks_a_broken_test",
                 evidence([0.05, 0.2], exposures={"control": 1000, "test": 1000, "$multiple": 400}),
                 "increase",
-                IdeaOutcome.DROPPED,
+                IdeaOutcome.BROKEN,
             ),
             (
                 "normal_noise_in_the_split_still_decides",
@@ -243,17 +243,18 @@ class TestBetLoop(APIBaseTest):
                 (kwargs["experiment_id"], kwargs["conclusion"], kwargs["variant"])
             ),
         )
-        self.patch(
-            f"{loop}.metric",
-            side_effect=lambda *args, **kwargs: Metric(
-                name="Share rate",
-                values=world.metric_values,
-                dates=[],
-                current=world.metric_values[-1],
-                change=None,
-                message="",
-            ),
-        )
+        for target in (f"{loop}.metric", "products.bets.backend.logic.bets.metric"):
+            self.patch(
+                target,
+                side_effect=lambda *args, **kwargs: Metric(
+                    name="Share rate",
+                    values=world.metric_values,
+                    dates=[],
+                    current=world.metric_values[-1],
+                    change=None,
+                    message="",
+                ),
+            )
         get_settings(self.team.id).__class__.objects.for_team(self.team.id).using(WRITER_DB).update(
             budget_cents=100000, min_run_hours=0, goal_confirm_hours=0
         )
@@ -365,9 +366,15 @@ class TestBetLoop(APIBaseTest):
         self.world.finish(tracking)
         self.tick(bet)
         assert bet.status == "running" and bet.baseline_value == 0.1
+        self.world.metric_values = [0.31, 0.32, 0.33]
+        self.tick(bet)
+        assert bet.status == "running" and bet.goal_met_since is None
+        self.world.metric_values = [0.1]
         idea = self.ship_idea(bet, evidence([0.05, 0.2]))
-        assert idea.stage == "done" and idea.result["outcome"] == IdeaOutcome.WON
+        assert idea.stage == "done" and idea.result["outcome"] == IdeaOutcome.WON and idea.result["shipped"]
         assert self.world.concluded == [(idea.experiment_id, "won", "test")]
+        settle_usage(bet, "scout:run-1:tokens", 300)
+        settle_usage(bet, "task:build", 40, work=idea)
         cleanup = self.only(bet, "cleanup")
         assert cleanup.task_id == self.world.cleanup_task and cleanup.stage == "working"
         self.world.metric_values = [0.2, 0.25, 0.5]
@@ -379,6 +386,28 @@ class TestBetLoop(APIBaseTest):
         cleanup.refresh_from_db(using=WRITER_DB)
         assert cleanup.stage == "dropped"
         assert totals(self.team.id, bet).available_cents == 0
+        self.world.metric_values = [0.9]
+        results = self.client.get(f"/api/projects/{self.team.id}/bets/{bet.id}/").json()["results"]
+        assert (results["recorded"], results["final_value"], results["values"]) == (True, 0.33, [0.31, 0.32, 0.33])
+        assert results["met_at_start"] is False and results["reached_at"] is not None
+        [tried] = results["ideas"]
+        assert (tried["outcome"], tried["shipped"], tried["effect"], tried["spent_cents"]) == (
+            "won",
+            True,
+            [0.05, 0.2],
+            40,
+        )
+        assert (tried["learning"], tried["weak_evidence"]) == ("", True)
+        assert results["spend"] == {
+            "scout_cents": 300,
+            "scout_runs": 1,
+            "ideas_cents": 40,
+            "tracking_cents": 0,
+            "returned_cents": results["spend"]["returned_cents"],
+            "tested_ideas": 1,
+            "per_tested_idea_cents": 340,
+        }
+        assert results["spend"]["returned_cents"] > 0
 
     def described(self) -> Bet:
         self.patch("products.bets.backend.logic.loop.validate_goal")
@@ -441,12 +470,22 @@ class TestBetLoop(APIBaseTest):
                 self.world.results = evidence([0.05, 0.2], days=1)
                 self.tick(bet)
             return bet
+        if name == "target_met":
+            self.patch(
+                "products.bets.backend.logic.loop.baseline",
+                return_value=SimpleNamespace(ready=True, value=0.4, note=""),
+            )
+            return self.running()
         if name in ("confirming_goal", "reached"):
             if name == "confirming_goal":
                 get_settings(self.team.id).__class__.objects.for_team(self.team.id).using(WRITER_DB).update(
                     goal_confirm_hours=72
                 )
             bet = self.running()
+            self.ship_idea(bet, evidence([0.05, 0.2]))
+            for work in WorkItem.objects.for_team(self.team.id).using(WRITER_DB).filter(bet=bet):
+                if held := totals(self.team.id, work=work).reserved_cents:
+                    append(get_settings(self.team.id), bet, LedgerKind.RELEASE, held, f"settled:{work.id}", work=work)
             self.world.metric_values = [0.31, 0.32, 0.33]
             self.tick(bet)
             return bet
@@ -491,11 +530,12 @@ class TestBetLoop(APIBaseTest):
             ("reviewing", "reviewing", "Review the pull request", "pull_request", True),
             ("testing", "testing", "Testing an idea", None, False),
             ("confirming_goal", "confirming_goal", "The goal is at the target", None, False),
+            ("target_met", "waiting", "The goal already meets the target", "edit", True),
             ("stuck", "waiting", "Building stopped", "work", True),
             ("dismissed", "waiting", f"You dismissed the last {DISMISS_LIMIT} ideas", "ideas", True),
             ("paused", "paused", "The bet is paused", None, False),
-            ("reached", "ended", "Share rate after upload reached the target of 0.3", None, True),
-            ("spent", "ended", "The budget is used", None, True),
+            ("reached", "ended", f"Goal reached on {timezone.now():%b} {timezone.now().day}", None, True),
+            ("spent", "ended", "Budget used. The goal was not reached.", None, True),
         ]
     )
     def test_bet_state_names_one_phase_and_one_owner_action(
@@ -508,6 +548,33 @@ class TestBetLoop(APIBaseTest):
             kind,
             needs_you,
         ), state
+
+    @parameterized.expand(
+        [
+            ("create_increase", None, {"target": "0.05"}),
+            ("create_decrease", None, {"target": "0.2", "direction": "decrease"}),
+            ("edit_target", {"target": "0.05"}, {}),
+        ]
+    )
+    def test_a_target_the_goal_already_meets_is_refused(self, _name: str, edit: dict | None, create: dict) -> None:
+        if edit is None:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/bets/",
+                {
+                    "title": "Met",
+                    "statement": "Already there.",
+                    "repository": "posthog/example-app",
+                    "goal_insight": "abc123",
+                    "goal_metric": "Share rate after upload",
+                    "budget_cents": 1000,
+                    **create,
+                },
+                format="json",
+            )
+        else:
+            bet = self.create()
+            response = self.client.patch(f"/api/projects/{self.team.id}/bets/{bet['id']}/", edit, format="json")
+        assert response.status_code == 400 and "already" in str(response.json()), response.content
 
     def test_raising_the_target_of_a_reached_bet_keeps_the_goal_and_asks_for_budget(self) -> None:
         bet = self.drive("reached")

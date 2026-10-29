@@ -20,6 +20,7 @@ import { getIconColor } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { TodayObjectIcon } from '~/layout/today/TodayObjectIcon'
 
 import type { BetsDetailApi, BetsStateActionApi, BetTileEnumApi } from '../generated/api.schemas'
+import { number } from '../lib/format'
 import { IDEA_ICON_COLOR } from '../lib/ideas'
 import { betLogic } from '../logics/betLogic'
 import { BetWorkStatusIcon } from './BetWorkStatusIcon'
@@ -81,7 +82,30 @@ function StatusAction({ bet, action }: { bet: BetsDetailApi; action: BetsStateAc
     )
 }
 
-export function BetHeaderStatus({ bet }: { bet: BetsDetailApi }): JSX.Element {
+function caveat(bet: BetsDetailApi): string {
+    const target = bet.target === null ? null : number(Number(bet.target), bet.unit)
+    const start = bet.baseline_value === null ? null : number(bet.baseline_value, bet.unit)
+    const values = start !== null && target !== null ? `It started at ${start} and the target is ${target}. ` : ''
+    return `${values}The goal result does not show that the ideas worked. The experiments below do.`
+}
+
+function BetResultsCaveat({ bet }: { bet: BetsDetailApi }): JSX.Element {
+    return (
+        <div className="mt-2 flex min-w-0 items-center gap-3" data-attr="bets-results-caveat">
+            <StatusTile tile="problem" />
+            <div className="flex max-w-180 min-w-0 flex-1 flex-col gap-0.5">
+                <Text size="sm" weight="medium" render={<p className="m-0" />}>
+                    The goal met the target before any idea shipped
+                </Text>
+                <Text size="xs" variant="muted" render={<p className="m-0" />}>
+                    {caveat(bet)}
+                </Text>
+            </div>
+        </div>
+    )
+}
+
+function BetStatusRow({ bet }: { bet: BetsDetailApi }): JSX.Element {
     const { setExpandedWork } = useActions(betLogic({ id: bet.id }))
     const { state } = bet
     const actions = bet.is_owner ? [state.action, state.alternative].filter((item) => item !== null) : []
@@ -132,5 +156,14 @@ export function BetHeaderStatus({ bet }: { bet: BetsDetailApi }): JSX.Element {
                 </div>
             )}
         </div>
+    )
+}
+
+export function BetHeaderStatus({ bet }: { bet: BetsDetailApi }): JSX.Element {
+    return (
+        <>
+            <BetStatusRow bet={bet} />
+            {bet.results?.met_at_start && <BetResultsCaveat bet={bet} />}
+        </>
     )
 }

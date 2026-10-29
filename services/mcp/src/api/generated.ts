@@ -19003,6 +19003,136 @@ export namespace Schemas {
     }
 
     /**
+     * * `won` - Won
+     * * `lost` - Lost
+     * * `flat` - No clear effect
+     * * `harmed` - Guardrail regression
+     * * `broken` - Broken test
+     * * `dropped` - Dropped
+     */
+    export type IdeaOutcomeEnum = typeof IdeaOutcomeEnum[keyof typeof IdeaOutcomeEnum];
+
+
+    export const IdeaOutcomeEnum = {
+      Won: 'won',
+      Lost: 'lost',
+      Flat: 'flat',
+      Harmed: 'harmed',
+      Broken: 'broken',
+      Dropped: 'dropped',
+    } as const;
+
+    export interface BetsResultIdea {
+      /** Work item ID of the idea. */
+      id: string;
+      /**
+         * Build number of the idea within the bet.
+         * @nullable
+         */
+      number: number | null;
+      /** Idea title. */
+      title: string;
+      /** How the idea ended.
+       *
+       * * `won` - Won
+       * * `lost` - Lost
+       * * `flat` - No clear effect
+       * * `harmed` - Guardrail regression
+       * * `broken` - Broken test
+       * * `dropped` - Dropped */
+      outcome: IdeaOutcomeEnum;
+      /**
+         * Relative change in the goal, as the low and high ends of the interval. Empty when not measured.
+         * @nullable
+         */
+      effect: number[] | null;
+      /**
+         * People who saw the experiment, all variants.
+         * @nullable
+         */
+      people: number | null;
+      /** Build and test cost of this idea in USD cents. */
+      spent_cents: number;
+      /**
+         * Whether the idea won and its variant was rolled out. Empty when Bets did not record it.
+         * @nullable
+         */
+      shipped: boolean | null;
+      /** Pull request that built the idea. */
+      pr_url: string;
+      /**
+         * When the idea got its result.
+         * @nullable
+         */
+      finished_at: string | null;
+      /** Guardrails that got worse during the test. */
+      harmed_guardrails: string[];
+      /** Why a person dropped the idea. */
+      dismissed_reason: string;
+      /** One sentence that the result does not already show, such as which guardrail got worse. Empty otherwise. */
+      learning: string;
+      /** Whether the result rests on a small sample, so it is weak evidence. */
+      weak_evidence: boolean;
+    }
+
+    export interface BetsResultSpend {
+      /** Spend on finding ideas with the Scout, in USD cents. */
+      scout_cents: number;
+      /** Scout runs that recorded usage. */
+      scout_runs: number;
+      /** Spend on building and testing ideas, in USD cents. */
+      ideas_cents: number;
+      /** Spend on checking the goal tracking, in USD cents. */
+      tracking_cents: number;
+      /** Unused budget returned when the bet ended, in USD cents. */
+      returned_cents: number;
+      /** Ideas that got a test result. */
+      tested_ideas: number;
+      /**
+         * Total spend divided by tested ideas, search included. Empty with no tests.
+         * @nullable
+         */
+      per_tested_idea_cents: number | null;
+    }
+
+    export interface BetsResults {
+      /** Whether Bets froze the final value when the bet ended. */
+      recorded: boolean;
+      /**
+         * Goal value at the end, or the latest known value when it was not recorded.
+         * @nullable
+         */
+      final_value: number | null;
+      /**
+         * When Bets froze the final value.
+         * @nullable
+         */
+      final_at: string | null;
+      /** Dates of the goal series. */
+      dates: string[];
+      /** Goal values during the bet. */
+      values: number[];
+      /** When the bet started measuring. */
+      started_at: string;
+      /**
+         * When the bet ended, when known.
+         * @nullable
+         */
+      ended_at: string | null;
+      /**
+         * When the goal first met the target.
+         * @nullable
+         */
+      reached_at: string | null;
+      /** Whether the goal already met the target before any idea shipped. */
+      met_at_start: boolean;
+      /** Ideas that were built, by build number. */
+      ideas: BetsResultIdea[];
+      /** Where the budget went. */
+      spend: BetsResultSpend;
+    }
+
+    /**
      * * `tracking` - Tracking
      * * `idea` - Idea
      * * `cleanup` - Cleanup
@@ -19041,24 +19171,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `won` - Won
-     * * `lost` - Lost
-     * * `flat` - No clear effect
-     * * `harmed` - Guardrail regression
-     * * `dropped` - Dropped
-     */
-    export type IdeaOutcomeEnum = typeof IdeaOutcomeEnum[keyof typeof IdeaOutcomeEnum];
-
-
-    export const IdeaOutcomeEnum = {
-      Won: 'won',
-      Lost: 'lost',
-      Flat: 'flat',
-      Harmed: 'harmed',
-      Dropped: 'dropped',
-    } as const;
-
-    /**
      * People exposed per variant.
      */
     export type BetsIdeaResultExposures = {[key: string]: number};
@@ -19075,6 +19187,7 @@ export namespace Schemas {
        * * `lost` - Lost
        * * `flat` - No clear effect
        * * `harmed` - Guardrail regression
+       * * `broken` - Broken test
        * * `dropped` - Dropped */
       outcome?: IdeaOutcomeEnum;
       /** Variant kept when the experiment ended. */
@@ -19257,6 +19370,26 @@ export namespace Schemas {
          * @nullable
          */
       finished_at: string | null;
+      /**
+         * Build number of the idea within the bet.
+         * @nullable
+         */
+      number: number | null;
+      /**
+         * When the owner chose to build the idea.
+         * @nullable
+         */
+      chosen_at: string | null;
+      /**
+         * When the pull request merged.
+         * @nullable
+         */
+      merged_at: string | null;
+      /**
+         * When the first people saw the change.
+         * @nullable
+         */
+      exposed_at: string | null;
       /** Who proposed the idea.
        *
        * * `scout` - Scout
@@ -19381,6 +19514,13 @@ export namespace Schemas {
          * @nullable
          */
       goal_met_since: string | null;
+      /**
+         * When a person closed the bet.
+         * @nullable
+         */
+      closed_at: string | null;
+      /** Results summary, empty until the bet ends. */
+      results: BetsResults | null;
       /** Tracking checks and ideas, newest first. */
       work: BetsWork[];
       /** Current guardrail readings. */

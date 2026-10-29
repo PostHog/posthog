@@ -10,12 +10,13 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from ..db import WRITER_DB
-from ..facade.enums import BetStatus, LedgerKind, WorkStage
+from ..facade.enums import BetDirection, BetStatus, LedgerKind, WorkStage
 from ..models import Bet, BetsSettings, LedgerEntry, WorkItem
 from .ledger import append, totals
-from .loop import add_owner_idea, end_experiment, finish
-from .metrics import validate_goal
+from .loop import add_owner_idea, end_experiment, finish, freeze
+from .metrics import metric, validate_goal
 from .stages import OPEN
+from .state import meets, number
 from .workspace import get_settings, project_id
 
 if TYPE_CHECKING:
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 
 GOAL_FIELDS = frozenset({"goal_insight", "goal_description", "goal_metric", "secondary_metrics", "repositories"})
 TARGET_FIELDS = frozenset({"target", "direction"})
+FROZEN_FIELDS = ("final_value", "final_at", "final_series", "reached_at")
 
 
 def validate_insights(team: Team, user: User, data: dict) -> None:
@@ -32,9 +34,37 @@ def validate_insights(team: Team, user: User, data: dict) -> None:
         validate_goal(team, user, secondary["insight"])
 
 
+def refuse_met_target(team: Team, user: User, data: dict, bet: Bet | None = None) -> None:
+    keys = ("goal_insight", "target", "direction")
+    if bet is not None and not any(key in data and data[key] != getattr(bet, key) for key in keys):
+        return
+    insight = data.get("goal_insight", bet.goal_insight if bet else "")
+    target = data.get("target", bet.target if bet else None)
+    if not insight or target is None:
+        return
+    value = metric(team, user, insight, complete=True).current
+    if value is None and bet is not None and insight == bet.goal_insight:
+        value = bet.baseline_value
+    probe = Bet(target=target, direction=data.get("direction", bet.direction if bet else BetDirection.INCREASE))
+    if meets(probe, value):
+        raise ValidationError(
+            {
+                "target": f"The goal is already at {number(value or 0)}, which meets this target. Set a target the ideas still have to reach."
+            }
+        )
+
+
+def reopen(bet: Bet) -> None:
+    bet.final_value = None
+    bet.final_at = None
+    bet.final_series = {}
+    bet.reached_at = None
+
+
 def create_bet(team: Team, user: User, data: dict) -> Bet:
     team_id = project_id(team)
     validate_insights(team, user, data)
+    refuse_met_target(team, user, data)
     payload = dict(data)
     budget = payload.pop("budget_cents")
     operation_id = payload.pop("operation_id")
@@ -65,6 +95,7 @@ def create_bet(team: Team, user: User, data: dict) -> Bet:
 def update_bet(team: Team, user: User, bet_id: UUID, data: dict) -> Bet:
     team_id = project_id(team)
     validate_insights(team, user, data)
+    refuse_met_target(team, user, data, Bet.objects.for_team(team_id).using(WRITER_DB).get(id=bet_id))
     with transaction.atomic(using=WRITER_DB):
         settings = (
             BetsSettings.objects.for_team(team_id).using(WRITER_DB).select_for_update().get(id=get_settings(team_id).id)
@@ -91,6 +122,7 @@ def update_bet(team: Team, user: User, bet_id: UUID, data: dict) -> Bet:
             bet.goal_met_since = None
             if bet.status == BetStatus.REACHED:
                 bet.status = BetStatus.RUNNING if bet.baseline_at else BetStatus.SETTING_UP
+                reopen(bet)
         if goal_changed:
             ended = list(
                 WorkItem.objects.for_team(team_id)
@@ -142,6 +174,7 @@ def change_status(team: Team, user: User, bet_id: UUID, status: str) -> Bet:
         bet.note = ""
         bet.save(using=WRITER_DB, update_fields=["status", "closed_at", "note", "updated_at"])
         if status == BetStatus.CLOSED:
+            transaction.on_commit(partial(freeze, team, user, bet), using=WRITER_DB)
             transaction.on_commit(partial(finish, bet), using=WRITER_DB)
         return bet
 
@@ -167,4 +200,5 @@ def update_settings(team: Team, data: dict) -> BetsSettings:
 def resume_spent(bet: Bet) -> None:
     if bet.status == BetStatus.SPENT and totals(bet.team_id, bet).available_cents > 0:
         bet.status = BetStatus.RUNNING
-        bet.save(using=WRITER_DB, update_fields=["status", "updated_at"])
+        reopen(bet)
+        bet.save(using=WRITER_DB, update_fields=["status", *FROZEN_FIELDS, "updated_at"])

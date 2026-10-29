@@ -16,6 +16,7 @@ import { BetGoal } from '../components/BetGoal'
 import { BetHeaderStatus } from '../components/BetHeaderStatus'
 import { BetIdeas } from '../components/BetIdeas'
 import { BetProgress } from '../components/BetProgress'
+import { BetResults } from '../components/BetResults'
 import { BetsSkeletonLine } from '../components/BetsSkeletonLine'
 import { BET_STATUS_BADGES, BET_STATUS_LABELS } from '../lib/betStatus'
 import { betLogic } from '../logics/betLogic'
@@ -121,21 +122,27 @@ export function BetDetailScene({ id }: { id: string }): JSX.Element {
                     <BetDetailSkeleton />
                 )
             ) : (
-                <div className="Bets__detail">
+                <div className={`Bets__detail${bet.results ? ' Bets__detail--ended' : ''}`}>
                     <div className="Bets__detailIntro">
                         <p className="Bets__thesis mx-0 mt-0 mb-4 max-w-180 text-pretty">{bet.statement}</p>
                         <BetHeaderStatus bet={bet} />
                     </div>
                     <BetConfiguration bet={bet} />
-                    <div className="Bets__detailMain @container/bets-main min-w-0">
-                        <BetGoal bet={bet} />
-                        <div ref={ideasRef} className="scroll-mt-6">
-                            <BetIdeas bet={bet} />
+                    {bet.results ? (
+                        <div className="Bets__detailMain @container/bets-main min-w-0">
+                            <BetResults bet={bet} results={bet.results} />
                         </div>
-                        <div ref={workRef} className="scroll-mt-6">
-                            <BetProgress bet={bet} />
+                    ) : (
+                        <div className="Bets__detailMain @container/bets-main min-w-0">
+                            <BetGoal bet={bet} />
+                            <div ref={ideasRef} className="scroll-mt-6">
+                                <BetIdeas bet={bet} />
+                            </div>
+                            <div ref={workRef} className="scroll-mt-6">
+                                <BetProgress bet={bet} />
+                            </div>
                         </div>
-                    </div>
+                    )}
                     <BetActivity
                         entries={activity}
                         loading={activityLoading}
