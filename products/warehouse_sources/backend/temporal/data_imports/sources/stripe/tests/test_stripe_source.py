@@ -20,6 +20,9 @@ from parameterized import parameterized
 from stripe import ListObject
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.common.errors import NonReportableError
+
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import table_from_py_list
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.fanout_telemetry import (
@@ -77,6 +80,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     PRICE_RESOURCE_NAME,
     PROMOTION_CODE_RESOURCE_NAME,
     QUOTE_RESOURCE_NAME,
+    REFUND_RESOURCE_NAME,
     RESOURCE_TO_STRIPE_OBJECT_TYPE,
     RESOURCE_TO_STRIPE_WEBHOOK_EVENT,
     REVIEW_RESOURCE_NAME,
@@ -338,51 +342,177 @@ class TestStripeLatestObjectsOldestFirst:
         assert [row["id"] for table in result.items for row in table.to_pylist()] == ["ch_1", "ch_300"]
 
 
+class _DeletableStripeListing:
+    """A flat Stripe listing, newest first, that pages one object at a time and honours
+    `starting_after` the way Stripe does: a cursor naming an object that is gone is a 404."""
+
+    def __init__(self, ids: list[str]) -> None:
+        self.ids = list(ids)
+        self.cursors: list[Optional[str]] = []
+        self.after_page: Optional[Callable[[list[str]], None]] = None
+
+    def list(self, params: Optional[dict[str, Any]] = None) -> Any:
+        params = params or {}
+        cursor = params.get("starting_after")
+        self.cursors.append(cursor)
+        if cursor is None:
+            start = 0
+        elif cursor in self.ids:
+            start = self.ids.index(cursor) + 1
+        else:
+            raise stripe_lib.InvalidRequestError(
+                f"No such refund: '{cursor}'", "starting_after", code="resource_missing", http_status=404
+            )
+        page = self.ids[start : start + 1]
+        return SimpleNamespace(auto_paging_iter=lambda: self._iter(params, page, start + 1 < len(self.ids)))
+
+    def _iter(self, params: dict[str, Any], page: list[str], has_more: bool):
+        for object_id in page:
+            yield {"id": object_id}
+        if self.after_page is not None:
+            self.after_page(page)
+        if has_more and page:
+            yield from self.list({**params, "starting_after": page[-1]}).auto_paging_iter()
+
+
+class _PipelineAroundTheListing:
+    """Stands in for the pipeline and the resumable source manager around a flat Stripe listing.
+
+    A cursor commits only after the table it covers is written. An attempt that finds resume state
+    when it starts appends to what earlier attempts wrote, and an attempt that finds none
+    overwrites the table.
+    """
+
+    def __init__(self) -> None:
+        self.table: list[dict] = []
+        self.committed: Optional[stripe_module.StripeResumeConfig] = None
+        self._staged: Optional[stripe_module.StripeResumeConfig] = None
+
+    def can_resume(self) -> bool:
+        return self.committed is not None
+
+    def load_state(self) -> Optional[stripe_module.StripeResumeConfig]:
+        return self.committed
+
+    def save_state(self, state: stripe_module.StripeResumeConfig) -> None:
+        self._staged = state
+
+    def clear_state(self) -> None:
+        self.committed = None
+        self._staged = None
+
+    def safe_point(self) -> None:
+        pass
+
+    def run_attempt(self, listing: _DeletableStripeListing, interrupt_after_tables: Optional[int] = None) -> None:
+        webhooks = MagicMock(spec=WebhookSourceManager)
+        webhooks.webhook_enabled = mock.AsyncMock(return_value=False)
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "STRIPE_CHUNK_SIZE", 1),
+            patch.object(
+                stripe_module,
+                "_build_resources",
+                return_value={REFUND_RESOURCE_NAME: StripeResource(method=listing.list)},
+            ),
+        ):
+            response = stripe_module.stripe_source(
+                api_key="sk_test_123",
+                account_id=None,
+                endpoint=REFUND_RESOURCE_NAME,
+                db_incremental_field_last_value=None,
+                db_incremental_field_earliest_value=None,
+                logger=MagicMock(),
+                resumable_source_manager=cast(Any, self),
+                webhook_source_manager=webhooks,
+                api_version=STRIPE_API_VERSION_ACACIA,
+            )
+            if not self.can_resume():
+                self.table = []
+            items = response.items()
+            for written, table in enumerate(items, start=1):
+                self.table.extend(table.to_pylist())
+                if self._staged is not None:
+                    self.committed, self._staged = self._staged, None
+                if interrupt_after_tables is not None and written >= interrupt_after_tables:
+                    items.close()
+                    return
+
+
+def _ids(rows: list[dict]) -> list[str]:
+    return [row["id"] for row in rows]
+
+
 class TestStripeFlatResourceResumeCursor:
-    def test_restarts_listing_when_resume_cursor_no_longer_exists(self):
-        # A cursor saved by a previous run can outlive the object it names (e.g. the
-        # invoice_payment it pointed at was voided between runs). Without recovery, every retry
-        # reloads the same stale cursor and 404s identically forever — this locks in restarting
-        # the listing instead of getting the job permanently stuck.
-        calls: list[dict] = []
+    def test_a_deleted_resume_cursor_restarts_the_listing_without_duplicating_rows(self):
+        pipeline = _PipelineAroundTheListing()
+        listing = _DeletableStripeListing(["re_3", "re_2", "re_1"])
+        pipeline.run_attempt(listing, interrupt_after_tables=2)
+        assert _ids(pipeline.table) == ["re_3", "re_2"]
+        listing.ids.remove("re_2")
 
-        def method(params=None):
-            calls.append(params or {})
-            if (params or {}).get("starting_after") == "inpay_gone":
-                raise stripe_lib.InvalidRequestError(
-                    "No such invoice_payment: 'inpay_gone'",
-                    "starting_after",
-                    code="resource_missing",
-                    http_status=404,
-                )
-            return cast(ListObject[Any], _FakeStripeList([{"id": "inpay_1"}, {"id": "inpay_2"}]))
+        with pytest.raises(stripe_module.StripeResumeCursorGone):
+            pipeline.run_attempt(listing)
+        assert pipeline.committed is None
 
-        resource = StripeResource(method=method)
+        pipeline.run_attempt(listing)
+        assert _ids(pipeline.table) == ["re_3", "re_1"]
+
+    def test_a_cursor_deleted_while_a_resumed_attempt_pages_restarts_the_listing_without_duplicating_rows(self):
+        pipeline = _PipelineAroundTheListing()
+        listing = _DeletableStripeListing(["re_4", "re_3", "re_2", "re_1"])
+        pipeline.run_attempt(listing, interrupt_after_tables=1)
+
+        def delete_the_page(page: list[str]) -> None:
+            if page == ["re_3"]:
+                listing.ids.remove("re_3")
+
+        listing.after_page = delete_the_page
+        with pytest.raises(stripe_module.StripeResumeCursorGone):
+            pipeline.run_attempt(listing)
+        assert _ids(pipeline.table) == ["re_4", "re_3"]
+        assert pipeline.committed is None
+
+        pipeline.run_attempt(listing)
+        assert _ids(pipeline.table) == ["re_4", "re_2", "re_1"]
+
+    def test_a_missing_resume_cursor_clears_the_state_before_any_row(self):
+        listing = _DeletableStripeListing(["inpay_1", "inpay_2"])
         resumable_source_manager = MagicMock()
         resumable_source_manager.can_resume.return_value = True
         resumable_source_manager.load_state.return_value = stripe_module.StripeResumeConfig(starting_after="inpay_gone")
 
         with (
             patch.object(stripe_module, "StripeClient"),
-            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+            patch.object(
+                stripe_module,
+                "_build_resources",
+                return_value={INVOICE_PAYMENT_RESOURCE_NAME: StripeResource(method=listing.list)},
+            ),
         ):
-            tables = list(
-                get_rows(
-                    api_key="sk_test_123",
-                    endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
-                    account_id=None,
-                    db_incremental_field_last_value=None,
-                    db_incremental_field_earliest_value=None,
-                    logger=MagicMock(),
-                    resumable_source_manager=resumable_source_manager,
-                    api_version=STRIPE_API_VERSION_ACACIA,
+            with pytest.raises(stripe_module.StripeResumeCursorGone):
+                list(
+                    get_rows(
+                        api_key="sk_test_123",
+                        endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                        account_id=None,
+                        db_incremental_field_last_value=None,
+                        db_incremental_field_earliest_value=None,
+                        logger=MagicMock(),
+                        resumable_source_manager=resumable_source_manager,
+                        api_version=STRIPE_API_VERSION_ACACIA,
+                    )
                 )
-            )
 
-        rows = [row for table in tables for row in table.to_pylist()]
-        assert [row["id"] for row in rows] == ["inpay_1", "inpay_2"]
-        # First call carries the stale cursor and 404s; the recovery call drops it entirely.
-        assert calls == [{"limit": DEFAULT_LIMIT, "starting_after": "inpay_gone"}, {"limit": DEFAULT_LIMIT}]
+        assert listing.cursors == ["inpay_gone"]
+        resumable_source_manager.clear_state.assert_called_once_with()
+        resumable_source_manager.save_state.assert_not_called()
+
+    def test_a_missing_cursor_is_retried(self):
+        message = str(stripe_module.StripeResumeCursorGone(INVOICE_PAYMENT_RESOURCE_NAME, "inpay_gone"))
+
+        assert not error_message_matches(message, {**Any_Source_Errors, **StripeSource().get_non_retryable_errors()})
+        assert issubclass(stripe_module.StripeResumeCursorGone, NonReportableError)
 
     def test_other_invalid_request_errors_still_raise(self):
         def method(params=None):
