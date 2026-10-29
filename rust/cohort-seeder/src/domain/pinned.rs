@@ -64,7 +64,7 @@ const FLAG_CALLED_EVENT: &str = "$feature_flag_called";
 
 /// Mirrors `FLAG_EVALUATIONS_TTL_DAYS` in `posthog/models/flag_evaluations/sql.py`. Change both
 /// together.
-const FLAG_EVALUATIONS_TTL_DAYS: DayIdx = 90;
+const FLAG_EVALUATIONS_TTL_DAYS: DayIdx = 92;
 
 /// The ClickHouse table a scan reads.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
@@ -99,7 +99,7 @@ impl ScanTable {
     }
 
     /// Whether the TTL may already have dropped rows of `domain`'s day at `now_ms`. The TTL is
-    /// `toDate(timestamp) + 90 days`, so the day's first rows expire 90 days after the UTC date of
+    /// `toDate(timestamp) + 92 days`, so the day's first rows expire 92 days after the UTC date of
     /// the day's start. A team east of UTC starts its day on the UTC date before. Django pins
     /// `flag_evaluations` only for windows inside the TTL. A chunk can still run or retry days
     /// after Django created its run.
@@ -1007,8 +1007,8 @@ mod tests {
     fn a_flag_evaluations_day_is_past_retention_once_the_ttl_reaches_its_first_utc_date() {
         // Sydney's day 1 starts on 1970-01-01 in UTC, the date the TTL counts its first rows from.
         for (tz, expires_ms) in [
-            (UTC, start_of_day_ms_in_tz(91, UTC)),
-            (Sydney, start_of_day_ms_in_tz(90, UTC)),
+            (UTC, start_of_day_ms_in_tz(93, UTC)),
+            (Sydney, start_of_day_ms_in_tz(92, UTC)),
         ] {
             let domain = SeedDomain::new(1, tz, SChunkMs(200_000_000)).unwrap();
             for (now_ms, expired) in [(expires_ms - 1, false), (expires_ms, true)] {
