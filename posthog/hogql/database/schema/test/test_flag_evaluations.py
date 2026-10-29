@@ -2,7 +2,13 @@ import json
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    cleanup_materialized_columns,
+    flush_persons_and_events,
+)
 from unittest.mock import patch
 
 from django.conf import settings
@@ -49,8 +55,11 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import insert_static_cohort
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 EVENT_PROBE = "from-event-properties"
 
@@ -132,7 +141,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             },
         )
 
-    def _insert_row(self, row_uuid: uuid.UUID, properties: dict[str, str | int | None]) -> None:
+    def _insert_row(
+        self,
+        row_uuid: uuid.UUID,
+        properties: dict[str, str | int | None],
+        person_properties: dict[str, str | int] | None = None,
+    ) -> None:
         # The nine typed columns are DEFAULT-computed from `properties` on the sharded table, so a
         # producer cannot write them and this insert must not name them.
         sync_execute(
@@ -151,7 +165,11 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                     "probe-distinct-id",
                     self.occurred_at,
                     str(self.person_id),
-                    json.dumps({"email": "probe@example.com", "plan": "free", "age": NUMERIC_PROBE}),
+                    json.dumps(
+                        person_properties
+                        if person_properties is not None
+                        else {"email": "probe@example.com", "plan": "free", "age": NUMERIC_PROBE}
+                    ),
                 )
             ],
         )
@@ -1042,6 +1060,87 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert rewritten.results == from_events.results
         assert rewritten.clickhouse is not None
         assert ("FROM flag_evaluations" in rewritten.clickhouse) is not use_new_events_schema
+
+    @parameterized.expand(
+        [
+            ("no_materialized_column", None, "isNull(properties.$current_url)", True),
+            ("materialized_event_property", ("properties", "$current_url"), "isNull(properties.$current_url)", False),
+            ("materialized_person_property", ("person_properties", "email"), "isNull(person.properties.email)", False),
+            # The pin keeps the flag key away from "" and "null", the values a materialized column reads differently.
+            ("materialized_flag_key", ("properties", "$feature_flag"), "isNull(properties.$current_url)", True),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_property_read_from_a_materialized_column_on_events_keeps_reading_events_in_mode_1(
+        self, _name: str, materialized_property: tuple[str, str] | None, condition: str, swaps: bool
+    ):
+        if materialized_property is not None:
+            table_column, property_name = materialized_property
+            materialize("events", property_name, table_column=table_column)
+            self.addCleanup(cleanup_materialized_columns)
+        for value in ("", "null"):
+            row_uuid = uuid.uuid4()
+            properties: dict[str, str | int | None] = {"$feature_flag": "parity-flag", "$current_url": value}
+            self._insert_row(row_uuid, properties, person_properties={"email": value})
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id="probe-distinct-id",
+                timestamp=self.occurred_at,
+                properties=properties,
+                person_properties={"email": value},
+                person_id=self.person_id,
+                event_uuid=str(row_uuid),
+            )
+        flush_persons_and_events()
+        query = (
+            "SELECT count() FROM events WHERE event = '$feature_flag_called' "
+            f"AND properties.$feature_flag = 'parity-flag' AND timestamp >= now() - INTERVAL 7 DAY AND {condition}"
+        )
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS)
+        mode = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
+
+        from_events = self._query_events(query, rewrite=False, modifiers=modifiers, mode=mode)
+        rewritten = self._query_events(query, modifiers=modifiers, mode=mode)
+
+        assert rewritten.results == from_events.results
+        assert rewritten.clickhouse is not None
+        assert ("FROM flag_evaluations" in rewritten.clickhouse) is swaps
+
+    @parameterized.expand(
+        [
+            ("flag_calls", f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}", "saved_calls"),
+            ("view_of_a_flag_call_view", "SELECT uuid FROM inner_calls", "inner_calls"),
+            ("pageviews", f"SELECT uuid FROM events WHERE {PAGEVIEW_CONJUNCTS}", None),
+            (
+                "cte_named_events",
+                "WITH events AS (SELECT uuid, event, properties, timestamp FROM posthog.flag_evaluations) "
+                f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}",
+                None,
+            ),
+        ]
+    )
+    def test_view_that_reads_flag_calls_from_events_raises_once_events_gets_no_flag_calls(
+        self, _name: str, view_query: str, failing_view: str | None
+    ):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="inner_calls",
+            query={"query": f"SELECT uuid FROM events WHERE {FLAG_CALL_CONJUNCTS}"},
+            columns={"uuid": "String"},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="saved_calls", query={"query": view_query}, columns={"uuid": "String"}
+        )
+        query = "SELECT count() FROM saved_calls"
+
+        # events still gets flag calls on mode 1, so the view's read of events is complete.
+        self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        if failing_view is None:
+            self._query_events(query)
+            return
+        with self.assertRaisesRegex(QueryError, f"reads the saved view {failing_view}, which reads them from events"):
+            self._query_events(query)
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
         self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)

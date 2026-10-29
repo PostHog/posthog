@@ -13,6 +13,7 @@ from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, date, datetime, time, timedelta, tzinfo
 from functools import cache, partial
+from typing import TYPE_CHECKING
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import structlog
@@ -21,6 +22,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import _T_AST
 from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.flag_evaluations import ELEMENT_STAND_INS, FlagEvaluationsTable
 from posthog.hogql.database.schema.util.where_clause_extractor import top_level_conjuncts
@@ -32,6 +34,9 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
 from posthog.date_util import start_of_day
+
+if TYPE_CHECKING:
+    from posthog.hogql.database.database import Database
 
 logger = structlog.get_logger(__name__)
 
@@ -142,9 +147,17 @@ def resolve_flag_calls_from_flag_evaluations(
     resolves anything when such an organization's query has a scan of only flag calls with a shape that
     `flag_evaluations` cannot stand in for.
 
-    While `events` still gets flag calls, a project that reads the native-JSON events table keeps reading `events`.
-    That table decodes JSON escapes in a property value. `flag_evaluations` returns the escaped text, so a filter on
-    such a value selects different rows in the two tables.
+    While `events` still gets flag calls, the original query is the answer whenever the two tables can read a row
+    differently:
+
+    - A project that reads the native-JSON events table keeps reading `events`. That table decodes JSON escapes in a
+      property value. `flag_evaluations` returns the escaped text, so a filter on such a value selects different
+      rows in the two tables.
+    - A query keeps reading `events` when it reads a property from a different kind of column there, such as a
+      materialized column. See `_swap_reads_properties_alike`.
+
+    The resolver inlines a saved view's body, so the swap never sees a scan inside one. Once `events` gets no flag
+    calls, a query that reads a view whose body reads only flag calls from `events` raises.
     """
     database = context.database
     if (
@@ -153,11 +166,28 @@ def resolve_flag_calls_from_flag_evaluations(
         or not database.read_flag_calls_from_flag_evaluations
     ):
         return resolve(node)
+    only_in_flag_evaluations = database.flag_calls_only_in_flag_evaluations
+    resolved = _resolve_with_swaps(node, context, resolve, database, only_in_flag_evaluations)
+    if only_in_flag_evaluations:
+        view_name = _view_reading_flag_calls_from_events(resolved)
+        if view_name is not None:
+            raise _flag_calls_only_in_flag_evaluations_error(
+                f"it reads the saved view {view_name}, which reads them from events"
+            )
+    return resolved
+
+
+def _resolve_with_swaps(
+    node: _T_AST,
+    context: HogQLContext,
+    resolve: Callable[[_T_AST], _T_AST],
+    database: "Database",
+    only_in_flag_evaluations: bool,
+) -> _T_AST:
     finder = _FlagCalledConstantFinder()
     finder.visit(node)
     if not finder.found:
         return resolve(node)
-    only_in_flag_evaluations = database.flag_calls_only_in_flag_evaluations
     if not only_in_flag_evaluations and context.uses_new_events_schema():
         return resolve(node)
     with context.timings.measure("flag_calls_from_flag_evaluations"):
@@ -183,9 +213,12 @@ def resolve_flag_calls_from_flag_evaluations(
         # Expected for a query that reads a field flag_evaluations lacks, such as goe_0.properties.
         reason = f"it reads something that table doesn't have: {error}"
     else:
-        if _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
+        if not _swap_keeps_bindings(original, swapped, swapper.flag_key_predicates):
+            reason = "a name in it would read a different column there"
+        elif not only_in_flag_evaluations and not _swap_reads_properties_alike(original, swapped, context):
+            reason = "it reads a property from a different kind of column there"
+        else:
             return swapped
-        reason = "a name in it would read a different column there"
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
         raise _flag_calls_only_in_flag_evaluations_error(reason)
@@ -264,6 +297,9 @@ class _EventsScan:
 
     def column(self, expr: ast.Expr) -> list[str | int] | None:
         """The chain below the scan when `expr` reads it, such as `["event"]` or `["properties", "$feature_flag"]`."""
+        # The resolver wraps each field it resolves in a hidden alias, which the check of a resolved view body sees.
+        while isinstance(expr, ast.Alias) and expr.hidden:
+            expr = expr.expr
         if not isinstance(expr, ast.Field) or not expr.chain:
             return None
         if expr.chain[0] == self.alias and len(expr.chain) > 1:
@@ -808,3 +844,113 @@ def _target(current: ast.Type | None) -> tuple[str, ...]:
             return ("view", current.view_name)
         else:
             return (current.__class__.__name__,)
+
+
+def _swap_reads_properties_alike(original: ast.AST, swapped: ast.AST, context: HogQLContext) -> bool:
+    """Whether each property that the swapped query reads comes from the same kind of column as in the original.
+
+    A materialized or dmat column on `events` reads the strings "" and "null" as NULL. `flag_evaluations` reads the
+    same property from the JSON blob, which returns those strings. A property-group map has the same definition on
+    both tables, so reads from it agree. The swap pins `$feature_flag` to keys that are never "" or "null", so a
+    read of it agrees whatever column backs it.
+    """
+    original_reads = _property_reads(original, context)
+    swapped_reads = _property_reads(swapped, context)
+    if not original_reads and not swapped_reads:
+        return True
+    if context.team_id is None:
+        return False
+    previous_metadata = context.property_metadata
+    # The dmat slots come from the team's property definitions, which the printer loads only after this transform.
+    context.property_metadata = load_property_metadata(
+        context,
+        event_property_names={name for column, name, _ in original_reads if column == "properties"},
+        person_property_names=set(),
+        group_property_names={},
+    )
+    try:
+        return Counter(_property_sources(original_reads, context)) == Counter(_property_sources(swapped_reads, context))
+    finally:
+        context.property_metadata = previous_metadata
+
+
+# The blob column, the property, and the field type that reads it.
+_PropertyRead = tuple[str, str, ast.FieldType]
+
+
+def _property_reads(node: ast.AST, context: HogQLContext) -> list[_PropertyRead]:
+    collector = _PropertyReadCollector(context)
+    collector.visit(node)
+    return collector.reads
+
+
+def _property_sources(reads: list[_PropertyRead], context: HogQLContext) -> list[tuple[str, str, str | None]]:
+    """Each read with the column the printer reads it from, or None for the JSON blob."""
+    # Deferred: clickhouse_property_resolution imports the printer package, which imports this module.
+    from posthog.hogql.transforms.clickhouse_property_resolution import (  # noqa: PLC0415
+        resolve_materialized_property_source,
+    )
+
+    sources: list[tuple[str, str, str | None]] = []
+    for column, name, field_type in reads:
+        source = resolve_materialized_property_source(field_type, name, context)
+        sources.append((column, name, source.column if source is not None else None))
+    return sources
+
+
+class _PropertyReadCollector(_SyntaxVisitor):
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
+        self.context = context
+        self.reads: list[_PropertyRead] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        if not isinstance(node.type, ast.PropertyType) or not node.type.chain:
+            return
+        field_type = node.type.field_type
+        database_field = field_type.resolve_database_field(self.context)
+        column = database_field.name if isinstance(database_field, DatabaseField) else field_type.name
+        name = str(node.type.chain[0])
+        if column == "properties" and name == _FLAG_KEY_PROPERTY:
+            return
+        self.reads.append((column, name, field_type))
+
+
+def _view_reading_flag_calls_from_events(node: ast.AST) -> str | None:
+    """The name of a saved view whose inlined body reads only flag calls from `events`, or None."""
+    finder = _FlagCallViewFinder()
+    finder.visit(node)
+    return finder.found
+
+
+class _FlagCallViewFinder(_SyntaxVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.view: str | None = None
+        self.found: str | None = None
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        outer = self.view
+        # The resolver names the view on the body's top SELECT only, so a SELECT nested in the body inherits it.
+        self.view = node.view_name or outer
+        if self.view is not None and self.found is None and _reads_only_flag_calls_from_events(node):
+            self.found = self.view
+        super().visit_select_query(node)
+        self.view = outer
+
+
+def _reads_only_flag_calls_from_events(node: ast.SelectQuery) -> bool:
+    scan = _EventsScan.of(node, lambda: True)
+    return (
+        scan is not None
+        and _reads_events_table(scan.join)
+        and scan.pins_flag_calls(_filter_conjuncts(node), needs_flag_key=False)
+    )
+
+
+def _reads_events_table(join: ast.JoinExpr) -> bool:
+    """Whether a resolved FROM reads the events table, rather than a CTE named `events`."""
+    table_type = join.type
+    while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
+        table_type = table_type.table_type
+    return isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable)
