@@ -99,8 +99,7 @@ function readInteractionOrigin(
   );
 }
 
-// The backend records provenance only for an OAuth client grant. A PostHog AI chat in the browser
-// uses session auth, so its tasks carry the posthog_ai origin and no provenance.
+// Browser session auth records no provenance, so a posthog_ai task without one comes from the web.
 function readClientProvenance(task: Task | null): string | undefined {
   if (task?.client_provenance) {
     return task.client_provenance;
@@ -115,14 +114,10 @@ function readRepositories(task: Task | null): string[] {
   return task?.repository ? [task.repository] : [];
 }
 
-// Origins where a person started the task from a PostHog client, so a PR can link back to the
-// thread. Automated origins get no link: their system prompt then stays the same across sibling
-// tasks, which keeps the shared prompt cache.
+// Automated origins get no thread link, so sibling tasks keep one shared prompt cache.
 const THREAD_ORIGINS = new Set(["user_created", "posthog_ai"]);
 
-// Web backlink to the inbox report or the thread that spawned this task, so the PR can point back
-// at it. GitHub drops custom URL schemes from links, so Desktop threads go through the web bridge
-// at /code/..., which opens the desktop app.
+// GitHub drops custom URL schemes from links, so Desktop threads use the /code/... web bridge.
 function readTaskSource(sources: RunLaunchSources): TaskSource | undefined {
   const { task } = sources;
   if (!task) {

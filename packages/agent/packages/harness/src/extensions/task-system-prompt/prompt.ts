@@ -33,8 +33,7 @@ export function buildAttributionPrompt(
   environment: TaskContext["environment"],
   apiHost?: string,
 ): string {
-  // Local runs always come from Desktop. GitHub drops custom URL schemes from links, so the link
-  // goes through the web bridge that opens the desktop app.
+  // Local runs always come from Desktop, and GitHub drops custom URL schemes from links.
   const threadLink =
     environment === "local" && apiHost
       ? ` from a [PostHog Desktop task](${apiHost.replace(/\/+$/, "")}/code/task/${encodeURIComponent(taskId)})`
