@@ -252,6 +252,55 @@ export const YAxisRange: Story = {
     ),
 }
 
+const AREA_SERIES: Series[] = [
+    { key: 'p50', label: 'p50', data: [120, 140, 130, 160, 150, 170, 155], fill: { opacity: 0.2 } },
+    { key: 'p90', label: 'p90', data: [220, 260, 240, 300, 280, 320, 290], fill: { opacity: 0.2 } },
+    { key: 'p99', label: 'p99', data: [400, 460, 430, 520, 480, 560, 510], fill: { opacity: 0.2 } },
+]
+
+function StackingCell({ title, series, stacked }: { title: string; series: Series[]; stacked?: boolean }): JSX.Element {
+    const theme = useReactiveTheme()
+    return (
+        <div>
+            <div>{title}</div>
+            <Stage width={360} height={220}>
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ stacked, yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        </div>
+    )
+}
+
+/** Two or more `fill` series stack by default. `stacked: false` overlaps them at their own values,
+ *  and `stacked: false` on one series keeps it out of the stack (here a total line on top of a
+ *  stacked breakdown). */
+export const Stacking: Story = {
+    render: () => (
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, auto)', gap: 24 }}>
+            <StackingCell title="default (stacked)" series={AREA_SERIES} />
+            <StackingCell title="stacked: false" series={AREA_SERIES} stacked={false} />
+            <StackingCell
+                title="series stacked: false"
+                series={[
+                    ...SERIES.map((s) => ({ ...s, fill: { opacity: 0.3 } })),
+                    {
+                        key: 'total',
+                        label: 'Total',
+                        data: SERIES[0].data.map((_, i) => SERIES.reduce((sum, s) => sum + s.data[i], 0)),
+                        stacked: false,
+                        stroke: { pattern: [6, 4] },
+                    },
+                ]}
+            />
+        </div>
+    ),
+}
+
 const DERIVED_SERIES: Series[] = [
     { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52] },
     { key: 'signups', label: 'Sign-ups', data: [4, 8, 6, 14, 11, 19, 13] },
