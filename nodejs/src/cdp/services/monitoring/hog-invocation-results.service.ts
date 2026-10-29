@@ -490,7 +490,11 @@ export class HogInvocationResultsService {
     }
 
     private async produceRow(row: HogInvocationResultRow): Promise<void> {
-        const value = Buffer.from(
+        await this.produceEncodedRow(row, await this.encodeRow(row))
+    }
+
+    private async encodeRow(row: HogInvocationResultRow): Promise<Buffer> {
+        return Buffer.from(
             safeClickhouseString(
                 JSON.stringify({
                     ...row,
@@ -498,6 +502,9 @@ export class HogInvocationResultsService {
                 })
             )
         )
+    }
+
+    private async produceEncodedRow(row: HogInvocationResultRow, value: Buffer): Promise<void> {
         await this.outputs.produce(HOG_INVOCATION_RESULTS_OUTPUT, {
             // Partition by invocation_id so all rows for a single invocation
             // land on the same Kafka partition (and the same ClickHouse shard).
@@ -618,27 +625,49 @@ export class HogInvocationResultsService {
     }
 
     async flush(): Promise<void> {
+        const { produced } = await this.handOffQueuedRows()
+        await produced
+    }
+
+    // Resolves once every queued row is encoded and passed to the Kafka producer, which flushes the rows it
+    // holds on shutdown. `produced` resolves when the broker has acked them, so a caller that must not wait
+    // on the broker awaits only the hand-off. Neither promise rejects.
+    async handOffQueuedRows(): Promise<{ produced: Promise<void> }> {
         if (this.queuedRows.length === 0) {
-            return
+            return { produced: Promise.resolve() }
         }
 
         const rows = this.queuedRows
         this.queuedRows = []
         hogInvocationResultsPendingMessages.set(0)
 
-        await Promise.all(
+        const encoded = await Promise.all(
             rows.map((row) =>
-                this.produceRow(row).catch((error) => {
-                    counterHogInvocationResultProduceFailed.inc()
-                    // Best-effort — never disrupt invocation processing for a
-                    // monitoring write.
-                    logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
-                        error: String(error),
-                        invocation_id: row.invocation_id,
-                    })
-                    captureException(error)
+                this.encodeRow(row).catch((error) => {
+                    this.onRowProduceFailed(row, error)
+                    return null
                 })
             )
         )
+        const produced = Promise.all(
+            rows.map((row, i) => {
+                const value = encoded[i]
+                return value
+                    ? this.produceEncodedRow(row, value).catch((error) => this.onRowProduceFailed(row, error))
+                    : undefined
+            })
+        ).then(() => undefined)
+        return { produced }
+    }
+
+    private onRowProduceFailed(row: HogInvocationResultRow, error: unknown): void {
+        counterHogInvocationResultProduceFailed.inc()
+        // Best-effort — never disrupt invocation processing for a
+        // monitoring write.
+        logger.error('⚠️', `failed to produce hog invocation result: ${error}`, {
+            error: String(error),
+            invocation_id: row.invocation_id,
+        })
+        captureException(error)
     }
 }
