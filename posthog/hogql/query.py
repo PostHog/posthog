@@ -126,7 +126,7 @@ def _decode_invalid_utf8(value: Any) -> Any:
     return value
 
 
-def decode_invalid_utf8_strings(rows: list, types: list) -> list:
+def _decode_invalid_utf8_strings(rows: list[Any], types: list[tuple[str, str]]) -> list[Any]:
     """Replace the `bytes` values that the ClickHouse driver returns for a String that is not valid UTF-8.
 
     No JSON encoder accepts these values, so the query would fail when its result is cached or returned.
@@ -1047,7 +1047,7 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
-                self.results = decode_invalid_utf8_strings(self.results, self.types)
+                self.results = _decode_invalid_utf8_strings(self.results, self.types)
             except Exception as e:
                 if self.debug:
                     self.results = []

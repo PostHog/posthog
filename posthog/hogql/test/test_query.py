@@ -22,7 +22,6 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
-import orjson
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -2449,7 +2448,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.results, [("A\ufffd", ["B\ufffd"], {"key": "C\ufffd"})])
-        orjson.dumps(response.model_dump(mode="json"))
 
     def test_non_transient_errors_are_not_retried(self):
         with (
