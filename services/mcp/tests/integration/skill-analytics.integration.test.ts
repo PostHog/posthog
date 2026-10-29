@@ -111,7 +111,6 @@ describe.skipIf(!API_TOKEN)('skill read reaches PostHog with $mcp_skill_name', (
             clientProfile: {
                 capabilities: { supportsInstructions: true },
                 isCliModeEnabled: () => true,
-                isClaudeUiHost: () => false,
                 isInlineExecUiHost: () => false,
                 isClaudeChatHost: () => false,
                 isAnthropicConnector: () => false,

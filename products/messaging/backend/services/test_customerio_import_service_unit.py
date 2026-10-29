@@ -2,8 +2,10 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
+import requests
 from parameterized import parameterized
 
+from .customerio_client import CustomerIOAPIError, CustomerIOClient
 from .customerio_import_service import CustomerIOImportService
 
 
@@ -122,3 +124,39 @@ class TestCustomerIOImportServiceUnit(SimpleTestCase):
         assert result["status"] == "failed"
         assert len(result["errors"]) == 1
         assert "API key is required" in result["errors"][0]
+
+    @parameterized.expand(
+        [
+            ("us_key", {"us": 200}, CustomerIOClient.US_BASE_URL),
+            ("eu_key", {"us": 401, "eu": 200}, CustomerIOClient.EU_BASE_URL),
+            ("rejected_everywhere", {"us": 401, "eu": 403}, False),
+            ("us_down", {"us": 503, "eu": 401}, CustomerIOAPIError),
+            ("us_unreachable", {"us": None, "eu": 401}, CustomerIOAPIError),
+        ]
+    )
+    def test_connect_tells_a_rejected_key_from_an_outage(
+        self, _name: str, statuses: dict[str, int | None], expected: str | bool | type[Exception]
+    ) -> None:
+        def request(method: str, url: str, **kwargs: object) -> MagicMock:
+            region = "eu" if url.startswith(CustomerIOClient.EU_BASE_URL) else "us"
+            status_code = statuses[region]
+            if status_code is None:
+                raise requests.exceptions.ConnectTimeout()
+            response = MagicMock(status_code=status_code)
+            response.json.return_value = {"topics": []}
+            if status_code >= 400:
+                response.raise_for_status.side_effect = requests.exceptions.HTTPError(response=response)
+            return response
+
+        with patch(
+            "products.messaging.backend.services.customerio_client.requests.Session.request", side_effect=request
+        ):
+            if isinstance(expected, type):
+                with self.assertRaises(expected):
+                    self.service.connect()
+            elif expected is False:
+                assert self.service.connect() is False
+                assert self.service.client is None
+            else:
+                assert self.service.connect() is True
+                assert self.service.client is not None and self.service.client.BASE_URL == expected

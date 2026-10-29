@@ -105,6 +105,12 @@ const HELPFULNESS = passRateResult(uuid(1), 'Helpfulness', 91.4, 92.0, 140)
 const GROUNDEDNESS = passRateResult(uuid(2), 'Answer is grounded in context', 78.2, 86.5, 90, 4)
 const TONE = passRateResult(uuid(3), 'Polite tone', 97.1, 96.4, 60, 1)
 const NEW_CHECK = passRateResult(uuid(4), 'Refuses off-topic requests', 70, null, 1)
+// Names that only differ at the end, which a plain truncation hides.
+const SIMILAR_NAMES = [
+    passRateResult(uuid(21), 'Answer is grounded in the retrieved tool results', 61.5, 63.0, 80, 3),
+    passRateResult(uuid(22), 'Answer is grounded in the retrieved tool results (fast model)', 82.4, 81.0, 70, 2),
+    passRateResult(uuid(23), 'Answer is grounded in the retrieved tool results (decision model)', 90.2, 89.5, 60, 2),
+]
 
 const SENTIMENT_VALUES = wave(14, 3, 1)
 const SENTIMENT = result({
@@ -198,7 +204,7 @@ function previousRateOf(row: EvaluationResultApi): number | null {
     return previous ? (previous.passed / (previous.passed + previous.failed)) * 100 : null
 }
 
-/** Totals built from the rows, the way the backend builds them, so the cards agree with the chart. */
+/** Totals built from the rows, the way the backend builds them, so the tabs agree with the chart. */
 function overview(evaluations: EvaluationResultApi[]): EvaluationsOverviewApi {
     const active = evaluations.filter((row) => row.enabled)
     const passRates = active.filter((row) => row.summary.kind === 'pass_rate' && row.gradedCount > 0)
@@ -429,3 +435,5 @@ export const RateLimited: Story = { decorators: [scene(MANY, { rateLimited: true
 export const TwoEvaluations: Story = { decorators: [scene([GROUNDEDNESS, TONE])] }
 
 export const NothingGraded: Story = { decorators: [scene([SILENT, PAUSED])] }
+
+export const SimilarNames: Story = { decorators: [scene(SIMILAR_NAMES)] }

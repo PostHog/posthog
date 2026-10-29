@@ -116,6 +116,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/debug/precompute': ['PrecomputeDebug', 'precomputeDebug'],
     '/data-management/annotations': ['Annotations', 'annotations'],
     '/data-management/annotations/:id': ['Annotations', 'annotation'],
+    '/application-observability': ['ApplicationObservability', 'applicationObservability'],
     '/autoresearch': ['Autoresearch', 'autoresearch'],
     '/autoresearch/new': ['AutoresearchNew', 'autoresearchNew'],
     '/autoresearch/:id': ['AutoresearchPipeline', 'autoresearchPipeline'],
@@ -178,6 +179,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/sources/:id/:tab': ['DataWarehouseSource', 'dataWarehouseSource'],
     '/data-warehouse/new-source': ['DataWarehouseSourceNew', 'dataWarehouseSourceNew'],
     '/data-warehouse/connect': ['DataWarehouseSourceConnect', 'dataWarehouseSourceConnect'],
+    '/data-warehouse/connect-destination': ['WarehouseDestinationConnect', 'warehouseDestinationConnect'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
@@ -385,6 +387,16 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
     '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
     '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
+    '/transactional': ['Transactional', 'transactional'],
+    '/transactional/library': ['Transactional', 'transactional'],
+    '/transactional/channels': ['Transactional', 'transactional'],
+    '/transactional/opt-outs': ['Transactional', 'transactional'],
+    '/transactional/suppression': ['Transactional', 'transactional'],
+    '/transactional/reputation': ['Transactional', 'transactional'],
+    '/transactional/settings': ['Transactional', 'transactional'],
+    '/transactional/new': ['Transactional', 'transactional'],
+    '/transactional/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
+    '/broadcasts/library/templates/:id': ['WorkflowsLibraryTemplate', 'workflowsLibraryTemplate'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -744,6 +756,14 @@ export const productConfiguration: Record<string, any> = {
             'Annotations allow you to mark when certain changes happened so you can easily see how they impacted your metrics.',
         iconType: 'annotation',
     },
+    ApplicationObservability: {
+        name: 'Application observability',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        description: 'Whether your application is OK, one row per service, from the signals you already send.',
+        iconType: 'tracing',
+    },
     Autoresearch: {
         name: 'Autoresearch',
         projectBased: true,
@@ -767,7 +787,7 @@ export const productConfiguration: Record<string, any> = {
         activityScope: 'KnowledgeSource',
         iconType: 'business_knowledge',
         description:
-            'Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies.',
+            'Upload text, public URLs, or files so AI can understand your business context, vision, and policies.',
     },
     BusinessKnowledgePlayground: {
         name: 'Business knowledge playground',
@@ -899,6 +919,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Manage where your warehouse sources write the rows they sync.',
         iconType: 'data_warehouse',
     },
+    WarehouseDestinationConnect: { projectBased: true, name: 'Connect warehouse destination' },
     EarlyAccessFeatures: {
         name: 'Early access features',
         projectBased: true,
@@ -1322,6 +1343,12 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         description: 'Send a one-time or scheduled email to a group of people',
     },
+    Transactional: {
+        name: 'Transactional',
+        iconType: 'transactional',
+        projectBased: true,
+        description: 'Send emails from your code with one API call',
+    },
     WorkflowsEmailDomain: { name: 'Workflows', iconType: 'workflows', projectBased: true },
 }
 
@@ -1424,6 +1451,7 @@ export const productUrls = {
     precomputeDebug: (): string => `/debug/precompute`,
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
+    applicationObservability: (): string => '/application-observability',
     autoresearch: (): string => '/autoresearch',
     autoresearchNew: (): string => '/autoresearch/new',
     autoresearchPipeline: (id: string): string => `/autoresearch/${id}`,
@@ -1569,6 +1597,8 @@ export const productUrls = {
         `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
     dataWarehouseSourceConnect: (kind?: string): string =>
         `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
+    warehouseDestinationConnect: (kind?: string): string =>
+        `/data-warehouse/connect-destination${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     earlyAccessFeatures: (): string => '/early_access_features',
     earlyAccessFeature: (id: string): string => `/early_access_features/${id}`,
     endpoints: (): string => '/endpoints',
@@ -2005,6 +2035,10 @@ export const productUrls = {
     broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
+    transactional: (tab?: MessagingNavTabKey): string => `/transactional${tab ? `/${tab}` : ''}`,
+    transactionalNew: (): string => '/transactional/new',
+    transactionalTemplate: (id: string): string => `/transactional/library/templates/${id}`,
+    broadcastsTemplate: (id: string): string => `/broadcasts/library/templates/${id}`,
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -2337,6 +2371,7 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 
 /** This const is auto-generated, as is the whole file */
 export type ProductTreePath =
+    | 'Application observability'
     | 'Apps'
     | 'Autoresearch'
     | 'Broadcasts'
@@ -2381,6 +2416,7 @@ export type ProductTreePath =
     | 'Tasks'
     | 'Toolbar'
     | 'Tracing'
+    | 'Transactional'
     | 'Uptime monitoring'
     | 'Visual review'
     | 'Web analytics'
@@ -2389,6 +2425,17 @@ export type ProductTreePath =
 
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
+    {
+        path: 'Application observability',
+        intents: [ProductKey.TRACING],
+        category: ProductItemCategory.MONITORING,
+        iconType: 'tracing' as FileSystemIconType,
+        iconColor: ['var(--color-product-tracing-light)', 'var(--color-product-tracing-dark)'] as FileSystemIconColor,
+        href: '/application-observability',
+        flag: FEATURE_FLAGS.APPLICATION_OBSERVABILITY,
+        sceneKey: 'ApplicationObservability',
+        sceneKeys: ['ApplicationObservability'],
+    },
     {
         path: 'Apps',
         intents: [ProductKey.STREAMLIT_APPS],
@@ -2430,6 +2477,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'WorkflowsLibraryTemplate',
             'Broadcasts',
             'Broadcast',
+            'Transactional',
             'WorkflowsEmailDomain',
         ],
     },
@@ -2444,6 +2492,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         ],
         href: urls.businessIntelligence(),
         searchKeywords: ['bi', 'pivot table', 'chart builder'],
+        tags: ['beta'],
         flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKey: 'BusinessIntelligence',
         sceneKeys: ['BusinessIntelligenceHome', 'BusinessIntelligence'],
@@ -2618,6 +2667,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
+            'WarehouseDestinationConnect',
         ],
     },
     {
@@ -2822,10 +2872,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         category: ProductItemCategory.TOOLS,
         iconType: 'inbox' as FileSystemIconType,
         href: urls.inbox(),
-        searchKeywords: ['signals', 'triage', 'findings'],
+        searchKeywords: ['signals', 'sources', 'triage', 'findings'],
         searchTabs: [
             { name: 'Reports', href: urls.inbox('reports') },
             { name: 'Scouts', href: urls.inbox('scouts') },
+            { name: 'Sources', href: urls.inbox('sources') },
+            { name: 'Settings', href: urls.inbox('settings') },
         ],
         flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
         tags: ['beta'],
@@ -3277,6 +3329,26 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         sceneKeys: ['Tracing', 'TracingOperation', 'TracingRetentionNew', 'TracingRetentionDetail'],
     },
     {
+        path: 'Transactional',
+        intents: [ProductKey.WORKFLOWS],
+        href: urls.transactional(),
+        type: 'transactional',
+        category: ProductItemCategory.MESSAGING,
+        iconType: 'transactional',
+        iconColor: ['var(--color-product-workflows-light)', 'var(--color-product-workflows-dark)'],
+        sceneKey: 'Transactional',
+        flag: FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API,
+        sceneKeys: [
+            'Workflows',
+            'Workflow',
+            'WorkflowsLibraryTemplate',
+            'Broadcasts',
+            'Broadcast',
+            'Transactional',
+            'WorkflowsEmailDomain',
+        ],
+    },
+    {
         path: 'Uptime monitoring',
         intents: [ProductKey.UPTIME_MONITORING],
         category: ProductItemCategory.UNRELEASED,
@@ -3371,6 +3443,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             'WorkflowsLibraryTemplate',
             'Broadcasts',
             'Broadcast',
+            'Transactional',
             'WorkflowsEmailDomain',
         ],
     },
@@ -3487,6 +3560,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
             'DataWarehouseSourceConnect',
             'DataWarehouseSourceSchema',
             'WarehouseDestinations',
+            'WarehouseDestinationConnect',
         ],
     },
     {
@@ -3596,7 +3670,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.warehouseDestinations(),
         flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,
         sceneKey: 'WarehouseDestinations',
-        sceneKeys: ['WarehouseDestinations'],
+        sceneKeys: ['WarehouseDestinations', 'WarehouseDestinationConnect'],
     },
     {
         path: 'Warehouse properties',

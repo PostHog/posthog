@@ -1,5 +1,5 @@
 {
-  "schema": "schemas/flags_response_v3.schema.json",
+  "schema": "schemas/flags_response_v4.schema.json",
   "templates": {
     "targeting_match_targeted_release": {
       "errorsWhileComputingFlags": false,

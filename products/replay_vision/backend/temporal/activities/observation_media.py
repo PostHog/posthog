@@ -234,7 +234,6 @@ async def prepare_observation_media_activity(inputs: ObservationMediaInputs) -> 
                 small_media_asset_id=small_media_asset.id,
                 object_id=object_id,
                 video_start_ms=int(video_time_s * 1000),
-                rec_start_ms=source.clock.video_s_to_session_ms(video_time_s) if source.clock else None,
             )
         )
 
@@ -259,7 +258,6 @@ class _MediaLink:
     position: int
     asset_id: int
     video_start_ms: int
-    rec_start_ms: int | None
     content_location: str
     small_asset_id: int | None
     small_content_location: str | None
@@ -286,7 +284,6 @@ def _link_media(team_id: int, observation_id: UUID, links: list[_MediaLink]) -> 
                     "team_id": team_id,
                     "asset_id": link.asset_id,
                     "video_start_ms": link.video_start_ms,
-                    "rec_start_ms": link.rec_start_ms,
                     "small_asset_id": link.small_asset_id,
                 },
             )
@@ -356,7 +353,6 @@ async def finalize_observation_media_activity(inputs: FinalizeObservationMediaIn
                 position=frame.position,
                 asset_id=frame.media_asset_id,
                 video_start_ms=frame.video_start_ms,
-                rec_start_ms=frame.rec_start_ms,
                 content_location=_content_location(result.s3_uri),
                 small_asset_id=frame.small_media_asset_id if small else None,
                 small_content_location=_content_location(result.small_s3_uri)

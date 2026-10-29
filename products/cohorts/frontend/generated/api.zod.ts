@@ -172,8 +172,16 @@ export const CohortsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Person UUIDs to add to a new static cohort.'),
 })
 
+export const cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax = 1000
+
 export const CohortsAddPersonsToStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({
-    person_ids: zod.array(zod.uuid()).optional().describe('List of person UUIDs to add to the cohort'),
+    person_ids: zod
+        .array(zod.uuid())
+        .max(cohortsAddPersonsToStaticCohortPartialUpdateBodyPersonIdsMax)
+        .optional()
+        .describe(
+            'Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.'
+        ),
 })
 
 export const CohortsRemovePersonFromStaticCohortPartialUpdateBody = /* @__PURE__ */ zod.object({

@@ -89,7 +89,7 @@ describe('shared-image policy and legacy projection', () => {
     const inlineRules = yaml.load(inline!) as Record<string, Paths | null>
     const policy = productionPolicy()
     const projected = yaml.load(projectLegacyFilters(policy, inline!)) as Record<string, Paths>
-    expect(Object.keys(projected)).toEqual(Object.keys(inlineRules))
+    expect(Object.keys(projected)).toEqual(Object.keys({...inlineRules, ...policy.filters}))
     for (const [name, rule] of Object.entries(inlineRules)) {
       expect({[name]: projected[name]}).toEqual({[name]: rule === null ? policy.filters[name] : rule})
     }
@@ -119,18 +119,15 @@ describe('shared-image policy and legacy projection', () => {
     expect(new Filter(projected).match(files)).toEqual(new Filter(yaml.dump({...yaml.load(inline) as object, ...policy.filters})).match(files))
   })
 
-  test('metadata removal-parent coverage stays distinct from the broader active warehouse rule', () => {
-    const historical = readFileSync(path.join(__dirname, 'fixtures/metadata-removal-parent.yaml'), 'utf8')
-    const current = productionPolicy()
-    const filter = new Filter(projectLegacyFilters(current, historical))
+  test('the metadata channel filter and the broader active warehouse rule stay distinct', () => {
+    const filter = new Filter(projectLegacyFilters(productionPolicy(), '{}'))
     const files = [
-      {filename: 'products/warehouse_sources/backend/temporal/data_imports/source.py', status: ChangeStatus.Modified},
-      {filename: 'products/warehouse_sources/backend/models.py', status: ChangeStatus.Modified},
+      {filename: 'products/data_modeling/backend/views.py', status: ChangeStatus.Modified},
+      {filename: 'products/warehouse_sources_queue/consumer.py', status: ChangeStatus.Modified},
       {filename: 'Dockerfile', status: ChangeStatus.Modified}
     ]
     const result = filter.match(files)
-    expect(result.dataWarehouseMetadata).toEqual([files[0]])
-    expect(result.dataWarehouse).toEqual(files)
-    expect(current.images['posthog-cloud'].channels).toEqual({})
+    expect(result.dataWarehouseMetadata).toEqual([files[0], files[2]])
+    expect(result.dataWarehouse).toEqual([files[1], files[2]])
   })
 })

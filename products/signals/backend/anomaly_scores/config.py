@@ -93,6 +93,20 @@ class ScoringRun(StrEnum):
 # Retrain hourly insights once a day, daily once a week, weekly once a month, and monthly once a quarter.
 DEFAULT_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 24, IntervalType.DAY: 7, IntervalType.WEEK: 4, IntervalType.MONTH: 3}
 MAX_TRAIN_EVERY_BUCKETS = {IntervalType.HOUR: 168, IntervalType.DAY: 30, IntervalType.WEEK: 13, IntervalType.MONTH: 12}
+# Past `train_every_buckets`, a model keeps scoring until a train step has budget for it. Past this age it stops
+# scoring, and its insight waits for a train step. A value at or below `train_every_buckets` turns off stale scores.
+DEFAULT_MAX_MODEL_AGE_BUCKETS = {
+    IntervalType.HOUR: 96,
+    IntervalType.DAY: 28,
+    IntervalType.WEEK: 16,
+    IntervalType.MONTH: 12,
+}
+MAX_MODEL_AGE_BUCKETS_LIMIT = {
+    IntervalType.HOUR: 672,
+    IntervalType.DAY: 120,
+    IntervalType.WEEK: 52,
+    IntervalType.MONTH: 48,
+}
 
 
 # Hourly insights are left out by default: with many eligible insights, the time between two visits of
@@ -108,7 +122,8 @@ class AnomalyScoringConfig:
     allow_team_ids: tuple[int, ...] = ()
     skip_team_ids: tuple[int, ...] = ()
     intervals: tuple[IntervalType, ...] = DEFAULT_TICK_INTERVALS
-    # Smooths the spend over the hour, so one tick cannot use the whole query budget.
+    # Smooths the spend over the hour, so one tick cannot use the whole query budget. With the split on,
+    # the two passes use the per-pass caps below instead.
     max_insights_per_tick: int = 8
     max_concurrency: int = 2
     # Scoring queries per clock hour. One pick sends one query per series, see `scoring.query_cost`.
@@ -120,9 +135,17 @@ class AnomalyScoringConfig:
     train_every_buckets: dict[IntervalType, int] = dataclasses.field(
         default_factory=lambda: dict(DEFAULT_TRAIN_EVERY_BUCKETS)
     )
+    max_model_age_buckets: dict[IntervalType, int] = dataclasses.field(
+        default_factory=lambda: dict(DEFAULT_MAX_MODEL_AGE_BUCKETS)
+    )
     # Score step queries per clock hour. Train steps use the budgets above, so a cheap score step never waits for them.
     max_score_queries_per_hour: int = 600
-    max_score_queries_per_project_per_hour: int = 150
+    max_score_queries_per_project_per_hour: int = 500
+    # Per-tick picks of each pass when the split is on. Score steps are cheap, so the score pass gets most slots.
+    max_score_insights_per_tick: int = 20
+    max_train_insights_per_tick: int = 2
+    # An insight is scored only while one of its activity signals falls in this many days, see `queue.active_insights`.
+    active_window_days: int = 90
 
 
 DISABLED = AnomalyScoringConfig()
@@ -133,6 +156,9 @@ MAX_QUERIES_PER_HOUR = 2000
 MAX_QUERIES_PER_PROJECT_PER_HOUR = 500
 MAX_SCORE_QUERIES_PER_HOUR = 5000
 MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR = 1000
+MAX_SCORE_INSIGHTS_PER_TICK = 200
+MAX_TRAIN_INSIGHTS_PER_TICK = 50
+MAX_ACTIVE_WINDOW_DAYS = 365
 
 
 def _positive_int(value: Any, default: int) -> int:
@@ -222,6 +248,9 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
         train_every_buckets=_buckets_per_interval(
             payload.get("train_every_buckets"), DEFAULT_TRAIN_EVERY_BUCKETS, MAX_TRAIN_EVERY_BUCKETS
         ),
+        max_model_age_buckets=_buckets_per_interval(
+            payload.get("max_model_age_buckets"), DEFAULT_MAX_MODEL_AGE_BUCKETS, MAX_MODEL_AGE_BUCKETS_LIMIT
+        ),
         max_score_queries_per_hour=min(
             _positive_int(payload.get("max_score_queries_per_hour"), defaults.max_score_queries_per_hour),
             MAX_SCORE_QUERIES_PER_HOUR,
@@ -231,6 +260,21 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
                 payload.get("max_score_queries_per_project_per_hour"), defaults.max_score_queries_per_project_per_hour
             ),
             MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR,
+        ),
+        max_score_insights_per_tick=min(
+            _positive_int(payload.get("max_score_insights_per_tick"), defaults.max_score_insights_per_tick),
+            MAX_SCORE_INSIGHTS_PER_TICK,
+        ),
+        # A payload from before the split sets only `max_insights_per_tick`, and keeps it as its train cap.
+        max_train_insights_per_tick=min(
+            _positive_int(
+                payload.get("max_train_insights_per_tick"),
+                _positive_int(payload.get("max_insights_per_tick"), defaults.max_train_insights_per_tick),
+            ),
+            MAX_TRAIN_INSIGHTS_PER_TICK,
+        ),
+        active_window_days=min(
+            _positive_int(payload.get("active_window_days"), defaults.active_window_days), MAX_ACTIVE_WINDOW_DAYS
         ),
     )
 

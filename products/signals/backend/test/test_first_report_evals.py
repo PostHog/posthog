@@ -123,7 +123,7 @@ class TestFirstReportScorers(TestCase):
             ),
         }
         with TemporaryDirectory() as directory, patch.object(base, "build_case_dir", return_value=Path(directory)):
-            run = base._SandboxedEvalRun("scout", [], [], MagicMock(posthog_client=None), False, True)
+            run = base._SandboxedEvalRun("scout", [], [], MagicMock(posthog_client=None))
             output = async_to_sync(run._post_process)(
                 SandboxedEvalCase(name="sparse", prompt="Investigate"),
                 NullCaseHooks(),

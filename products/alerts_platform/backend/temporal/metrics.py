@@ -169,6 +169,14 @@ def increment_describer_failures(source: str) -> None:
     ).add(1)
 
 
+def increment_slack_renderer_failures(source: str) -> None:
+    """A source's Slack renderer raised, so its alerts went out in the platform's generic layout."""
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_slack_renderer_failures_total",
+        "Slack messages sent in the platform's layout because the source's renderer raised",
+    ).add(1)
+
+
 def increment_root_edit_failures(provider: str) -> None:
     """An opening message could not be brought up to date, so it shows an older state."""
     get_metric_meter({"provider": provider}).create_counter(
@@ -181,6 +189,17 @@ def increment_deliveries_previewed(source: str) -> None:
     get_metric_meter({"source": source}).create_counter(
         "alerts_platform_deliveries_previewed_total",
         "Deliveries recorded as a preview instead of being sent",
+    ).add(1)
+
+
+def increment_holds_expired(source: str) -> None:
+    """Held deliveries the safety net sent because nothing released them before their deadline.
+
+    Each one is a source that held a delivery and never answered, so a rise means a stalled source.
+    """
+    get_metric_meter({"source": source}).create_counter(
+        "alerts_platform_holds_expired_total",
+        "Held deliveries the safety net sent after their deadline passed",
     ).add(1)
 
 

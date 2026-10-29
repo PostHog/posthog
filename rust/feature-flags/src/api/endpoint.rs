@@ -4,9 +4,9 @@ use crate::{
         concurrency_metrics::{ConcurrencyEnterTime, ConcurrencyLimitWait},
         errors::{ClientFacingError, FlagError},
         flags_rate_limiter::RateLimitResult,
+        request_outcome::OutcomeMarks,
         types::{
-            ConfigResponse, FlagsQueryParams, FlagsResponse, FlagsResponseV4, LegacyFlagsResponse,
-            ServiceResponse,
+            FlagsQueryParams, FlagsResponse, FlagsResponseV4, LegacyFlagsResponse, ServiceResponse,
         },
     },
     config::BotFilterMode,
@@ -18,7 +18,8 @@ use crate::{
         FLAG_BOT_DETECTED_COUNTER, FLAG_RATE_LIMIT_CHECK_TIME_MS, FLAG_TOKEN_EXTRACT_TIME_MS,
     },
     router,
-    utils::{bot_detection, user_agent::UserAgentInfo},
+    team::request_blocklist,
+    utils::{bot_detection, forwarded_for, user_agent::UserAgentInfo},
 };
 // TODO: stream this instead
 use axum::extract::{Extension, MatchedPath, Query, State};
@@ -28,8 +29,6 @@ use axum::Json;
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
 use governor::clock;
-use serde_json;
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, OnceLock};
 use tracing::Instrument;
@@ -48,56 +47,12 @@ fn extract_request_id(headers: &HeaderMap) -> Uuid {
 /// Extracts client IP address from request headers, checking X-Forwarded-For first
 /// then falling back to the direct client IP. Matches Python's get_ip_address function.
 fn extract_client_ip(headers: &HeaderMap, fallback_ip: IpAddr) -> IpAddr {
-    // Check X-Forwarded-For header first (case-insensitive)
-    if let Some(forwarded_for) = headers.get("X-Forwarded-For") {
-        if let Ok(forwarded_str) = forwarded_for.to_str() {
-            // Take the first IP from the comma-separated list
-            if let Some(first_ip) = forwarded_str.split(',').next() {
-                let trimmed = first_ip.trim();
-
-                // Strip port from IP address if present (Azure gateway compatibility)
-                let ip_without_port = if trimmed.starts_with('[') {
-                    // IPv6 with port (e.g., "[::1]:8080")
-                    trimmed
-                        .split(']')
-                        .next()
-                        .and_then(|s| s.strip_prefix('['))
-                        .unwrap_or(trimmed)
-                } else if trimmed.contains('.') {
-                    // Likely IPv4 - check for port after the last dot
-                    if let Some(colon_idx) = trimmed.rfind(':') {
-                        if let Some(last_dot_idx) = trimmed.rfind('.') {
-                            if colon_idx > last_dot_idx {
-                                // Port comes after the last dot, so this is IPv4:port
-                                &trimmed[..colon_idx]
-                            } else {
-                                // Colon before last dot? Malformed, return as-is
-                                trimmed
-                            }
-                        } else {
-                            // Has colon but no dot? Shouldn't happen for IPv4
-                            trimmed
-                        }
-                    } else {
-                        // No colon, just return the IP
-                        trimmed
-                    }
-                } else {
-                    // No dots and no brackets - assume IPv6 without port
-                    // IPv6 can have colons as part of the address, so don't strip
-                    trimmed
-                };
-
-                // Try to parse the IP address
-                if let Ok(parsed_ip) = ip_without_port.parse::<IpAddr>() {
-                    return parsed_ip;
-                }
-            }
-        }
-    }
-
-    // Fall back to the direct client IP
-    fallback_ip
+    headers
+        .get("X-Forwarded-For")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .and_then(forwarded_for::parse_entry)
+        .unwrap_or(fallback_ip)
 }
 
 /// Updates the canonical log with rate limit info and returns the error for early return.
@@ -175,21 +130,7 @@ fn get_minimal_flags_response(
     // decide/non-decide defaults.
     let version_num = version.map(parse_version);
 
-    let mut config = ConfigResponse::new();
-    config.set(
-        "supportedCompression",
-        serde_json::json!(["gzip", "gzip-js"]),
-    );
-    config.set(
-        "config",
-        serde_json::json!({"enable_collect_everything": true}),
-    );
-    config.set("toolbarParams", serde_json::json!({}));
-    config.set("isAuthenticated", serde_json::json!(false));
-    config.set("sessionRecording", serde_json::json!(false));
-
-    let mut response = FlagsResponse::new(false, HashMap::new(), None, request_id);
-    response.config = config;
+    let response = FlagsResponse::minimal(request_id);
 
     let (service_response, _) =
         get_versioned_response(is_from_legacy_decide, version_num, v4_enabled, response).expect(
@@ -295,6 +236,8 @@ pub async fn flags<C>(
     // the shim being removed or absent on routes that bypass it (e.g. a
     // future `/flags`-only sub-router).
     body_read_duration: Option<Extension<BodyReadDuration>>,
+    // Populated by the `record_request_outcome` middleware.
+    outcome_marks: Option<Extension<OutcomeMarks>>,
     headers: HeaderMap,
     method: Method,
     path: MatchedPath,
@@ -402,6 +345,8 @@ where
         .map(|v| v == "decide")
         .unwrap_or(false);
 
+    let origin_host = request_blocklist::origin_host(&headers);
+
     // Mutable: the IP rate-limit and bot branches below mark fields on
     // it directly because they run outside the canonical-log scope.
     // Fields resolved inside `run_with_canonical_log` go through
@@ -410,6 +355,7 @@ where
         request_id,
         ip: ip_string.clone(),
         user_agent: user_agent.map(|s| s.to_string()),
+        origin_host: origin_host.clone(),
         lib: ua_info.lib_for_logging().map(str::to_string),
         // The decoded body can override this later. Until then, prefer SDK User-Agent over legacy query params.
         lib_version: initial_lib_version(&ua_info, &query_params),
@@ -417,6 +363,9 @@ where
         queue_time_ms,
         concurrency_limit_wait_ms,
         body_read_ms,
+        outcome_marks: outcome_marks
+            .map(|Extension(marks)| marks)
+            .unwrap_or_default(),
         ..Default::default()
     };
 
@@ -498,6 +447,7 @@ where
         request_entered_at,
         state: state.clone(),
         ip,
+        origin_host,
         headers: headers.clone(),
         meta: modified_query_params,
         body,
@@ -717,6 +667,7 @@ fn parse_request_start_ms(value: &str) -> Option<i64> {
 mod tests {
     use crate::api::types::Compression;
     use rstest::rstest;
+    use std::collections::HashMap;
 
     use super::*;
     use axum::{

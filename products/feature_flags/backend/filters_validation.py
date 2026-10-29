@@ -23,7 +23,7 @@ from rest_framework.settings import api_settings
 
 from posthog.hogql.property import parse_semver
 
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 
 from products.feature_flags.backend.api.filters_schema import FeatureFlagFiltersSerializer
@@ -58,19 +58,9 @@ def _is_comparable_number(value: Any) -> bool:
 
 
 LIST_VALUE_OPERATORS: frozenset[str] = frozenset({"icontains_multi", "not_icontains_multi"})
-SEMVER_OPERATORS: frozenset[str] = frozenset(
-    {
-        "semver_gt",
-        "semver_gte",
-        "semver_lt",
-        "semver_lte",
-        "semver_eq",
-        "semver_neq",
-        "semver_tilde",
-        "semver_caret",
-        "semver_wildcard",
-    }
-)
+# The matcher honors these two on a cohort property and scores every other operator as a
+# non-match, so a condition that stores one of the others never matches.
+COHORT_OPERATORS: frozenset[str] = frozenset({"in", "not_in"})
 PERSON_AGGREGATED_PROPERTY_TYPES: tuple[str, ...] = ("person", "cohort", "flag")
 
 
@@ -239,12 +229,21 @@ def check_operator_value_compatibility(filters: Mapping[str, Any]) -> list[Viola
                         message="Flag properties must use the 'flag_evaluates_to' operator.",
                     )
                 )
-            if operator in ("in", "not_in") and prop.get("type") != "cohort":
+            if operator in COHORT_OPERATORS and prop.get("type") != "cohort":
                 violations.append(
                     Violation(
                         rule_id="cross_field.in_not_in_requires_cohort",
                         path=f"groups[{group_index}].properties[{prop_index}].operator",
                         message=f"Operator {operator} is only supported on cohort properties.",
+                    )
+                )
+            # An omitted operator is valid, because the matcher reads it as `in`.
+            if prop.get("type") == "cohort" and operator is not None and operator not in COHORT_OPERATORS:
+                violations.append(
+                    Violation(
+                        rule_id="cross_field.cohort_requires_in_or_not_in",
+                        path=f"groups[{group_index}].properties[{prop_index}].operator",
+                        message=f"Cohort properties must use the 'in' or 'not_in' operator, not '{operator}'.",
                     )
                 )
             if operator in DATE_OPERATORS and determine_parsed_date_for_property_matching(value) is None:
