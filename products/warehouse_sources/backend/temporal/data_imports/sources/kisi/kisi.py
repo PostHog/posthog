@@ -14,13 +14,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.int
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
-    rest_api_resource,
+    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.settings import (
@@ -39,6 +40,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.kisi.setti
     EVENTS_POLL_INTERVAL_SECONDS,
     EVENTS_POLL_MAX_ATTEMPTS,
     EVENTS_WINDOW,
+    GROUP_LOCKS,
+    GROUP_LOCKS_PATH,
+    GROUPS,
     MAX_OFFSET,
     OFFSET_ERROR,
     PAGE_SIZE,
@@ -59,6 +63,7 @@ class KisiResumeConfig:
     event_set_id: int | None = None
     events_cursor: str | None = None
     events_written: int = 0
+    fanout_state: dict[str, Any] | None = None
 
 
 class KisiEventSetError(Exception):
@@ -125,10 +130,50 @@ def kisi_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
+    is_fanout = inputs.schema_name == GROUP_LOCKS
+
     def save_checkpoint(state: dict[str, Any] | None) -> None:
-        if state is not None:
+        if state is None:
+            return
+        if is_fanout:
+            resumable_source_manager.save_state(KisiResumeConfig(fanout_state=state))
+        else:
             resumable_source_manager.save_state(KisiResumeConfig(offset=int(state["offset"])))
 
+    initial_paginator_state: dict[str, Any] | None = None
+    if resume is not None:
+        initial_paginator_state = resume.fanout_state if is_fanout else {"offset": resume.offset}
+
+    resources: list[str | EndpointResource] = (
+        [
+            {
+                "name": GROUPS,
+                "endpoint": {"path": GROUPS, "data_selector": "$"},
+                "write_disposition": "replace",
+            },
+            {
+                "name": GROUP_LOCKS,
+                "endpoint": {
+                    "path": GROUP_LOCKS_PATH,
+                    "params": {"group_id": {"type": "resolve", "resource": GROUPS, "field": "id"}},
+                    "data_selector": "$",
+                    # A path with a query string otherwise gets the single page paginator.
+                    "paginator": KisiPaginator(),
+                    # A group deleted after the groups page was read answers 404.
+                    "response_actions": [{"status_code": 404, "action": "ignore"}],
+                },
+                "write_disposition": "replace",
+            },
+        ]
+        if is_fanout
+        else [
+            {
+                "name": inputs.schema_name,
+                "endpoint": {"path": inputs.schema_name, "data_selector": "$"},
+                "write_disposition": "replace",
+            }
+        ]
+    )
     config: RESTAPIConfig = {
         "client": {
             "base_url": BASE_URL,
@@ -138,21 +183,19 @@ def kisi_source(
             "request_timeout": REQUEST_TIMEOUT,
             "allow_redirects": False,
         },
-        "resources": [
-            {
-                "name": inputs.schema_name,
-                "endpoint": {"path": inputs.schema_name, "data_selector": "$"},
-                "write_disposition": "replace",
-            }
-        ],
+        "resources": resources,
     }
-    resource = rest_api_resource(
-        config,
-        inputs.team_id,
-        inputs.job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state={"offset": resume.offset} if resume else None,
+    resource = next(
+        item
+        for item in rest_api_resources(
+            config,
+            inputs.team_id,
+            inputs.job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+        )
+        if item.name == inputs.schema_name
     )
     return SourceResponse(
         name=inputs.schema_name,
