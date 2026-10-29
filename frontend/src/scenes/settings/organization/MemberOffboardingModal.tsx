@@ -111,7 +111,7 @@ export function MemberOffboardingModal(): JSX.Element {
                                           removedLoading ? { disabledReason: 'Removing member…' } : true,
                                       barPortalTarget: bulkBarTarget,
                                       actionsPlacement: 'start',
-                                      barClassName: 'justify-start px-0 [&>span]:min-w-0 [&>span]:truncate',
+                                      barClassName: 'justify-start! px-0! [&>span]:min-w-0 [&>span]:truncate',
                                       getSelectionLabel: ({ selectedKeys }) => getSelectionLabel(selectedKeys),
                                       renderActions: (ctx) => (
                                           <LemonButton
