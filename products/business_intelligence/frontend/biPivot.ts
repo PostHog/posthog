@@ -52,10 +52,14 @@ export function buildBIPivotModel(config: BIConfig, columns: string[], results: 
     }
     const addPath = (path: unknown[], side: 'rows' | 'columns'): void => {
         if (!path.length) {
-            if (!(side === 'rows' ? config.totals?.columns : config.totals?.rows) || members[side].has('[]')) {
+            const hasDimensions = (side === 'rows' ? rowCount : columnCount) > 0
+            if (
+                (hasDimensions && !(side === 'rows' ? config.totals?.columns : config.totals?.rows)) ||
+                members[side].has('[]')
+            ) {
                 return
             }
-            const total = { key: '[]', path, label: 'Total', children: [] }
+            const total = { key: '[]', path, label: hasDimensions ? 'Total' : '', children: [] }
             members[side].set('[]', total)
             model[side].push(total)
         }
