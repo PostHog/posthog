@@ -119,6 +119,20 @@ describe('TimeSeriesComboChart', () => {
             expect(Math.max(...ticks)).toBe(100)
         })
 
+        it.each([
+            ['ignores yAxis.min on an axis with bars', BAR_AND_LINE, 0],
+            [
+                'honors yAxis.min on an axis without bars',
+                BAR_AND_LINE.map((s) => ({ ...s, type: 'area' as const })),
+                30,
+            ],
+        ])('%s', (_, series, expectedMinTick) => {
+            const { chart } = renderChart(
+                <TimeSeriesComboChart series={series} labels={LABELS} theme={THEME} config={{ yAxis: { min: 30 } }} />
+            )
+            expect(Math.min(...chart.yTicks().map(Number))).toBe(expectedMinTick)
+        })
+
         it('hides y-axis ticks when yAxis.hide is true', () => {
             const { chart } = renderChart(
                 <TimeSeriesComboChart

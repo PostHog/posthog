@@ -161,3 +161,31 @@ export const DualYAxis: Story = {
         )
     },
 }
+
+/** `yAxis.min` / `max` apply to axes that carry no bars. Here the bars sit on the left axis from
+ *  zero, while the right axis (lines only) is bounded to 100..350 to zoom in on the variation. */
+export const AxisBoundsWithoutBars: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesComboChart
+                    series={[
+                        { ...BAR_AND_LINE[0], yAxisId: 'left' },
+                        { ...BAR_AND_LINE[1], yAxisId: 'right' },
+                    ]}
+                    labels={MONTHLY_LABELS}
+                    theme={theme}
+                    config={{
+                        xAxis: { timezone: 'UTC', interval: 'month' },
+                        yAxis: [
+                            { id: 'left', showGrid: true, min: 200 },
+                            { id: 'right', position: 'right', min: 100, max: 350 },
+                        ],
+                        legend: { show: true },
+                    }}
+                />
+            </Stage>
+        )
+    },
+}
