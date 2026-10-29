@@ -26,7 +26,6 @@ import type {
     ForgetRequestApi,
     ForgetResponseApi,
     InboxOnboardingDraftApi,
-    InboxOnboardingExposureApi,
     InboxOnboardingStateApi,
     InboxSummaryApi,
     LighthouseAuditRequestApi,
@@ -423,26 +422,9 @@ export const getSignalsOnboardingExposeCreateUrl = (projectId: string) => {
 
 export const signalsOnboardingExposeCreate = async (
     projectId: string,
-    inboxOnboardingExposureApi: InboxOnboardingExposureApi,
     options?: RequestInit
 ): Promise<InboxOnboardingStateApi> => {
     return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingExposeCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(inboxOnboardingExposureApi),
-    })
-}
-
-export const getSignalsOnboardingReconcileCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/onboarding/reconcile/`
-}
-
-export const signalsOnboardingReconcileCreate = async (
-    projectId: string,
-    options?: RequestInit
-): Promise<InboxOnboardingStateApi> => {
-    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingReconcileCreateUrl(projectId), {
         ...options,
         method: 'POST',
     })

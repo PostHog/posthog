@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-10-28 10:05:20 UTC
+// Generated at: 2026-10-28 20:03:22 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -110,7 +110,6 @@ export type CanonicalProvider =
     | 'google-vertex-us'
     | 'google-vertex-us-central1'
     | 'google-vertex-us-east5'
-    | 'google-vertex-us-south1'
     | 'groq'
     | 'inception'
     | 'inceptron-fp4'
@@ -193,6 +192,8 @@ export type CanonicalProvider =
     | 'parasail-fp8'
     | 'parasail-int4'
     | 'pareto-alpha-us'
+    | 'particle-ai'
+    | 'particle-ai-nvfp4'
     | 'perceptron'
     | 'perplexity'
     | 'perplexity-int8'

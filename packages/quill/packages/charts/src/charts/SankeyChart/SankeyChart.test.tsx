@@ -47,8 +47,8 @@ describe('SankeyChart', () => {
                 config={{ columnLabels: ['Init', '1st tool', 'Outcome', 'unused'], showNodeValues: true }}
             />
         )
-        expect(chart.sankeyNodeLabels()).toEqual(['Start 12', 'Tool A 12', 'Completed 12'])
-        expect(chart.sankeyColumnLabels()).toEqual(['Init', '1st tool', 'Outcome'])
+        expect(chart.sankey.nodeLabels()).toEqual(['Start 12', 'Tool A 12', 'Completed 12'])
+        expect(chart.sankey.columnLabels()).toEqual(['Init', '1st tool', 'Outcome'])
         expect(chart.canvas.getAttribute('aria-label')).toBe('Sankey chart with 3 nodes and 2 links')
     })
 
@@ -72,7 +72,7 @@ describe('SankeyChart', () => {
                 config={{ nodePadding: 0 }}
             />
         )
-        expect(chart.sankeyNodeLabels()).toEqual(['Start', 'Big', 'Thin'])
+        expect(chart.sankey.nodeLabels()).toEqual(['Start', 'Big', 'Thin'])
     })
 
     it('shows the hovered node in the tooltip, reports it once, and fires onNodeClick for it', async () => {

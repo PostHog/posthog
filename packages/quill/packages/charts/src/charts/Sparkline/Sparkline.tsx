@@ -56,10 +56,9 @@ const LINE_MARGINS = { top: 6, right: 0, bottom: 6, left: 0 }
 const BAR_MARGINS = { top: 2, right: 0, bottom: 0, left: 0 }
 
 export function Sparkline(props: SparklineProps): React.ReactElement {
-    const { onError, ...rest } = props
     return (
-        <ChartErrorBoundary onError={onError}>
-            <SparklineInner {...rest} />
+        <ChartErrorBoundary onError={props.onError}>
+            <SparklineInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -80,7 +79,8 @@ function SparklineInner({
     tooltip,
     className,
     dataAttr,
-}: Omit<SparklineProps, 'onError'>): React.ReactElement {
+    onError,
+}: SparklineProps): React.ReactElement {
     const resolvedColor = color ?? theme.colors[0]
     const chartSeries = useMemo<Series[]>(() => {
         if (series) {
@@ -129,11 +129,25 @@ function SparklineInner({
             data-attr={dataAttr}
         >
             {type === 'bar' ? (
-                <BarChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
+                <BarChart
+                    series={chartSeries}
+                    labels={resolvedLabels}
+                    theme={theme}
+                    config={config}
+                    tooltip={tooltip}
+                    onError={onError}
+                >
                     {watcher}
                 </BarChart>
             ) : (
-                <LineChart series={chartSeries} labels={resolvedLabels} theme={theme} config={config} tooltip={tooltip}>
+                <LineChart
+                    series={chartSeries}
+                    labels={resolvedLabels}
+                    theme={theme}
+                    config={config}
+                    tooltip={tooltip}
+                    onError={onError}
+                >
                     {watcher}
                 </LineChart>
             )}
