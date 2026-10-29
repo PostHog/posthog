@@ -30,6 +30,7 @@ from products.error_tracking.backend.logic.issue_summaries import (
     IssueSummaryInputs,
     IssueSummaryOutcome,
     IssueSummaryTimings,
+    WorkflowEventUnavailable,
     build_issue_summary_inputs,
     build_issue_summary_inputs_from_event,
     compute_input_hash,
@@ -46,6 +47,7 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.temporal.lifecycle import summary_worker
+from products.error_tracking.backend.temporal.lifecycle.event_properties import IssueCreatedEventNotFoundError
 from products.error_tracking.backend.temporal.lifecycle.issue_created import activities as issue_created_activities
 from products.error_tracking.backend.temporal.lifecycle.issue_created.activities import (
     generate_issue_created_summary_activity,
@@ -557,6 +559,36 @@ class TestIssueSummaryGeneration(BaseTest):
         slots.release()
         assert run_activity(self) == IssueSummaryOutcome.GENERATED.value
         assert slots.acquire(blocking=False)
+
+    @parameterized.expand(
+        [
+            (
+                "created",
+                issue_created_activities,
+                lambda test: generate_issue_created_summary_activity(test._issue_created_inputs()),
+            ),
+            (
+                "reopened",
+                issue_reopened_activities,
+                lambda test: generate_issue_reopened_summary_activity(test._issue_reopened_inputs()),
+            ),
+        ]
+    )
+    def test_lifecycle_summary_activity_raises_for_a_retry_while_its_event_is_not_ingested(
+        self, _name: str, activities: Any, run_activity: Any
+    ) -> None:
+        self.enterContext(patch.object(team_flags, "feature_enabled_or_false", return_value=True))
+        fetch = self.enterContext(
+            patch.object(activities, "fetch_event_properties", side_effect=IssueCreatedEventNotFoundError("not yet"))
+        )
+
+        with self.assertRaises(WorkflowEventUnavailable):
+            run_activity(self)
+        assert self.llm_calls == 0
+
+        fetch.side_effect = None
+        fetch.return_value = {"$lib": "web"}
+        assert run_activity(self) == IssueSummaryOutcome.GENERATED.value
 
     def _drain_write_budget(self, team_id: int) -> None:
         tiny = Budget(burst=1, per_hour=1)

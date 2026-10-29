@@ -236,6 +236,13 @@ class IssueSummaryInputs:
     input_hash: str
 
 
+class WorkflowEventUnavailable(Exception):
+    """The workflow's event did not load, often because ClickHouse has not ingested it yet.
+
+    It is not an inputs error, so the activity raises and Temporal retries it.
+    """
+
+
 def issue_summaries_enabled(team_id: int) -> bool:
     return team_flag_enabled(ISSUE_SUMMARY_FLAG, team_id)
 
@@ -406,7 +413,9 @@ def generate_issue_summary_from_event(
         issue_id,
         IssueSummaryTrigger.WRITE,
         first_summary_due,
-        lambda team, _timings: build_issue_summary_inputs_from_event(team, issue_id, load_event_properties(team)),
+        lambda team, _timings: build_issue_summary_inputs_from_event(
+            team, issue_id, _load_workflow_event(load_event_properties, team)
+        ),
     )
 
 
@@ -423,9 +432,16 @@ def refresh_issue_summary_on_reopen(
         IssueSummaryTrigger.REOPEN,
         refresh_due,
         lambda team, timings: build_issue_summary_inputs(
-            team, issue_id, timings, latest_event_properties=load_event_properties(team)
+            team, issue_id, timings, latest_event_properties=_load_workflow_event(load_event_properties, team)
         ),
     )
+
+
+def _load_workflow_event(load_event_properties: Callable[[Team], dict[str, object]], team: Team) -> dict[str, object]:
+    try:
+        return load_event_properties(team)
+    except Exception as error:
+        raise WorkflowEventUnavailable from error
 
 
 def _generate_in_workflow(
@@ -597,6 +613,8 @@ def _generate_claimed(
     try:
         with timings.stage("inputs"):
             inputs = generation.build_inputs(team, timings)
+    except WorkflowEventUnavailable:
+        raise
     except Exception as error:
         capture_exception(error, {"team_id": team_id, "issue_id": str(issue_id)})
         logger.warning("error_tracking_issue_summary_inputs_failed", team_id=team_id, issue_id=str(issue_id))
