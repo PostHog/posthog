@@ -112,6 +112,8 @@ CONCURRENT_EVALUATION_STARTS_PATCH = "alerts-platform-concurrent-evaluation-star
 BUSY_WAIT_LIMIT = PENDING_CLAIM_TTL + BUSY_RETRY_DELAY
 # The last attempt can start one attempt and one delay past the limit.
 DELIVERY_EXECUTION_TIMEOUT = 3 * DELIVERY_SCHEDULE_TO_CLOSE + BUSY_WAIT_LIMIT + BUSY_RETRY_DELAY
+# Leaves most of the inventory activity's 20 seconds to the inventory count after a stalled describe.
+SCHEDULE_DESCRIBE_TIMEOUT = dt.timedelta(seconds=5)
 
 
 @frozen
@@ -131,7 +133,8 @@ async def alerts_platform_discover_demand_activity(inputs: DemandDiscoveryInputs
 async def _tick_schedule_runs() -> TickScheduleRuns | None:
     """The tick schedule's own run counts. Temporal's namespace metrics do not say which schedule skipped."""
     try:
-        info = (await a_describe_schedule(activity.client(), SCHEDULE_ID)).info
+        async with asyncio.timeout(SCHEDULE_DESCRIBE_TIMEOUT.total_seconds()):
+            info = (await a_describe_schedule(activity.client(), SCHEDULE_ID)).info
     except Exception as error:
         await LOGGER.awarning("alerts_platform_schedule_describe_failed", error=str(error))
         return None
@@ -565,16 +568,15 @@ def _finished_tick(result: OrchestrateResult, cutoff_iso: str) -> OrchestrateRes
     """
     duration = workflow.now() - dt.datetime.fromisoformat(cutoff_iso)
     safe_record(record_tick_end, duration=duration, deadline_reached=result.deadline_reached)
+    # The log formatter drops `extra` fields, so the numbers go in the message.
     workflow.logger.info(
-        "Alerts platform tick finished",
-        extra={
-            "scheduled_at": cutoff_iso,
-            "duration_ms": int(duration.total_seconds() * 1000),
-            "dispatched": sum(page.dispatched for page in result.pages),
-            "remaining": result.remaining,
-            "pages": len(result.pages),
-            "deadline_reached": result.deadline_reached,
-        },
+        "Alerts platform tick finished: scheduled_at=%s duration_ms=%d dispatched=%d remaining=%d pages=%d deadline_reached=%s",
+        cutoff_iso,
+        int(duration.total_seconds() * 1000),
+        sum(page.dispatched for page in result.pages),
+        result.remaining,
+        len(result.pages),
+        result.deadline_reached,
     )
     return result
 
