@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 
 from posthog.dataclasses import frozen
 
@@ -6,6 +7,7 @@ _IMAGE_TYPES = frozenset({"image", "image_url", "input_image"})
 _AUDIO_TYPES = frozenset({"audio", "input_audio"})
 _FILE_TYPES = frozenset({"document", "file", "input_file"})
 _GEMINI_DATA_KEYS = ("inline_data", "inlineData", "file_data", "fileData")
+_OTEL_TYPES = frozenset({"blob", "uri"})
 _LINK_SCHEMES = ("https://", "http://", "phaiblob://")
 # Without full capture the SDKs replace the bytes with a placeholder such as `[base64 image redacted]`.
 # Same pattern as the frontend's `isRedactedMediaSentinel`.
@@ -31,8 +33,12 @@ class MediaBlock:
         return f"[{self.modality}]"
 
 
+# Turns a media block into the text a transcript shows in its place, for example `[image 1]`.
+MediaMarker = Callable[[MediaBlock], str]
+
+
 def parse_media_block(block: dict) -> MediaBlock | None:
-    """Read an OpenAI chat or Responses, Anthropic, or Gemini media block. OTel parts get markers in `otel_parts`."""
+    """Read an OpenAI chat or Responses, Anthropic, Gemini, or OTel GenAI media block."""
     # Before the `type` check: the PostHog Gemini SDK records `{"type": "image", "inline_data": {...}}`.
     for key in _GEMINI_DATA_KEYS:
         data = block.get(key)
@@ -51,6 +57,8 @@ def parse_media_block(block: dict) -> MediaBlock | None:
             return _with_source(modality, mime_type, data.get("data"))
     block_type = block.get("type")
     if isinstance(block_type, str):
+        if block_type in _OTEL_TYPES:
+            return _otel_part(block)
         if block_type in _IMAGE_TYPES:
             return _image_block(block)
         if block_type in _AUDIO_TYPES:
@@ -58,6 +66,15 @@ def parse_media_block(block: dict) -> MediaBlock | None:
         if block_type in _FILE_TYPES:
             return MediaBlock(modality="file")
     return None
+
+
+def _otel_part(part: dict) -> MediaBlock:
+    mime_type = part.get("mime_type")
+    mime_type = mime_type if isinstance(mime_type, str) else None
+    modality = part.get("modality")
+    if not isinstance(modality, str) or not modality:
+        modality = mime_type.split("/")[0] if mime_type else "media"
+    return _with_source(modality, mime_type, part.get("content") if part["type"] == "blob" else part.get("uri"))
 
 
 def _image_block(block: dict) -> MediaBlock:

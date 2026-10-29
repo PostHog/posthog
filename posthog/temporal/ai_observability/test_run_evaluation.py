@@ -1605,7 +1605,7 @@ class TestRunEvaluationWorkflow:
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
             patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.posthoganalytics.feature_enabled",
+                "posthog.temporal.ai_observability.judge_images.posthoganalytics.feature_enabled",
                 return_value=flag_enabled,
             ) as feature_enabled,
             patch(
@@ -4718,10 +4718,10 @@ class TestJudgePromptAssembly:
         with (
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as judge,
             patch(
-                "posthog.temporal.ai_observability.evaluation_llm_judge.posthoganalytics.feature_enabled",
+                "posthog.temporal.ai_observability.judge_images.posthoganalytics.feature_enabled",
                 return_value=True,
             ),
-            patch("posthog.temporal.ai_observability.evaluation_llm_judge._project_uuid", return_value="uuid"),
+            patch("posthog.temporal.ai_observability.judge_images._project_uuid", return_value="uuid"),
         ):
             execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
 

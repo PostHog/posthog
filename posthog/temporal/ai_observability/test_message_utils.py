@@ -125,6 +125,20 @@ class TestExtractTextFromMessages:
             extract_text_from_messages(messages, JudgeImages(team_id=7)) == f"user: {marker} What does this chart show?"
         )
 
+    def test_judge_images_number_otel_parts_and_tool_result_images(self):
+        pointer = f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng&size=1"
+        image = {"type": "image_url", "image_url": {"url": pointer}}
+        messages = [
+            {
+                "role": "user",
+                "parts": [{"type": "blob", "modality": "image", "mime_type": "image/png", "content": pointer}],
+            },
+            {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": [image]}]},
+        ]
+
+        assert extract_text_from_messages(messages, JudgeImages(team_id=7)) == "user: [image 1]\nuser: [image 1]"
+        assert extract_text_from_messages(messages).startswith("user: [image]\n")
+
     def test_media_blocks_keep_their_text_without_judge_images(self):
         block = {"type": "file", "file": {"filename": "report.pdf"}}
 
