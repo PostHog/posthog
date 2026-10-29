@@ -23,7 +23,7 @@ import re
 import types
 import dataclasses
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from posthog.dataclasses import frozen
@@ -487,7 +487,7 @@ def _what_it_does(declaration: CommandDeclaration[Any]) -> str:
     return " ".join(parts)
 
 
-def help_table(subject_kind: SubjectKind | None = None) -> str:
+def help_table(subject_kind: SubjectKind | None = None, hidden_verbs: Collection[str] = ()) -> str:
     """The command table for the help reply and `COMMANDS.generated.md`.
 
     With a kind, it lists only the commands that act on it. Without one, it lists every command
@@ -496,7 +496,7 @@ def help_table(subject_kind: SubjectKind | None = None) -> str:
     declarations = [
         declaration
         for declaration in (*COMMAND_DECLARATIONS, HELP)
-        if subject_kind is None or subject_kind in declaration.subject_kinds
+        if (subject_kind is None or subject_kind in declaration.subject_kinds) and declaration.verb not in hidden_verbs
     ]
     if subject_kind is not None:
         rows = ["| Command | Also | What it does |", "| --- | --- | --- |"]
