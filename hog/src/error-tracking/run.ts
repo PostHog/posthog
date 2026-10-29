@@ -334,9 +334,9 @@ export async function upload(
         }
     }
 
-    const read = injected
-        ? { pairs: injected.pairs, artifacts: injected.owners }
-        : readPairs(selection, options, skipped)
+    // Metro bundles upload through their composed maps, so upload never reads their own pairs.
+    const jsOnly = { ...selection, artifacts: selection.artifacts.filter((artifact) => artifact.kind === 'js') }
+    const read = injected ? { pairs: injected.pairs, artifacts: injected.owners } : readPairs(jsOnly, options, skipped)
     read.pairs = read.pairs.filter((pair) => read.artifacts.get(pair)?.kind === 'js')
     let targets: { pair: SourcePair; target: CleanupTarget }[] = []
     const chunkIds = new Map<SourcePair, string>()
