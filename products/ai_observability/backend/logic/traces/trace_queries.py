@@ -440,15 +440,26 @@ _ESCAPED_BACKSLASH = "\\\\"
 _ESCAPED_BACKSLASH_MARK = "\x01"
 
 
+def _json_escaped(value: str, *, ascii_only: bool = False) -> str:
+    return json.dumps(value, ensure_ascii=ascii_only)[1:-1]
+
+
 @frozen
 class SearchNeedles:
     text: str
-    # The heavy columns hold raw JSON, so quotes and backslashes in the query match only in their escaped form.
-    json: str
+    # The heavy columns hold raw JSON, so quotes and backslashes in the query match only in their escaped form. A
+    # string that holds JSON, such as tool arguments, keeps its own escapes and is escaped a second time around them.
+    json: tuple[str, ...]
 
     @classmethod
     def of(cls, query: str) -> Self:
-        return cls(text=query, json=json.dumps(query, ensure_ascii=False)[1:-1])
+        escaped = _json_escaped(query)
+        needles = [escaped]
+        for nested in (_json_escaped(_json_escaped(query, ascii_only=True)), _json_escaped(escaped)):
+            # Each occurrence of a nested needle that holds a kept needle is already counted once.
+            if not any(kept.lower() in nested.lower() for kept in needles):
+                needles.append(nested)
+        return cls(text=query, json=tuple(needles))
 
 
 @frozen
@@ -486,7 +497,7 @@ def _json_occurrences(column: ast.Expr, needle: str) -> ast.Expr:
 
 def _trace_search_query(needles: SearchNeedles) -> ast.SelectQuery:
     counts = [
-        *(_json_occurrences(column, needles.json) for column in _JSON_SEARCHED),
+        *(_json_occurrences(column, needle) for column in _JSON_SEARCHED for needle in needles.json),
         *(_occurrences(column, needles.text) for column in _TEXT_SEARCHED),
     ]
     match_count = reduce(lambda left, right: ast.Call(name="plus", args=[left, right]), counts)

@@ -60,14 +60,16 @@ def test_is_truthy_json(_name: str, raw: str, expected: bool) -> None:
 
 @parameterized.expand(
     [
-        ("plain text", "invoice", "invoice", "invoice"),
-        ("a double quote", 'say "hi"', 'say "hi"', 'say \\"hi\\"'),
-        ("a backslash", "C:\\tmp", "C:\\tmp", "C:\\\\tmp"),
-        ("non-ASCII text", "café", "café", "café"),
+        ("plain text", "invoice", "invoice", ("invoice",)),
+        ("a double quote", 'say "hi"', 'say "hi"', ('say \\"hi\\"', 'say \\\\\\"hi\\\\\\"')),
+        ("a backslash", "C:\\tmp", "C:\\tmp", ("C:\\\\tmp", "C:\\\\\\\\tmp")),
+        ("non-ASCII text", "café", "café", ("café", "caf\\\\u00e9")),
     ]
 )
-def test_search_needles_match_text_and_stored_json(_name: str, query: str, text: str, json_needle: str) -> None:
-    assert SearchNeedles.of(query) == SearchNeedles(text=text, json=json_needle)
+def test_search_needles_match_text_and_stored_json(
+    _name: str, query: str, text: str, json_needles: tuple[str, ...]
+) -> None:
+    assert SearchNeedles.of(query) == SearchNeedles(text=text, json=json_needles)
 
 
 class TraceEventsMixin:
@@ -332,6 +334,16 @@ class TestLoadTraceSearch(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
             ("an error object", "quota", {"$ai_error": {"message": "Quota exceeded"}}, 1),
             ("a quote after a trailing backslash", '"', {"$ai_output": "saved to C:\\"}, 0),
             ("backslashes before a quote", '\\"', {"$ai_output": 'C:\\\\"x" and \\\\'}, 1),
+            (
+                "non-ASCII text in a JSON string",
+                "2 × 3",
+                {"$ai_input": [{"arguments": json.dumps({"op": "2 × 3"})}]},
+                1,
+            ),
+            ("quotes in a JSON string", '"', {"$ai_output": json.dumps('say "hi"')}, 4),
+            ("a model", "GPT-4O", {"$ai_model": "gpt-4o-mini"}, 1),
+            ("a provider", "anthropic", {"$ai_provider": "anthropic"}, 1),
+            ("a trace name", "checkout", {"$ai_trace_name": "Checkout flow"}, 1),
         ]
     )
     def test_matches_text_as_stored_in_json(
