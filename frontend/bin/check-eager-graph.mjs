@@ -102,9 +102,8 @@ const ROOTS = [
     {
         root: AUTHENTICATED_SHELL,
         label: 'authenticated shell (every logged-in page)',
-        // 2026-10-11: 7.09 MiB eager output = 6.29 MiB JS (2463 files) + 0.80 MiB stable CSS.
-        // ~8% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 7_860_000,
+        // 2026-10-29: 7.41 MiB eager output, stable CSS included. ~0.5% headroom.
+        budgetBytes: 7_810_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
