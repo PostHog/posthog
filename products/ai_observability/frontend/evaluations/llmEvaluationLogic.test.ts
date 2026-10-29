@@ -444,7 +444,7 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
-        it('stores only the attachments opt-out in the judge config', async () => {
+        it('sends an explicit attachments choice so turning it back on is saved', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
             logic.actions.setIncludeMedia(false)
@@ -454,7 +454,7 @@ describe('llmEvaluationLogic', () => {
             expect(logic.values.includeMedia).toBe(false)
 
             logic.actions.setIncludeMedia(true)
-            expect(logic.values.evaluation?.evaluation_config).not.toHaveProperty('include_media')
+            expect(logic.values.evaluation?.evaluation_config).toEqual(expect.objectContaining({ include_media: true }))
             expect(logic.values.includeMedia).toBe(true)
         })
 

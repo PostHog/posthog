@@ -1,6 +1,7 @@
 """Images an LLM judge sees next to the transcript that refers to them as `[image N]`."""
 
 import base64
+import binascii
 from collections import Counter
 from typing import Any, Literal
 
@@ -115,6 +116,11 @@ class JudgeImages:
             size = len(image.base64_data or "") * 3 // 4
             if size > inline_budget:
                 return _Attachment(outcome="too_large")
+            try:
+                # Event data can hold invalid base64, and some adapters decode it before the request.
+                base64.b64decode(image.base64_data or "", validate=True)
+            except binascii.Error:
+                return _Attachment(outcome="unavailable")
             part = ImagePart(mime_type=image.mime_type, base64_data=image.base64_data)
             return _Attachment(outcome="inline", part=part, inline_bytes=size)
         if transport == "url":

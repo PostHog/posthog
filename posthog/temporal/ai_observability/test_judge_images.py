@@ -107,6 +107,12 @@ class TestJudgeImagesContent:
             pytest.param(
                 "gemini", "gemini-3-flash", _pointer("a", mime="image%2Fgif"), id="format_rejected_by_provider"
             ),
+            pytest.param(
+                "gemini",
+                "gemini-3-flash",
+                MediaBlock(modality="image", mime_type="image/png", base64_data="aGk"),
+                id="invalid_inline_base64",
+            ),
         ],
     )
     def test_reports_an_image_it_could_not_attach(self, provider: str, model: str, media: MediaBlock):
