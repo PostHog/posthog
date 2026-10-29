@@ -15,7 +15,8 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import SlackIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -114,7 +115,7 @@ def is_shared_channel(channel: dict) -> bool:
     return any(channel.get(flag) for flag in SHARED_CHANNEL_FLAGS)
 
 
-def fetch_channel_map(integration: Integration, *, source: str) -> dict[str, SlackChannel]:
+def fetch_channel_map(integration: IntegrationRecord, *, source: str) -> dict[str, SlackChannel]:
     """Public channel name -> channel, for one Slack integration.
 
     Private channels are skipped: listing them needs a real authed Slack user, and this runs from a
@@ -165,6 +166,7 @@ def post_message(
     text: str,
     thread_ts: str | None = None,
     reply_broadcast: bool = False,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> SlackResponse:
     # No unfurls: the text is written over untrusted content, so a prompt-injected URL must not make
     # Slack's unfurler fetch an attacker's server from inside the workspace.
@@ -176,6 +178,7 @@ def post_message(
         reply_broadcast=reply_broadcast,
         unfurl_links=False,
         unfurl_media=False,
+        attachments=attachments,
     )
 
 
@@ -185,9 +188,16 @@ def update_message(
     ts: str,
     blocks: list[dict[str, Any]],
     text: str,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> SlackResponse:
     """Replace a message the app posted. Slack keeps its place in the channel and marks it edited."""
-    return slack.client.chat_update(channel=channel_id, ts=ts, blocks=blocks, text=text)
+    return slack.client.chat_update(
+        channel=channel_id,
+        ts=ts,
+        blocks=blocks,
+        text=text,
+        attachments=attachments,
+    )
 
 
 def join_channel(slack: SlackIntegration, channel_id: str) -> str | None:

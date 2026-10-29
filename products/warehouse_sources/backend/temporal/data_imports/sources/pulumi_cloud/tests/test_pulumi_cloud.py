@@ -433,3 +433,158 @@ class TestSourceResponse:
         assert response.sort_mode == expected_sort
         assert response.partition_keys == ([partition_key] if partition_key else None)
         assert response.primary_keys == PULUMI_CLOUD_ENDPOINTS[endpoint].primary_keys
+
+
+class TestPolicyIssues:
+    @staticmethod
+    def _respond(active: list[list[str]], closed: list[list[str]]) -> Callable[[RecordedRequest], ScriptedResponse]:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            pages = closed if request.param("closed") == "true" else active
+            total = sum(len(page) for page in pages)
+            start_row = request.json()["startRow"]
+            seen = 0
+            for page in pages:
+                if seen == start_row:
+                    return _json({"policyIssues": [{"id": i} for i in page], "rowCount": total})
+                seen += len(page)
+            return _json({"policyIssues": [], "rowCount": total})
+
+        return respond
+
+    @staticmethod
+    def _calls(result: DriveResult) -> list[tuple[str | None, int]]:
+        return [(r.param("closed"), r.json()["startRow"]) for r in result.requests]
+
+    def test_walks_active_then_closed_issues_by_row_offset(self) -> None:
+        # Pages shorter than PAGE_SIZE with a larger rowCount model a server-side page cap: a
+        # short-page stop would silently drop the rest, and a PAGE_SIZE stride would skip rows.
+        result = _run_rows("policy_issues", self._respond(active=[["a1", "a2"], ["a3"]], closed=[["c1"]]))
+
+        assert [r.method for r in result.requests] == ["POST"] * 3
+        assert self._calls(result) == [("false", 0), ("false", 2), ("true", 0)]
+        assert [r["id"] for r in result.rows] == ["a1", "a2", "a3", "c1"]
+        body = result.requests[0].json()
+        assert body["endRow"] == PAGE_SIZE
+        assert body["filterModel"] == {"type": "AND", "conditions": []}
+        assert [(s.offset, s.closed_issues) for s in result.saved_states] == [(2, False), (0, True)]
+
+    @parameterized.expand(
+        [
+            ("mid_active_pass", PulumiCloudResumeConfig(offset=2), [("false", 2), ("true", 0)], ["a3", "c1"]),
+            ("closed_pass", PulumiCloudResumeConfig(offset=0, closed_issues=True), [("true", 0)], ["c1"]),
+        ]
+    )
+    def test_resume(
+        self,
+        _name: str,
+        state: PulumiCloudResumeConfig,
+        expected_calls: list[tuple[str, int]],
+        expected_ids: list[str],
+    ) -> None:
+        result = _run_rows(
+            "policy_issues", self._respond(active=[["a1", "a2"], ["a3"]], closed=[["c1"]]), resume_state=state
+        )
+
+        assert self._calls(result) == expected_calls
+        assert [r["id"] for r in result.rows] == expected_ids
+
+
+class TestResourceSummary:
+    @parameterized.expand(
+        [
+            (
+                "daily_rows",
+                _json(
+                    {
+                        "summary": [
+                            {"year": 2026, "month": 3, "day": 7, "resources": 40, "resourceHours": 960},
+                            {"year": 2026, "month": 3, "resources": 41, "resourceHours": 984},
+                        ]
+                    }
+                ),
+                ["2026-03-07", None],
+            ),
+            ("no_content", ScriptedResponse(status=204), []),
+        ]
+    )
+    def test_requests_daily_year_and_builds_date(
+        self, _name: str, response: ScriptedResponse, expected_dates: list[str | None]
+    ) -> None:
+        result = _run_rows("resource_summary", [response])
+
+        assert result.params("granularity") == ["daily"]
+        assert result.params("lookbackDays") == ["365"]
+        assert [r["date"] for r in result.rows] == expected_dates
+
+
+class TestMembers:
+    def test_follows_continuation_token_and_lifts_login_to_top_level(self) -> None:
+        result = _run_rows(
+            "members",
+            [
+                _json(
+                    {
+                        "members": [{"user": {"githubLogin": "ada", "name": "Ada"}, "role": "admin"}],
+                        "continuationToken": "m-2",
+                    }
+                ),
+                _json({"members": [{"user": {"githubLogin": "lin", "name": "Lin"}, "role": "member"}]}),
+            ],
+        )
+
+        assert result.params("continuationToken") == [None, "m-2"]
+        assert result.params("includeSuspended") == ["true", "true"]
+        assert [r["userLogin"] for r in result.rows] == ["ada", "lin"]
+        assert [s.next_token for s in result.saved_states] == ["m-2"]
+
+    def test_resume_starts_from_the_saved_token(self) -> None:
+        result = _run_rows(
+            "members",
+            [_json({"members": []})],
+            resume_state=PulumiCloudResumeConfig(next_token="m-2"),
+        )
+
+        assert result.params("continuationToken") == ["m-2"]
+        assert result.rows == []
+
+
+class TestStackTags:
+    @staticmethod
+    def _respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == STACKS_PATH:
+            return _json({"stacks": [_stack_summary("proj", "dev"), _stack_summary("proj", "prod/eu")]})
+        tags = {
+            "/api/stacks/my-org/proj/dev": {"env": "dev", "pulumi:project": "proj"},
+            "/api/stacks/my-org/proj/prod%2Feu": {},
+        }
+        return _json({"id": request.path, "version": 1, "tags": tags[request.path]})
+
+    def test_one_row_per_tag_across_stacks(self) -> None:
+        result = _run_rows("stack_tags", self._respond)
+
+        assert [(r["stackName"], r["name"], r["value"]) for r in result.rows] == [
+            ("dev", "env", "dev"),
+            ("dev", "pulumi:project", "proj"),
+        ]
+        assert result.saved_states[-1].completed_stack_keys == ["my-org/proj/dev", "my-org/proj/prod/eu"]
+
+    def test_resume_skips_completed_stacks(self) -> None:
+        result = _run_rows(
+            "stack_tags",
+            self._respond,
+            resume_state=PulumiCloudResumeConfig(completed_stack_keys=["my-org/proj/dev"]),
+        )
+
+        assert [r.path for r in result.requests] == [STACKS_PATH, "/api/stacks/my-org/proj/prod%2Feu"]
+        assert result.rows == []
+
+    def test_stack_deleted_after_listing_is_skipped(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/stacks/my-org/proj/dev":
+                return ScriptedResponse(status=404, json={"code": 404})
+            return self._respond(request)
+
+        result = _run_rows("stack_tags", respond)
+
+        assert result.rows == []
+        assert result.saved_states[-1].completed_stack_keys == ["my-org/proj/dev", "my-org/proj/prod/eu"]

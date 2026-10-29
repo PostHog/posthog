@@ -1258,7 +1258,12 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     actions.setTriageOpen(true)
                 }
             },
-            [urls.inbox()]: (_, __, hashParams) => {
+            [urls.inbox()]: (_, searchParams, hashParams) => {
+                const redirectPath = inboxTabRedirectPath(undefined, searchParams)
+                if (redirectPath) {
+                    router.actions.replace(redirectPath, searchParams, hashParams)
+                    return
+                }
                 markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
                 closeAllSurfaces()
@@ -1269,7 +1274,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 }
                 // Tab segments from the old inbox layout still arrive from Slack messages and
                 // bookmarks: send them to the surface that replaced them.
-                const redirectPath = inboxTabRedirectPath(tab)
+                const redirectPath = inboxTabRedirectPath(tab, searchParams)
                 if (redirectPath) {
                     router.actions.replace(redirectPath, searchParams, hashParams)
                     return
@@ -1283,10 +1288,11 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 }
                 markInboxListVisited()
                 consumeScoutTemplateHash(actions, hashParams)
+                // A selected report takes precedence in actionToUrl, so clear it before changing tabs.
+                closeAllSurfaces()
                 if (isInboxTabKey(tab) && values.activeTab !== tab) {
                     actions.setActiveTab(tab)
                 }
-                closeAllSurfaces()
             },
             [urls.inboxScout(':skillName')]: (
                 { skillName }: { skillName?: string },
