@@ -24,6 +24,7 @@ COMMAND = DocsCommandRequest(
     head_sha="abc123",
     note="Document the new retention option.",
     requested_by="@octo",
+    requested_by_user_id=42,
 )
 
 
@@ -97,6 +98,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
 
     with patch(FLAG_CHECK, return_value=True), patch(START_WORKFLOW) as start_workflow:
         started = intake.submit(verdict, team_id=team.id)
+        assert started.task_id is not None
         TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
         rerun = intake.submit(renewed_verdict, team_id=team.id)
         repeated = intake.submit(renewed_verdict, team_id=team.id)

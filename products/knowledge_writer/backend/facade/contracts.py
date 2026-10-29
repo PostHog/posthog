@@ -25,6 +25,7 @@ class DocsRequest:
     trigger_instructions: str
     dedupe_id: DedupeId
     requested_by: str | None = None
+    requested_by_user_id: int | None = None
     skip_judge: bool = False
 
 
@@ -58,6 +59,7 @@ class DocsCommandRequest:
     head_sha: str
     note: str
     requested_by: str
+    requested_by_user_id: int
 
 
 IntakeStatus = Literal["no_docs", "unconfigured", "duplicate", "capped", "shadow", "joined", "started"]

@@ -29,6 +29,7 @@ class CommandTagAdapter:
                 trigger_instructions=event.note,
                 dedupe_id=f"knowledge_writer:{self.source}:{hashlib.sha256(subject_id.encode()).hexdigest()}",
                 requested_by=event.requested_by,
+                requested_by_user_id=event.requested_by_user_id,
                 skip_judge=True,
             ),
         )

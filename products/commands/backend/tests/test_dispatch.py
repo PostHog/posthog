@@ -79,6 +79,7 @@ DELIVER_FOLLOW_UP = "products.commands.backend.tasks.tasks.deliver_follow_up.del
 SLACK_INSTALLATION_GITHUB = "products.commands.backend.logic.subjects.InstallationGitHub.for_installation"
 SLACK_POST = "products.commands.backend.channels.slack.mentions.post_message"
 KNOWLEDGE_WRITER_LAUNCH_FLAG = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
+KNOWLEDGE_WRITER_CAPTURE = "products.knowledge_writer.backend.logic.intake.ph_scoped_capture"
 START_TASK_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 
 # Each test gets its own commenter, so the per-commenter rate limit in Redis never carries over.
@@ -363,12 +364,18 @@ class TestDispatchCommentCommand(BaseTest):
             patch.dict(os.environ, self._knowledge_writer_env()),
             patch(KNOWLEDGE_WRITER_LAUNCH_FLAG, return_value=True),
             patch(START_TASK_WORKFLOW),
+            patch(KNOWLEDGE_WRITER_CAPTURE) as scoped_capture,
         ):
             outcome = dispatch_comment_command(
                 self._request(verb="docs", argument="Mention the new flag"), github=github
             )
 
         assert outcome == "accepted"
+        verdict_properties = scoped_capture.return_value.__enter__.return_value.call_args.kwargs["properties"]
+        assert (verdict_properties["requested_by"], verdict_properties["requested_by_user_id"]) == (
+            "@octo",
+            self.user.id,
+        )
         assert github.replies[-1].endswith(
             "Queued. The knowledge writer will open a docs pull request for this change."
         )
