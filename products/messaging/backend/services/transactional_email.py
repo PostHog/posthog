@@ -4,7 +4,7 @@ per send, so sends get the workflow's metrics, run history and versions."""
 import re
 from collections.abc import Callable
 from email.utils import parseaddr
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -373,11 +373,12 @@ def send_transactional_email(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
+    timeout: float = 10,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
     hog_flow_id = _transactional_workflow_id(team.id, template_id)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
-    return _queue(team.id, hog_flow_id, payload, run_transactional_workflow)
+    return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
 
 def send_code_email(
@@ -448,14 +449,22 @@ def _without_empty(fields: dict[str, Any]) -> dict[str, Any]:
     return {name: value for name, value in fields.items() if value}
 
 
+class _PipelinePost(Protocol):
+    def __call__(
+        self, team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = ...
+    ) -> "requests.Response": ...
+
+
 def _queue(
     team_id: int,
     hog_flow_id: UUID,
     payload: dict[str, Any],
-    post: Callable[[int, str, dict], "requests.Response"],
+    post: _PipelinePost,
+    *,
+    timeout: float = 10,
 ) -> QueuedEmail:
     try:
-        response = post(team_id, str(hog_flow_id), payload)
+        response = post(team_id, str(hog_flow_id), payload, timeout=timeout)
     except Exception as e:
         logger.exception("transactional_email_queue_failed", team_id=team_id, hog_flow_id=str(hog_flow_id))
         raise DeliveryUnavailable() from e

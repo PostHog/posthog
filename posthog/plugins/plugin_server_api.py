@@ -285,12 +285,14 @@ def send_transactional_email(
     )
 
 
-def send_accepted_transactional_email(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+def send_accepted_transactional_email(
+    team_id: int, hog_flow_id: str, payload: dict, *, timeout: float = 10
+) -> requests.Response:
     return internal_requests.post(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/transactional_email/send",
         json=payload,
         headers={"Authorization": f"Bearer {_mint_transactional_email_jwt(team_id, hog_flow_id)}"},
-        timeout=10,
+        timeout=timeout,
     )
 
 
