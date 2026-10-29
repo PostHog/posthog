@@ -38,6 +38,7 @@ import {
 } from '../types'
 import type { SignalReportPriority } from '../types'
 import { DismissalFeedback, ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
+import { requestReportClaim } from '../utils/reportClaim'
 import { isReportMetricsEnabled, mergeReportMetricSnapshots, reportNeedsMetricRefresh } from '../utils/reportMetrics'
 import { reportPullRequests, primaryReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -117,8 +118,8 @@ function teammateUuidFromScope(scope: string): string | undefined {
 function requestContextFromValues(values: {
     scope: InboxScope
     searchQuery: string
-    sourceProductFilter: string[]
-    scoutFilter: string[]
+    activeSourceProductFilter: string[]
+    activeScoutFilter: string[]
     priorityFilter: SignalReportPriority[]
     activeSortField: InboxSortField
     activeSortDirection: InboxSortDirection
@@ -128,8 +129,8 @@ function requestContextFromValues(values: {
         scope: values.scope,
         hasActiveFilters:
             values.searchQuery.trim().length > 0 ||
-            values.sourceProductFilter.length > 0 ||
-            values.scoutFilter.length > 0 ||
+            values.activeSourceProductFilter.length > 0 ||
+            values.activeScoutFilter.length > 0 ||
             values.priorityFilter.length > 0 ||
             values.activeCreatedWindow !== null,
         sortField: values.activeSortField,
@@ -165,17 +166,18 @@ export function shouldDefaultToEntireProject(input: {
 export interface reportListLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeCreatedWindow: InboxCreatedWindow | null // inboxFiltersLogic
+    activeScoutFilter: string[] // inboxFiltersLogic
     activeSortDirection: InboxSortDirection // inboxFiltersLogic
     activeSortField: InboxSortField // inboxFiltersLogic
+    activeSourceProductFilter: string[] // inboxFiltersLogic
     hasUserChosenScope: boolean // inboxFiltersLogic
     isScopedToMe: boolean // inboxFiltersLogic
     priorityFilter: SignalReportPriority[] // inboxFiltersLogic
     scope: InboxScope // inboxFiltersLogic
-    scoutFilter: string[] // inboxFiltersLogic
     searchQuery: string // inboxFiltersLogic
-    sourceProductFilter: string[] // inboxFiltersLogic
     currentTeamId: number | null // teamLogic
     user: UserType | null // userLogic
+    claimSavingReportIds: string[]
     count: number | null
     countLoading: boolean
     hasMore: boolean
@@ -233,6 +235,12 @@ export interface reportListLogicActions {
     ) => {
         direction: InboxSortDirection
         field: InboxSortField
+    } // inboxFiltersLogic
+    setSourceFilter: (selection: null | import('./inboxFiltersLogic').InboxSourceSelection) => {
+        selection: null | import('./inboxFiltersLogic').InboxSourceSelection
+    } // inboxFiltersLogic
+    sourceFilterAvailabilityChanged: () => {
+        value: true
     } // inboxFiltersLogic
     togglePriority: (priority: SignalReportPriority) => {
         priority: SignalReportPriority
@@ -349,6 +357,18 @@ export interface reportListLogicActions {
         assignee: SignalReportAssigneeApi | null | undefined
         reportId: string
     }
+    setReportClaimed: (
+        report: SignalReport,
+        claimed: boolean,
+        surface: InboxReportActionSurface
+    ) => {
+        claimed: boolean
+        report: SignalReport
+        surface: InboxReportActionSurface
+    }
+    setReportClaimedFinished: (reportId: string) => {
+        reportId: string
+    }
     setSuggestedToMe: (
         reportIds: string[],
         isSuggested: boolean
@@ -380,8 +400,8 @@ export interface reportListLogicMeta {
             searchQuery: string,
             activeSortField: InboxSortField,
             activeSortDirection: InboxSortDirection,
-            sourceProductFilter: string[],
-            scoutFilter: string[],
+            activeSourceProductFilter: string[],
+            activeScoutFilter: string[],
             priorityFilter: SignalReportPriority[],
             scopeReviewerUuid: string | undefined,
             scopeAssignee: 'mine' | undefined,
@@ -436,8 +456,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 'searchQuery',
                 'activeSortField',
                 'activeSortDirection',
-                'sourceProductFilter',
-                'scoutFilter',
+                'activeSourceProductFilter',
+                'activeScoutFilter',
                 'priorityFilter',
                 'activeCreatedWindow',
             ],
@@ -456,6 +476,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 'resetUnavailableSort',
                 'toggleSourceProduct',
                 'toggleScout',
+                'setSourceFilter',
+                'sourceFilterAvailabilityChanged',
                 'togglePriority',
                 'setPriorityFilter',
                 'setScope',
@@ -482,6 +504,12 @@ export const reportListLogic = kea<reportListLogicType>([
             reason,
         }),
         unassignMeFinished: (reportId: string) => ({ reportId }),
+        setReportClaimed: (report: SignalReport, claimed: boolean, surface: InboxReportActionSurface) => ({
+            report,
+            claimed,
+            surface,
+        }),
+        setReportClaimedFinished: (reportId: string) => ({ reportId }),
         setSuggestedToMe: (reportIds: string[], isSuggested: boolean) => ({ reportIds, isSuggested }),
         setReportAssignee: (reportId: string, assignee: SignalReport['assignee']) => ({ reportId, assignee }),
         removeReport: (reportId: string) => ({ reportId }),
@@ -575,6 +603,13 @@ export const reportListLogic = kea<reportListLogicType>([
                 unassignMeFinished: (state, { reportId }) => state.filter((id) => id !== reportId),
             },
         ],
+        claimSavingReportIds: [
+            [] as string[],
+            {
+                setReportClaimed: (state, { report }) => (state.includes(report.id) ? state : [...state, report.id]),
+                setReportClaimedFinished: (state, { reportId }) => state.filter((id) => id !== reportId),
+            },
+        ],
         // Kept apart from `reportsResponse` so a refresh that replaces the rows does not blank the
         // source line while the lookup runs again.
         reportSourceMeta: [
@@ -666,8 +701,8 @@ export const reportListLogic = kea<reportListLogicType>([
                 s.searchQuery,
                 s.activeSortField,
                 s.activeSortDirection,
-                s.sourceProductFilter,
-                s.scoutFilter,
+                s.activeSourceProductFilter,
+                s.activeScoutFilter,
                 s.priorityFilter,
                 s.scopeReviewerUuid,
                 s.scopeAssignee,
@@ -896,6 +931,8 @@ export const reportListLogic = kea<reportListLogicType>([
         applyDefaultCreatedWindow: () => actions.refresh(),
         toggleSourceProduct: () => actions.refresh(),
         toggleScout: () => actions.refresh(),
+        setSourceFilter: () => actions.refresh(),
+        sourceFilterAvailabilityChanged: () => actions.refresh(),
         togglePriority: () => actions.refresh(),
         setPriorityFilter: () => actions.refresh(),
         setScope: () => actions.refresh(),
@@ -1032,6 +1069,25 @@ export const reportListLogic = kea<reportListLogicType>([
             lemonToast.success('Unassigned you from the report')
             // The list that started the request can unmount while it runs, for example when triage closes.
             inboxBulkActionsLogic.findMounted()?.actions.unassignedMe([reportId])
+        },
+        setReportClaimed: async ({ report, claimed, surface }) => {
+            captureInboxReportAction({ report, actionType: claimed ? 'claim' : 'unclaim', surface })
+            const outcome = await requestReportClaim(String(values.currentTeamId), report, claimed)
+            actions.setReportClaimedFinished(report.id)
+            if (!outcome.ok) {
+                lemonToast.error(outcome.message)
+                // Reload so the row shows who holds the claim now. A request that failed without an answer
+                // may still have saved the claim.
+                actions.refresh()
+                return
+            }
+            // Every mounted list updates the row, and the Claimed by you list gains or drops it.
+            const bulkActions = inboxBulkActionsLogic.findMounted()
+            if (bulkActions) {
+                bulkActions.actions.reportClaimChanged(report.id, outcome.updated.assignee)
+            } else {
+                actions.setReportAssignee(report.id, outcome.updated.assignee)
+            }
         },
     })),
 

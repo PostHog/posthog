@@ -16363,7 +16363,17 @@ export namespace Schemas {
         query_status: unknown;
         hogql: string | null;
         types: Array<unknown> | null;
+        /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         */
         resolved_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         */
+        resolved_compare_date_range: Partial<{
             date_from: string;
             date_to: string;
         }> | null;
@@ -19618,6 +19628,10 @@ export namespace Schemas {
         hogql: string | null;
         types: Array<unknown> | null;
         resolved_date_range: Partial<{
+            date_from: string;
+            date_to: string;
+        }> | null;
+        resolved_compare_date_range: Partial<{
             date_from: string;
             date_to: string;
         }> | null;

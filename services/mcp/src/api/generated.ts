@@ -11266,9 +11266,19 @@ export namespace Schemas {
     } as const;
 
     /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
     export type InsightResolvedDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    export type InsightResolvedCompareDateRange = {
       readonly date_from?: string;
       readonly date_to?: string;
     } | null;
@@ -11376,8 +11386,16 @@ export namespace Schemas {
       readonly hogql: string | null;
       /** @nullable */
       readonly types: readonly unknown[] | null;
-      /** @nullable */
+      /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         * @nullable
+         */
       readonly resolved_date_range: InsightResolvedDateRange;
+      /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_compare_date_range: InsightResolvedCompareDateRange;
       /**
          * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
          * @nullable
@@ -12239,10 +12257,27 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    export type SpanHealthStatus = typeof SpanHealthStatus[keyof typeof SpanHealthStatus];
+
+
+    export const SpanHealthStatus = {
+      Silent: 'silent',
+      Regressed: 'regressed',
+      Degraded: 'degraded',
+      New: 'new',
+      Recovered: 'recovered',
+      Improved: 'improved',
+      Ok: 'ok',
+    } as const;
+
     export interface AggregatedSpanRow {
       avg_duration_nano: number;
       count: number;
       error_count: number;
+      /** Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is `ok`. */
+      health_reason?: string | null;
+      /** Set only when the query asked for `includeHealth`. Same statuses as the service health check. */
+      health_status?: SpanHealthStatus | null;
       name: string;
       p50_duration_nano: number;
       p95_duration_nano: number;
@@ -62339,6 +62374,10 @@ export namespace Schemas {
       compareFilter?: CompareFilter | null;
       dateRange: DateRange;
       filterGroup?: PropertyGroupFilter | null;
+      /** Group HTTP server spans by `METHOD route` in place of the span name. Spans without a route keep their name. Spans that are not HTTP server spans are left out. */
+      groupByEndpoint?: boolean | null;
+      /** Classify each row against the comparison window, or the previous period when `compareFilter` is off. Fills `health_status` and `health_reason`. Runs a second window query. */
+      includeHealth?: boolean | null;
       /** Also aggregate sessions and people per operation. Off by default: it reads the attribute maps. */
       includeImpact?: boolean | null;
       kind?: 'TraceSpansAggregationQuery';
@@ -88839,9 +88878,19 @@ export namespace Schemas {
     }
 
     /**
+     * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
      * @nullable
      */
     export type PatchedInsightResolvedDateRange = {
+      readonly date_from?: string;
+      readonly date_to?: string;
+    } | null;
+
+    /**
+     * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+     * @nullable
+     */
+    export type PatchedInsightResolvedCompareDateRange = {
       readonly date_from?: string;
       readonly date_to?: string;
     } | null;
@@ -88949,8 +88998,16 @@ export namespace Schemas {
       readonly hogql?: string | null;
       /** @nullable */
       readonly types?: readonly unknown[] | null;
-      /** @nullable */
+      /**
+         * The period that this insight's query covered, with both ends resolved to timestamps. Null when the insight has no result yet or its query type does not report the range.
+         * @nullable
+         */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
+      /**
+         * The earlier period that this insight's query compared against, with both ends resolved to timestamps. Null when comparison is off, when the insight has no result yet, or when its query type does not report the range.
+         * @nullable
+         */
+      readonly resolved_compare_date_range?: PatchedInsightResolvedCompareDateRange;
       /**
          * The name of each action the insight's series reference, keyed by action id. A series saved without a name displays this name.
          * @nullable
@@ -125363,6 +125420,21 @@ export namespace Schemas {
          * @nullable
          */
       spans_with_distinct_id: number | null;
+      /** How this group compares with its baseline: regressed (error rate or p95 jumped), degraded (high error rate), new (no spans in the baseline), recovered, improved, or ok. Null unless the query set `includeHealth`.
+       *
+       * * `silent` - Silent
+       * * `regressed` - Regressed
+       * * `degraded` - Degraded
+       * * `new` - New
+       * * `recovered` - Recovered
+       * * `improved` - Improved
+       * * `ok` - Ok */
+      health_status: ServiceHealthStatusEnum | null;
+      /**
+         * Short reason for `health_status`, such as `error rate 0.2% → 4.1%`. Empty when the status is ok.
+         * @nullable
+         */
+      health_reason: string | null;
     }
 
     export interface _CompareFilter {
@@ -127308,6 +127380,10 @@ export namespace Schemas {
       offset?: number;
       /** Also return the sessions and people behind each operation. Off by default because it reads the span and resource attribute maps, which the rest of the aggregation never touches. */
       includeImpact?: boolean;
+      /** Group HTTP server spans by `METHOD route` (from `http.route`) in place of the span name, so raw paths like `/users/1` and `/users/2` fold into one row. Spans without a route keep their span name. Spans that are not HTTP server spans are left out. */
+      groupByEndpoint?: boolean;
+      /** Also return `health_status` and `health_reason` per row, comparing each row with the same row in the comparison window, or in the previous period when `compareFilter` is off. Uses the same statuses and thresholds as the service health check. Costs a second window query. */
+      includeHealth?: boolean;
     }
 
     export interface _TracingAggregationRequest {
@@ -140789,7 +140865,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
      */
     assignee?: SignalsReportsListAssignee;
     /**
@@ -141021,7 +141097,7 @@ export namespace Schemas {
      */
     already_addressed?: boolean;
     /**
-     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user answers for: their own claims, claims by MCP agents acting for them, and claims by internal tasks they started.
+     * 'me' returns reports claimed by exactly the requesting actor: the user, the internal task, or the MCP agent. 'mine' returns every report the requesting user claimed: their own claims and claims by MCP agents acting for them. Internal task claims are not included.
      */
     assignee?: SignalsReportsSectionCountsRetrieveAssignee;
     /**
