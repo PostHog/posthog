@@ -30,6 +30,7 @@ from products.today.backend.facade.contracts import (
 from products.today.backend.facade.enums import (
     HighlightInterval,
     HighlightLabel,
+    HighlightMetricReason,
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
@@ -135,7 +136,7 @@ class TestHighlightRanking(SimpleTestCase):
 
 
 class TestBuildHighlights(SimpleTestCase):
-    def test_the_pulse_follows_the_source_order_and_the_items_follow_priority(self) -> None:
+    def test_the_pulse_follows_the_source_order_with_popular_tiles_last_and_the_items_follow_priority(self) -> None:
         sources = (
             HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
             HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
@@ -144,7 +145,9 @@ class TestBuildHighlights(SimpleTestCase):
         )
         found = {
             "key_metrics": HighlightFindings(pulse=(metric("k1"), metric("k2"), metric("k3"))),
-            "routine": HighlightFindings(pulse=(metric("r1"), metric("r2"))),
+            "routine": HighlightFindings(
+                pulse=(metric("r1"), replace(metric("p1"), reason=HighlightMetricReason.POPULAR), metric("r2"))
+            ),
             "experiments": HighlightFindings(
                 items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),)
             ),
@@ -161,7 +164,7 @@ class TestBuildHighlights(SimpleTestCase):
                 built.refresh_at,
             ),
             (
-                ["r1", "r2", "k1", "k2"],
+                ["r1", "r2", "k1", "k2", "k3", "p1"],
                 [("alert", "alerts", HighlightPriority.P2), ("win", "experiments", HighlightPriority.P3)],
                 DAY,
                 datetime(2026, 10, 14, tzinfo=ZoneInfo("Europe/Prague")),

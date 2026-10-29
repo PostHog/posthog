@@ -33,8 +33,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { reportDashboardInsightMetaUpdated } from 'scenes/dashboard/dashboardEvents'
 import { getEffectiveDateOverride } from 'scenes/dashboard/dashboardUtils'
-import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
-import { exceedsRetention } from 'scenes/insights/dataRetention/exceedsRetention'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -77,6 +75,8 @@ import {
 } from 'products/alerts/frontend/logic/insightAlertsLogic'
 import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
+import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
+import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
 import { useInsightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
@@ -122,6 +122,7 @@ interface InsightMetaProps extends Pick<
     /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     tile?: DashboardTile
+    headerStatus?: JSX.Element
     insight: InsightModel
     refreshDisabledReason?: string
     areDetailsShown?: boolean
@@ -134,6 +135,7 @@ interface InsightMetaProps extends Pick<
 }
 
 export function InsightMeta({
+    headerStatus,
     tile,
     insight,
     ribbonColor,
@@ -482,6 +484,7 @@ export function InsightMeta({
         <>
             <CardMeta
                 compact={showCompactTile}
+                headerStatus={headerStatus}
                 ribbonColor={ribbonColor}
                 showEditingControls={showEditingControls}
                 showDetailsControls={showDetailsControls}

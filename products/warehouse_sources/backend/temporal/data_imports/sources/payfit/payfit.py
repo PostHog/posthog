@@ -1,3 +1,4 @@
+import datetime
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -13,6 +14,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.payfit.settings import (
+    INCREMENTAL_REREAD_MONTHS,
+    MONTHLY_HISTORY_LOOKBACK,
     PAYFIT_ENDPOINTS,
     PayFitEndpointConfig,
 )
@@ -38,12 +41,58 @@ class PayFitInvalidTokenError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PayFitResumeConfig:
     # `nextPageToken` cursor for the next page. For `payslips` this is the cursor of the
     # *collaborators* page being fanned out over. `None` means start from the first page. A crashed
     # sync resumes from the page after the last one yielded; merge dedupes on the primary key.
     next_page_token: str | None = None
+    # Pay period (`YYYYMM`) to resume at, for month-scoped endpoints. `next_page_token` then pages
+    # within that month.
+    month: str | None = None
+
+
+def _today() -> datetime.date:
+    return datetime.datetime.now(datetime.UTC).date()
+
+
+def _period(month: datetime.date) -> str:
+    return f"{month.year:04d}{month.month:02d}"
+
+
+def _parse_period(period: str) -> datetime.date:
+    return datetime.date(int(period[:4]), int(period[4:6]), 1)
+
+
+def _next_month(month: datetime.date) -> datetime.date:
+    return datetime.date(month.year + month.month // 12, month.month % 12 + 1, 1)
+
+
+def _to_date(value: Any) -> datetime.date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime.datetime):
+        return value.date()
+    if isinstance(value, datetime.date):
+        return value
+    try:
+        return datetime.date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def resolve_first_month(
+    today: datetime.date,
+    history_start: datetime.datetime | None,
+    db_incremental_field_last_value: Any,
+) -> datetime.date:
+    watermark = _to_date(db_incremental_field_last_value)
+    if watermark is not None:
+        month = min(watermark, today).replace(day=1)
+        months_back = month.year * 12 + month.month - 1 - INCREMENTAL_REREAD_MONTHS
+        return datetime.date(months_back // 12, months_back % 12 + 1, 1)
+    start = history_start.date() if history_start is not None else today - MONTHLY_HISTORY_LOOKBACK
+    return start.replace(day=1)
 
 
 def _headers(api_key: str) -> dict[str, str]:
@@ -117,6 +166,7 @@ def _fetch_page(
     next_page_token: str | None,
     extra_params: dict[str, str],
     logger: FilteringBoundLogger,
+    missing_ok: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None]:
     params: dict[str, Any] = {"maxResults": PAGE_SIZE, **extra_params}
     if next_page_token is not None:
@@ -131,6 +181,9 @@ def _fetch_page(
     if response.status_code == 429 or response.status_code >= 500:
         raise PayFitRetryableError(f"PayFit API error (retryable): status={response.status_code}, path={path}")
 
+    if response.status_code == 404 and missing_ok:
+        return [], None
+
     if not response.ok:
         logger.error(f"PayFit API error: status={response.status_code}, body={response.text}, path={path}")
         response.raise_for_status()
@@ -144,6 +197,39 @@ def _fetch_page(
     meta = data.get("meta") or {}
     next_token = meta.get("nextPageToken") if isinstance(meta, dict) else None
     return rows, next_token or None
+
+
+@retry_with_deadline(
+    retry=retry_if_exception_type((PayFitRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _fetch_unpaginated(
+    session: requests.Session,
+    path: str,
+    params: dict[str, str],
+    logger: FilteringBoundLogger,
+    missing_ok: bool = False,
+) -> list[dict[str, Any]]:
+    response = session.get(f"{PAYFIT_BASE_URL}{path}", params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+
+    if response.status_code == 429 or response.status_code >= 500:
+        raise PayFitRetryableError(f"PayFit API error (retryable): status={response.status_code}, path={path}")
+
+    if response.status_code == 404 and missing_ok:
+        return []
+
+    if not response.ok:
+        logger.error(f"PayFit API error: status={response.status_code}, body={response.text}, path={path}")
+        response.raise_for_status()
+
+    data = response.json()
+    if isinstance(data, dict):
+        return [data]
+    if isinstance(data, list) and all(isinstance(row, dict) for row in data):
+        return data
+    raise PayFitRetryableError(f"PayFit returned an unexpected payload for {path}: {type(data).__name__}")
 
 
 @retry_with_deadline(
@@ -182,6 +268,8 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PayFitResumeConfig],
+    history_start: datetime.datetime | None = None,
+    db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = PAYFIT_ENDPOINTS[endpoint]
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
@@ -192,8 +280,33 @@ def get_rows(
     if resume and resume.next_page_token is not None:
         logger.debug(f"PayFit: resuming {endpoint} from page token {next_page_token}")
 
+    if config.monthly:
+        today = _today()
+        first_month = (
+            _parse_period(resume.month)
+            if resume and resume.month
+            else resolve_first_month(today, history_start, db_incremental_field_last_value)
+        )
+        yield from _get_monthly_rows(
+            session,
+            company_id,
+            config,
+            first_month,
+            today.replace(day=1),
+            next_page_token if resume and resume.month else None,
+            logger,
+            resumable_source_manager,
+        )
+        return
+
     if config.fan_out_over_collaborators:
         yield from _get_payslip_rows(session, company_id, next_page_token, logger, resumable_source_manager)
+        return
+
+    if not config.paginated or config.data_key is None:
+        rows = _fetch_unpaginated(session, f"/companies/{company_id}{config.path}", {}, logger)
+        if rows:
+            yield rows
         return
 
     path = f"/companies/{company_id}{config.path}"
@@ -241,11 +354,52 @@ def _get_payslip_rows(
         resumable_source_manager.save_state(PayFitResumeConfig(next_page_token=next_page_token))
 
 
+def _get_monthly_rows(
+    session: requests.Session,
+    company_id: str,
+    config: PayFitEndpointConfig,
+    month: datetime.date,
+    last_month: datetime.date,
+    next_page_token: str | None,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[PayFitResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    path = f"/companies/{company_id}{config.path}"
+    while month <= last_month:
+        params = {**config.extra_params, "date": _period(month)}
+        # A 404 for one pay period, such as a month before the company joined PayFit, skips that
+        # month rather than failing the sync.
+        if config.paginated and config.data_key is not None:
+            rows, next_token = _fetch_page(
+                session, path, config.data_key, next_page_token, params, logger, missing_ok=True
+            )
+        else:
+            rows, next_token = _fetch_unpaginated(session, path, params, logger, missing_ok=True), None
+
+        batch = [
+            {**row, "month": month, **({"lineNumber": index} if config.number_rows else {})}
+            for index, row in enumerate(rows)
+        ]
+
+        if next_token and rows:
+            next_page_token = next_token
+        else:
+            month, next_page_token = _next_month(month), None
+        resumable_source_manager.save_state(PayFitResumeConfig(next_page_token=next_page_token, month=_period(month)))
+
+        if batch:
+            yield batch
+        else:
+            resumable_source_manager.safe_point()
+
+
 def payfit_source(
     api_key: str,
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[PayFitResumeConfig],
+    history_start: datetime.datetime | None = None,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = PAYFIT_ENDPOINTS[endpoint]
 
@@ -256,6 +410,8 @@ def payfit_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            history_start=history_start,
+            db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,
@@ -295,7 +451,11 @@ def check_schema_access(api_key: str, schema_name: str) -> tuple[bool, str | Non
         return False, f"Could not validate PayFit API key: {e}"
 
     probe = _probe_endpoint(endpoint_config)
-    probe_params: dict[str, Any] = {"maxResults": 1, **probe.extra_params}
+    probe_params: dict[str, Any] = {**probe.extra_params}
+    if probe.paginated:
+        probe_params["maxResults"] = 1
+    if probe.monthly:
+        probe_params["date"] = _period(_today())
     try:
         response = session.get(
             f"{PAYFIT_BASE_URL}/companies/{company_id}{probe.path}",
@@ -308,7 +468,12 @@ def check_schema_access(api_key: str, schema_name: str) -> tuple[bool, str | Non
     if response.status_code == 401:
         return False, "Invalid PayFit API key"
     if response.status_code == 403:
+        if probe.scope is None:
+            return False, f"Your PayFit API key cannot read `{schema_name}`"
         return False, f"Your PayFit API key is missing the `{probe.scope}` scope required for `{schema_name}`"
+    # A month-scoped endpoint answers 404 for a pay period with no data, which still proves access.
+    if response.status_code == 404 and probe.monthly:
+        return True, None
     if not response.ok:
         return False, f"PayFit returned HTTP {response.status_code}"
     return True, None

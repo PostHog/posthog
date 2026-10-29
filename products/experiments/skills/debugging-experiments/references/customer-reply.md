@@ -72,7 +72,7 @@ anything random, and it's a quick fix.
 **The problem:** your experiment runs an 80/20 split, and "Multiple variant handling" is set
 to **Exclude from analysis**. About 2% of your users were exposed to more than one variant,
 and excluding them hits the smaller (20%) variant harder, which is why it looks worse than it
-should. That's what the "Setup likely introduced bias" banner is telling you.
+should. That's what the warning "The uneven split may bias the results" is telling you.
 
 **The fix:**
 1. **Switch "Multiple variant handling" to Use first seen variant.** That keeps those users in

@@ -26,6 +26,7 @@ ID_COLUMNS = {
     "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
     "distinct_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
 }
+POSTHOG_TABLE_NAMES = {"events"}
 
 
 class _Captured(Exception):
@@ -92,7 +93,7 @@ class TestSavedQueryTagging(APIBaseTest):
         )
 
     def ids(self, *names: str) -> list[str] | None:
-        return sorted(str(getattr(self, name).pk) for name in names) or None
+        return sorted(name if name in POSTHOG_TABLE_NAMES else str(getattr(self, name).pk) for name in names) or None
 
     @contextmanager
     def captured_tags(self) -> Iterator[list[ReadTags]]:
@@ -140,7 +141,21 @@ class TestSavedQueryTagging(APIBaseTest):
                 ["customers_raw"],
                 ["customer_events"],
             ),
-            ("top_level_lazy_join", "SELECT events.customer.id FROM events", [], ["customers_raw"], ["customers_raw"]),
+            (
+                "top_level_lazy_join",
+                "SELECT events.customer.id FROM events",
+                [],
+                ["customers_raw"],
+                ["customers_raw", "events"],
+            ),
+            (
+                "view_filters_events",
+                "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM demand_view)",
+                ["view"],
+                [],
+                ["view", "events"],
+            ),
+            ("events_only", "SELECT event FROM events", [], [], []),
             ("union_view", "SELECT id FROM all_ids", ["all_ids"], ["orders_raw", "customers_raw"], ["all_ids"]),
             ("no_saved_query", "SELECT 1", [], [], []),
         ]

@@ -173,7 +173,7 @@ def _is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _is_managed_warehouse_shadow_enabled(team: Team) -> bool:
+def is_managed_warehouse_shadow_enabled(team: Team) -> bool:
     if not _is_managed_warehouse_shadow_flag_enabled(team):
         return False
 
@@ -220,7 +220,7 @@ def _get_shadow_input_objects(inputs: ManagedWarehouseShadowInputs) -> _ManagedW
 @database_sync_to_async_pool
 def _check_managed_warehouse_shadow_eligibility(inputs: ManagedWarehouseShadowEligibilityInputs) -> bool:
     objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
-    return _is_managed_warehouse_shadow_enabled(objects.team)
+    return is_managed_warehouse_shadow_enabled(objects.team)
 
 
 async def _check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
@@ -236,7 +236,7 @@ async def check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
 
 @database_sync_to_async_pool
 def _check_team_managed_warehouse_shadow_eligibility(team_id: int) -> bool:
-    return _is_managed_warehouse_shadow_enabled(Team.objects.get(id=team_id))
+    return is_managed_warehouse_shadow_enabled(Team.objects.get(id=team_id))
 
 
 @activity.defn

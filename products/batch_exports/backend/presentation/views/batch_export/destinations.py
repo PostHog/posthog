@@ -8,16 +8,14 @@ from django.db import models
 from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from rest_framework import serializers
 
-from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
-from posthog.models.integration import Integration
+from posthog.integrations.fields import IntegrationReferenceField
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidDestinationConfigError
 from products.batch_exports.backend.facade.enums import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
-    OBJECT_STORAGE_DESTINATIONS,
+    BATCH_EXPORT_INTEGRATION_KINDS,
     S3_SUPPORTED_COMPRESSIONS,
-    BatchExportDestinationType,
 )
 from products.batch_exports.backend.models.batch_export import BatchExportDestination
 
@@ -514,80 +512,6 @@ class BatchExportDestinationRequestField(serializers.JSONField):
     pass
 
 
-# S3-family destinations that may authenticate via an Integration, mapped to
-# the linked integration's kind. Adding a future S3-family destination (e.g. a
-# first-class GCS-via-S3 type) is a one-line addition here.
-S3_DESTINATION_TO_INTEGRATION_KIND: dict[str, Integration.IntegrationKind] = {
-    BatchExportDestinationType.AWS_S3: Integration.IntegrationKind.AWS_S3,
-    BatchExportDestinationType.S3_COMPATIBLE: Integration.IntegrationKind.S3_COMPATIBLE,
-}
-
-
-def _writes_compressed_parquet(config: dict[str, typing.Any]) -> bool:
-    """Whether a config produces Parquet file names that carry a compression codec."""
-    return config.get("file_format") == "Parquet" and config.get("compression") is not None
-
-
-def _uses_legacy_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> bool:
-    """Whether an export's stored config already writes the codec into its Parquet file names.
-
-    Reads through `coerce_destination_config`, because `EncryptedJSONField` stringifies
-    scalars on write and the string "False" is truthy.
-    """
-    coerced = batch_exports_api.coerce_destination_config(destination_type, stored_config)
-    stored = coerced.get("legacy_parquet_extension")
-    if stored is None:
-        # export was created before the `legacy_parquet_extension` field was added
-        # so will use the legacy extension if it writes compressed Parquet files
-        return _writes_compressed_parquet(coerced)
-    return bool(stored)
-
-
-def _set_default_parquet_extension(destination_type: str, config: dict[str, typing.Any]) -> None:
-    """Opt a newly created destination into the standard `.parquet` extension.
-
-    The workflow input dataclasses default this to `True`, so that an export whose Temporal
-    schedule predates the field keeps the same file extension as before in order to maintain
-    compatibility.
-    """
-    if destination_type in OBJECT_STORAGE_DESTINATIONS:
-        config.setdefault("legacy_parquet_extension", False)
-
-
-def _pin_existing_parquet_extension(destination_type: str, stored_config: dict[str, typing.Any]) -> None:
-    """Record what an export's file names already look like, before a patch can change its format.
-
-    An export that predates this setting has no value for it, and a missing value reads as the
-    legacy naming. That is correct only for an export that already writes names carrying a codec,
-    which means Parquet with a compression codec set. An export on JSON Lines, or on Parquet with
-    no compression, has no such names to keep, so moving it to compressed Parquet has to produce
-    `.parquet` rather than `.parquet.zst`.
-
-    Takes the config as stored, before the incoming patch merges into it, so the value reflects
-    what the export has been running rather than what it is moving to. An explicit value in the
-    patch still wins, because the merge applies afterwards.
-    """
-    if destination_type not in OBJECT_STORAGE_DESTINATIONS:
-        return
-
-    stored_config.setdefault("legacy_parquet_extension", _writes_compressed_parquet(stored_config))
-
-
-def _coerce_integration_id(value: typing.Any) -> int | None:
-    """Return the integration id encoded in a Redshift COPY credential value, if any.
-
-    `BatchExportDestination.config` is an `EncryptedJSONField`, which stringifies scalar
-    leaves on the decrypt round trip, so an id may arrive as an int or a numeric string.
-    """
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value.isdigit():
-        return int(value)
-    return None
-
-
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model.
 
@@ -605,15 +529,15 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             "stripped from responses."
         ),
     )
-    integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.all(),
+    integration = IntegrationReferenceField(
+        kinds=BATCH_EXPORT_INTEGRATION_KINDS,
         required=False,
         allow_null=True,
         help_text="The integration for this destination.",
     )
-    integration_id = TeamScopedPrimaryKeyRelatedField(
+    integration_id = IntegrationReferenceField(
+        kinds=BATCH_EXPORT_INTEGRATION_KINDS,
         write_only=True,
-        queryset=Integration.objects.all(),
         source="integration",
         required=False,
         allow_null=True,
