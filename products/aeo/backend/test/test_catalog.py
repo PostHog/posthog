@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.aeo.backend.brands import registrable_domain, sync_brands_from_run
+from products.aeo.backend.catalog import registrable_domain, sync_brands_from_run
 from products.aeo.backend.facade.contracts import BrandKind, BrandStatus
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt
 

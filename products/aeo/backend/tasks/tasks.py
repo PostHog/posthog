@@ -19,7 +19,7 @@ from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.scoping_audit import skip_team_scope_audit
 
-from products.aeo.backend.brands import sync_brands_from_run
+from products.aeo.backend.catalog import sync_brands_from_run
 from products.aeo.backend.facade.contracts import AEO_CITATION_TRACKING_FLAG
 from products.aeo.backend.runner import run_citation_checks
 

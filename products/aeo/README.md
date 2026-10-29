@@ -115,7 +115,7 @@ WHERE $channel_type = 'AI' AND $entry_pathname = '/docs/session-replay'
 ## Brand catalog
 
 `posthog_aeo_brand` holds one row per registrable domain the engines cite: the project itself (`own`, from `AEO_TARGET_DOMAINS`), competitors, publishers such as review and community sites, and domains nobody has labeled yet (`unknown`, status `suggested`).
-After each daily run, `sync_brands_from_run` in `brands.py` adds every domain the run's answers cited that the catalog does not have yet. It makes no external calls.
+After each daily run, `sync_brands_from_run` in `catalog.py` adds every domain the run's answers cited that the catalog does not have yet. It makes no external calls.
 It only inserts, so a rename, a new label or an ignored brand survives every run. How often a brand is cited is computed from the checks when it is read, not stored on the brand.
 People review the catalog over the API (`/api/projects/<id>/aeo_brands/`) or the `aeo-brands-*` MCP tools.
 

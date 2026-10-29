@@ -22,7 +22,7 @@ from django.utils import timezone
 
 from posthog.models.team import Team
 
-from products.aeo.backend import brands, gaps
+from products.aeo.backend import catalog, gaps
 from products.aeo.backend.brand import brand_names, mention_filter
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH, top_domains
 from products.aeo.backend.facade.contracts import (
@@ -364,7 +364,7 @@ def import_prompts(team_id: int, prompts: list[PromptImport]) -> PromptImportRes
 
 
 def sync_brands_from_run(team_id: int, run_id: str) -> BrandSyncResult:
-    return brands.sync_brands_from_run(team_id, run_id)
+    return catalog.sync_brands_from_run(team_id, run_id)
 
 
 def list_brands(
