@@ -292,7 +292,7 @@ export interface trendsDataLogicMeta {
                 | null
         ) => EventsNode[]
         results: (insightData: Record<string, any>) => TrendResult[]
-        actionNames: (insightData: Record<string, any> | null) => ActionNames
+        actionNames: (insightData: Record<string, any>) => ActionNames
         hasBreakdownMore: (insightData: Record<string, any>, isTrends: boolean) => boolean
         hasPersonsModal: (
             formula: string | null | undefined,
@@ -576,7 +576,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
 
         actionNames: [
             (s) => [s.insightData],
-            (insightData: Record<string, any> | null): ActionNames => insightData?.action_names ?? {},
+            (insightData: Record<string, any>): ActionNames => insightData.action_names ?? {},
         ],
 
         hasBreakdownMore: [
