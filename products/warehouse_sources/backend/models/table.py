@@ -188,10 +188,12 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
-# Capture bookkeeping that a history table carries next to `valid_from`, `valid_to` and `_ph_deleted`,
+# Capture and layout bookkeeping that a history table carries next to its validity columns and `_ph_deleted`,
 # which already tell a reader when a version held and whether it is a delete. The names mirror the
 # constants in `cdc/batcher.py`, which this module does not import because that pulls in pyarrow.
-HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset({"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at"})
+HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset(
+    {"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at", "_ph_history_partition"}
+)
 # Set in `options` when the sync registers a table as a schema's history table. Column names cannot
 # tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
 HISTORY_TABLE_OPTION = "history_table"

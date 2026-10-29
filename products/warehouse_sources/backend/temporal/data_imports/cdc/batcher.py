@@ -29,7 +29,7 @@ CDC_SEQ_PROVENANCE = {b"posthog_cdc": b"engine_position"}
 
 @frozen
 class HistoryNaming:
-    """The table name suffix and the validity column names of one history table.
+    """The table name suffix, the validity column names and the partition column of one history table.
 
     A history table keeps the naming it was created with, so code reads it from the table and never
     from a constant.
@@ -38,15 +38,31 @@ class HistoryNaming:
     suffix: str
     valid_from: str
     valid_to: str
+    # The SCD2 writer files open rows under `CURRENT_HISTORY_PARTITION` and closed rows under the month their
+    # version ended. A close then rewrites only files of the current partition, which grows with the live
+    # table, not with history.
+    partition_column: str | None = None
 
     @property
     def validity_columns(self) -> frozenset[str]:
         return frozenset({self.valid_from, self.valid_to})
 
+    @property
+    def stamped_columns(self) -> frozenset[str]:
+        """Every column a history table carries next to the source's own columns."""
+        return self.validity_columns | ({self.partition_column} if self.partition_column else set())
+
 
 LEGACY_HISTORY_NAMING = HistoryNaming(suffix="_cdc", valid_from="valid_from", valid_to="valid_to")
 # The `_ph_` names leave a source's own `valid_from` and `valid_to` free to sync.
-HISTORY_NAMING = HistoryNaming(suffix="_history", valid_from="_ph_valid_from", valid_to="_ph_valid_to")
+HISTORY_PARTITION_COLUMN = "_ph_history_partition"
+HISTORY_NAMING = HistoryNaming(
+    suffix="_history",
+    valid_from="_ph_valid_from",
+    valid_to="_ph_valid_to",
+    partition_column=HISTORY_PARTITION_COLUMN,
+)
+CURRENT_HISTORY_PARTITION = "current"
 
 
 def history_naming_of(column_names: Iterable[str]) -> HistoryNaming:
@@ -94,7 +110,7 @@ def history_columns(naming: HistoryNaming) -> frozenset[str]:
     `_ph_valid_*` stays reserved on a legacy history table too, because `history_naming_of` reads the
     naming from it.
     """
-    return HISTORY_NAMING.validity_columns | naming.validity_columns
+    return HISTORY_NAMING.stamped_columns | naming.stamped_columns
 
 
 def reserved_column_names(history: HistoryNaming | None) -> frozenset[str]:
@@ -124,10 +140,10 @@ def reserved_column_collisions(
 def metadata_columns(history: HistoryNaming | None) -> frozenset[str]:
     """Columns always filled from the change event itself, never from the last known row.
 
-    `history` names the validity columns stamped on a history batch. A source column that only shares a
-    validity name with another naming is data.
+    `history` names the columns a history table carries next to the source's. A source column that only
+    shares a validity name with another naming is data.
     """
-    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.validity_columns
+    return CAPTURE_COLUMNS if history is None else CAPTURE_COLUMNS | history.stamped_columns
 
 
 # Micro-batch thresholds for CDC WAL processing.  Flushing periodically
