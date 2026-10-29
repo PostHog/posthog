@@ -39,11 +39,15 @@ class InboxOnboardingAnalytics:
             "$feature/inbox-ui-onboarding": variant,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
-            "setup_mode": "quick"
-            if variant == "test-github" or draft.get("activation_mode") == "github_optional"
-            else "guided"
-            if draft or variant == "test-ui"
-            else "legacy",
+            # A draft without a stored mode is inferred from the assigned variant.
+            "setup_mode": draft.get("setup_mode")
+            or (
+                "quick"
+                if variant == "test-github" or draft.get("activation_mode") == "github_optional"
+                else "guided"
+                if draft or variant == "test-ui"
+                else "legacy"
+            ),
             "self_driving_ubp": cls.pricing_flag(config, user),
         }
 

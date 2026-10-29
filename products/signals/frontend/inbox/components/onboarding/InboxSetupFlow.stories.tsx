@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { useValues } from 'kea'
 
 import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
@@ -12,7 +13,6 @@ import { expect } from 'storybook/test'
 import type { InboxOnboardingDraftApi } from '../../../generated/api.schemas'
 import { mockScoutSuggestionSet, mockScoutConfigs } from '../../__mocks__/scoutConfigs'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
-import { SELF_DRIVING_WIZARD_COMMAND } from '../../utils/selfDrivingWizardCommand'
 import { InboxActivationPanel } from './InboxActivationPanel'
 import { InboxOnboardingBanner } from './InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './InboxOnboardingEntry'
@@ -87,23 +87,6 @@ const meta: Meta<typeof InboxSetupFlow> = {
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/reports/available_reviewers/': {},
-                '/api/environments/:id/external_data_sources/': { results: [], next: null, count: 0 },
-                '/api/environments/:id/external_data_sources/wizard/': {
-                    Zendesk: {
-                        name: 'Zendesk',
-                        label: 'Zendesk',
-                        iconPath: '/static/services/zendesk.png',
-                        fields: [
-                            { name: 'subdomain', label: 'Subdomain', type: 'text', required: true },
-                            { name: 'api_key', label: 'API token', type: 'password', required: true },
-                            { name: 'email_address', label: 'Email address', type: 'text', required: true },
-                        ],
-                        supportsColumnSelection: false,
-                        versions: [],
-                        defaultVersion: '',
-                        deprecatedVersions: [],
-                    },
-                },
                 '/api/projects/:id/signals/onboarding/': { draft, completed_at: null, variant: 'test-ui' },
                 '/api/projects/:id/signals/source_configs/': { results: [], next: null, count: 0 },
                 '/api/projects/:id/event_definitions/': {
@@ -254,7 +237,6 @@ export const BuiltInScouts: Story = {
                     'replay-vision',
                     'ai-observability',
                     'conversations',
-                    'data-warehouse',
                     'health-checks',
                 ].map((name) => ({
                     ...mockScoutConfigs[0],
@@ -317,11 +299,11 @@ export const GithubAccessRequired: Story = {
 }
 
 export const TreatmentEntry = {
-    name: 'Guided intro with manual setup only',
+    name: 'Guided assignment with GitHub and manual setup',
     render: () => <InboxOnboardingEntry />,
     play: async ({ canvas }) => {
-        await canvas.findByText('Set up Self-Driving')
-        await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
+        await canvas.findByText('Connect GitHub')
+        await expect(canvas.getByText('Start manually')).toBeVisible()
     },
     decorators: [
         mswDecorator({
@@ -347,14 +329,14 @@ export const NarrowTreatmentEntry: Story = {
 }
 
 export const ManualEntry: Story = {
-    name: 'Control intro with Wizard and manual setup',
+    name: 'Control assignment with GitHub and manual setup',
     parameters: {
         featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'control' },
     },
     render: () => <InboxOnboardingEntry />,
     play: async ({ canvas }) => {
         await canvas.findByText('Start manually')
-        await expect(canvas.getByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).toBeVisible()
+        await expect(canvas.getByText('Connect GitHub')).toBeVisible()
     },
     decorators: [
         mswDecorator({
@@ -372,7 +354,7 @@ export const ManualEntry: Story = {
 
 export const ExperimentDisabledEntry: Story = {
     ...ManualEntry,
-    name: 'Experiment disabled with control intro',
+    name: 'Experiment disabled with GitHub and manual setup',
     parameters: {
         featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: false },
     },
@@ -384,7 +366,20 @@ export const ExperimentDisabledEntry: Story = {
 }
 
 export const TreatmentReminder: Story = {
+    name: 'Paused reminder without Wizard',
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: false },
+    },
     render: () => <InboxOnboardingBanner />,
+    play: async ({ canvas }) => {
+        await expect(canvas.findByText('Set up Self-Driving')).resolves.toBeVisible()
+        await expect(canvas.queryByLabelText('Copy self-driving setup command')).not.toBeInTheDocument()
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'control' } },
+        }),
+    ],
 }
 
 let quickActivationCompleted = false
@@ -408,14 +403,14 @@ const quickGeneralScout = {
 }
 
 export const QuickEntry: Story = {
-    name: 'Quick setup intro with manual setup only',
+    name: 'Quick setup intro with GitHub and manual setup',
     parameters: {
         featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github' },
     },
     render: () => <QuickActivationPreview />,
     play: async ({ canvas }) => {
         await canvas.findByText('Connect GitHub')
-        await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
+        await expect(canvas.getByText('Start manually')).toBeVisible()
     },
     decorators: [
         mswDecorator({
@@ -454,7 +449,6 @@ export const GithubOptional: Story = {
     play: async ({ canvas }) => {
         await canvas.findByText('Activate Self-Driving')
         await expect(canvas.queryByText('Connect GitHub')).not.toBeInTheDocument()
-        await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
     },
     decorators: [
         mswDecorator({
@@ -475,8 +469,10 @@ export const QuickConnected: Story = {
     ...QuickEntry,
     name: 'Quick setup with GitHub connected',
     play: async ({ canvas }) => {
-        await canvas.findByText('Activate Self-Driving')
-        await expect(canvas.queryByLabelText(`Copy command: ${SELF_DRIVING_WIZARD_COMMAND}`)).not.toBeInTheDocument()
+        // Nothing is prefetched for the welcome screen, so the button is enabled as soon as the project loads.
+        const activate = (await canvas.findByText('Activate Self-Driving')).closest('button')
+        await waitFor(() => expect(activate).toHaveAttribute('aria-disabled', 'false'))
+        await expect(canvas.getByText('Start manually')).toBeVisible()
     },
     decorators: [
         mswDecorator({

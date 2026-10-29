@@ -195,7 +195,7 @@ class InboxOnboarding:
                 )
         if pilot or (config.onboarding or {}).get("variant") in ("test-github", "test-ui"):
             self.authorize_scouts(True)
-        if pilot or (config.onboarding or {}).get("variant") == "test-github":
+        if pilot:
             if not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
                 for item in draft["suggestions"]

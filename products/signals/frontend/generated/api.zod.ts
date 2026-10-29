@@ -141,6 +141,13 @@ export const SignalsOnboardingCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Step to resume after returning.\n\n\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub'
         ),
+    setup_mode: zod
+        .enum(['quick', 'guided'])
+        .describe('\* `quick` - Quick\n\* `guided` - Guided')
+        .optional()
+        .describe(
+            'How setup was chosen: quick activation from the welcome screen, or the guided steps.\n\n\* `quick` - Quick\n\* `guided` - Guided'
+        ),
     sources: zod
         .array(
             zod.object({
@@ -386,6 +393,13 @@ export const SignalsOnboardingCompleteCreateBody = /* @__PURE__ */ zod.object({
         .describe('\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub')
         .describe(
             'Step to resume after returning.\n\n\* `signals` - Signals\n\* `scouts` - Scouts\n\* `github` - GitHub'
+        ),
+    setup_mode: zod
+        .enum(['quick', 'guided'])
+        .describe('\* `quick` - Quick\n\* `guided` - Guided')
+        .optional()
+        .describe(
+            'How setup was chosen: quick activation from the welcome screen, or the guided steps.\n\n\* `quick` - Quick\n\* `guided` - Guided'
         ),
     sources: zod
         .array(
