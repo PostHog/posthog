@@ -5,6 +5,7 @@ import { SessionRecordingSidebarTab } from '~/types'
 
 import { playerSidebarLogic } from '../player/sidebar/playerSidebarLogic'
 import { replayListColumnLogic } from './replayListColumnLogic'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 describe('replayListColumnLogic', () => {
     let logic: ReturnType<typeof replayListColumnLogic.build>
@@ -50,6 +51,15 @@ describe('replayListColumnLogic', () => {
             expect(logic.values.segment).toBe(kept)
         }
     )
+
+    it('shows the recordings when its list is filtered to a person', () => {
+        const playlistLogicProps = { logicKey: 'person' }
+        const column = replayListColumnLogic({ logicKey: 'person', playlistLogicProps })
+        column.mount()
+        column.actions.setSegment('moments')
+        sessionRecordingsPlaylistLogic(playlistLogicProps).actions.filterByPerson('p')
+        expect(column.values.segment).toBe('recordings')
+    })
 
     it('switches to moments when something asks for the observations tab', async () => {
         await expectLogic(logic, () => {
