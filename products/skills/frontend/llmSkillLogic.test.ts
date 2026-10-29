@@ -36,7 +36,13 @@ const mockResolve = llmSkillsResolveNameRetrieve as jest.MockedFunction<typeof l
 const mockFilesRetrieve = llmSkillsNameFilesRetrieve as jest.MockedFunction<typeof llmSkillsNameFilesRetrieve>
 const mockRename = llmSkillsNameRenameCreate as jest.MockedFunction<typeof llmSkillsNameRenameCreate>
 
-const MOCK_FILE = { path: 'scripts/run.sh', content: 'echo hi', content_type: 'text/x-shellscript' }
+const MOCK_FILE = {
+    path: 'scripts/run.sh',
+    content: 'echo hi',
+    content_type: 'text/x-shellscript',
+    content_total_length: 7,
+    content_next_offset: null,
+}
 
 const MOCK_OWNER = { id: 1, uuid: 'user-uuid-1', email: 'test@example.com' }
 const MOCK_NEW_OWNER = { id: 2, uuid: 'user-uuid-2', email: 'other@example.com' }
