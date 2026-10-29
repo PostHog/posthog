@@ -28,7 +28,7 @@ async def aorganization():
         is_ai_data_processing_approved=True,
     )
     yield organization
-    await sync_to_async(User.objects.filter(organization_memberships__organization=organization).delete)()
+    await sync_to_async(User.objects.filter(organization_membership__organization=organization).delete)()
     await sync_to_async(organization.delete)()
 
 

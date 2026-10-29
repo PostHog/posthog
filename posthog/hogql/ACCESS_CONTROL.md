@@ -254,7 +254,8 @@ some of those inputs. Evaluation RBAC controls authoring and access to stored re
 RBAC. Source-property restrictions do not propagate to generated outputs. Configure separate property rules for evaluation
 reasoning, report event content, and any sensitive outcomes. Event queries apply those rules to the generated properties,
 while background report result queries explicitly bypass them. Stored report narratives and report delivery do not inherit
-event-property rules, so configure report access, recipients, channels, and Inbox sharing for the intended audience.
+event-property rules, so configure report access, recipients, and channels for the intended audience. Inbox report summaries
+are suppressed when the project has an event-property denial or a denial of access to the evaluation, including member and role rules.
 See [evaluation access configuration](../../docs/internal/ai-observability-judge-inputs.md#run-history-and-reports).
 
 Summary caches use the caller's current property restrictions, including cached titles and summaries read by PostHog AI.
