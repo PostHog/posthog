@@ -9,6 +9,12 @@ import deltalake.exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
+# `errno` only defines EREMOTEIO on platforms that have it (Linux); referencing it directly breaks
+# import on a Mac dev machine. s3fs's own translation table (s3fs/errors.py) falls back to EIO for
+# the same reason, so matching with the identical fallback stays consistent with what s3fs actually
+# sets there.
+_EREMOTEIO = getattr(errno, "EREMOTEIO", errno.EIO)
+
 # Substrings of the object-store errors raised talking to our own S3-backed data-warehouse bucket
 # that are transient and self-recovering, not a bug in our code or a customer credential problem:
 # - the first three come from delta-rs's Rust `object_store` crate inside `DeltaTable.is_deltatable()`
@@ -22,6 +28,15 @@ from posthog.temporal.common.errors import NonReportableError
 #   onto the same generic PermissionError (s3fs/errors.py::translate_boto_error), so this message - not
 #   a permission denial - is the only way to tell the two apart. The worker's own clock resyncs and the
 #   identical request succeeds moments later.
+# - "connection closed before message completed" is delta-rs's own object_store crate (reqwest/hyper)
+#   reporting a connection the remote end dropped mid-response - it already prefixes this with its own
+#   "Unexpected (temporary)" classification before this classifier even runs, so a retry against a fresh
+#   connection is exactly what self-heals it, the same as any other blip in this list.
+# - "Connection timed out" is the bare OS-level message a dropped TCP handshake/response leaves behind
+#   when our own bucket is a non-AWS S3-compatible store reached through delta-rs's generic S3 client
+#   with a custom `endpoint_url` (e.g. Alibaba Cloud OSS's S3-compatible API, addressed virtual-hosted
+#   per products/data_warehouse/backend/s3_proxy.py) rather than AWS's own endpoints - that path never
+#   goes through s3fs/aiobotocore, so it can't surface as one of the typed botocore exceptions below.
 # A retry (of the same idempotent operation) clears these, so they shouldn't be treated the same as a
 # bug in our logic.
 TRANSIENT_OBJECT_STORE_ERRORS = (
@@ -31,6 +46,8 @@ TRANSIENT_OBJECT_STORE_ERRORS = (
     "Please reduce your request rate",
     "We encountered an internal error. Please try again.",
     "The difference between the request time and the current time is too large.",
+    "connection closed before message completed",
+    "Connection timed out",
 )
 
 # pyarrow's S3FileSystem (the AWS SDK for C++) reports a response it can't classify as the fixed
@@ -114,6 +131,12 @@ def is_transient_object_store_error(error: BaseException) -> bool:
     covers the 503 "Service Unavailable" case the message needles below miss, without matching on
     the vendor's free text.
 
+    A bare `OSError` with errno `EREMOTEIO` is the same `translate_boto_error` table's entry for
+    `InternalError`/bare "500" - the exact blip the "We encountered an internal error" needle below
+    names, but recognized by errno instead so an S3-compatible provider that returns its own wording
+    for that response code (self-hosted setups routing the data-warehouse bucket through a non-AWS
+    endpoint) still matches without a needle per vendor.
+
     A bodyless 5xx that pyarrow's S3FileSystem reports as "AWS Error UNKNOWN" (see
     `_is_bodyless_5xx_unknown_error`) is also transient - but only once its status is confirmed to be
     5xx, because AWS omits the error body (and so reports the same UNKNOWN code) for a permanent
@@ -145,7 +168,7 @@ def is_transient_object_store_error(error: BaseException) -> bool:
         # re-runs this classifier on the wrapper, rather than the original OSError/DeltaError it
         # wraps, must still treat it as transient.
         return True
-    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY):
+    if isinstance(error, OSError) and error.errno in (errno.EMFILE, errno.ENFILE, errno.EBUSY, _EREMOTEIO):
         return True
     if isinstance(error, OSError) and _is_bodyless_5xx_unknown_error(error):
         return True

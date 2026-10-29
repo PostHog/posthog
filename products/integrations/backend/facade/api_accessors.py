@@ -131,7 +131,9 @@ class IntegrationReader:
             return [default_auth_type(kind)]
         if isinstance(self._auth_type, AuthType):
             return [self._auth_type]
-        return sorted(self._auth_type or ())
+        if isinstance(self._auth_type, frozenset):
+            return sorted(self._auth_type)
+        return []
 
     def __repr__(self) -> str:
         kinds = sorted(self._kinds) if self._kinds is not None else "every kind"

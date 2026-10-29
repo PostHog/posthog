@@ -12,14 +12,14 @@ from products.integrations.backend.facade.api import IntegrationManager, Integra
 
 An accessor fixes the kind, the auth type, or both. Each operation takes `team_id` first and returns rows in the scope of the accessor only.
 
-| Accessor                                 | Rows                                                       | Operations       |
-| ---------------------------------------- | ---------------------------------------------------------- | ---------------- |
-| `IntegrationManager.github.oauth`        | One kind with one auth type                                | Reads and writes |
-| `IntegrationManager.stripe.any`          | One kind with every auth type                              | Reads and delete |
-| `IntegrationManager.kinds("slack", ...)` | Several kinds, with the default auth type of each kind     | Reads and delete |
-| `IntegrationManager.any`                 | Every kind with every auth type                            | Reads and delete |
-| `IntegrationManager.source(kind).token`  | Warehouse source rows of one kind with one auth type       | Reads and writes |
-| `IntegrationManager.source(kind).any`    | Warehouse source rows of one kind with every auth type     | Reads and delete |
+| Accessor                                 | Rows                                                   | Operations       |
+| ---------------------------------------- | ------------------------------------------------------ | ---------------- |
+| `IntegrationManager.github.oauth`        | One kind with one auth type                            | Reads and writes |
+| `IntegrationManager.stripe.any`          | One kind with every auth type                          | Reads and delete |
+| `IntegrationManager.kinds("slack", ...)` | Several kinds, with the default auth type of each kind | Reads and delete |
+| `IntegrationManager.any`                 | Every kind with every auth type                        | Reads and delete |
+| `IntegrationManager.source(kind).token`  | Warehouse source rows of one kind with one auth type   | Reads and writes |
+| `IntegrationManager.source(kind).any`    | Warehouse source rows of one kind with every auth type | Reads and delete |
 
 Only `IntegrationManager.source(kind)` reads warehouse source rows (rows with `config["warehouse_source_type"]`).
 The other accessors skip them, because their config has the shape of the warehouse source, not of the kind.

@@ -55,7 +55,13 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 
 # _ROW_LIMIT lives in logic.py so the presentation layer can reach it through the
 # facade-allowed `logic` module; imported here (and re-exported) for the sibling runners.
-from .logic import _ROW_LIMIT, TIME_BUCKET_DATE_RANGE_WHERE, translate_span_filter, with_span_attribute_type_suffix
+from .logic import (
+    _ROW_LIMIT,
+    TIME_BUCKET_DATE_RANGE_WHERE,
+    translate_span_filter,
+    with_attribute_set_guards,
+    with_span_attribute_type_suffix,
+)
 from .models import TracingIdentityAttributeKeys
 from .span_identity import identity_value_expr
 
@@ -226,8 +232,8 @@ class _SpanAggregationMixin:
                 translate_span_filter(span_filter)
                 exprs.append(property_to_expr(span_filter, team=self.team))
             if self.span_attribute_filters:
-                exprs.append(property_to_expr(self.span_attribute_filters, team=self.team))
-            for resource_filter in self.resource_attribute_filters:
+                exprs.append(property_to_expr(with_attribute_set_guards(self.span_attribute_filters), team=self.team))
+            for resource_filter in with_attribute_set_guards(self.resource_attribute_filters):
                 exprs.append(property_to_expr(resource_filter, team=self.team))
 
         return ast.And(exprs=exprs)
